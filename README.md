@@ -16,7 +16,7 @@ Este script automatiza la configuración de un entorno de escritorio remoto y ac
 - Sistema basado en Debian/Ubuntu.
 - Acceso root o sudo.
 - Dominio configurado en DuckDNS.
-- Puertos abiertos: `5901`, `5000`, `6080`.
+- Puertos abiertos: `5901`, `5000`, `6080`, `80`.
 
 ## 🔐 Seguridad
 
