@@ -34,6 +34,7 @@ test_files=(
     "test_config.sh"
     "test_utils.sh"
     "test_modules.sh"
+    "test_docker.sh"
 )
 
 # Run each test file

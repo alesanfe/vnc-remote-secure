@@ -1,0 +1,88 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  syntax-check:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      
+      - name: Run syntax tests
+        run: |
+          chmod +x tests/test_syntax.sh
+          ./tests/test_syntax.sh
+
+  local-tests:
+    name: Local Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash shellcheck lsof iproute2 ca-certificates
+      
+      - name: Run all tests
+        run: |
+          chmod +x tests/run_tests.sh
+          cd tests
+          ./run_tests.sh
+
+  docker-tests:
+    name: Docker Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Build Docker image
+        run: docker build -t rpi-vnc-remote-test .
+      
+      - name: Run tests in Docker
+        run: |
+          docker run --rm \
+            -e TTYD_USERNAME=testuser \
+            -e TTYD_PASSWD=testpassword \
+            rpi-vnc-remote-test \
+            bash -c "cd /app/tests && ./run_tests.sh"
+
+  docker-compose-tests:
+    name: Docker Compose Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Run syntax check service
+        run: docker-compose run syntax-check
+      
+      - name: Run test service
+        run: docker-compose run test
+
+  multi-distro:
+    name: Multi-Distro Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        distro: [ubuntu-22.04, debian-11, alpine]
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Test on ${{ matrix.distro }}
+        run: |
+          if [ "${{ matrix.distro }}" = "alpine" ]; then
+            echo "Alpine not supported yet"
+            exit 0
+          fi
+          docker-compose run test-${{ matrix.distro }}

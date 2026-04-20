@@ -97,6 +97,41 @@ chmod +x run_tests.sh
 - Module loading and dependency checks
 - File structure validation
 
+## Docker Testing
+
+The project includes Docker support for testing in isolated environments.
+
+### Running Tests with Docker
+
+```bash
+# Build and run tests in Docker
+docker-compose run test
+
+# Run specific test service
+docker-compose run syntax-check
+
+# Run on multiple distributions
+docker-compose run test-ubuntu
+docker-compose run test-debian
+```
+
+### Docker Compose Services
+
+- **test**: Main test environment (Ubuntu 22.04)
+- **test-ubuntu**: Ubuntu-specific tests
+- **test-debian**: Debian 11 tests
+- **syntax-check**: Lightweight syntax validation only
+
+### CI/CD with GitHub Actions
+
+The project includes automated testing via GitHub Actions that runs:
+- Syntax checks
+- Local unit tests
+- Docker integration tests
+- Multi-distro testing
+
+Tests run automatically on push to `main` or `develop` branches and on pull requests.
+
 ## Features
 
 - **noVNC**: HTML5 VNC client for desktop access via browser

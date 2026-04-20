@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+.github
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# SSL certificates (security)
+ssl/
+*.pem
+*.key
+*.crt
+
+# Temporary files
+ttyd*
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (optional, keep if needed)
+# README.md

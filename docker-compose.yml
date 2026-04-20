@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Test environment
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: bash -c "cd /app/tests && ./run_tests.sh"
+    volumes:
+      - .:/app
+    environment:
+      - TTYD_USERNAME=testuser
+      - TTYD_PASSWD=testpassword
+      - TEMP_USER=remote
+      - EMAIL=test@example.com
+      - NOVNC_PORT=6080
+      - TTYD_PORT=5000
+      - VNC_PORT=5901
+
+  # Ubuntu 22.04 test
+  test-ubuntu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: bash -c "cd /app/tests && ./run_tests.sh"
+    environment:
+      - TTYD_USERNAME=testuser
+      - TTYD_PASSWD=testpassword
+
+  # Debian 11 test
+  test-debian:
+    image: debian:11
+    command: bash -c "apt-get update && apt-get install -y bash sudo wget shellcheck lsof iproute2 ca-certificates git && useradd -m -s /bin/bash testuser && echo 'testuser:testpassword' | chpasswd && echo 'testuser ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && cd /app/tests && ./run_tests.sh"
+    volumes:
+      - .:/app
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+
+  # Syntax check only (lightweight)
+  syntax-check:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: bash -c "cd /app/tests && ./test_syntax.sh"
