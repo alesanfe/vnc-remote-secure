@@ -1,17 +1,98 @@
 
-## Configuring raspberrypi for development
+## Raspberry Pi VNC Remote Setup
 
-Here is a simple tweak that makes your development simple.
+Secure remote access to Raspberry Pi via browser using noVNC (desktop) and ttyd (terminal) with optional SSL/TLS support.
 
-After cloning the script, run the following commands
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/alesanfe/vnc-remote-secure.git
+cd vnc-remote-secure
+
+# Run the script
+chmod +x rpi-vnc-remote.sh
+TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org ./rpi-vnc-remote.sh
+```
+
+## Configuration
+
+The script uses environment variables for configuration. See available options:
+
+```bash
+./rpi-vnc-remote.sh help
+```
+
+### Required Variables
+
+- `TTYD_PASSWD` - Password for authentication (default: changeme)
+- `DUCK_DOMAIN` - Domain for SSL certificate (optional, enables SSL)
+
+### Common Variables
+
+- `NOVNC_PORT` - Port for noVNC (default: 6080)
+- `TTYD_PORT` - Port for ttyd (default: 5000)
+- `VNC_PORT` - Port for VNC (default: 5901)
+- `TEMP_USER` - Temporary user name (default: remote)
+- `EMAIL` - Email for SSL certificate (default: user@example.com)
+
+## Project Structure
 
 ```
-chmod +x rpi-noVNC.sh
+raspberrypinoVNC/
+├── rpi-vnc-remote.sh    # Main entry point
+└── lib/
+    ├── config.sh        # Configuration variables
+    ├── utils.sh         # Logging, utilities, cleanup
+    ├── ssl.sh           # SSL/TLS management
+    ├── user.sh          # User management
+    └── services.sh      # Service management (ttyd, VNC, noVNC)
 ```
 
+## Features
+
+- **noVNC**: HTML5 VNC client for desktop access via browser
+- **ttyd**: Terminal sharing over web
+- **SSL/TLS**: Secure connections with Let's Encrypt certificates
+- **Auto-renewal**: SSL certificate renewal before expiration
+- **Multi-arch**: Supports armhf, arm64, and amd64
+- **Temporary user**: Isolated user for remote access
+- **Cleanup**: Automatic cleanup on exit or with `./rpi-vnc-remote.sh stop`
+
+## Usage Examples
+
+### Basic (no SSL)
+```bash
+TTYD_PASSWD=mypassword ./rpi-vnc-remote.sh
 ```
-bash rpi-noVNC.sh
+
+### With SSL
+```bash
+TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org EMAIL=my@email.com ./rpi-vnc-remote.sh
 ```
+
+### Custom ports
+```bash
+TTYD_PASSWD=mypassword NOVNC_PORT=8080 TTYD_PORT=9000 ./rpi-vnc-remote.sh
+```
+
+### Stop services
+```bash
+./rpi-vnc-remote.sh stop
+```
+
+## Access Information
+
+After running the script, access the services:
+
+- **noVNC (Desktop)**: `http://localhost:6080` or `https://localhost:6080` (with SSL)
+- **ttyd (Terminal)**: `http://localhost:5000` or `https://localhost:5000` (with SSL)
+
+Use the credentials specified in `TTYD_USERNAME` and `TTYD_PASSWD`.
+
+## Manual Configuration
+
+For manual setup without the script, refer to the following sections:
 
 
 # Explanation of the bash script
