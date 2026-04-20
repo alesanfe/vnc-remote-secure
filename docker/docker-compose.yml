@@ -4,11 +4,11 @@ services:
   # Test environment
   test:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     command: bash -c "cd /app/tests && ./run_tests.sh"
     volumes:
-      - .:/app
+      - ..:/app
     environment:
       - TTYD_USERNAME=testuser
       - TTYD_PASSWD=testpassword
@@ -21,8 +21,8 @@ services:
   # Ubuntu 22.04 test
   test-ubuntu:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     command: bash -c "cd /app/tests && ./run_tests.sh"
     environment:
       - TTYD_USERNAME=testuser
@@ -33,13 +33,13 @@ services:
     image: debian:11
     command: bash -c "apt-get update && apt-get install -y bash sudo wget shellcheck lsof iproute2 ca-certificates git && useradd -m -s /bin/bash testuser && echo 'testuser:testpassword' | chpasswd && echo 'testuser ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && cd /app/tests && ./run_tests.sh"
     volumes:
-      - .:/app
+      - ..:/app
     environment:
       - DEBIAN_FRONTEND=noninteractive
 
   # Syntax check only (lightweight)
   syntax-check:
     build:
-      context: .
-      dockerfile: Dockerfile
-    command: bash -c "cd /app/tests && ./test_syntax.sh"
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: bash -c "cd /app/tests && ./unit/test_syntax.sh"

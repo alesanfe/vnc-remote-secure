@@ -33,9 +33,12 @@ WORKDIR /app
 COPY . /app/
 
 # Make scripts executable
-RUN chmod +x /app/rpi-vnc-remote.sh && \
+RUN chmod +x /app/src/rpi-vnc-remote.sh && \
+    chmod +x /app/src/lib/*.sh && \
     chmod +x /app/tests/*.sh && \
-    chmod +x /app/lib/*.sh
+    chmod +x /app/tests/unit/*.sh && \
+    chmod +x /app/tests/integration/*.sh && \
+    chmod +x /app/tests/security/*.sh
 
 # Set default command
 CMD ["/bin/bash"]

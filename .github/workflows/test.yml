@@ -18,8 +18,8 @@ jobs:
       
       - name: Run syntax tests
         run: |
-          chmod +x tests/test_syntax.sh
-          ./tests/test_syntax.sh
+          chmod +x tests/unit/test_syntax.sh
+          ./tests/unit/test_syntax.sh
 
   local-tests:
     name: Local Tests
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v3
       
       - name: Build Docker image
-        run: docker build -t rpi-vnc-remote-test .
+        run: docker build -t rpi-vnc-remote-test -f docker/Dockerfile .
       
       - name: Run tests in Docker
         run: |
@@ -65,10 +65,10 @@ jobs:
         uses: docker/setup-buildx-action@v2
       
       - name: Run syntax check service
-        run: docker-compose run syntax-check
+        run: cd docker && docker-compose run syntax-check
       
       - name: Run test service
-        run: docker-compose run test
+        run: cd docker && docker-compose run test
 
   multi-distro:
     name: Multi-Distro Tests

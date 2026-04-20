@@ -10,9 +10,13 @@ Secure remote access to Raspberry Pi via browser using noVNC (desktop) and ttyd 
 git clone https://github.com/alesanfe/vnc-remote-secure.git
 cd vnc-remote-secure
 
-# Run the script
+# Run the script (using wrapper from root)
 chmod +x rpi-vnc-remote.sh
 TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org ./rpi-vnc-remote.sh
+
+# Or run directly from src/
+chmod +x src/rpi-vnc-remote.sh
+TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org ./src/rpi-vnc-remote.sh
 ```
 
 ## Configuration
@@ -20,7 +24,7 @@ TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org ./rpi-vnc-remote.sh
 The script uses environment variables for configuration. See available options:
 
 ```bash
-./rpi-vnc-remote.sh help
+./src/rpi-vnc-remote.sh help
 ```
 
 ### Required Variables
@@ -40,19 +44,31 @@ The script uses environment variables for configuration. See available options:
 
 ```
 raspberrypinoVNC/
-├── rpi-vnc-remote.sh    # Main entry point
-├── lib/
-│   ├── config.sh        # Configuration variables
-│   ├── utils.sh         # Logging, utilities, cleanup
-│   ├── ssl.sh           # SSL/TLS management
-│   ├── user.sh          # User management
-│   └── services.sh      # Service management (ttyd, VNC, noVNC)
-└── tests/
-    ├── test_syntax.sh   # Syntax validation tests
-    ├── test_config.sh   # Configuration validation tests
-    ├── test_utils.sh    # Utility function tests
-    ├── test_modules.sh  # Module loading tests
-    └── run_tests.sh     # Test runner
+├── src/
+│   ├── rpi-vnc-remote.sh    # Main entry point
+│   └── lib/
+│       ├── config.sh        # Configuration variables
+│       ├── utils.sh         # Logging, utilities, cleanup
+│       ├── ssl.sh           # SSL/TLS management
+│       ├── user.sh          # User management
+│       └── services.sh      # Service management (ttyd, VNC, noVNC)
+├── tests/
+│   ├── unit/
+│   │   ├── test_syntax.sh   # Syntax validation tests
+│   │   ├── test_config.sh   # Configuration validation tests
+│   │   ├── test_utils.sh    # Utility function tests
+│   │   ├── test_modules.sh  # Module loading tests
+│   │   ├── test_edge_cases.sh
+│   │   └── test_error_handling.sh
+│   ├── integration/
+│   │   └── test_docker.sh  # Docker integration tests
+│   ├── security/
+│   │   └── test_security.sh
+│   └── run_tests.sh         # Test runner
+├── docker/
+│   ├── Dockerfile           # Test environment
+│   └── docker-compose.yml   # Orchestration
+└── ssl/                    # SSL certificates (gitignored)
 ```
 
 ## Testing
@@ -71,28 +87,28 @@ chmod +x run_tests.sh
 
 ```bash
 # Syntax validation (requires shellcheck)
-./test_syntax.sh
+./tests/unit/test_syntax.sh
 
 # Configuration validation
-./test_config.sh
+./tests/unit/test_config.sh
 
 # Utility function tests
-./test_utils.sh
+./tests/unit/test_utils.sh
 
 # Module loading tests
-./test_modules.sh
+./tests/unit/test_modules.sh
 
 # Docker integration tests
-./test_docker.sh
+./tests/integration/test_docker.sh
 
 # Edge case tests
-./test_edge_cases.sh
+./tests/unit/test_edge_cases.sh
 
 # Error handling tests
-./test_error_handling.sh
+./tests/unit/test_error_handling.sh
 
 # Security validation tests
-./test_security.sh
+./tests/security/test_security.sh
 ```
 
 ### Test Requirements
@@ -121,6 +137,7 @@ The project includes Docker support for testing in isolated environments.
 
 ```bash
 # Build and run tests in Docker
+cd docker
 docker-compose run test
 
 # Run specific test service

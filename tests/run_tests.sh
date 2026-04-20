@@ -28,16 +28,16 @@ if [ "$EUID" -ne 0 ]; then
     echo ""
 fi
 
-# Array of test files
+# Array of test files (with subdirectories)
 test_files=(
-    "test_syntax.sh"
-    "test_config.sh"
-    "test_utils.sh"
-    "test_modules.sh"
-    "test_docker.sh"
-    "test_edge_cases.sh"
-    "test_error_handling.sh"
-    "test_security.sh"
+    "unit/test_syntax.sh"
+    "unit/test_config.sh"
+    "unit/test_utils.sh"
+    "unit/test_modules.sh"
+    "unit/test_edge_cases.sh"
+    "unit/test_error_handling.sh"
+    "integration/test_docker.sh"
+    "security/test_security.sh"
 )
 
 # Run each test file
