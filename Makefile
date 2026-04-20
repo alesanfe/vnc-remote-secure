@@ -1,0 +1,162 @@
+# ============================================================================
+# MAKEFILE FOR RPI VNC REMOTE SETUP
+# ============================================================================
+
+.PHONY: help install test test-all test-unit test-integration test-security
+.PHONY: docker-build docker-test docker-clean clean lint format
+
+# Default target
+.DEFAULT_GOAL := help
+
+# Colors for output
+BLUE := \033[0;34m
+GREEN := \033[0;32m
+YELLOW := \033[1;33m
+NC := \033[0m
+
+# ============================================================================
+# HELP
+# ============================================================================
+
+help: ## Show this help message
+	@echo "$(BLUE)========================================$(NC)"
+	@echo "$(BLUE)  Available Commands$(NC)"
+	@echo "$(BLUE)========================================$(NC)"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo ""
+
+# ============================================================================
+# INSTALLATION
+# ============================================================================
+
+install: ## Install script to /usr/local/bin
+	@echo "$(YELLOW)Installing rpi-vnc-remote.sh to /usr/local/bin...$(NC)"
+	@sudo cp src/rpi-vnc-remote.sh /usr/local/bin/rpi-vnc-remote
+	@sudo chmod +x /usr/local/bin/rpi-vnc-remote
+	@echo "$(GREEN)✓ Installation complete$(NC)"
+
+uninstall: ## Remove script from /usr/local/bin
+	@echo "$(YELLOW)Removing rpi-vnc-remote from /usr/local/bin...$(NC)"
+	@sudo rm -f /usr/local/bin/rpi-vnc-remote
+	@echo "$(GREEN)✓ Uninstallation complete$(NC)"
+
+# ============================================================================
+# TESTING
+# ============================================================================
+
+test: test-all ## Run all tests
+	@echo "$(BLUE)Running all tests...$(NC)"
+	@cd tests && bash run_tests.sh
+
+test-unit: ## Run unit tests only
+	@echo "$(BLUE)Running unit tests...$(NC)"
+	@bash tests/unit/test_syntax.sh
+	@bash tests/unit/test_config.sh
+	@bash tests/unit/test_utils.sh
+	@bash tests/unit/test_modules.sh
+	@bash tests/unit/test_edge_cases.sh
+	@bash tests/unit/test_error_handling.sh
+
+test-integration: ## Run integration tests only
+	@echo "$(BLUE)Running integration tests...$(NC)"
+	@bash tests/integration/test_docker.sh
+
+test-security: ## Run security tests only
+	@echo "$(BLUE)Running security tests...$(NC)"
+	@bash tests/security/test_security.sh
+
+test-syntax: ## Run syntax validation only
+	@echo "$(BLUE)Running syntax validation...$(NC)"
+	@bash tests/unit/test_syntax.sh
+
+# ============================================================================
+# DOCKER
+# ============================================================================
+
+docker-build: ## Build Docker image
+	@echo "$(BLUE)Building Docker image...$(NC)"
+	@cd docker && docker build -t rpi-vnc-remote-test -f Dockerfile ..
+
+docker-test: docker-build ## Run tests in Docker
+	@echo "$(BLUE)Running tests in Docker...$(NC)"
+	@cd docker && docker-compose run test
+
+docker-compose-up: ## Start Docker Compose services
+	@echo "$(BLUE)Starting Docker Compose services...$(NC)"
+	@cd docker && docker-compose up
+
+docker-compose-down: ## Stop Docker Compose services
+	@echo "$(BLUE)Stopping Docker Compose services...$(NC)"
+	@cd docker && docker-compose down
+
+docker-clean: ## Remove Docker images and containers
+	@echo "$(YELLOW)Cleaning Docker resources...$(NC)"
+	@docker rmi rpi-vnc-remote-test 2>/dev/null || true
+	@cd docker && docker-compose down -v 2>/dev/null || true
+	@echo "$(GREEN)✓ Docker clean complete$(NC)"
+
+# ============================================================================
+# LINTING
+# ============================================================================
+
+lint: ## Run shellcheck on all shell scripts
+	@echo "$(BLUE)Running shellcheck...$(NC")
+	@shellcheck src/rpi-vnc-remote.sh
+	@shellcheck src/lib/*.sh
+	@shellcheck tests/unit/*.sh
+	@shellcheck tests/integration/*.sh
+	@shellcheck tests/security/*.sh
+	@shellcheck tests/run_tests.sh
+	@echo "$(GREEN)✓ Linting complete$(NC)"
+
+# ============================================================================
+# CLEANUP
+# ============================================================================
+
+clean: ## Clean temporary files
+	@echo "$(YELLOW)Cleaning temporary files...$(NC)"
+	@rm -f ttyd*
+	@rm -f *.log
+	@echo "$(GREEN)✓ Clean complete$(NC)"
+
+clean-all: clean docker-clean ## Clean everything including Docker
+	@echo "$(YELLOW)Full clean complete$(NC)"
+
+# ============================================================================
+# SCRIPT EXECUTION
+# ============================================================================
+
+run: ## Run the script (requires TTYD_PASSWD)
+	@if [ -z "$(TTYD_PASSWD)" ]; then \
+		echo "$(YELLOW)Warning: TTYD_PASSWD not set$(NC)"; \
+	fi
+	@bash src/rpi-vnc-remote.sh
+
+run-ssl: ## Run the script with SSL (requires TTYD_PASSWD and DUCK_DOMAIN)
+	@if [ -z "$(TTYD_PASSWD)" ]; then \
+		echo "$(YELLOW)Warning: TTYD_PASSWD not set$(NC)"; \
+	fi
+	@if [ -z "$(DUCK_DOMAIN)" ]; then \
+		echo "$(YELLOW)Warning: DUCK_DOMAIN not set$(NC)"; \
+	fi
+	@bash src/rpi-vnc-remote.sh
+
+stop: ## Stop services
+	@bash src/rpi-vnc-remote.sh stop
+
+# ============================================================================
+# GIT
+# ============================================================================
+
+git-status: ## Show git status
+	@git status
+
+git-log: ## Show git log
+	@git log --oneline -10
+
+git-push: ## Push to remote
+	@git push origin main
+
+git-pull: ## Pull from remote
+	@git pull origin main

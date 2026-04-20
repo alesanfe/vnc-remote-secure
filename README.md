@@ -17,6 +17,23 @@ TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org ./rpi-vnc-remote.sh
 # Or run directly from src/
 chmod +x src/rpi-vnc-remote.sh
 TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org ./src/rpi-vnc-remote.sh
+
+# Or use Make
+make run
+```
+
+## Using Makefile
+
+The project includes a Makefile for common tasks:
+
+```bash
+make help              # Show all available commands
+make install           # Install script to /usr/local/bin
+make test              # Run all tests
+make test-unit         # Run unit tests only
+make docker-test       # Run tests in Docker
+make clean             # Clean temporary files
+make lint              # Run shellcheck linting
 ```
 
 ## Configuration
