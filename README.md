@@ -41,13 +41,61 @@ The script uses environment variables for configuration. See available options:
 ```
 raspberrypinoVNC/
 ├── rpi-vnc-remote.sh    # Main entry point
-└── lib/
-    ├── config.sh        # Configuration variables
-    ├── utils.sh         # Logging, utilities, cleanup
-    ├── ssl.sh           # SSL/TLS management
-    ├── user.sh          # User management
-    └── services.sh      # Service management (ttyd, VNC, noVNC)
+├── lib/
+│   ├── config.sh        # Configuration variables
+│   ├── utils.sh         # Logging, utilities, cleanup
+│   ├── ssl.sh           # SSL/TLS management
+│   ├── user.sh          # User management
+│   └── services.sh      # Service management (ttyd, VNC, noVNC)
+└── tests/
+    ├── test_syntax.sh   # Syntax validation tests
+    ├── test_config.sh   # Configuration validation tests
+    ├── test_utils.sh    # Utility function tests
+    ├── test_modules.sh  # Module loading tests
+    └── run_tests.sh     # Test runner
 ```
+
+## Testing
+
+The project includes unit tests that can be run locally without requiring another machine.
+
+### Running All Tests
+
+```bash
+cd tests
+chmod +x run_tests.sh
+./run_tests.sh
+```
+
+### Running Individual Test Suites
+
+```bash
+# Syntax validation (requires shellcheck)
+./test_syntax.sh
+
+# Configuration validation
+./test_config.sh
+
+# Utility function tests
+./test_utils.sh
+
+# Module loading tests
+./test_modules.sh
+```
+
+### Test Requirements
+
+- **shellcheck**: Required for syntax validation tests (auto-installed if missing)
+- **bash**: Version 4.0 or higher
+- **sudo**: Some tests may require root privileges
+
+### Test Coverage
+
+- Syntax validation with shellcheck
+- Configuration variable validation
+- Utility function testing
+- Module loading and dependency checks
+- File structure validation
 
 ## Features
 
