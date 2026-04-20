@@ -36,7 +36,10 @@ test_files=(
     "unit/test_modules.sh"
     "unit/test_edge_cases.sh"
     "unit/test_error_handling.sh"
+    "unit/test_performance.sh"
+    "unit/test_compatibility.sh"
     "integration/test_docker.sh"
+    "integration/test_dependencies.sh"
     "security/test_security.sh"
 )
 
