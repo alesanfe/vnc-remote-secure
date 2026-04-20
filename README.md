@@ -81,6 +81,18 @@ chmod +x run_tests.sh
 
 # Module loading tests
 ./test_modules.sh
+
+# Docker integration tests
+./test_docker.sh
+
+# Edge case tests
+./test_edge_cases.sh
+
+# Error handling tests
+./test_error_handling.sh
+
+# Security validation tests
+./test_security.sh
 ```
 
 ### Test Requirements
@@ -96,6 +108,10 @@ chmod +x run_tests.sh
 - Utility function testing
 - Module loading and dependency checks
 - File structure validation
+- Docker integration testing
+- Edge case validation
+- Error handling verification
+- Security validation
 
 ## Docker Testing
 
