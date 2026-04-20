@@ -28,10 +28,48 @@ The project includes a Makefile for common tasks:
 
 ```bash
 make help              # Show all available commands
+
+# Installation
 make install           # Install script to /usr/local/bin
+make uninstall         # Remove script from /usr/local/bin
+
+# Testing
 make test              # Run all tests
 make test-unit         # Run unit tests only
+make test-integration  # Run integration tests only
+make test-security     # Run security tests only
 make docker-test       # Run tests in Docker
+
+# Script Execution
+make run               # Run the script
+make run-ssl           # Run with SSL
+make stop              # Stop services
+
+# SSL Management
+make ssl-setup         # Setup SSL certificates
+make ssl-renew         # Renew SSL certificates
+make ssl-check         # Check SSL certificate expiry
+
+# User Management
+make user-create       # Create temporary user
+make user-remove       # Remove temporary user
+
+# Dependencies
+make deps-install      # Install system dependencies
+make ttyd-install      # Install ttyd
+
+# Service Management
+make vnc-start         # Start VNC server
+make vnc-stop          # Stop VNC server
+make ttyd-start        # Start ttyd
+make ttyd-stop         # Stop ttyd
+make novnc-start       # Start noVNC
+make services-start    # Start all services
+make services-stop     # Stop all services
+
+# Other
+make cleanup           # Run cleanup
+make status            # Show service status
 make clean             # Clean temporary files
 make lint              # Run shellcheck linting
 ```

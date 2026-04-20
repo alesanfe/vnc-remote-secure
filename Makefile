@@ -146,6 +146,99 @@ stop: ## Stop services
 	@bash src/rpi-vnc-remote.sh stop
 
 # ============================================================================
+# FUNCTIONALITY TARGETS
+# ============================================================================
+
+ssl-setup: ## Setup SSL certificates (requires DUCK_DOMAIN and EMAIL)
+	@if [ -z "$(DUCK_DOMAIN)" ]; then \
+		echo "$(YELLOW)Error: DUCK_DOMAIN not set$(NC)"; \
+		exit 1; \
+	fi
+	@if [ -z "$(EMAIL)" ]; then \
+		echo "$(YELLOW)Error: EMAIL not set$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)Setting up SSL certificates...$(NC)"
+	@cd src && source lib/config.sh && source lib/ssl.sh && setup_ssl
+
+ssl-renew: ## Renew SSL certificates
+	@echo "$(BLUE)Renewing SSL certificates...$(NC)"
+	@cd src && source lib/config.sh && source lib/ssl.sh && setup_ssl
+
+ssl-check: ## Check SSL certificate expiry
+	@echo "$(BLUE)Checking SSL certificate expiry...$(NC)"
+	@cd src && source lib/config.sh && source lib/ssl.sh && check_ssl_expiry
+
+user-create: ## Create temporary user
+	@echo "$(BLUE)Creating temporary user...$(NC)"
+	@cd src && source lib/config.sh && source lib/user.sh && create_temp_user
+
+user-remove: ## Remove temporary user
+	@echo "$(BLUE)Removing temporary user...$(NC)"
+	@cd src && source lib/config.sh && source lib/utils.sh && remove_temp_user
+
+deps-install: ## Install system dependencies
+	@echo "$(BLUE)Installing system dependencies...$(NC)"
+	@cd src && source lib/utils.sh && install_dependencies
+
+ttyd-install: ## Install ttyd
+	@echo "$(BLUE)Installing ttyd...$(NC)"
+	@cd src && source lib/utils.sh && install_ttyd
+
+vnc-start: ## Start VNC server
+	@echo "$(BLUE)Starting VNC server...$(NC)"
+	@cd src && source lib/config.sh && source lib/services.sh && start_vnc_server
+
+vnc-stop: ## Stop VNC server
+	@echo "$(BLUE)Stopping VNC server...$(NC)"
+	@cd src && source lib/config.sh && source lib/utils.sh && kill_vnc_server
+
+ttyd-start: ## Start ttyd
+	@echo "$(BLUE)Starting ttyd...$(NC)"
+	@cd src && source lib/config.sh && source lib/services.sh && start_ttyd
+
+ttyd-stop: ## Stop ttyd
+	@echo "$(BLUE)Stopping ttyd...$(NC)"
+	@pkill -f ttyd || echo "$(YELLOW)No ttyd process found$(NC)"
+
+novnc-start: ## Start noVNC
+	@echo "$(BLUE)Starting noVNC...$(NC)"
+	@cd src && source lib/config.sh && source lib/services.sh && start_novnc
+
+services-start: ## Start all services (VNC, ttyd, noVNC)
+	@echo "$(BLUE)Starting all services...$(NC)"
+	@cd src && source lib/config.sh && source lib/services.sh && start_vnc_server && start_ttyd && start_novnc
+
+services-stop: ## Stop all services
+	@echo "$(BLUE)Stopping all services...$(NC)"
+	@cd src && source lib/config.sh && source lib/utils.sh && cleanup
+
+beef-inject: ## Inject BeEF hook (requires BEEF_HOOK_URL)
+	@if [ -z "$(BEEF_HOOK_URL)" ]; then \
+		echo "$(YELLOW)Error: BEEF_HOOK_URL not set$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)Injecting BeEF hook...$(NC)"
+	@cd src && source lib/config.sh && source lib/services.sh && inject_beef
+
+cleanup: ## Run cleanup (remove services and temp user)
+	@echo "$(BLUE)Running cleanup...$(NC)"
+	@cd src && source lib/config.sh && source lib/utils.sh && cleanup
+
+# ============================================================================
+# STATUS
+# ============================================================================
+
+status: ## Show status of services
+	@echo "$(BLUE)Checking service status...$(NC)"
+	@echo "VNC Server:"
+	@pgrep -f Xtigervnc && echo "  $(GREEN)Running$(NC)" || echo "  $(RED)Stopped$(NC)"
+	@echo "ttyd:"
+	@pgrep -f ttyd && echo "  $(GREEN)Running$(NC)" || echo "  $(RED)Stopped$(NC)"
+	@echo "noVNC:"
+	@pgrep -f novnc_proxy && echo "  $(GREEN)Running$(NC)" || echo "  $(RED)Stopped$(NC)"
+
+# ============================================================================
 # GIT
 # ============================================================================
 
