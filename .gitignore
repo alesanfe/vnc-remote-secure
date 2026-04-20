@@ -1,0 +1,10 @@
+# SSL certificates (security risk)
+ssl/
+
+# IDE files
+.idea/
+
+# Temporary files
+*.swp
+*.swo
+*~
