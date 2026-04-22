@@ -3,7 +3,7 @@
 # ERROR HANDLING TESTS
 # ============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -37,8 +37,11 @@ echo "=== Error Handling Tests ==="
 echo ""
 
 # Source modules
-source "$SCRIPT_DIR/lib/config.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
+source "$SCRIPT_DIR/src/lib/config.sh"
+source "$SCRIPT_DIR/src/lib/utils.sh"
+source "$SCRIPT_DIR/src/lib/ssl.sh"
+source "$SCRIPT_DIR/src/lib/user.sh"
+source "$SCRIPT_DIR/src/lib/services.sh"
 
 # Test die function exits with error code
 run_test "die function is defined" "type die &>/dev/null"
@@ -53,10 +56,10 @@ run_test "log function handles unknown color" "log 'invalid' 'test' 'test' 2>&1 
 run_test "cleanup function is defined" "type cleanup &>/dev/null"
 
 # Test close_port function handles non-existent port
-run_test "close_port handles non-existent port" "type close_port &>/dev/null"
+run_test "close_port handles non-existent port" "type kill_process_on_port &>/dev/null"
 
 # Test handle_command handles unknown command
-run_test "handle_command handles unknown command" "handle_command 'unknown' 2>/dev/null || true"
+run_test "handle_command handles unknown command" "handle_command 'unknown' 2>/dev/null"
 
 # Test install_dependencies handles missing packages (mock)
 run_test "install_dependencies function is defined" "type install_dependencies &>/dev/null"
@@ -84,13 +87,13 @@ run_test "inject_beef handles disabled state" "type inject_beef &>/dev/null"
 run_test "print_access_info handles no SSL" "type print_access_info &>/dev/null"
 
 # Test script has set -e for error handling
-run_test "Main script has error handling" "grep -q 'set -e' '$SCRIPT_DIR/rpi-vnc-remote.sh'"
+run_test "Main script has error handling" "grep -q 'set -e' '$SCRIPT_DIR/src/rpi-vnc-remote.sh'"
 
 # Test trap for cleanup is set
-run_test "Cleanup trap is configured" "grep -q 'trap cleanup' '$SCRIPT_DIR/lib/utils.sh'"
+run_test "Cleanup trap is configured" "grep -q 'trap cleanup' '$SCRIPT_DIR/src/rpi-vnc-remote.sh'"
 
 # Test functions use sudo with proper error handling
-run_test "Commands use sudo with error suppression" "grep -q '|| true' '$SCRIPT_DIR/lib/utils.sh'"
+run_test "Commands use sudo with error suppression" "grep -q '|| true' '$SCRIPT_DIR/src/lib/utils.sh'"
 
 # Test temp user cleanup handles non-existent user
 run_test "remove_temp_user handles missing user" "type remove_temp_user &>/dev/null"

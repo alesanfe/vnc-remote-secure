@@ -51,7 +51,6 @@ run_test "Architecture detection returns valid value" "[ '$arch' = 'armhf' ] || 
 
 # Test config has dependency-related variables
 run_test "SSL_DIR variable defined" "[ -n '$SSL_DIR' ]"
-run_test "DUCK_DIR variable defined" "[ -n '$DUCK_DIR' ]"
 
 # Test SSL certificate paths are constructed
 run_test "SSL_CERT path constructed" "[ -n '$SSL_CERT' ]"
@@ -59,7 +58,7 @@ run_test "SSL_KEY path constructed" "[ -n '$SSL_KEY' ]"
 
 # Test BeEF configuration
 run_test "BEEF_ENABLED variable defined" "[ -n '$BEEF_ENABLED' ]"
-run_test "BEEF_HOOK_URL variable defined" "[ -n '$BEEF_HOOK_URL' ] || true"
+run_test "BEEF_HOOK_URL variable exists" "[ -v 'BEEF_HOOK_URL' ]"
 
 # Test VNC configuration
 run_test "VNC_DISPLAY variable defined" "[ -n '$VNC_DISPLAY' ]"

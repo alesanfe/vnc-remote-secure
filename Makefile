@@ -2,11 +2,19 @@
 # MAKEFILE FOR RPI VNC REMOTE SETUP
 # ============================================================================
 
+SHELL := /bin/bash
+
 .PHONY: help install test test-all test-unit test-integration test-security
 .PHONY: docker-build docker-test docker-clean clean lint format
 
 # Default target
 .DEFAULT_GOAL := help
+
+# Load .env file if it exists
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
 
 # Colors for output
 BLUE := \033[0;34m
@@ -45,18 +53,29 @@ uninstall: ## Remove script from /usr/local/bin
 # TESTING
 # ============================================================================
 
-test: test-all ## Run all tests
+test: ## Show test help (use test-all to run all tests)
+	@echo "$(BLUE)Test Help:$(NC)"
+	@cd tests && bash run_tests.sh -h
+
+test-all: ## Run all tests
 	@echo "$(BLUE)Running all tests...$(NC)"
-	@cd tests && bash run_tests.sh
+	@cd tests && bash run_tests.sh -a
+
+test-list: ## List available tests
+	@echo "$(BLUE)Available tests:$(NC)"
+	@cd tests && bash run_tests.sh -l
 
 test-unit: ## Run unit tests only
 	@echo "$(BLUE)Running unit tests...$(NC)"
-	@bash tests/unit/test_syntax.sh
-	@bash tests/unit/test_config.sh
-	@bash tests/unit/test_utils.sh
-	@bash tests/unit/test_modules.sh
-	@bash tests/unit/test_edge_cases.sh
-	@bash tests/unit/test_error_handling.sh
+	@cd tests && bash run_tests.sh unit/test_syntax.sh
+	@cd tests && bash run_tests.sh unit/test_config.sh
+	@cd tests && bash run_tests.sh unit/test_utils.sh
+	@cd tests && bash run_tests.sh unit/test_modules.sh
+	@cd tests && bash run_tests.sh unit/test_edge_cases.sh
+	@cd tests && bash run_tests.sh unit/test_error_handling.sh
+	@cd tests && bash run_tests.sh unit/test_performance.sh
+	@cd tests && bash run_tests.sh unit/test_compatibility.sh
+	@cd tests && bash run_tests.sh unit/test_security_improvements.sh
 
 test-integration: ## Run integration tests only
 	@echo "$(BLUE)Running integration tests...$(NC)"
@@ -68,7 +87,11 @@ test-security: ## Run security tests only
 
 test-syntax: ## Run syntax validation only
 	@echo "$(BLUE)Running syntax validation...$(NC)"
-	@bash tests/unit/test_syntax.sh
+	@cd tests && bash run_tests.sh unit/test_syntax.sh
+
+test-security-improvements: ## Run security improvements tests only
+	@echo "$(BLUE)Running security improvements tests...$(NC)"
+	@cd tests && bash run_tests.sh unit/test_security_improvements.sh
 
 # ============================================================================
 # DOCKER

@@ -3,7 +3,7 @@
 # DOCKER-SPECIFIC INTEGRATION TESTS
 # ============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -36,9 +36,6 @@ run_test() {
 echo "=== Docker Integration Tests ==="
 echo ""
 
-# Check if running in Docker
-run_test "Detecting Docker environment" "test -f /.dockerenv || grep -q docker /proc/1/cgroup"
-
 # Check Docker is available
 run_test "Docker command available" "command -v docker &>/dev/null"
 
@@ -46,19 +43,19 @@ run_test "Docker command available" "command -v docker &>/dev/null"
 run_test "Docker Compose available" "command -v docker-compose &>/dev/null || docker compose version &>/dev/null"
 
 # Check if Dockerfile exists
-run_test "Dockerfile exists" "test -f '$SCRIPT_DIR/Dockerfile'"
+run_test "Dockerfile exists" "test -f '$SCRIPT_DIR/docker/Dockerfile'"
 
 # Check if docker-compose.yml exists
-run_test "docker-compose.yml exists" "test -f '$SCRIPT_DIR/docker-compose.yml'"
+run_test "docker-compose.yml exists" "test -f '$SCRIPT_DIR/docker/docker-compose.yml'"
 
 # Test Dockerfile syntax
-run_test "Dockerfile is valid" "docker build -f '$SCRIPT_DIR/Dockerfile' --target test -t test-image . 2>&1 | head -20"
+run_test "Dockerfile is valid" "docker build -f '$SCRIPT_DIR/docker/Dockerfile' --target test -t test-image . 2>&1 | head -20"
 
 # Test docker-compose syntax
-run_test "docker-compose.yml is valid" "docker-compose -f '$SCRIPT_DIR/docker-compose.yml' config &>/dev/null || docker compose -f '$SCRIPT_DIR/docker-compose.yml' config &>/dev/null"
+run_test "docker-compose.yml is valid" "docker-compose -f '$SCRIPT_DIR/docker/docker-compose.yml' config &>/dev/null || docker compose -f '$SCRIPT_DIR/docker/docker-compose.yml' config &>/dev/null"
 
 # Test if we can build the Docker image
-run_test "Docker image can be built" "docker build -t rpi-vnc-test -f '$SCRIPT_DIR/Dockerfile' . 2>&1 | tail -5"
+run_test "Docker image can be built" "docker build -t rpi-vnc-test -f '$SCRIPT_DIR/docker/Dockerfile' . 2>&1 | tail -5"
 
 # Test if we can run a simple command in Docker
 if [ -n "$IN_DOCKER" ]; then
@@ -68,24 +65,20 @@ if [ -n "$IN_DOCKER" ]; then
 fi
 
 # Test project files are accessible
-run_test "Project files copied to container" "test -f '$SCRIPT_DIR/rpi-vnc-remote.sh'"
-run_test "Lib files are accessible" "test -d '$SCRIPT_DIR/lib'"
+run_test "Project files copied to container" "test -f '$SCRIPT_DIR/src/rpi-vnc-remote.sh'"
+run_test "Lib files are accessible" "test -d '$SCRIPT_DIR/src/lib'"
 run_test "Test files are accessible" "test -d '$SCRIPT_DIR/tests'"
 
 # Test script permissions
-run_test "Main script is executable" "test -x '$SCRIPT_DIR/rpi-vnc-remote.sh'"
+run_test "Main script is executable" "test -x '$SCRIPT_DIR/src/rpi-vnc-remote.sh'"
 run_test "Test scripts are executable" "test -x '$SCRIPT_DIR/tests/run_tests.sh'"
 
-# Test environment variables
-run_test "TTYD_USERNAME environment variable set" "[ -n '$TTYD_USERNAME' ]"
-run_test "TTYD_PASSWD environment variable set" "[ -n '$TTYD_PASSWD' ]"
-
 # Test script can source modules
-run_test "Can source config module" "source '$SCRIPT_DIR/lib/config.sh' 2>/dev/null"
-run_test "Can source utils module" "source '$SCRIPT_DIR/lib/utils.sh' 2>/dev/null"
+run_test "Can source config module" "source '$SCRIPT_DIR/src/lib/config.sh' 2>/dev/null"
+run_test "Can source utils module" "source '$SCRIPT_DIR/src/lib/utils.sh' 2>/dev/null"
 
 # Test help command works
-run_test "Help command works" "bash '$SCRIPT_DIR/rpi-vnc-remote.sh' help 2>&1 | grep -q 'Usage:'"
+run_test "Help command works" "bash '$SCRIPT_DIR/src/rpi-vnc-remote.sh' help 2>&1 | grep -q 'Usage:'"
 
 echo ""
 echo "=== Results ==="

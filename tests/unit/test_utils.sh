@@ -3,7 +3,7 @@
 # UTILITY FUNCTION TESTS
 # ============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -37,8 +37,8 @@ echo "=== Utility Function Tests ==="
 echo ""
 
 # Source config and utils
-source "$SCRIPT_DIR/lib/config.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
+source "$SCRIPT_DIR/src/lib/config.sh"
+source "$SCRIPT_DIR/src/lib/utils.sh"
 
 # Test logging functions
 run_test "log function exists" "type log &>/dev/null"

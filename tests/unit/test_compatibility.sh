@@ -3,7 +3,7 @@
 # COMPATIBILITY TESTS
 # ============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -40,8 +40,8 @@ echo ""
 run_test "Bash version 4.0 or higher" "[ ${BASH_VERSINFO[0]} -ge 4 ]"
 
 # Test POSIX compatibility features
-run_test "Local variable support" "local test_var=123 2>/dev/null || true"
-run_test "Array support" "declare -a test_array 2>/dev/null || true"
+run_test "Local variable support" "local test_var=123"
+run_test "Array support" "declare -a test_array"
 
 # Source config
 source "$SCRIPT_DIR/src/lib/config.sh"

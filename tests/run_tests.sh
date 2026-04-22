@@ -17,6 +17,100 @@ total_tests=0
 total_passed=0
 total_failed=0
 
+# Show help
+show_help() {
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}  Test Runner${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
+    echo "Usage: $0 [options] [test_name]"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help           Show this help message"
+    echo "  -a, --all            Run all tests"
+    echo "  -l, --list           List available tests"
+    echo "  test_name            Run specific test (e.g., unit/test_security_improvements.sh)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 -a                    # Run all tests"
+    echo "  $0 unit/test_utils.sh    # Run specific test"
+    echo "  $0 -l                    # List available tests"
+    echo ""
+}
+
+# List available tests
+list_tests() {
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}  Available Tests${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
+    
+    local test_files=(
+        "unit/test_syntax.sh"
+        "unit/test_config.sh"
+        "unit/test_utils.sh"
+        "unit/test_modules.sh"
+        "unit/test_edge_cases.sh"
+        "unit/test_error_handling.sh"
+        "unit/test_performance.sh"
+        "unit/test_compatibility.sh"
+        "unit/test_security_improvements.sh"
+        "integration/test_docker.sh"
+        "integration/test_dependencies.sh"
+        "security/test_security.sh"
+    )
+    
+    for test_file in "${test_files[@]}"; do
+        test_path="$SCRIPT_DIR/$test_file"
+        if [ -f "$test_path" ]; then
+            echo -e "${GREEN}✓${NC} $test_file"
+        else
+            echo -e "${RED}✗${NC} $test_file (not found)"
+        fi
+    done
+    echo ""
+}
+
+# Array of test files (with subdirectories)
+all_test_files=(
+    "unit/test_syntax.sh"
+    "unit/test_config.sh"
+    "unit/test_utils.sh"
+    "unit/test_modules.sh"
+    "unit/test_edge_cases.sh"
+    "unit/test_error_handling.sh"
+    "unit/test_performance.sh"
+    "unit/test_compatibility.sh"
+    "unit/test_security_improvements.sh"
+    "integration/test_docker.sh"
+    "integration/test_dependencies.sh"
+    "security/test_security.sh"
+)
+
+# Parse arguments
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+fi
+
+case "$1" in
+    -h|--help)
+        show_help
+        exit 0
+        ;;
+    -l|--list)
+        list_tests
+        exit 0
+        ;;
+    -a|--all)
+        test_files=("${all_test_files[@]}")
+        ;;
+    *)
+        # Run specific test
+        test_files=("$1")
+        ;;
+esac
+
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  Running Test Suite${NC}"
 echo -e "${BLUE}========================================${NC}"
@@ -27,21 +121,6 @@ if [ "$EUID" -ne 0 ]; then
     echo -e "${YELLOW}Warning: Some tests may require sudo privileges${NC}"
     echo ""
 fi
-
-# Array of test files (with subdirectories)
-test_files=(
-    "unit/test_syntax.sh"
-    "unit/test_config.sh"
-    "unit/test_utils.sh"
-    "unit/test_modules.sh"
-    "unit/test_edge_cases.sh"
-    "unit/test_error_handling.sh"
-    "unit/test_performance.sh"
-    "unit/test_compatibility.sh"
-    "integration/test_docker.sh"
-    "integration/test_dependencies.sh"
-    "security/test_security.sh"
-)
 
 # Run each test file
 for test_file in "${test_files[@]}"; do
