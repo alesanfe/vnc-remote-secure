@@ -15,7 +15,7 @@ export FAIL2BAN_BANTIME="${FAIL2BAN_BANTIME:-3600}"
 install_fail2ban() {
     [[ "$FAIL2BAN_ENABLED" != "true" ]] && return
     
-    log "yellow" "Installing Fail2ban..." "⚙️"
+    log "yellow" "Installing Fail2ban..."
     
     if ! command -v fail2ban-server &>/dev/null; then
         sudo apt update
@@ -29,7 +29,7 @@ install_fail2ban() {
 configure_fail2ban() {
     [[ "$FAIL2BAN_ENABLED" != "true" ]] && return
     
-    log "yellow" "Configuring Fail2ban..." "⚙️"
+    log "yellow" "Configuring Fail2ban..."
     
     # Create jail configuration
     sudo tee /etc/fail2ban/jail.d/vnc-remote.local > /dev/null <<EOF
@@ -80,7 +80,7 @@ EOF
 start_fail2ban() {
     [[ "$FAIL2BAN_ENABLED" != "true" ]] && return
     
-    log "yellow" "Starting Fail2ban..." "🚀"
+    log "yellow" "Starting Fail2ban..."
     
     sudo systemctl enable fail2ban
     sudo systemctl start fail2ban
@@ -92,7 +92,7 @@ start_fail2ban() {
 stop_fail2ban() {
     [[ "$FAIL2BAN_ENABLED" != "true" ]] && return
     
-    log "yellow" "Stopping Fail2ban..." "🛑"
+    log "yellow" "Stopping Fail2ban..."
     
     sudo systemctl stop fail2ban
     

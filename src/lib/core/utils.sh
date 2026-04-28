@@ -9,7 +9,6 @@ set -o pipefail
 log() {
     local level="$1"
     local message="$2"
-    local emoji="$3"
 
     local colors=(
         ["red"]="\033[0;31m"
@@ -27,7 +26,47 @@ log() {
     local timestamp=""
     [[ "$VERBOSE" == "true" ]] && timestamp="[$(date '+%H:%M:%S')] "
 
-    echo -e "${color}${timestamp}${emoji} ${message}${colors[reset]}"
+    # Formal output without emojis
+    echo -e "${color}${timestamp}${message}${colors[reset]}"
+}
+
+# Enhanced debug logging with service status and timing
+debug_log() {
+    [[ "$VERBOSE" != "true" ]] && return
+
+    local service="$1"
+    local action="$2"
+    local status="$3"
+    local duration="${4:-N/A}"
+
+    log "cyan" "[$service] $action - Status: $status, Duration: ${duration}s"
+}
+
+# Log service status
+log_service_status() {
+    [[ "$VERBOSE" != "true" ]] && return
+
+    local service="$1"
+    local status="$2"
+
+    if command -v systemctl &>/dev/null; then
+        if systemctl is-active --quiet "$service"; then
+            log "green" "[$service] Service is running"
+        else
+            log "red" "[$service] Service is not running"
+        fi
+    fi
+}
+
+# Log system resources
+log_system_resources() {
+    [[ "$VERBOSE" != "true" ]] && return
+
+    local cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
+    local mem_usage=$(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')
+    local disk_usage=$(df -h / | awk 'NR==2 {print $5}')
+
+    log "cyan" "System Resources - CPU: ${cpu_usage}%, Memory: ${mem_usage}%, Disk: ${disk_usage}"
 }
 
 print_header() {
@@ -82,21 +121,21 @@ print_progress() {
 
 die() {
     echo ""
-    echo -e "\033[1;41m  ❌ ERROR: $1 \033[0m"
+    echo -e "\033[1;41m  ERROR: $1 \033[0m"
     echo ""
     exit 1
 }
 
 warn() {
-    log "yellow" "$1" "⚠️"
+    log "yellow" "WARNING: $1"
 }
 
 info() {
-    log "blue" "$1" "ℹ️"
+    log "blue" "INFO: $1"
 }
 
 success() {
-    log "green" "$1"
+    log "green" "SUCCESS: $1"
 }
 
 # ============================================================================
@@ -139,7 +178,7 @@ EOF
 handle_command() {
     case "$1" in
         stop)
-            log "yellow" "Stopping services..." "🛑"
+            log "yellow" "Stopping services..."
             cleanup
             exit 0
             ;;
@@ -158,14 +197,14 @@ kill_process_on_port() {
     local pid=$(lsof -t -i :"$port" 2>/dev/null)
     
     if [[ -n "$pid" ]]; then
-        log "yellow" "Stopping process on port $port (PID: $pid)..." "🛑"
+        log "yellow" "Stopping process on port $port (PID: $pid)..."
         sudo kill -9 "$pid" 2>/dev/null || true
     fi
 }
 
 kill_vnc_server() {
     if pgrep -x "Xtigervnc" > /dev/null; then
-        log "yellow" "Stopping TigerVNC server..." "🛑"
+        log "yellow" "Stopping TigerVNC server..."
         sudo -u "$TEMP_USER" tigervncserver -kill "$VNC_DISPLAY" 2>/dev/null || true
         sudo pkill -f 'tigervncserver' 2>/dev/null || true
     fi
@@ -173,14 +212,14 @@ kill_vnc_server() {
 
 remove_temp_user() {
     if id "$TEMP_USER" &>/dev/null; then
-        log "yellow" "Removing temporary user $TEMP_USER..." "🚨"
+        log "yellow" "Removing temporary user $TEMP_USER..."
         sudo pkill -u "$TEMP_USER" 2>/dev/null || true
         sudo deluser --remove-home "$TEMP_USER" 2>/dev/null || true
     fi
 }
 
 cleanup() {
-    log "blue" "Cleaning up environment..." "🩹"
+    log "blue" "Cleaning up environment..."
     
     # Stop nginx if enabled
     if [[ "$NGINX_ENABLED" == "true" ]]; then
@@ -303,50 +342,50 @@ validate_config() {
     
     # Validate password strength
     if ! validate_password_strength "$TTYD_PASSWD"; then
-        log "red" "TTYD_PASSWD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be 'changeme'." "❌"
+        log "red" "TTYD_PASSWD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be 'changeme'."
         errors=$((errors + 1))
     fi
     
     # Validate ports
     if ! validate_port "$NOVNC_PORT"; then
-        log "red" "NOVNC_PORT must be a valid port number (1-65535)" "❌"
+        log "red" "NOVNC_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
     
     if ! validate_port "$TTYD_PORT"; then
-        log "red" "TTYD_PORT must be a valid port number (1-65535)" "❌"
+        log "red" "TTYD_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
     
     if ! validate_port "$VNC_PORT"; then
-        log "red" "VNC_PORT must be a valid port number (1-65535)" "❌"
+        log "red" "VNC_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
     
     # Validate domain
     if ! validate_domain "$DUCK_DOMAIN"; then
-        log "red" "DUCK_DOMAIN must be a valid domain name" "❌"
+        log "red" "DUCK_DOMAIN must be a valid domain name"
         errors=$((errors + 1))
     fi
     
     # Check port availability
     if ! check_port_available "$NOVNC_PORT"; then
-        log "red" "Port $NOVNC_PORT is already in use" "❌"
+        log "red" "Port $NOVNC_PORT is already in use"
         errors=$((errors + 1))
     fi
     
     if ! check_port_available "$TTYD_PORT"; then
-        log "red" "Port $TTYD_PORT is already in use" "❌"
+        log "red" "Port $TTYD_PORT is already in use"
         errors=$((errors + 1))
     fi
     
     if ! check_port_available "$VNC_PORT"; then
-        log "red" "Port $VNC_PORT is already in use" "❌"
+        log "red" "Port $VNC_PORT is already in use"
         errors=$((errors + 1))
     fi
     
     if (( errors > 0 )); then
-        log "red" "Configuration validation failed with $errors error(s)" "❌"
+        log "red" "Configuration validation failed with $errors error(s)"
         return 1
     fi
     
@@ -358,7 +397,7 @@ validate_config() {
 # ============================================================================
 
 install_dependencies() {
-    log "yellow" "Installing required packages..." "⚙️"
+    log "yellow" "Installing required packages..."
 
     sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq > /dev/null 2>&1
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
@@ -386,11 +425,11 @@ install_ttyd() {
         return
     fi
     
-    log "yellow" "Installing ttyd..." "⚙️"
+    log "yellow" "Installing ttyd..."
     rm -f ttyd.armhf* 2>/dev/null || true
     
     local ttyd_arch=$(detect_ttyd_arch)
-    log "cyan" "Downloading ttyd for $(uname -m)..." "📥"
+    log "cyan" "Downloading ttyd for $(uname -m)..."
     
     wget -q "https://github.com/tsl0922/ttyd/releases/download/1.7.4/ttyd.linux-$ttyd_arch" -O ttyd || {
         warn "Failed to download ttyd. Trying fallback version..."
@@ -435,33 +474,33 @@ print_access_info() {
 
     echo ""
     echo -e "\033[1;36m╔══════════════════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[1;36m║\033[1;33m                    🌐 ACCESS INFORMATION 🌐                  \033[1;36m║\033[0m"
+    echo -e "\033[1;36m║\033[1;33m                    ACCESS INFORMATION                  \033[1;36m║\033[0m"
     echo -e "\033[1;36m╚══════════════════════════════════════════════════════════════╝\033[0m"
     echo ""
     
     if [[ "$NGINX_ENABLED" == "true" ]]; then
-        echo -e "\033[1;34m  📺 Desktop Access (noVNC):\033[0m"
+        echo -e "\033[1;34m  Desktop Access (noVNC):\033[0m"
         echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}/vnc/\033[0m"
         echo ""
-        echo -e "\033[1;34m  💻 Terminal Access (ttyd):\033[0m"
+        echo -e "\033[1;34m  Terminal Access (ttyd):\033[0m"
         echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}/terminal/\033[0m"
         echo ""
-        echo -e "\033[1;32m  ✓ nginx reverse proxy is enabled (single port: 443)\033[0m"
+        echo -e "\033[1;32m  nginx reverse proxy is enabled (single port: 443)\033[0m"
     else
-        echo -e "\033[1;34m  📺 Desktop Access (noVNC):\033[0m"
+        echo -e "\033[1;34m  Desktop Access (noVNC):\033[0m"
         echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}${port_suffix}\033[0m"
         echo ""
-        echo -e "\033[1;34m  💻 Terminal Access (ttyd):\033[0m"
+        echo -e "\033[1;34m  Terminal Access (ttyd):\033[0m"
         echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}:${TTYD_PORT}\033[0m"
     fi
     
     echo ""
-    echo -e "\033[1;34m  👤 Username:\033[0m \033[1;33m$TTYD_USERNAME\033[0m"
-    echo -e "\033[1;34m  🔑 Password:\033[0m \033[1;33m$TTYD_PASSWD\033[0m"
+    echo -e "\033[1;34m  Username:\033[0m \033[1;33m$TTYD_USERNAME\033[0m"
+    echo -e "\033[1;34m  Password:\033[0m \033[1;33m$TTYD_PASSWD\033[0m"
     echo ""
     
     if [[ "$DISABLE_SSL" == true ]] && [[ "$NGINX_ENABLED" != "true" ]]; then
-        echo -e "\033[1;33m  ⚠️  SSL is disabled. For production, set DUCK_DOMAIN or enable NGINX_ENABLED.\033[0m"
+        echo -e "\033[1;33m  WARNING: SSL is disabled. For production, set DUCK_DOMAIN or enable NGINX_ENABLED.\033[0m"
     fi
     echo ""
 }

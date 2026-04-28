@@ -16,7 +16,7 @@ export PORT_KNOCK_INTERFACE="${PORT_KNOCK_INTERFACE:-eth0}"
 install_knockd() {
     [[ "$PORT_KNOCK_ENABLED" != "true" ]] && return
     
-    log "yellow" "Installing knockd..." "⚙️"
+    log "yellow" "Installing knockd..."
     
     if ! command -v knockd &>/dev/null; then
         sudo apt update
@@ -30,7 +30,7 @@ install_knockd() {
 configure_knockd() {
     [[ "$PORT_KNOCK_ENABLED" != "true" ]] && return
     
-    log "yellow" "Configuring knockd..." "⚙️"
+    log "yellow" "Configuring knockd..."
     
     # Create knockd configuration
     sudo tee /etc/knockd.conf > /dev/null <<EOF
@@ -61,7 +61,7 @@ EOF
 start_knockd() {
     [[ "$PORT_KNOCK_ENABLED" != "true" ]] && return
     
-    log "yellow" "Starting knockd..." "🚀"
+    log "yellow" "Starting knockd..."
     
     sudo systemctl enable knockd
     sudo systemctl start knockd
@@ -73,7 +73,7 @@ start_knockd() {
 stop_knockd() {
     [[ "$PORT_KNOCK_ENABLED" != "true" ]] && return
     
-    log "yellow" "Stopping knockd..." "🛑"
+    log "yellow" "Stopping knockd..."
     
     sudo systemctl stop knockd
     

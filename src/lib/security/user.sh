@@ -41,13 +41,55 @@ copy_user_config() {
 create_temp_user() {
     # Remove existing user and home directory if exists
     if id "$TEMP_USER" &>/dev/null; then
-        log "yellow" "🗑️  Removing existing user $TEMP_USER..."
-        sudo userdel -r "$TEMP_USER" 2>/dev/null || true
+        log "yellow" "Removing existing user $TEMP_USER..."
+        
+        # Kill all processes belonging to the user first
+        log "yellow" "Stopping all processes for user $TEMP_USER..."
+        sudo pkill -u "$TEMP_USER" 2>/dev/null || true
+        
+        # Wait a moment for processes to terminate
+        sleep 2
+        
+        # Force kill any remaining processes
+        sudo pkill -9 -u "$TEMP_USER" 2>/dev/null || true
+        
+        # Kill specific processes that might hold the user (ssh-agent, etc.)
+        sudo pkill -f "ssh-agent.*$TEMP_USER" 2>/dev/null || true
+        sudo pkill -f "/usr/bin/ssh-agent" 2>/dev/null || true
+        
+        # Wait again
+        sleep 1
+        
+        # Now try to remove the user
+        if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
+            log "green" "Successfully removed existing user $TEMP_USER"
+        else
+            # If still failing, try more aggressive approach
+            log "yellow" "Standard removal failed, trying force removal..."
+            
+            # Find and kill any remaining processes by PID
+            local user_processes=$(ps -u "$TEMP_USER" -o pid= 2>/dev/null | tr -d ' ')
+            if [[ -n "$user_processes" ]]; then
+                for pid in $user_processes; do
+                    sudo kill -9 "$pid" 2>/dev/null || true
+                done
+                sleep 1
+            fi
+            
+            # Try userdel again
+            if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
+                log "green" "Successfully removed user $TEMP_USER (force)"
+            else
+                log "red" "Failed to remove user $TEMP_USER. Manual intervention required."
+                log "yellow" "Try: sudo pkill -9 -u $TEMP_USER && sudo userdel -r $TEMP_USER"
+                die "Cannot proceed with existing user $TEMP_USER blocking setup"
+            fi
+        fi
     fi
 
     # Remove home directory if it still exists
     if [[ -d "/home/$TEMP_USER" ]]; then
-        log "yellow" "🗑️  Removing existing home directory /home/$TEMP_USER..."
+        log "yellow" "Removing existing home directory /home/$TEMP_USER..."
         sudo rm -rf "/home/$TEMP_USER"
     fi
 
@@ -56,7 +98,7 @@ create_temp_user() {
         die "TTYD_USERNAME '$TTYD_USERNAME' does not exist. Please provide a valid username."
     fi
 
-    log "cyan" "👤 Creating temporary user: $TEMP_USER"
+    log "cyan" "Creating temporary user: $TEMP_USER"
 
     export TTYD_UID=$(id -u "$TTYD_USERNAME")
     export TTYD_GID=$(id -g "$TTYD_USERNAME")
@@ -70,15 +112,15 @@ create_temp_user() {
 
     # Verify bash is accessible for the user
     if ! sudo -u "$TEMP_USER" which bash &>/dev/null; then
-        log "red" "❌ User $TEMP_USER cannot access bash"
+        log "red" "User $TEMP_USER cannot access bash"
         die "Failed to verify bash access for $TEMP_USER"
     fi
 
     # Test that bash can be executed
     if ! sudo -u "$TEMP_USER" bash -c "echo 'test'" &>/dev/null; then
-        log "red" "❌ User $TEMP_USER cannot execute bash"
+        log "red" "User $TEMP_USER cannot execute bash"
         die "Failed to execute bash as $TEMP_USER"
     fi
 
-    success "✓ Temporary user $TEMP_USER created (UID: $new_uid)"
+    success "Temporary user $TEMP_USER created (UID: $new_uid)"
 }

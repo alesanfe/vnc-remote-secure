@@ -1,10 +1,29 @@
 # SSL certificates (security risk)
 ssl/
+data/ssl/
+
+# Environment files (security risk)
+.env
 
 # IDE files
 .idea/
+.qodo/
 
 # Temporary files
 *.swp
 *.swo
 *~
+*.tmp
+*.log
+
+# Backup files
+backups/
+backup_*.tar.gz
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Runtime data
+data/logs/
+*.pid

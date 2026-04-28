@@ -15,7 +15,7 @@ export NODE_EXPORTER_PORT="${NODE_EXPORTER_PORT:-9100}"
 install_node_exporter() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Installing Node Exporter..." "⚙️"
+    log "yellow" "Installing Node Exporter..."
     
     if ! command -v node_exporter &>/dev/null; then
         local arch=$(uname -m)
@@ -39,7 +39,7 @@ install_node_exporter() {
 install_prometheus() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Installing Prometheus..." "⚙️"
+    log "yellow" "Installing Prometheus..."
     
     if ! command -v prometheus &>/dev/null; then
         local arch=$(uname -m)
@@ -63,7 +63,7 @@ install_prometheus() {
 install_grafana() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Installing Grafana..." "⚙️"
+    log "yellow" "Installing Grafana..."
     
     if ! command -v grafana-server &>/dev/null; then
         wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
@@ -79,7 +79,7 @@ install_grafana() {
 configure_prometheus() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Configuring Prometheus..." "⚙️"
+    log "yellow" "Configuring Prometheus..."
     
     sudo mkdir -p /opt/prometheus/data
     
@@ -105,7 +105,7 @@ EOF
 configure_grafana() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Configuring Grafana..." "⚙️"
+    log "yellow" "Configuring Grafana..."
     
     # Configure Grafana to use Prometheus as datasource
     sudo tee /etc/grafana/grafana.ini > /dev/null <<EOF
@@ -127,7 +127,7 @@ EOF
 start_node_exporter() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Starting Node Exporter..." "🚀"
+    log "yellow" "Starting Node Exporter..."
     
     sudo systemctl enable node_exporter || {
         sudo tee /etc/systemd/system/node_exporter.service > /dev/null <<EOF
@@ -156,7 +156,7 @@ EOF
 start_prometheus() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Starting Prometheus..." "🚀"
+    log "yellow" "Starting Prometheus..."
     
     sudo systemctl enable prometheus || {
         sudo tee /etc/systemd/system/prometheus.service > /dev/null <<EOF
@@ -186,7 +186,7 @@ EOF
 start_grafana() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Starting Grafana..." "🚀"
+    log "yellow" "Starting Grafana..."
     
     sudo systemctl enable grafana-server
     sudo systemctl start grafana-server
@@ -198,7 +198,7 @@ start_grafana() {
 stop_monitoring() {
     [[ "$MONITORING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Stopping monitoring services..." "🛑"
+    log "yellow" "Stopping monitoring services..."
     
     sudo systemctl stop grafana-server prometheus node_exporter 2>/dev/null || true
     pkill -f prometheus 2>/dev/null || true

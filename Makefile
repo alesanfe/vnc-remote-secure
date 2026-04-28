@@ -70,6 +70,9 @@ test-unit: ## Run unit tests only
 	@cd tests && bash run_tests.sh unit/test_syntax.sh
 	@cd tests && bash run_tests.sh unit/test_config.sh
 	@cd tests && bash run_tests.sh unit/test_utils.sh
+	@cd tests && bash run_tests.sh unit/test_healthcheck.sh
+	@cd tests && bash run_tests.sh unit/test_nginx.sh
+	@cd tests && bash run_tests.sh unit/test_services.sh
 	@cd tests && bash run_tests.sh unit/test_modules.sh
 	@cd tests && bash run_tests.sh unit/test_edge_cases.sh
 	@cd tests && bash run_tests.sh unit/test_error_handling.sh
@@ -107,11 +110,11 @@ docker-test: docker-build ## Run tests in Docker
 
 docker-compose-up: ## Start Docker Compose services
 	@echo "$(BLUE)Starting Docker Compose services...$(NC)"
-	@cd docker && docker-compose up
+	@docker-compose up -d
 
 docker-compose-down: ## Stop Docker Compose services
 	@echo "$(BLUE)Stopping Docker Compose services...$(NC)"
-	@cd docker && docker-compose down
+	@docker-compose down
 
 docker-clean: ## Remove Docker images and containers
 	@echo "$(YELLOW)Cleaning Docker resources...$(NC)"
@@ -134,6 +137,42 @@ lint: ## Run shellcheck on all shell scripts
 	@echo "$(GREEN)✓ Linting complete$(NC)"
 
 # ============================================================================
+# DOCUMENTATION
+# ============================================================================
+
+docs: ## Generate documentation
+	@echo "$(BLUE)Generating documentation...$(NC)"
+	@echo "$(GREEN)Documentation available in doc/ directory$(NC)"
+	@echo ""
+	@echo "Quick Start:     doc/installation/quick-start.md"
+	@echo "Installation:    doc/installation/detailed-setup.md"
+	@echo "Configuration:   doc/installation/configuration.md"
+	@echo "User Guide:      doc/user-guide/"
+	@echo "Developer:       doc/developer/"
+	@echo "Reference:       doc/reference/"
+
+docs-serve: ## Serve documentation locally (requires mkdocs)
+	@echo "$(BLUE)Serving documentation locally...$(NC)"
+	@if command -v mkdocs &>/dev/null; then \
+		mkdocs serve; \
+	else \
+		echo "$(YELLOW)mkdocs not installed. Install with: pip install mkdocs$(NC)"; \
+	fi
+
+docs-build: ## Build documentation (requires mkdocs)
+	@echo "$(BLUE)Building documentation...$(NC)"
+	@if command -v mkdocs &>/dev/null; then \
+		mkdocs build; \
+	else \
+		echo "$(YELLOW)mkdocs not installed. Install with: pip install mkdocs$(NC)"; \
+	fi
+
+docs-validate: ## Validate documentation links and structure
+	@echo "$(BLUE)Validating documentation...$(NC)"
+	@find doc/ -name "*.md" -exec echo "Checking: {}" \; -exec markdownlint {} \; 2>/dev/null || echo "$(YELLOW)markdownlint not available$(NC)"
+	@echo "$(GREEN)Documentation validation complete$(NC)"
+
+# ============================================================================
 # CLEANUP
 # ============================================================================
 
@@ -143,7 +182,12 @@ clean: ## Clean temporary files
 	@rm -f *.log
 	@echo "$(GREEN)✓ Clean complete$(NC)"
 
-clean-all: clean docker-clean ## Clean everything including Docker
+clean-docs: ## Clean generated documentation
+	@echo "$(YELLOW)Cleaning documentation...$(NC)"
+	@rm -rf site/
+	@echo "$(GREEN)✓ Documentation clean complete$(NC)"
+
+clean-all: clean clean-docs docker-clean ## Clean everything including Docker
 	@echo "$(YELLOW)Full clean complete$(NC)"
 
 # ============================================================================
@@ -182,43 +226,43 @@ ssl-setup: ## Setup SSL certificates (requires DUCK_DOMAIN and EMAIL)
 		exit 1; \
 	fi
 	@echo "$(BLUE)Setting up SSL certificates...$(NC)"
-	@cd src && source lib/config.sh && source lib/ssl.sh && setup_ssl
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/ssl.sh && setup_ssl
 
 ssl-renew: ## Renew SSL certificates
 	@echo "$(BLUE)Renewing SSL certificates...$(NC)"
-	@cd src && source lib/config.sh && source lib/ssl.sh && setup_ssl
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/ssl.sh && setup_ssl
 
 ssl-check: ## Check SSL certificate expiry
 	@echo "$(BLUE)Checking SSL certificate expiry...$(NC)"
-	@cd src && source lib/config.sh && source lib/ssl.sh && check_ssl_expiry
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/ssl.sh && check_ssl_expiry
 
 user-create: ## Create temporary user
 	@echo "$(BLUE)Creating temporary user...$(NC)"
-	@cd src && source lib/config.sh && source lib/user.sh && create_temp_user
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/user.sh && create_temp_user
 
 user-remove: ## Remove temporary user
 	@echo "$(BLUE)Removing temporary user...$(NC)"
-	@cd src && source lib/config.sh && source lib/utils.sh && remove_temp_user
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && remove_temp_user
 
 deps-install: ## Install system dependencies
 	@echo "$(BLUE)Installing system dependencies...$(NC)"
-	@cd src && source lib/utils.sh && install_dependencies
+	@cd src && source lib/core/utils.sh && install_dependencies
 
 ttyd-install: ## Install ttyd
 	@echo "$(BLUE)Installing ttyd...$(NC)"
-	@cd src && source lib/utils.sh && install_ttyd
+	@cd src && source lib/core/utils.sh && install_ttyd
 
 vnc-start: ## Start VNC server
 	@echo "$(BLUE)Starting VNC server...$(NC)"
-	@cd src && source lib/config.sh && source lib/services.sh && start_vnc_server
+	@cd src && source lib/core/config.sh && source lib/core/services.sh && start_vnc_server
 
 vnc-stop: ## Stop VNC server
 	@echo "$(BLUE)Stopping VNC server...$(NC)"
-	@cd src && source lib/config.sh && source lib/utils.sh && kill_vnc_server
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && kill_vnc_server
 
 ttyd-start: ## Start ttyd
 	@echo "$(BLUE)Starting ttyd...$(NC)"
-	@cd src && source lib/config.sh && source lib/services.sh && start_ttyd
+	@cd src && source lib/core/config.sh && source lib/core/services.sh && start_ttyd
 
 ttyd-stop: ## Stop ttyd
 	@echo "$(BLUE)Stopping ttyd...$(NC)"
@@ -226,55 +270,47 @@ ttyd-stop: ## Stop ttyd
 
 novnc-start: ## Start noVNC
 	@echo "$(BLUE)Starting noVNC...$(NC)"
-	@cd src && source lib/config.sh && source lib/services.sh && start_novnc
+	@cd src && source lib/core/config.sh && source lib/core/services.sh && start_novnc
 
 nginx-install: ## Install nginx
 	@echo "$(BLUE)Installing nginx...$(NC)"
-	@cd src && source lib/utils.sh && source lib/nginx.sh && install_nginx
+	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && install_nginx
 
 nginx-configure: ## Configure nginx reverse proxy
 	@echo "$(BLUE)Configuring nginx...$(NC)"
-	@cd src && source lib/config.sh && source lib/utils.sh && source lib/nginx.sh && configure_nginx
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/web/nginx.sh && configure_nginx
 
 nginx-start: ## Start nginx
 	@echo "$(BLUE)Starting nginx...$(NC)"
-	@cd src && source lib/utils.sh && source lib/nginx.sh && start_nginx
+	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && start_nginx
 
 nginx-stop: ## Stop nginx
 	@echo "$(BLUE)Stopping nginx...$(NC)"
-	@cd src && source lib/utils.sh && source lib/nginx.sh && stop_nginx
+	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && stop_nginx
 
 nginx-restart: ## Restart nginx
 	@echo "$(BLUE)Restarting nginx...$(NC)"
-	@cd src && source lib/utils.sh && source lib/nginx.sh && restart_nginx
+	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && restart_nginx
 
 nginx-reload: ## Reload nginx configuration
 	@echo "$(BLUE)Reloading nginx...$(NC)"
-	@cd src && source lib/utils.sh && source lib/nginx.sh && reload_nginx
+	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && reload_nginx
 
 nginx-status: ## Show nginx status
 	@echo "$(BLUE)Checking nginx status...$(NC)"
-	@cd src && source lib/utils.sh && source lib/nginx.sh && nginx_status
+	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && nginx_status
 
 services-start: ## Start all services (VNC, ttyd, noVNC)
 	@echo "$(BLUE)Starting all services...$(NC)"
-	@cd src && source lib/config.sh && source lib/services.sh && start_vnc_server && start_ttyd && start_novnc
+	@cd src && source lib/core/config.sh && source lib/core/services.sh && start_vnc_server && start_ttyd && start_novnc
 
 services-stop: ## Stop all services
 	@echo "$(BLUE)Stopping all services...$(NC)"
-	@cd src && source lib/config.sh && source lib/utils.sh && cleanup
-
-beef-inject: ## Inject BeEF hook (requires BEEF_HOOK_URL)
-	@if [ -z "$(BEEF_HOOK_URL)" ]; then \
-		echo "$(YELLOW)Error: BEEF_HOOK_URL not set$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(BLUE)Injecting BeEF hook...$(NC)"
-	@cd src && source lib/config.sh && source lib/services.sh && inject_beef
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && cleanup
 
 cleanup: ## Run cleanup (remove services and temp user)
 	@echo "$(BLUE)Running cleanup...$(NC)"
-	@cd src && source lib/config.sh && source lib/utils.sh && cleanup
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && cleanup
 
 # ============================================================================
 # STATUS

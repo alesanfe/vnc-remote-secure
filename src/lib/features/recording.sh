@@ -31,7 +31,7 @@ export RECORDING_FORMAT="${RECORDING_FORMAT:-asciinema}"  # asciinema or script
 install_asciinema() {
     [[ "$RECORDING_ENABLED" != "true" ]] && return
     
-    log "yellow" "Installing asciinema..." "⚙️"
+    log "yellow" "Installing asciinema..."
     
     if ! command -v asciinema &>/dev/null; then
         sudo apt update
@@ -56,7 +56,7 @@ start_ttyd_recording() {
     local timestamp=$(date +%Y%m%d_%H%M%S)
     local recording_file="$RECORDING_DIR/ttyd_${timestamp}.cast"
     
-    log "yellow" "Starting ttyd recording to $recording_file..." "🎥"
+    log "yellow" "Starting ttyd recording to $recording_file..."
     
     # ttyd doesn't support direct recording, but we can record the session
     # This is a placeholder for future integration
@@ -70,18 +70,18 @@ start_vnc_recording() {
     local timestamp=$(date +%Y%m%d_%H%M%S)
     local recording_file="$RECORDING_DIR/vnc_${timestamp}.cast"
     
-    log "yellow" "VNC recording not directly supported. Use screen recording tool." "🎥"
+    log "yellow" "VNC recording not directly supported. Use screen recording tool."
 }
 
 # List recordings
 list_recordings() {
     [[ ! -d "$RECORDING_DIR" ]] && {
-        log "yellow" "No recordings directory found" "⚠️"
+        log "yellow" "No recordings directory found"
         return
     }
     
-    log "cyan" "Available recordings:" "📁"
-    ls -lh "$RECORDING_DIR" 2>/dev/null || log "yellow" "No recordings found" "⚠️"
+    log "cyan" "Available recordings:"
+    ls -lh "$RECORDING_DIR" 2>/dev/null || log "yellow" "No recordings found"
 }
 
 # Play recording
@@ -109,7 +109,7 @@ play_recording() {
 cleanup_old_recordings() {
     local days="${1:-7}"
     
-    log "yellow" "Cleaning up recordings older than $days days..." "🧹"
+    log "yellow" "Cleaning up recordings older than $days days..."
     
     find "$RECORDING_DIR" -type f -mtime +"$days" -delete 2>/dev/null
     
@@ -123,5 +123,5 @@ enable_ttyd_recording() {
     
     # This is a placeholder - ttyd doesn't natively support recording
     # Future implementation could use script command wrapper
-    log "yellow" "TTYD recording enabled (placeholder)" "🎥"
+    log "yellow" "TTYD recording enabled (placeholder)"
 }

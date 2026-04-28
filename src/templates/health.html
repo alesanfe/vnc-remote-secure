@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi VNC Remote - Health Status</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="health.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Raspberry Pi VNC Remote</h1>
+            <p>System Health Status</p>
+        </div>
+
+        <div class="card">
+            <h2><i class="fas fa-desktop"></i> System Information</h2>
+            <div class="system-info">
+                <div class="info-item">
+                    <div class="info-label">Hostname</div>
+                    <div class="info-value">${HOSTNAME}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Operating System</div>
+                    <div class="info-value">${OS}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Kernel</div>
+                    <div class="info-value">${KERNEL}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Uptime</div>
+                    <div class="info-value">${UPTIME}</div>
+                </div>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Last Updated</span>
+                <span class="status-value">${TIMESTAMP}</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><i class="fas fa-heartbeat"></i> Service Status</h2>
+${SERVICE_STATUS}
+
+        <div class="refresh-info">
+            <button id="refreshBtn" class="auto-refresh" onclick="toggleAutoRefresh()">
+                <i class="fas fa-sync-alt"></i> Auto-refresh: ON
+            </button>
+            <p>Page auto-refreshes every 15 seconds</p>
+            <p>
+                <a href="javascript:location.reload()" class="refresh-link">
+                    <i class="fas fa-redo"></i> Refresh Now
+                </a>
+            </p>
+        </div>
+    </div>
+    <script src="health.js"></script>
+</body>
+</html>

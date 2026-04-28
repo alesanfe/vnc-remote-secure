@@ -14,7 +14,7 @@ export USER_UI_PASSWORD="${USER_UI_PASSWORD:-admin123}"
 install_flask_deps() {
     [[ "$USER_UI_ENABLED" != "true" ]] && return
     
-    log "yellow" "Installing Flask dependencies..." "⚙️"
+    log "yellow" "Installing Flask dependencies..."
     
     sudo apt update
     sudo apt install -y python3 python3-pip
@@ -27,7 +27,7 @@ install_flask_deps() {
 create_user_ui() {
     [[ "$USER_UI_ENABLED" != "true" ]] && return
     
-    log "yellow" "Creating User Management UI..." "⚙️"
+    log "yellow" "Creating User Management UI..."
     
     local ui_dir="$PROJECT_DIR/user_ui"
     mkdir -p "$ui_dir/templates"
@@ -284,7 +284,7 @@ EOF
 start_user_ui() {
     [[ "$USER_UI_ENABLED" != "true" ]] && return
     
-    log "yellow" "Starting User Management UI..." "🚀"
+    log "yellow" "Starting User Management UI..."
     
     local ui_dir="$PROJECT_DIR/user_ui"
     cd "$ui_dir"
@@ -298,7 +298,7 @@ start_user_ui() {
 stop_user_ui() {
     [[ "$USER_UI_ENABLED" != "true" ]] && return
     
-    log "yellow" "Stopping User Management UI..." "🛑"
+    log "yellow" "Stopping User Management UI..."
     
     pkill -f "python3.*app.py" 2>/dev/null || true
     

@@ -9,23 +9,84 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LIB_DIR="$SCRIPT_DIR/lib"
 
 # Source all modules
-source "$LIB_DIR/config.sh"
-source "$LIB_DIR/utils.sh"
-source "$LIB_DIR/ssl.sh"
-source "$LIB_DIR/nginx.sh"
-source "$LIB_DIR/user.sh"
-source "$LIB_DIR/services.sh"
-source "$LIB_DIR/notifications.sh"
-source "$LIB_DIR/fail2ban.sh"
-source "$LIB_DIR/healthcheck.sh"
-source "$LIB_DIR/portknock.sh"
-source "$LIB_DIR/monitoring.sh"
-source "$LIB_DIR/recording.sh"
-source "$LIB_DIR/user_ui.sh"
-source "$LIB_DIR/alerts.sh"
+source "$LIB_DIR/core/config.sh"
+source "$LIB_DIR/core/utils.sh"
+source "$LIB_DIR/security/ssl.sh"
+source "$LIB_DIR/web/nginx.sh"
+source "$LIB_DIR/security/user.sh"
+source "$LIB_DIR/core/services.sh"
+source "$LIB_DIR/communication/notifications.sh"
+source "$LIB_DIR/security/fail2ban.sh"
+source "$LIB_DIR/monitoring/healthcheck.sh"
+source "$LIB_DIR/monitoring/health_web_server.sh"
+source "$LIB_DIR/security/portknock.sh"
+source "$LIB_DIR/monitoring/monitoring.sh"
+source "$LIB_DIR/features/recording.sh"
+source "$LIB_DIR/web/user_ui.sh"
+source "$LIB_DIR/communication/alerts.sh"
 
 # Handle command line arguments
 handle_command "$1"
+
+# ============================================================================
+# ERROR HANDLING
+# ============================================================================
+
+cleanup() {
+    local exit_code=$?
+    log "yellow" "Cleaning up..."
+    
+    # Stop services if they were started
+    if [[ "$exit_code" -ne 0 ]]; then
+        log "red" "Script failed with exit code: $exit_code"
+        # Attempt to stop services that might have been started
+        pkill -f "tigervncserver" 2>/dev/null || true
+        pkill -f "novnc_proxy" 2>/dev/null || true
+        pkill -f "ttyd" 2>/dev/null || true
+    fi
+    
+    # Stop health web server
+    stop_health_web_server
+    
+    # Remove temporary user if KEEP_TEMP_USER is false
+    if [[ "$KEEP_TEMP_USER" == "false" ]] && id "$TEMP_USER" &>/dev/null; then
+        log "yellow" "Removing temporary user: $TEMP_USER"
+        
+        # Kill all processes belonging to the user first
+        sudo pkill -u "$TEMP_USER" 2>/dev/null || true
+        sleep 2
+        sudo pkill -9 -u "$TEMP_USER" 2>/dev/null || true
+        
+        # Kill specific processes that might hold the user
+        sudo pkill -f "ssh-agent.*$TEMP_USER" 2>/dev/null || true
+        sudo pkill -f "/usr/bin/ssh-agent" 2>/dev/null || true
+        
+        sleep 1
+        
+        # Try to remove the user
+        if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
+            log "green" "Successfully removed temporary user $TEMP_USER"
+        else
+            # Force approach if needed
+            local user_processes=$(ps -u "$TEMP_USER" -o pid= 2>/dev/null | tr -d ' ')
+            if [[ -n "$user_processes" ]]; then
+                for pid in $user_processes; do
+                    sudo kill -9 "$pid" 2>/dev/null || true
+                done
+                sleep 1
+            fi
+            
+            if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
+                log "green" "Successfully removed temporary user $TEMP_USER (force)"
+            else
+                log "red" "Failed to remove temporary user $TEMP_USER"
+            fi
+        fi
+    fi
+}
+
+# Setup trap for cleanup on exit, interrupt, and error
+trap cleanup EXIT INT TERM ERR
 
 # ============================================================================
 # MAIN EXECUTION
@@ -38,9 +99,6 @@ main() {
     if ! validate_config; then
         die "Configuration validation failed. Please fix the errors above."
     fi
-
-    # Setup trap for cleanup after validation
-    trap cleanup INT EXIT
 
     print_section "Dependency Installation"
     install_dependencies
@@ -106,7 +164,7 @@ main() {
 
     # Fix SSL permissions now that user exists
     if [[ "$DISABLE_SSL" == "false" ]]; then
-        log "cyan" "🔐 Fixing SSL permissions for $TEMP_USER..."
+        log "cyan" "Fixing SSL permissions for $TEMP_USER..."
         fix_ssl_permissions
     fi
 
@@ -136,8 +194,14 @@ main() {
     notify_startup
     alert_startup
     echo ""
-    success "Setup complete. Press CTRL+C to stop services."
+    success "Setup complete. Starting continuous health monitoring..."
     echo ""
+
+    # Start continuous health monitoring
+    start_health_monitor &
+    
+    # Start health web server
+    start_health_web_server &
 
     wait
 }
