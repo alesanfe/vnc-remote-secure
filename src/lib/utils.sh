@@ -182,6 +182,11 @@ remove_temp_user() {
 cleanup() {
     log "blue" "Cleaning up environment..." "🩹"
     
+    # Stop nginx if enabled
+    if [[ "$NGINX_ENABLED" == "true" ]]; then
+        stop_nginx
+    fi
+    
     kill_process_on_port "$NOVNC_PORT"
     kill_process_on_port "$TTYD_PORT"
     kill_process_on_port "$VNC_PORT"
@@ -416,24 +421,47 @@ print_banner() {
 
 print_access_info() {
     local protocol="http"
-    [[ "$DISABLE_SSL" == false ]] && protocol="https"
+    local port_suffix=""
+    
+    if [[ "$NGINX_ENABLED" == "true" ]]; then
+        protocol="https"
+        # nginx uses standard ports, no need to show port in URL
+    elif [[ "$DISABLE_SSL" == false ]]; then
+        protocol="https"
+        port_suffix=":${NOVNC_PORT}"
+    else
+        port_suffix=":${NOVNC_PORT}"
+    fi
 
     echo ""
     echo -e "\033[1;36m╔══════════════════════════════════════════════════════════════╗\033[0m"
     echo -e "\033[1;36m║\033[1;33m                    🌐 ACCESS INFORMATION 🌐                  \033[1;36m║\033[0m"
     echo -e "\033[1;36m╚══════════════════════════════════════════════════════════════╝\033[0m"
     echo ""
-    echo -e "\033[1;34m  📺 Desktop Access (noVNC):\033[0m"
-    echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}:${NOVNC_PORT}\033[0m"
-    echo ""
-    echo -e "\033[1;34m  💻 Terminal Access (ttyd):\033[0m"
-    echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}:${TTYD_PORT}\033[0m"
+    
+    if [[ "$NGINX_ENABLED" == "true" ]]; then
+        echo -e "\033[1;34m  📺 Desktop Access (noVNC):\033[0m"
+        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}/vnc/\033[0m"
+        echo ""
+        echo -e "\033[1;34m  💻 Terminal Access (ttyd):\033[0m"
+        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}/terminal/\033[0m"
+        echo ""
+        echo -e "\033[1;32m  ✓ nginx reverse proxy is enabled (single port: 443)\033[0m"
+    else
+        echo -e "\033[1;34m  📺 Desktop Access (noVNC):\033[0m"
+        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}${port_suffix}\033[0m"
+        echo ""
+        echo -e "\033[1;34m  💻 Terminal Access (ttyd):\033[0m"
+        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}:${TTYD_PORT}\033[0m"
+    fi
+    
     echo ""
     echo -e "\033[1;34m  👤 Username:\033[0m \033[1;33m$TTYD_USERNAME\033[0m"
     echo -e "\033[1;34m  🔑 Password:\033[0m \033[1;33m$TTYD_PASSWD\033[0m"
     echo ""
-    if [[ "$DISABLE_SSL" == true ]]; then
-        echo -e "\033[1;33m  ⚠️  SSL is disabled. For production, set DUCK_DOMAIN.\033[0m"
+    
+    if [[ "$DISABLE_SSL" == true ]] && [[ "$NGINX_ENABLED" != "true" ]]; then
+        echo -e "\033[1;33m  ⚠️  SSL is disabled. For production, set DUCK_DOMAIN or enable NGINX_ENABLED.\033[0m"
     fi
     echo ""
 }

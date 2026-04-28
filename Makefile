@@ -228,6 +228,34 @@ novnc-start: ## Start noVNC
 	@echo "$(BLUE)Starting noVNC...$(NC)"
 	@cd src && source lib/config.sh && source lib/services.sh && start_novnc
 
+nginx-install: ## Install nginx
+	@echo "$(BLUE)Installing nginx...$(NC)"
+	@cd src && source lib/utils.sh && source lib/nginx.sh && install_nginx
+
+nginx-configure: ## Configure nginx reverse proxy
+	@echo "$(BLUE)Configuring nginx...$(NC)"
+	@cd src && source lib/config.sh && source lib/utils.sh && source lib/nginx.sh && configure_nginx
+
+nginx-start: ## Start nginx
+	@echo "$(BLUE)Starting nginx...$(NC)"
+	@cd src && source lib/utils.sh && source lib/nginx.sh && start_nginx
+
+nginx-stop: ## Stop nginx
+	@echo "$(BLUE)Stopping nginx...$(NC)"
+	@cd src && source lib/utils.sh && source lib/nginx.sh && stop_nginx
+
+nginx-restart: ## Restart nginx
+	@echo "$(BLUE)Restarting nginx...$(NC)"
+	@cd src && source lib/utils.sh && source lib/nginx.sh && restart_nginx
+
+nginx-reload: ## Reload nginx configuration
+	@echo "$(BLUE)Reloading nginx...$(NC)"
+	@cd src && source lib/utils.sh && source lib/nginx.sh && reload_nginx
+
+nginx-status: ## Show nginx status
+	@echo "$(BLUE)Checking nginx status...$(NC)"
+	@cd src && source lib/utils.sh && source lib/nginx.sh && nginx_status
+
 services-start: ## Start all services (VNC, ttyd, noVNC)
 	@echo "$(BLUE)Starting all services...$(NC)"
 	@cd src && source lib/config.sh && source lib/services.sh && start_vnc_server && start_ttyd && start_novnc

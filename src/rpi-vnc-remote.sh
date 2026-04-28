@@ -12,6 +12,7 @@ LIB_DIR="$SCRIPT_DIR/lib"
 source "$LIB_DIR/config.sh"
 source "$LIB_DIR/utils.sh"
 source "$LIB_DIR/ssl.sh"
+source "$LIB_DIR/nginx.sh"
 source "$LIB_DIR/user.sh"
 source "$LIB_DIR/services.sh"
 source "$LIB_DIR/notifications.sh"
@@ -43,6 +44,13 @@ main() {
 
     print_section "Dependency Installation"
     install_dependencies
+
+    # Setup nginx if enabled
+    if [[ "$NGINX_ENABLED" == "true" ]]; then
+        print_section "Nginx Reverse Proxy Setup"
+        install_nginx
+        configure_nginx
+    fi
 
     # Setup Fail2ban if enabled
     if [[ "$FAIL2BAN_ENABLED" == "true" ]]; then
@@ -103,7 +111,6 @@ main() {
     fi
 
     print_section "Service Startup"
-    inject_beef
     start_vnc_server
     notify_service_start "VNC Server"
     alert_service_start "VNC Server"
@@ -115,6 +122,14 @@ main() {
     start_novnc
     notify_service_start "noVNC"
     alert_service_start "noVNC"
+
+    # Start nginx if enabled
+    if [[ "$NGINX_ENABLED" == "true" ]]; then
+        print_separator
+        start_nginx
+        notify_service_start "nginx"
+        alert_service_start "nginx"
+    fi
 
     print_section "Access Information"
     print_access_info

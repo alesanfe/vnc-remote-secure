@@ -55,6 +55,7 @@ The solution is designed for:
 - **SSL Certificate Auto-renewal**: Certificates renewed before expiration
 
 ### Advanced Features
+- **Nginx Reverse Proxy**: Optional reverse proxy for single-port access and centralized SSL
 - **Monitoring Stack**: Prometheus + Grafana + Node Exporter (optional)
 - **Session Recording**: Terminal and VNC session recording (placeholder)
 - **BeEF Integration**: Browser exploitation framework for security testing (optional, disabled by default)
@@ -171,6 +172,23 @@ TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org EMAIL=myemail@example.co
 - Desktop: `https://mydomain.duckdns.org:6080`
 - Terminal: `https://mydomain.duckdns.org:5000`
 
+### With Nginx Reverse Proxy (Recommended for Production)
+
+```bash
+# Run with nginx enabled (single port access)
+NGINX_ENABLED=true TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org EMAIL=myemail@example.com ./src/rpi-vnc-remote.sh
+```
+
+**Access**:
+- Desktop: `https://mydomain.duckdns.org/vnc/`
+- Terminal: `https://mydomain.duckdns.org/terminal/`
+
+**Benefits**:
+- Single port (443) instead of multiple ports
+- Centralized SSL/TLS management
+- Services bind to localhost only (more secure)
+- Path-based routing for multiple services
+
 ### Using Makefile
 
 The project includes a comprehensive Makefile for common tasks:
@@ -216,6 +234,15 @@ make novnc-start       # Start noVNC
 make services-start    # Start all services
 make services-stop     # Stop all services
 
+# Nginx Management
+make nginx-install     # Install nginx
+make nginx-configure   # Configure nginx reverse proxy
+make nginx-start       # Start nginx
+make nginx-stop        # Stop nginx
+make nginx-restart     # Restart nginx
+make nginx-reload      # Reload nginx configuration
+make nginx-status      # Show nginx status
+
 # Other
 make cleanup           # Run cleanup
 make status            # Show service status
@@ -252,6 +279,14 @@ The script uses environment variables for configuration. You can set these varia
 | `VNC_GEOMETRY` | VNC screen resolution | `1920x1080` | Desktop resolution |
 | `VNC_DEPTH` | VNC color depth | `24` | Color depth (16, 24, or 32) |
 | `VNC_PASSWORD` | Password for VNC authentication | `YourStrongPassword123` | Separate from TTYD_PASSWD |
+
+### Nginx Reverse Proxy Variables
+
+| Variable | Description | Default | Notes |
+|----------|-------------|---------|-------|
+| `NGINX_ENABLED` | Enable nginx reverse proxy | `false` | When enabled, services bind to localhost only |
+| `NGINX_HTTP_PORT` | Nginx HTTP port | `80` | Redirects to HTTPS |
+| `NGINX_HTTPS_PORT` | Nginx HTTPS port | `443` | Single port for all services |
 
 ### Security Variables
 
@@ -339,6 +374,9 @@ TTYD_USERNAME=pi
 # Security
 FAIL2BAN_ENABLED=true
 PORT_KNOCK_ENABLED=false
+
+# Nginx Reverse Proxy
+NGINX_ENABLED=true
 
 # Monitoring
 MONITORING_ENABLED=false
@@ -613,6 +651,20 @@ This will:
 4. Configure dashboards
 5. Start all monitoring services
 
+#### Start with Nginx Reverse Proxy
+
+```bash
+NGINX_ENABLED=true TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org EMAIL=myemail@example.com ./src/rpi-vnc-remote.sh
+```
+
+This will:
+1. Install and configure nginx
+2. Set up reverse proxy for all services
+3. Configure SSL/TLS with Let's Encrypt
+4. Bind services to localhost only
+5. Start nginx on port 443
+6. Route traffic via paths: `/vnc/` and `/terminal/`
+
 ### Accessing the Services
 
 After starting the services, you can access them:
@@ -621,6 +673,7 @@ After starting the services, you can access them:
 
 - **Without SSL**: `http://your-raspberry-pi-ip:6080`
 - **With SSL**: `https://your-domain:6080`
+- **With Nginx**: `https://your-domain/vnc/`
 
 Use the credentials specified in `TTYD_USERNAME` and `TTYD_PASSWD`.
 
@@ -628,6 +681,7 @@ Use the credentials specified in `TTYD_USERNAME` and `TTYD_PASSWD`.
 
 - **Without SSL**: `http://your-raspberry-pi-ip:5000`
 - **With SSL**: `https://your-domain:5000`
+- **With Nginx**: `https://your-domain/terminal/`
 
 Use the credentials specified in `TTYD_USERNAME` and `TTYD_PASSWD`.
 
