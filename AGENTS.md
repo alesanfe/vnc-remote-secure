@@ -27,22 +27,53 @@ on the client machine.
 
 ## Verification commands
 
-```bash
-# Run the full test suite (auto-discovers all test_*.sh files)
-bash tests/run_tests.sh
+The test suite follows a **testing pyramid** with 5 levels (fastest first):
 
-# Run a specific test category (path prefix filter)
-bash tests/run_tests.sh unit/core/
-bash tests/run_tests.sh unit/security/
+```bash
+# Run the full pyramid (all levels in order)
+bash tests/run_tests.sh
+make test-all
+
+# Run a single level
+bash tests/run_tests.sh static/       # Level 0: lint, syntax, CRLF, shellcheck
+bash tests/run_tests.sh unit/          # Level 1: isolated function tests
+bash tests/run_tests.sh integration/  # Level 3: multi-module interaction
+bash tests/run_tests.sh e2e/           # Level 5: entry-point and full-flow
+bash tests/run_tests.sh security/     # Level 7: password, sanitization, hardening
+
+# Or via Makefile
+make test-static
+make test-unit
+make test-integration
+make test-e2e
+make test-security
 
 # List available tests
 bash tests/run_tests.sh -l
-
-# Lint shell scripts (if shellcheck is installed)
-make lint
+make test-list
 ```
 
-The test suite uses `tests/lib/test_framework.sh` which provides `assert_eq`,
+### Pyramid structure
+
+```
+                    security/  (18 tests)     ← Level 7
+                        e2e/  (15 tests)     ← Level 5
+                integration/  (6 tests)      ← Level 3
+                      unit/  (63 tests)      ← Level 1
+                   static/  (14 tests)       ← Level 0
+```
+
+| Level | Directory | Tests | What it checks |
+|-------|-----------|-------|----------------|
+| 0 | `static/` | 14 | bash -n, shellcheck, CRLF, shebang, permissions, Python compile |
+| 1 | `unit/` | 63 | config defaults, validation logic, utils, logging |
+| 3 | `integration/` | 6 | module loading chain, validate_config end-to-end |
+| 5 | `e2e/` | 15 | main() structure, cleanup trap, command dispatch |
+| 7 | `security/` | 18 | password policy, XSS, injection, config hardening |
+
+**Total: 8 suites, 116 tests, all passing.**
+
+The test framework (`tests/lib/test_framework.sh`) provides `assert_eq`,
 `assert_success`, `assert_failure`, `assert_contains`, `assert_function_exists`,
 `begin_suite`, `run_test`, and `end_suite`. Each test file sources the framework
 and the module under test, then defines test functions.
