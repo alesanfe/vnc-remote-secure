@@ -18,6 +18,16 @@ Raspberry Pi VNC Remote provides secure, web-based remote access to your Raspber
 
 Perfect for remote administration, development, or accessing your Pi from anywhere with just a web browser.
 
+## Platform Support
+
+**Server (where the script runs):** Linux only (Raspberry Pi OS, Ubuntu, Debian).
+The script manages Linux-native services (tigervncserver, nginx, systemd, apt-get,
+fail2ban, certbot, useradd) that do not exist on Windows or macOS. This is by design:
+the tool runs **on the Pi** to provide remote access **to** the Pi.
+
+**Client (what you connect from):** Any modern web browser on any OS
+(Windows, macOS, Linux, Android, iOS). No software installation needed on the client.
+
 ## Quick Start
 
 ```bash
@@ -37,6 +47,7 @@ nano .env  # Configura dominio, email y contraseñas
 **Access your services:**
 - **Desktop:** `https://your-domain.com/vnc/`
 - **Terminal:** `https://your-domain.com/terminal/`
+- **User Management:** `https://your-domain.com:8081/` (if enabled)
 - **Health Status:** `https://your-domain.com/health`
 
 ## Key Features
@@ -57,6 +68,7 @@ nano .env  # Configura dominio, email y contraseñas
 
 ### Management Features
 - **Health Dashboard** - Real-time system monitoring
+- **User Management UI** - Web interface for user administration
 - **Automated Backups** - Configuration and data backup
 - **System Maintenance** - Cleanup and update scripts
 - **Docker Support** - Containerized testing environments
@@ -87,11 +99,25 @@ nano .env  # Configura dominio, email y contraseñas
 
 ```
 raspberrypinoVNC/
-├── rpi-vnc-remote.sh          # Script principal
+├── src/rpi-vnc-remote.sh      # Script principal
 ├── src/                       # Código fuente organizado
 │   ├── lib/                   # Módulos por categorías
+│   │   ├── core/              # Funcionalidad central
+│   │   ├── security/          # Módulos de seguridad
+│   │   ├── web/              # Componentes web
+│   │   │   ├── nginx.sh      # Configuración nginx
+│   │   ├── user_ui.sh      # Gestión UI (Bash)
+│   │   ├── user_ui_app.py  # Aplicación Flask (Python)
+│   │   └── templates/       # Templates HTML
+│   │       ├── login.html
+│   │       ├── index.html
+│   │       └── users.html
+│   │   ├── communication/     # Notificaciones y alertas
+│   │   ├── monitoring/        # Sistema de monitoreo
+│   │   │   └── health_web_server.py  # Servidor web salud (Python)
+│   │   └── features/         # Funcionalidades adicionales
 │   ├── config/                # Templates de configuración
-│   └── templates/             # Templates HTML
+│   └── templates/             # Templates HTML del sistema
 ├── data/                      # Runtime data
 │   ├── ssl/                   # SSL certificates
 │   └── logs/                  # System logs
@@ -102,7 +128,10 @@ raspberrypinoVNC/
 │   ├── cleanup.sh             # System cleanup
 │   └── update.sh              # System update
 ├── doc/                       # Complete documentation
-└── tests/                     # Automated tests
+├── tests/                     # Automated tests
+│   ├── unit/                 # Unit tests (12 módulos)
+│   └── integration/          # Integration tests
+└── docker/                    # Configuración Docker
 ```
 
 ## Maintenance Scripts

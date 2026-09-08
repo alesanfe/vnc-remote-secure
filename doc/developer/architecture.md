@@ -65,7 +65,7 @@ The system provides secure remote access to Raspberry Pi through web-based inter
 - Error handling and cleanup
 - Lifecycle management
 
-#### 2. Service Modules (`src/lib/services.sh`)
+#### 2. Service Modules (`src/lib/core/services.sh`)
 **Purpose:** Service management
 **Services:**
 - VNC Server (tigervncserver)
@@ -73,7 +73,7 @@ The system provides secure remote access to Raspberry Pi through web-based inter
 - Terminal Server (ttyd)
 - User management
 
-#### 3. Nginx Module (`src/lib/nginx.sh`)
+#### 3. Nginx Module (`src/lib/web/nginx.sh`)
 **Purpose:** Reverse proxy configuration
 **Features:**
 - SSL/TLS termination
@@ -82,11 +82,11 @@ The system provides secure remote access to Raspberry Pi through web-based inter
 - Security headers
 
 #### 4. Security Modules
-- **Fail2ban** (`src/lib/fail2ban.sh`) - Brute force protection
-- **Port Knocking** (`src/lib/portknock.sh`) - Access control
-- **SSL Management** (`src/lib/ssl.sh`) - Certificate handling
+- **Fail2ban** (`src/lib/security/fail2ban.sh`) - Brute force protection
+- **SSL Management** (`src/lib/security/ssl.sh`) - Certificate handling
+- **User Management** (`src/lib/security/user.sh`) - Temporary user isolation
 
-#### 5. Monitoring Module (`src/lib/healthcheck.sh`)
+#### 5. Monitoring Module (`src/lib/monitoring/healthcheck.sh`)
 **Purpose:** System health monitoring
 **Checks:**
 - Service availability
@@ -99,21 +99,38 @@ The system provides secure remote access to Raspberry Pi through web-based inter
 ```
 src/
 ├── rpi-vnc-remote.sh          # Main orchestration script
-└── lib/                       # Modular components
-    ├── config.sh              # Configuration management
-    ├── utils.sh               # Utility functions
-    ├── services.sh            # Service management
-    ├── nginx.sh               # Nginx configuration
-    ├── ssl.sh                 # SSL/TLS handling
-    ├── user.sh                # User management
-    ├── healthcheck.sh         # Health monitoring
-    ├── fail2ban.sh            # Fail2ban integration
-    ├── portknock.sh           # Port knocking
-    ├── monitoring.sh          # Prometheus/Grafana
-    ├── recording.sh           # Session recording
-    ├── user_ui.sh             # Web interface
-    ├── alerts.sh              # Notifications
-    └── notifications.sh       # Notification handling
+└── lib/                       # Modular components (organized by category)
+    ├── core/                  # Core functionality
+    │   ├── config.sh          # Configuration management
+    │   ├── logging.sh         # Logging system
+    │   ├── validation.sh      # Input validation
+    │   ├── error_handling.sh  # Error handling
+    │   ├── utils.sh           # Main utilities (sources specialized modules)
+    │   ├── process_utils.sh   # Process management
+    │   ├── command_utils.sh   # Command execution helpers
+    │   ├── display_utils.sh   # Output formatting
+    │   ├── cleanup_utils.sh   # Cleanup helpers
+    │   ├── dependency_utils.sh # Dependency checks
+    │   └── services.sh        # Service management
+    ├── security/              # Security modules
+    │   ├── ssl.sh             # SSL/TLS handling
+    │   ├── user.sh            # Temporary user management
+    │   └── fail2ban.sh        # Fail2ban integration
+    ├── web/                   # Web components
+    │   ├── nginx.sh           # Nginx reverse proxy configuration
+    │   ├── user_ui.sh         # User management UI (Bash)
+    │   ├── user_ui_app.py     # User management UI (Flask)
+    │   └── templates/         # HTML templates
+    ├── monitoring/            # System monitoring
+    │   ├── healthcheck.sh     # Health monitoring
+    │   ├── health_web_server.sh  # Health web server (Bash)
+    │   ├── health_web_server.py  # Health web server (Python)
+    │   └── monitoring.sh      # Prometheus/Grafana
+    ├── communication/         # Notifications and alerts
+    │   ├── notifications.sh   # Notification handling
+    │   └── alerts.sh          # Alert delivery
+    └── features/              # Additional features
+        └── recording.sh       # Session recording
 ```
 
 ## 🔄 Data Flow
@@ -189,21 +206,22 @@ add_header X-XSS-Protection "1; mode=block";
 
 ```
 rpi-vnc-remote.sh (main)
-├── config.sh (configuration)
-├── utils.sh (utilities)
-├── user.sh (user management)
-├── services.sh (core services)
+├── core/config.sh (configuration)
+├── core/utils.sh (utilities)
+├── core/process_utils.sh (process management)
+├── security/user.sh (user management)
+├── core/services.sh (core services)
 │   ├── VNC Server
 │   ├── noVNC Proxy
 │   └── ttyd
-├── nginx.sh (reverse proxy)
-├── ssl.sh (certificates)
-├── healthcheck.sh (monitoring)
+├── web/nginx.sh (reverse proxy)
+├── security/ssl.sh (certificates)
+├── monitoring/healthcheck.sh (monitoring)
 └── Optional modules
-    ├── fail2ban.sh
-    ├── portknock.sh
-    ├── monitoring.sh
-    └── user_ui.sh
+    ├── security/fail2ban.sh
+    ├── monitoring/monitoring.sh
+    ├── features/recording.sh
+    └── web/user_ui.sh
 ```
 
 ### Service Lifecycle
