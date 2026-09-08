@@ -1,33 +1,32 @@
 #!/bin/bash
-# shellcheck disable=SC2034,SC2155,SC2086,SC2181
+# shellcheck disable=SC2034
 set -e
 set -o pipefail
 # ============================================================================
-# UTILITY FUNCTIONS
+# MAIN UTILITIES MODULE (Refactored)
 # ============================================================================
 
+# Import specialized utility modules
+source "$(dirname "${BASH_SOURCE[0]}")/display_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/dependency_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/command_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/cleanup_utils.sh"
+
+# Legacy log function (delegates to new logging system)
 log() {
     local level="$1"
     local message="$2"
-
-    local colors=(
-        ["red"]="\033[0;31m"
-        ["green"]="\033[0;32m"
-        ["yellow"]="\033[1;33m"
-        ["blue"]="\033[0;34m"
-        ["purple"]="\033[0;35m"
-        ["cyan"]="\033[0;36m"
-        ["white"]="\033[0;37m"
-        ["bright"]="\033[1;37m"
-        ["reset"]="\033[0m"
-    )
-
-    local color="${colors[$level]:-${colors[reset]}}"
-    local timestamp=""
-    [[ "$VERBOSE" == "true" ]] && timestamp="[$(date '+%H:%M:%S')] "
-
-    # Formal output without emojis
-    echo -e "${color}${timestamp}${message}${colors[reset]}"
+    
+    # Convert old level names to new ones
+    case "$level" in
+        "red") log_error "$message" ;;
+        "green") log_success "$message" ;;
+        "yellow") log_warn "$message" ;;
+        "blue") log_info "$message" ;;
+        "purple"|"cyan") log_debug "$message" ;;
+        "white"|"bright") log_info "$message" ;;
+        *) log_info "$message" ;;
+    esac
 }
 
 # Enhanced debug logging with service status and timing
@@ -198,7 +197,7 @@ kill_process_on_port() {
     
     if [[ -n "$pid" ]]; then
         log "yellow" "Stopping process on port $port (PID: $pid)..."
-        sudo kill -9 "$pid" 2>/dev/null || true
+        terminate_process_gracefully "$pid" 5 || true
     fi
 }
 
@@ -206,14 +205,14 @@ kill_vnc_server() {
     if pgrep -x "Xtigervnc" > /dev/null; then
         log "yellow" "Stopping TigerVNC server..."
         sudo -u "$TEMP_USER" tigervncserver -kill "$VNC_DISPLAY" 2>/dev/null || true
-        sudo pkill -f 'tigervncserver' 2>/dev/null || true
+        kill_processes_by_pattern "tigervncserver" 5 || true
     fi
 }
 
 remove_temp_user() {
     if id "$TEMP_USER" &>/dev/null; then
         log "yellow" "Removing temporary user $TEMP_USER..."
-        sudo pkill -u "$TEMP_USER" 2>/dev/null || true
+        kill_user_processes_gracefully "$TEMP_USER" 5 || true
         sudo deluser --remove-home "$TEMP_USER" 2>/dev/null || true
     fi
 }
@@ -259,20 +258,26 @@ cleanup() {
 validate_password_strength() {
     local password="$1"
     local min_length=8
-    
+
     if [[ ${#password} -lt $min_length ]]; then
         return 1
     fi
-    
-    if [[ "$password" == "changeme" ]]; then
-        return 1
-    fi
-    
+
+    # Reject known weak/default passwords (case-insensitive substring match)
+    local weak_patterns=("changeme" "password" "123456" "qwerty" "admin" "root" "user" "yourstrongpassword" "letmein" "welcome")
+    local lc_password="${password,,}"
+    local pattern
+    for pattern in "${weak_patterns[@]}"; do
+        if [[ "$lc_password" == *"$pattern"* ]]; then
+            return 1
+        fi
+    done
+
     # Check for at least one uppercase, one lowercase, one digit
     if ! [[ "$password" =~ [A-Z] ]] || ! [[ "$password" =~ [a-z] ]] || ! [[ "$password" =~ [0-9] ]]; then
         return 1
     fi
-    
+
     return 0
 }
 
@@ -336,59 +341,91 @@ check_port_available() {
 # Returns:
 #   0 if all configuration is valid, 1 if validation fails
 # Globals:
-#   TTYD_PASSWD, NOVNC_PORT, TTYD_PORT, VNC_PORT, DUCK_DOMAIN
+#   TTYD_PASSWD, TEMP_USER_PASS, VNC_PASSWORD, USER_UI_PASSWORD, EMAIL,
+#   NOVNC_PORT, TTYD_PORT, VNC_PORT, DUCK_DOMAIN
 validate_config() {
     local errors=0
-    
+
     # Validate password strength
     if ! validate_password_strength "$TTYD_PASSWD"; then
-        log "red" "TTYD_PASSWD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be 'changeme'."
+        log "red" "TTYD_PASSWD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
         errors=$((errors + 1))
     fi
-    
+
+    # Validate temporary user password (defaults to TTYD_PASSWD)
+    if ! validate_password_strength "$TEMP_USER_PASS"; then
+        log "red" "TEMP_USER_PASS must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+        errors=$((errors + 1))
+    fi
+
+    # Validate VNC password
+    if ! validate_password_strength "$VNC_PASSWORD"; then
+        log "red" "VNC_PASSWORD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+        errors=$((errors + 1))
+    fi
+
+    # Validate User Management UI password only when the UI is enabled
+    if [[ "$USER_UI_ENABLED" == "true" ]]; then
+        if ! validate_password_strength "$USER_UI_PASSWORD"; then
+            log "red" "USER_UI_PASSWORD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+            errors=$((errors + 1))
+        fi
+    fi
+
+    # Validate email (used for Let's Encrypt certificate registration)
+    if [[ -n "$EMAIL" ]]; then
+        if ! [[ "$EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            log "red" "EMAIL must be a valid email address (used for Let's Encrypt)."
+            errors=$((errors + 1))
+        elif [[ "$EMAIL" == *"example.com" ]]; then
+            log "red" "EMAIL cannot use the example.com placeholder domain; set a real address for Let's Encrypt."
+            errors=$((errors + 1))
+        fi
+    fi
+
     # Validate ports
     if ! validate_port "$NOVNC_PORT"; then
         log "red" "NOVNC_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
-    
+
     if ! validate_port "$TTYD_PORT"; then
         log "red" "TTYD_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
-    
+
     if ! validate_port "$VNC_PORT"; then
         log "red" "VNC_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
-    
+
     # Validate domain
     if ! validate_domain "$DUCK_DOMAIN"; then
         log "red" "DUCK_DOMAIN must be a valid domain name"
         errors=$((errors + 1))
     fi
-    
+
     # Check port availability
     if ! check_port_available "$NOVNC_PORT"; then
         log "red" "Port $NOVNC_PORT is already in use"
         errors=$((errors + 1))
     fi
-    
+
     if ! check_port_available "$TTYD_PORT"; then
         log "red" "Port $TTYD_PORT is already in use"
         errors=$((errors + 1))
     fi
-    
+
     if ! check_port_available "$VNC_PORT"; then
         log "red" "Port $VNC_PORT is already in use"
         errors=$((errors + 1))
     fi
-    
+
     if (( errors > 0 )); then
         log "red" "Configuration validation failed with $errors error(s)"
         return 1
     fi
-    
+
     return 0
 }
 

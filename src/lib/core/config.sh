@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2155,SC2034,SC2086
 set -e
 set -o pipefail
 # ============================================================================
@@ -49,12 +50,6 @@ export HEALTHCHECK_ENABLED="${HEALTHCHECK_ENABLED:-true}"
 export HEALTHCHECK_INTERVAL="${HEALTHCHECK_INTERVAL:-30}"
 export AUTO_RESTART="${AUTO_RESTART:-false}"
 
-# Port Knocking Configuration (OPTIONAL)
-export PORT_KNOCK_ENABLED="${PORT_KNOCK_ENABLED:-false}"
-export PORT_KNOCK_SEQUENCE="${PORT_KNOCK_SEQUENCE:-1000,2000,3000}"
-export PORT_KNOCK_TIMEOUT="${PORT_KNOCK_TIMEOUT:-5}"
-export PORT_KNOCK_METHOD="${PORT_KNOCK_METHOD:-iptables}"
-export PORT_KNOCK_INTERFACE="${PORT_KNOCK_INTERFACE:-eth0}"
 
 # Monitoring Configuration (OPTIONAL)
 export MONITORING_ENABLED="${MONITORING_ENABLED:-false}"
@@ -91,3 +86,5 @@ export VNC_PASSWORD="${VNC_PASSWORD:-YourStrongPassword123}"
 export DISABLE_SSL=false
 export SHOW_LOGS="${SHOW_LOGS:-true}"
 export LOG_DIR="${LOG_DIR:-./logs}"
+# Whether to keep the temporary user after exit (default: false = remove on exit)
+export KEEP_TEMP_USER="${KEEP_TEMP_USER:-false}"
