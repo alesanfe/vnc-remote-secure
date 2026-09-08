@@ -119,7 +119,7 @@ if confirm_action "Update project dependencies and reinstall?"; then
         echo -e "${YELLOW}⚠️  Make install failed, trying manual installation...${NC}"
         
         # Manual dependency installation
-        local deps=("nginx" "tigervnc-standalone-server" "novnc" "ttyd" "openssl")
+        deps=("nginx" "tigervnc-standalone-server" "novnc" "ttyd" "openssl")
         for dep in "${deps[@]}"; do
             echo -e "${BLUE}🔄 Installing $dep...${NC}"
             if sudo apt install -y "$dep"; then

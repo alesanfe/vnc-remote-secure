@@ -4,7 +4,8 @@
 
 SHELL := /bin/bash
 
-.PHONY: help install test test-all test-unit test-integration test-security
+.PHONY: help install test test-all test-list test-static test-unit
+.PHONY: test-integration test-e2e test-security
 .PHONY: docker-build docker-test docker-clean clean lint format
 
 # Default target
@@ -57,44 +58,33 @@ test: ## Show test help (use test-all to run all tests)
 	@echo "$(BLUE)Test Help:$(NC)"
 	@cd tests && bash run_tests.sh -h
 
-test-all: ## Run all tests
-	@echo "$(BLUE)Running all tests...$(NC)"
-	@cd tests && bash run_tests.sh -a
+test-all: ## Run all tests (all pyramid levels in order)
+	@echo "$(BLUE)Running all tests (pyramid)...$(NC)"
+	@cd tests && bash run_tests.sh
 
 test-list: ## List available tests
 	@echo "$(BLUE)Available tests:$(NC)"
 	@cd tests && bash run_tests.sh -l
 
-test-unit: ## Run unit tests only
-	@echo "$(BLUE)Running unit tests...$(NC)"
-	@cd tests && bash run_tests.sh unit/test_syntax.sh
-	@cd tests && bash run_tests.sh unit/test_config.sh
-	@cd tests && bash run_tests.sh unit/test_utils.sh
-	@cd tests && bash run_tests.sh unit/test_healthcheck.sh
-	@cd tests && bash run_tests.sh unit/test_nginx.sh
-	@cd tests && bash run_tests.sh unit/test_services.sh
-	@cd tests && bash run_tests.sh unit/test_modules.sh
-	@cd tests && bash run_tests.sh unit/test_edge_cases.sh
-	@cd tests && bash run_tests.sh unit/test_error_handling.sh
-	@cd tests && bash run_tests.sh unit/test_performance.sh
-	@cd tests && bash run_tests.sh unit/test_compatibility.sh
-	@cd tests && bash run_tests.sh unit/test_security_improvements.sh
+test-static: ## Level 0: static analysis (lint, syntax, CRLF, shellcheck)
+	@echo "$(BLUE)Running static tests (Level 0)...$(NC)"
+	@cd tests && bash run_tests.sh static/
 
-test-integration: ## Run integration tests only
-	@echo "$(BLUE)Running integration tests...$(NC)"
-	@bash tests/integration/test_docker.sh
+test-unit: ## Level 1: unit tests (isolated functions)
+	@echo "$(BLUE)Running unit tests (Level 1)...$(NC)"
+	@cd tests && bash run_tests.sh unit/
 
-test-security: ## Run security tests only
-	@echo "$(BLUE)Running security tests...$(NC)"
-	@bash tests/security/test_security.sh
+test-integration: ## Level 3: integration tests (multi-module)
+	@echo "$(BLUE)Running integration tests (Level 3)...$(NC)"
+	@cd tests && bash run_tests.sh integration/
 
-test-syntax: ## Run syntax validation only
-	@echo "$(BLUE)Running syntax validation...$(NC)"
-	@cd tests && bash run_tests.sh unit/test_syntax.sh
+test-e2e: ## Level 5: end-to-end tests (entry point)
+	@echo "$(BLUE)Running E2E tests (Level 5)...$(NC)"
+	@cd tests && bash run_tests.sh e2e/
 
-test-security-improvements: ## Run security improvements tests only
-	@echo "$(BLUE)Running security improvements tests...$(NC)"
-	@cd tests && bash run_tests.sh unit/test_security_improvements.sh
+test-security: ## Level 7: security tests (password, sanitization, hardening)
+	@echo "$(BLUE)Running security tests (Level 7)...$(NC)"
+	@cd tests && bash run_tests.sh security/
 
 # ============================================================================
 # DOCKER

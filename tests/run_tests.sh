@@ -1,14 +1,20 @@
 #!/bin/bash
 # shellcheck disable=SC2155,SC2034,SC2086
 # ============================================================================
-# TEST RUNNER (clean rewrite)
+# TEST RUNNER — Pyramid Strategy
 # ============================================================================
-# Auto-discovers and runs all test files under tests/unit/ and tests/integration/.
-# Each test file sources tests/lib/test_framework.sh and uses begin_suite/end_suite.
+# Auto-discovers and runs all test files, organized by testing pyramid level:
+#
+#   static/       → Level 0: lint, syntax, CRLF, shellcheck
+#   unit/         → Level 1: isolated function tests
+#   integration/  → Level 3: multi-module interaction tests
+#   e2e/          → Level 5: entry-point and full-flow tests
+#   security/     → Level 7: password policy, sanitization, hardening
 #
 # Usage:
-#   ./run_tests.sh                 # Run all tests
-#   ./run_tests.sh unit/core/      # Run tests matching a path prefix
+#   ./run_tests.sh                 # Run all levels in order
+#   ./run_tests.sh static/         # Run only static tests
+#   ./run_tests.sh unit/           # Run only unit tests
 #   ./run_tests.sh -l              # List available tests
 #   ./run_tests.sh -h              # Show help
 # ============================================================================
@@ -22,55 +28,82 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Pyramid levels in execution order (fastest first)
+LEVELS=(static unit integration e2e security)
+
 total_passed=0
 total_failed=0
 total_suites=0
+declare -A level_results
 
 show_help() {
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}  Test Runner${NC}"
+    echo -e "${BLUE}  Test Runner (Pyramid Strategy)${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
-    echo "Usage: $0 [options] [path_prefix]"
+    echo "Usage: $0 [options] [level_prefix]"
     echo ""
     echo "Options:"
     echo "  -h, --help           Show this help message"
     echo "  -l, --list           List available tests"
-    echo "  path_prefix          Run tests matching a path prefix"
-    echo "                       (e.g. 'unit/core/' or 'unit/')"
+    echo "  level_prefix         Run tests for a specific level:"
+    echo "                       static, unit, integration, e2e, security"
+    echo ""
+    echo "Pyramid levels (run in order):"
+    echo "  static/      Level 0: lint, syntax, CRLF, shellcheck"
+    echo "  unit/        Level 1: isolated function tests"
+    echo "  integration/  Level 3: multi-module interaction"
+    echo "  e2e/         Level 5: entry-point and full-flow"
+    echo "  security/    Level 7: password policy, sanitization"
     echo ""
     echo "Examples:"
-    echo "  $0                        # Run all tests"
-    echo "  $0 unit/core/             # Run only core unit tests"
-    echo "  $0 unit/security/         # Run only security tests"
+    echo "  $0                        # Run all levels"
+    echo "  $0 static/                # Run only static tests"
+    echo "  $0 unit/core/              # Run only core unit tests"
     echo "  $0 -l                     # List all tests"
     echo ""
 }
 
 list_tests() {
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}  Available Tests${NC}"
+    echo -e "${BLUE}  Available Tests (by level)${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
     local count=0
-    while IFS= read -r test_file; do
-        local rel="${test_file#$SCRIPT_DIR/}"
-        echo -e "  ${GREEN}$rel${NC}"
-        count=$((count + 1))
-    done < <(find "$SCRIPT_DIR" -name "test_*.sh" -type f -not -path "*/lib/*" | sort)
-    echo ""
+    for level in "${LEVELS[@]}"; do
+        local level_dir="$SCRIPT_DIR/$level"
+        if [[ -d "$level_dir" ]]; then
+            echo -e "${BLUE}[$level]${NC}"
+            while IFS= read -r test_file; do
+                local rel="${test_file#$SCRIPT_DIR/}"
+                echo -e "  ${GREEN}$rel${NC}"
+                count=$((count + 1))
+            done < <(find "$level_dir" -name "test_*.sh" -type f | sort)
+            echo ""
+        fi
+    done
     echo "Total: $count test files"
     echo ""
 }
 
-# Discover all test files (exclude lib/ which contains the framework)
+# Discover test files for a given level (or all if empty)
 discover_tests() {
     local filter="$1"
-    find "$SCRIPT_DIR" -name "test_*.sh" -type f -not -path "*/lib/*" | sort | while read -r f; do
-        local rel="${f#$SCRIPT_DIR/}"
-        if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
-            echo "$f"
+    for level in "${LEVELS[@]}"; do
+        local level_dir="$SCRIPT_DIR/$level"
+        if [[ ! -d "$level_dir" ]]; then
+            continue
         fi
+        # If filter starts with a level name, only run that level
+        if [[ -n "$filter" ]] && [[ "$filter" != "$level"* ]]; then
+            continue
+        fi
+        while IFS= read -r f; do
+            local rel="${f#$SCRIPT_DIR/}"
+            if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
+                echo "$f"
+            fi
+        done < <(find "$level_dir" -name "test_*.sh" -type f | sort)
     done
 }
 
@@ -88,7 +121,7 @@ else
 fi
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Running Test Suite${NC}"
+echo -e "${BLUE}  Running Test Suite (Pyramid)${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
