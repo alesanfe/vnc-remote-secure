@@ -1,7 +1,5 @@
 #!/bin/bash
 # shellcheck disable=SC2034
-set -e
-set -o pipefail
 # ============================================================================
 # STRUCTURED LOGGING SYSTEM
 # ============================================================================
@@ -15,8 +13,13 @@ declare -gA LOG_LEVELS=(
     ["FATAL"]=4
 )
 
-# Default log level
-CURRENT_LOG_LEVEL="${LOG_LEVELS[${LOG_LEVEL:-INFO}]}"
+# Default log level (uppercase to match LOG_LEVELS keys, accepts lowercase input)
+_log_level_key="${LOG_LEVEL:-INFO}"
+CURRENT_LOG_LEVEL="${LOG_LEVELS[${_log_level_key^^}]}"
+if [[ -z "$CURRENT_LOG_LEVEL" ]]; then
+    CURRENT_LOG_LEVEL="${LOG_LEVELS[INFO]}"
+fi
+unset _log_level_key
 
 # Color definitions
 declare -gA LOG_COLORS=(

@@ -71,7 +71,8 @@ test_strength_accepts_strong() {
 
 test_config_fails_with_defaults() {
     setup
-    # config.sh defaults: TTYD_PASSWD=changeme, VNC_PASSWORD=YourStrongPassword123, etc.
+    # config.sh now generates random strong passwords, but EMAIL still
+    # defaults to user@example.com which validate_config rejects.
     assert_failure validate_config
 }
 
