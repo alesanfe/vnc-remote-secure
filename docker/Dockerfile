@@ -18,8 +18,15 @@ RUN apt-get update && apt-get install -y \
     lsof \
     iproute2 \
     ca-certificates \
+    openssl \
+    python3 \
+    python3-pip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies from requirements.txt
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
 # Create test user
 RUN useradd -m -s /bin/bash testuser && \
@@ -32,13 +39,10 @@ WORKDIR /app
 # Copy project files
 COPY . /app/
 
-# Make scripts executable
+# Make scripts executable (recursive, matches modular subfolder layout)
 RUN chmod +x /app/src/rpi-vnc-remote.sh && \
-    chmod +x /app/src/lib/*.sh && \
-    chmod +x /app/tests/*.sh && \
-    chmod +x /app/tests/unit/*.sh && \
-    chmod +x /app/tests/integration/*.sh && \
-    chmod +x /app/tests/security/*.sh
+    find /app/src/lib -name '*.sh' -type f -exec chmod +x {} \; && \
+    find /app/tests -name '*.sh' -type f -exec chmod +x {} \;
 
 # Set default command
 CMD ["/bin/bash"]

@@ -144,6 +144,9 @@ test_validate_config_defaults_pass_in_chain() {
     local rc
     rc=$( (
         set +e
+        # Unset password variables so config.sh generates fresh random ones,
+        # ignoring any values inherited from .env via the Makefile.
+        unset TTYD_PASSWD TEMP_USER_PASS VNC_PASSWORD USER_UI_PASSWORD
         source "$PROJECT_ROOT/src/lib/core/config.sh"
         source "$PROJECT_ROOT/src/lib/core/logging.sh"
         source "$PROJECT_ROOT/src/lib/core/validation.sh"

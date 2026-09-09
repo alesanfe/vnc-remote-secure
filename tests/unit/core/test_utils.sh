@@ -71,6 +71,9 @@ test_strength_accepts_strong() {
 # --- validate_config (with secure defaults) ---
 
 test_config_passes_with_defaults() {
+    # Unset password variables so config.sh generates fresh random ones,
+    # ignoring any values inherited from .env via the Makefile.
+    unset TTYD_PASSWD TEMP_USER_PASS VNC_PASSWORD USER_UI_PASSWORD
     setup
     # config.sh now generates random strong passwords and EMAIL defaults
     # to empty (optional, only needed for SSL). All defaults are secure,

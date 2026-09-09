@@ -49,8 +49,115 @@ VNC_PASSWORD=your_vnc_password
 # Advanced options
 LOG_LEVEL=info
 VERBOSE=false
+
+# ============================================================================
+# NEW MODULAR ARCHITECTURE OPTIONS (v2.0)
+# ============================================================================
+
+# Logging configuration
+LOG_FILE=./logs/system.log  # Log file location
+SHOW_LOGS=true             # Enable log viewing
+
+# Error handling configuration
+MAX_RETRY_ATTEMPTS=3        # Maximum retry attempts for failed operations
+RETRY_BACKOFF_MULTIPLIER=2 # Backoff multiplier for retries
+INITIAL_RETRY_DELAY=1      # Initial retry delay in seconds
+AUTO_RESTART=false          # Auto-restart failed services
+
+# Validation configuration
+STRICT_VALIDATION=true      # Enable strict input validation
+CLEANUP_ON_EXIT=true        # Clean up resources on script exit
+
+# Process management configuration
+GRACEFUL_TIMEOUT=10         # Timeout for graceful process termination
+FORCE_CLEANUP_TIMEOUT=2    # Timeout for force cleanup
+
+# Performance configuration
+CONNECTION_TIMEOUT=30       # Connection timeout in seconds
+MAX_CONNECTIONS=10          # Maximum concurrent connections
+VERBOSE=false
 AUTO_START=false
 ```
+
+## 🆕 New Modular Architecture Features (v2.0)
+
+### Enhanced Logging System
+
+The new modular architecture includes a structured logging system with multiple levels:
+
+```bash
+# Logging levels: DEBUG, INFO, WARN, ERROR, FATAL
+LOG_LEVEL=info              # Default logging level
+LOG_FILE=./logs/system.log  # Optional log file output
+SHOW_LOGS=true             # Enable log viewing
+```
+
+**Features:**
+- Multi-level logging with colors and timestamps
+- File logging support
+- Component-specific logging
+- Performance and security event logging
+
+### Advanced Input Validation
+
+Comprehensive validation system for all user inputs:
+
+```bash
+STRICT_VALIDATION=true      # Enable strict validation rules
+```
+
+**Validated Inputs:**
+- **Passwords**: Minimum 8 chars, complexity requirements, weak password detection
+- **Ports**: Range validation (1-65535), privilege warnings
+- **Domains**: Format validation, localhost warnings
+- **Emails**: Format validation, domain blacklist
+- **Usernames**: Reserved name checking, format validation
+
+### Graceful Process Management
+
+Replaced aggressive `kill -9` with intelligent process termination:
+
+```bash
+GRACEFUL_TIMEOUT=10         # Timeout for graceful termination
+FORCE_CLEANUP_TIMEOUT=2    # Timeout for force cleanup
+```
+
+**Features:**
+- Timeout-based termination with SIGTERM → SIGKILL progression
+- User process isolation and cleanup
+- Service-specific recovery actions
+- Network resource cleanup
+
+### Error Handling & Recovery
+
+Automatic error recovery with retry mechanisms:
+
+```bash
+MAX_RETRY_ATTEMPTS=3        # Maximum retry attempts
+RETRY_BACKOFF_MULTIPLIER=2 # Exponential backoff
+INITIAL_RETRY_DELAY=1      # Initial delay in seconds
+AUTO_RESTART=false          # Auto-restart failed services
+```
+
+**Features:**
+- Error pattern detection and tracking
+- Automatic retry with exponential backoff
+- Service-specific recovery actions
+- Error statistics and reporting
+
+### Enhanced Security
+
+Improved security features:
+
+```bash
+CLEANUP_ON_EXIT=true        # Automatic resource cleanup
+```
+
+**Features:**
+- Automatic user process cleanup on exit
+- Temporary file cleanup
+- Network resource cleanup
+- SSL certificate permission management
 
 ## 🔧 Core Configuration
 
@@ -166,21 +273,6 @@ FAIL2BAN_ENABLED=true
 FAIL2BAN_MAX_RETRY=5          # Max failed attempts
 FAIL2BAN_FINDTIME=600         # Time window (10 minutes)
 FAIL2BAN_BANTIME=3600         # Ban duration (1 hour)
-```
-
-### Port Knocking
-
-```bash
-# Enable port knocking
-PORT_KNOCK_ENABLED=false
-
-# Knock sequence (comma-separated ports)
-PORT_KNOCK_SEQUENCE=1000,2000,3000
-
-# Knock settings
-PORT_KNOCK_TIMEOUT=5
-PORT_KNOCK_METHOD=iptables
-PORT_KNOCK_INTERFACE=eth0
 ```
 
 ### User Management UI
@@ -446,7 +538,7 @@ nano .env
 | **Required** | `TTYD_PASSWD`, `VNC_PASSWORD` | Essential authentication |
 | **Network** | `*_PORT`, `NGINX_ENABLED` | Network and port settings |
 | **SSL** | `DUCK_DOMAIN`, `EMAIL` | Certificate configuration |
-| **Security** | `FAIL2BAN_*`, `PORT_KNOCK_*` | Security features |
+| **Security** | `FAIL2BAN_*` | Security features |
 | **Monitoring** | `HEALTHCHECK_*`, `MONITORING_*` | System monitoring |
 | **Advanced** | `LOG_LEVEL`, `VERBOSE` | Debugging and logging |
 

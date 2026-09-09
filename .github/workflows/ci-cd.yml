@@ -1,0 +1,188 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Syntax and Code Quality Checks
+  syntax-check:
+    name: Syntax Check & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          pip install flake8 black
+
+      - name: Run make lint-strict (shellcheck, fail on warnings)
+        run: make lint-strict
+
+      - name: Run bash syntax checks
+        run: |
+          find src tests -name '*.sh' -type f -print0 | xargs -0 -r -I{} bash -n {}
+
+      - name: Run flake8 on Python files
+        run: |
+          find src tests -name '*.py' -type f -print0 | xargs -0 -r flake8 --max-line-length=120
+
+      - name: Run black format check on Python files
+        run: |
+          find src tests -name '*.py' -type f -print0 | xargs -0 -r black --check --line-length=120
+
+  # Unit Tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: syntax-check
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+
+      - name: Run unit tests (via Makefile)
+        run: make test-unit
+
+  # Integration Tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run integration tests (via Makefile)
+        run: make test-integration
+
+  # Security Tests
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    needs: syntax-check
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run security tests (via Makefile)
+        run: make test-security
+
+  # Build and Test Docker Image
+  build-test:
+    name: Build and Test Docker
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file docker/Dockerfile \
+            --tag rpi-vnc-remote:test \
+            --load \
+            .
+
+      - name: Test Docker image
+        run: |
+          # Run the test suite inside the Docker container
+          docker run --rm \
+            --name test-container \
+            rpi-vnc-remote:test \
+            bash -c "cd /app/tests && bash run_tests.sh"
+
+  # Deploy to Production (only on main branch)
+  # NOTE: This job is a placeholder. Deployment commands are commented out.
+  #       Fill in the SSH/docker pull commands when the production server is ready.
+  deploy-production:
+    name: Deploy to Production (placeholder)
+    runs-on: ubuntu-latest
+    needs: [build-test, security-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push production image
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file docker/Dockerfile \
+            --tag ${{ secrets.DOCKER_REGISTRY }}/rpi-vnc-remote:latest \
+            --tag ${{ secrets.DOCKER_REGISTRY }}/rpi-vnc-remote:${{ github.sha }} \
+            --push \
+            .
+
+      - name: Deploy to production server (placeholder)
+        run: |
+          echo "Placeholder: deployment commands are not yet implemented."
+          echo "Uncomment and fill in the SSH/docker pull commands when the production server is ready."
+          # ssh user@server "docker pull ${{ secrets.DOCKER_REGISTRY }}/rpi-vnc-remote:latest && docker-compose up -d"
+
+  # Deploy to Staging (on develop branch)
+  # NOTE: This job is a placeholder. Deployment commands are commented out.
+  deploy-staging:
+    name: Deploy to Staging (placeholder)
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging (placeholder)
+        run: |
+          echo "Placeholder: staging deployment commands are not yet implemented."
+          echo "Uncomment and fill in the SSH/docker-compose commands when the staging server is ready."
+          # ssh user@staging "docker-compose -f docker-compose.staging.yml up -d"
+
+  # Notify on success
+  notify-success:
+    name: Notify Success
+    runs-on: ubuntu-latest
+    needs: [deploy-production, deploy-staging]
+    if: always()
+    steps:
+      - name: Send notification
+        run: |
+          if [ "${{ needs.deploy-production.result }}" == "success" ] || [ "${{ needs.deploy-staging.result }}" == "success" ]; then
+            echo "✅ Deployment completed successfully"
+            # Add webhook notification here
+          else
+            echo "❌ Deployment failed"
+            # Add failure notification here
+          fi

@@ -1,0 +1,34 @@
+# Pre-commit hooks for Raspberry Pi VNC Remote
+# Install: pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ["--exclude=SC1091,SC2034,SC2155"]
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.9.0
+    hooks:
+      - id: shfmt
+        args: ["-i", "4", "-ci", "-bn"]
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        files: \.py$
+        args: ["--max-line-length=120"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        files: \.py$
+        args: ["--line-length=120"]
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ["-d", "{rules: {line-length: disable}}"]

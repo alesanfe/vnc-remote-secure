@@ -202,9 +202,6 @@ nano .env
 # Check firewall status
 sudo ufw status
 
-# Check iptables rules
-sudo iptables -L
-
 # Test port accessibility
 telnet localhost 6080
 ```

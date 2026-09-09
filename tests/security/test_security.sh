@@ -130,6 +130,9 @@ test_sanitize_preserves_safe_text() {
 # ============================================================================
 
 test_defaults_are_secure() {
+    # Unset password variables so config.sh generates fresh random ones,
+    # ignoring any values inherited from .env via the Makefile.
+    unset TTYD_PASSWD TEMP_USER_PASS VNC_PASSWORD USER_UI_PASSWORD
     setup
     # With default values, validate_config should succeed because:
     # - Passwords are randomly generated (strong)

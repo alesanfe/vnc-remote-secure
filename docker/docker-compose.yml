@@ -42,4 +42,4 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    command: bash -c "cd /app/tests && ./unit/test_syntax.sh"
+    command: bash -c "cd /app/tests && ./run_tests.sh"

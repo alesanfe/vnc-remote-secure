@@ -72,30 +72,6 @@ limit_req_zone $binary_remote_addr zone=terminal_limit:10m rate=5r/s;
 - **Burst Handling**: Temporary traffic spikes are accommodated
 - **Adaptive Response**: Limits adjust based on system load
 
-### Port Knocking (Optional)
-
-**Stealth Mode Operation:**
-Port knocking adds an additional layer of security by hiding services from unauthorized scanners:
-
-```bash
-# Port knocking sequence
-PORT_KNOCK_SEQUENCE=1000,2000,3000
-PORT_KNOCK_TIMEOUT=5
-PORT_KNOCK_METHOD=iptables
-```
-
-**How Port Knocking Works:**
-1. **Closed Ports**: Services appear closed to unauthorized scanners
-2. **Secret Sequence**: Correct sequence of port knocks opens access temporarily
-3. **Time Window**: Access is granted for a limited time after correct sequence
-4. **Automatic Closure**: Ports automatically close after timeout
-
-**Security Advantages:**
-- **Stealth**: Services don't appear in port scans
-- **Authentication**: Only those knowing the sequence can gain access
-- **Flexibility**: Sequences can be changed regularly
-- **Logging**: All knock attempts are logged for security monitoring
-
 ## 🔍 Monitoring and Detection
 
 Effective security requires continuous monitoring and threat detection capabilities.
@@ -162,19 +138,6 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 For enhanced security in production environments, consider these advanced configurations.
 
 ### Firewall Configuration
-
-**iptables Rules:**
-Implement additional firewall rules for enhanced security:
-
-```bash
-# Basic firewall rules
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT          # SSH (if needed)
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT          # HTTP for SSL
-iptables -A INPUT -p tcp --dport 443 -j ACCEPT         # HTTPS
-iptables -A INPUT -p tcp --dport 6080 -j DROP          # Block direct VNC
-iptables -A INPUT -p tcp --dport 5000 -j DROP          # Block direct terminal
-iptables -A INPUT -j DROP                               # Drop everything else
-```
 
 **UFW Configuration:**
 ```bash
