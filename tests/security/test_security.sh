@@ -129,11 +129,14 @@ test_sanitize_preserves_safe_text() {
 # Config Hardening
 # ============================================================================
 
-test_defaults_block_startup() {
+test_defaults_are_secure() {
     setup
-    # With default insecure values, validate_config MUST fail
+    # With default values, validate_config should succeed because:
+    # - Passwords are randomly generated (strong)
+    # - EMAIL defaults to empty (optional, only needed for SSL)
+    # - DUCK_DOMAIN defaults to empty (optional)
     check_port_available() { return 0; }
-    assert_failure validate_config
+    assert_success validate_config
 }
 
 test_temp_user_removed_by_default() {
@@ -227,7 +230,7 @@ run_test "Sanitize escapes < and >" test_sanitize_escapes_angle_brackets
 run_test "Sanitize escapes quotes" test_sanitize_escapes_quotes
 run_test "Sanitize blocks <script> injection" test_sanitize_handles_script_injection
 run_test "Sanitize preserves safe text" test_sanitize_preserves_safe_text
-run_test "Defaults block startup (insecure config rejected)" test_defaults_block_startup
+run_test "Defaults are secure (validate_config passes)" test_defaults_are_secure
 run_test "Temp user removed by default" test_temp_user_removed_by_default
 run_test "Optional security features disabled by default" test_optional_features_disabled_by_default
 run_test "SSL enabled by default" test_ssl_enabled_by_default

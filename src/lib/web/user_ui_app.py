@@ -1,137 +1,272 @@
 #!/usr/bin/env python3
 """
-User Management UI for Raspberry Pi VNC Remote
-Provides web interface for user management
+User Management UI for Raspberry Pi VNC Remote.
+Provides web interface for user management.
 """
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash
-from functools import wraps
-import subprocess
 import os
-import secrets
 import re
+import secrets
+import subprocess
+import time
+from collections import defaultdict
+from functools import wraps
+
+from flask import (Flask, flash, redirect, render_template, request,
+                   session, url_for)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
 
-ADMIN_PASSWORD = os.environ.get('USER_UI_PASSWORD', 'admin123')
+# Session cookie security settings
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=1800,
+)
+
+# Session timeout in seconds (default: 30 minutes)
+SESSION_TIMEOUT = int(os.environ.get('USER_UI_SESSION_TIMEOUT', '1800'))
+
+# Reserved usernames that cannot be created or deleted via the UI
+RESERVED_USERNAMES = {'root', 'pi', 'admin', 'daemon', 'bin', 'sys', 'nobody'}
+
+# Hash the admin password at startup using werkzeug (salted pbkdf2)
+_ADMIN_PASSWORD = os.environ.get('USER_UI_PASSWORD', '')
+_ADMIN_PASSWORD_HASH = generate_password_hash(_ADMIN_PASSWORD) if _ADMIN_PASSWORD else ''
+
+# Simple in-memory rate limiter for login attempts
+# Maps IP -> list of timestamps of failed attempts
+_LOGIN_ATTEMPTS = defaultdict(list)
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW = 300  # 5 minutes
+
+
+def _is_rate_limited(client_ip):
+    """Check if the IP has exceeded the login attempt limit."""
+    now = time.time()
+    # Remove attempts outside the window
+    _LOGIN_ATTEMPTS[client_ip] = [
+        t for t in _LOGIN_ATTEMPTS[client_ip] if now - t < _LOGIN_WINDOW
+    ]
+    return len(_LOGIN_ATTEMPTS[client_ip]) >= _LOGIN_MAX_ATTEMPTS
+
+
+def _record_failed_attempt(client_ip):
+    """Record a failed login attempt for rate limiting."""
+    _LOGIN_ATTEMPTS[client_ip].append(time.time())
+
+
+def _clear_failed_attempts(client_ip):
+    """Clear failed attempts after successful login."""
+    _LOGIN_ATTEMPTS.pop(client_ip, None)
+
+
+def _verify_password(password, stored_hash):
+    """Verify a password against a stored hash using constant-time comparison."""
+    if not stored_hash:
+        return False
+    return check_password_hash(stored_hash, password)
+
 
 # Input sanitization
 def sanitize_username(username):
-    """Sanitize username to prevent command injection"""
+    """Sanitize username to prevent command injection."""
     if not username:
         return None
     # Only allow alphanumeric, underscore, hyphen, and dot
     if not re.match(r'^[a-zA-Z0-9_.-]+$', username):
         return None
-    # Limit length
     if len(username) > 32:
         return None
     return username
 
+
 def sanitize_string(input_str):
-    """Basic string sanitization"""
+    """Basic string sanitization: remove shell metacharacters and control chars."""
     if not input_str:
         return None
-    # Remove potentially dangerous characters
-    return re.sub(r'[;&|`$()]', '', str(input_str))
+    # Remove shell metacharacters, newlines, colons, and control characters
+    # Colons and newlines are dangerous when passed to chpasswd
+    sanitized = re.sub(r'[;&|`$()\n\r:\x00-\x1f]', '', str(input_str))
+    return sanitized if sanitized else None
 
-def login_required(f):
-    @wraps(f)
+
+def login_required(view):
+    """Decorator that enforces login and session timeout."""
+    @wraps(view)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
             return redirect(url_for('login'))
-        return f(*args, **kwargs)
+        if session.get('login_time') and \
+                (time.time() - session['login_time']) > SESSION_TIMEOUT:
+            session.clear()
+            flash('Session expired. Please log in again.')
+            return redirect(url_for('login'))
+        return view(*args, **kwargs)
     return decorated_function
+
+
+def validate_csrf_token():
+    """Validate the CSRF token from the form against the session."""
+    token = request.form.get('csrf_token') or request.headers.get('X-CSRF-Token')
+    return (token and session.get('csrf_token')
+            and secrets.compare_digest(token, session['csrf_token']))
+
+
+def require_csrf(view):
+    """Decorator for POST routes that validates CSRF token."""
+    @wraps(view)
+    def decorated_function(*args, **kwargs):
+        if not validate_csrf_token():
+            flash('Invalid or missing CSRF token. Please try again.')
+            return redirect(url_for('users'))
+        return view(*args, **kwargs)
+    return decorated_function
+
 
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html')
+    """Render the index page."""
+    return render_template('index.html', csrf_token=session.get('csrf_token', ''))
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """Handle login (GET shows form, POST validates password)."""
+    client_ip = request.remote_addr or ''
     if request.method == 'POST':
-        password = request.form.get('password')
-        if password == ADMIN_PASSWORD:
+        if _is_rate_limited(client_ip):
+            flash('Too many login attempts. Please try again later.')
+            return render_template('login.html')
+        password = request.form.get('password', '')
+        if _verify_password(password, _ADMIN_PASSWORD_HASH):
+            _clear_failed_attempts(client_ip)
             session['logged_in'] = True
+            session['login_time'] = time.time()
+            session['csrf_token'] = secrets.token_hex(32)
             return redirect(url_for('index'))
-        else:
-            flash('Invalid password')
+        _record_failed_attempt(client_ip)
+        flash('Invalid password')
     return render_template('login.html')
 
-@app.route('/logout')
+
+@app.route('/logout', methods=['POST'])
+@require_csrf
 def logout():
-    session.pop('logged_in', None)
+    """Clear session and redirect to login (POST-only + CSRF to prevent abuse)."""
+    session.clear()
     return redirect(url_for('login'))
+
 
 @app.route('/users')
 @login_required
 def users():
+    """List system users."""
     try:
-        result = subprocess.run(['getent', 'passwd'], capture_output=True, text=True)
-        users = []
+        result = subprocess.run(
+            ['getent', 'passwd'],
+            capture_output=True, text=True, check=False,
+        )
+        user_list = []
         for line in result.stdout.split('\n'):
             if line:
                 parts = line.split(':')
-                users.append({'username': parts[0], 'uid': parts[2], 'home': parts[5]})
-        return render_template('users.html', users=users)
-    except Exception as e:
-        return f"Error: {str(e)}"
+                if len(parts) >= 7:
+                    user_list.append({
+                        'username': parts[0],
+                        'uid': parts[2],
+                        'home': parts[5],
+                    })
+        return render_template(
+            'users.html',
+            users=user_list,
+            csrf_token=session.get('csrf_token', ''),
+            RESERVED_USERNAMES=RESERVED_USERNAMES,
+        )
+    except Exception:  # pylint: disable=broad-except
+        return 'Internal Server Error', 500
+
 
 @app.route('/create_user', methods=['POST'])
 @login_required
+@require_csrf
 def create_user():
+    """Create a new system user."""
     username = sanitize_username(request.form.get('username'))
     password = sanitize_string(request.form.get('password'))
-    
+
     if not username:
         flash('Invalid username format')
         return redirect(url_for('users'))
-    
+
     if not password or len(password) < 8:
         flash('Password must be at least 8 characters')
         return redirect(url_for('users'))
-    
-    if username in ['root', 'pi', 'admin']:
+
+    if username in RESERVED_USERNAMES:
         flash('Cannot create system users')
         return redirect(url_for('users'))
-    
+
+    user_created = False
     try:
-        subprocess.run(['sudo', 'useradd', '-m', '-s', '/bin/bash', username], check=True)
-        # Fixed chpasswd command
-        process = subprocess.Popen(['sudo', 'chpasswd'], stdin=subprocess.PIPE, text=True)
-        process.communicate(input=f'{username}:{password}\n')
-        if process.returncode != 0:
-            raise Exception('chpasswd failed')
+        subprocess.run(
+            ['sudo', 'useradd', '-m', '-s', '/bin/bash', username],
+            check=True,
+        )
+        user_created = True
+        with subprocess.Popen(
+            ['sudo', 'chpasswd'],
+            stdin=subprocess.PIPE, text=True,
+        ) as process:
+            process.communicate(input=f'{username}:{password}\n')
+            if process.returncode != 0:
+                raise RuntimeError('chpasswd failed')
         flash(f'User {username} created successfully')
-    except Exception as e:
-        flash(f'Error creating user: {str(e)}')
-        # Cleanup if user creation partially succeeded
-        subprocess.run(['sudo', 'deluser', '--remove-home', username], stderr=subprocess.DEVNULL)
-    
+    except Exception:  # pylint: disable=broad-except
+        flash('Error creating user. Check server logs for details.')
+        # Only cleanup if useradd succeeded (don't delete pre-existing users)
+        if user_created:
+            subprocess.run(
+                ['sudo', 'deluser', '--remove-home', username],
+                stderr=subprocess.DEVNULL, check=False,
+            )
+
     return redirect(url_for('users'))
 
-@app.route('/delete_user/<username>')
+
+@app.route('/delete_user/<username>', methods=['POST'])
 @login_required
+@require_csrf
 def delete_user(username):
+    """Delete a system user."""
     username = sanitize_username(username)
-    
+
     if not username:
         flash('Invalid username')
         return redirect(url_for('users'))
-    
-    if username in ['root', 'pi', 'admin', os.environ.get('USER', '')]:
+
+    if username in RESERVED_USERNAMES or username == os.environ.get('USER', ''):
         flash('Cannot delete system users')
         return redirect(url_for('users'))
-    
+
     try:
-        subprocess.run(['sudo', 'deluser', '--remove-home', username], check=True)
+        subprocess.run(
+            ['sudo', 'deluser', '--remove-home', username],
+            check=True,
+        )
         flash(f'User {username} deleted successfully')
-    except Exception as e:
-        flash(f'Error deleting user: {str(e)}')
-    
+    except Exception as exc:  # pylint: disable=broad-except
+        flash(f'Error deleting user: {exc}')
+
     return redirect(url_for('users'))
 
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('USER_UI_PORT', 8081)), debug=False)
+    app.run(
+        host='127.0.0.1',
+        port=int(os.environ.get('USER_UI_PORT', 8081)),
+        debug=False,
+    )

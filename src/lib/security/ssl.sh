@@ -1,6 +1,5 @@
 #!/bin/bash
 # shellcheck disable=SC2155
-set -o pipefail
 # ============================================================================
 # SSL MANAGEMENT
 # ============================================================================
@@ -30,13 +29,13 @@ check_ssl_expiry() {
 
 generate_ssl_certificates() {
     log "yellow" "Cleaning up old SSL certificates..."
-    sudo rm -rf ./ssl 2>/dev/null || true
+    sudo rm -rf "$SSL_DIR" 2>/dev/null || true
     sudo rm -f "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
 
     log "cyan" "Generating new SSL certificates for $DUCK_DOMAIN"
     install_dependencies
 
-    mkdir -p ./ssl
+    mkdir -p "$SSL_DIR"
 
     # Check if port 80 is available and stop nginx if needed
     if sudo netstat -tulpn 2>/dev/null | grep -q ':80 '; then

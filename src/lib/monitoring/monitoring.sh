@@ -19,11 +19,13 @@ install_node_exporter() {
             aarch64) arch="arm64" ;;
         esac
 
-        wget https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-${arch}.tar.gz -O /tmp/node_exporter.tar.gz
-        tar -xzf /tmp/node_exporter.tar.gz -C /tmp
-        sudo mv /tmp/node_exporter-1.6.1.linux-${arch}/node_exporter /usr/local/bin/
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        wget --timeout=60 --tries=3 https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-${arch}.tar.gz -O "$tmpdir/node_exporter.tar.gz"
+        tar -xzf "$tmpdir/node_exporter.tar.gz" -C "$tmpdir"
+        sudo mv "$tmpdir/node_exporter-1.6.1.linux-${arch}/node_exporter" /usr/local/bin/
         sudo chmod +x /usr/local/bin/node_exporter
-        rm -rf /tmp/node_exporter*
+        rm -rf "$tmpdir"
     fi
 
     success "Node Exporter installed."
@@ -43,11 +45,13 @@ install_prometheus() {
             aarch64) arch="arm64" ;;
         esac
 
-        wget https://github.com/prometheus/prometheus/releases/download/v2.45.0/prometheus-2.45.0.linux-${arch}.tar.gz -O /tmp/prometheus.tar.gz
-        tar -xzf /tmp/prometheus.tar.gz -C /tmp
-        sudo mv /tmp/prometheus-2.45.0.linux-${arch} /opt/prometheus
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        wget --timeout=60 --tries=3 https://github.com/prometheus/prometheus/releases/download/v2.45.0/prometheus-2.45.0.linux-${arch}.tar.gz -O "$tmpdir/prometheus.tar.gz"
+        tar -xzf "$tmpdir/prometheus.tar.gz" -C "$tmpdir"
+        sudo mv "$tmpdir/prometheus-2.45.0.linux-${arch}" /opt/prometheus
         sudo ln -sf /opt/prometheus/prometheus /usr/local/bin/prometheus
-        rm -rf /tmp/prometheus*
+        rm -rf "$tmpdir"
     fi
 
     success "Prometheus installed."
@@ -122,7 +126,7 @@ admin_password = $grafana_password
 allow_sign_up = false
 EOF
 
-    log "green" "Grafana admin password: $grafana_password"
+    log "green" "Grafana admin password set (check /etc/grafana/grafana.ini or set GRAFANA_ADMIN_PASSWORD)"
 
     success "Grafana configured."
 }

@@ -81,6 +81,11 @@ exec ttyd -c "$cred" "$@"
 TTYD_WRAPPER
     chmod 700 "$wrapper"
 
+    # Fix ownership so TEMP_USER can read cred_file and execute wrapper
+    local user_group
+    user_group=$(id -gn "$TEMP_USER")
+    sudo chown "$TEMP_USER:$user_group" "$cred_file" "$wrapper"
+
     if [[ "$DISABLE_SSL" == true ]] || [[ "$NGINX_ENABLED" == "true" ]]; then
         log "yellow" "Starting ttyd WITHOUT SSL encryption (nginx handles SSL when enabled)"
         sudo -u "$TEMP_USER" "$wrapper" "$cred_file" -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
@@ -88,7 +93,6 @@ TTYD_WRAPPER
         log "green" "Starting ttyd WITH SSL encryption"
         # Ensure SSL certificates have correct permissions
         if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
-            local user_group
             user_group=$(id -gn "$TEMP_USER")
             sudo chown "$TEMP_USER:$user_group" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
             sudo chmod 644 "$SSL_CERT" 2>/dev/null || true

@@ -68,13 +68,15 @@ test_strength_accepts_strong() {
     assert_success validate_password_strength "RealStrong#Pass2024"
 }
 
-# --- validate_config (with insecure defaults) ---
+# --- validate_config (with secure defaults) ---
 
-test_config_fails_with_defaults() {
+test_config_passes_with_defaults() {
     setup
-    # config.sh now generates random strong passwords, but EMAIL still
-    # defaults to user@example.com which validate_config rejects.
-    assert_failure validate_config
+    # config.sh now generates random strong passwords and EMAIL defaults
+    # to empty (optional, only needed for SSL). All defaults are secure,
+    # so validate_config should succeed.
+    check_port_available() { return 0; }
+    assert_success validate_config
 }
 
 # --- validate_config (with secure values) ---
@@ -188,7 +190,7 @@ run_test "strength rejects no uppercase" test_strength_rejects_no_uppercase
 run_test "strength rejects no lowercase" test_strength_rejects_no_lowercase
 run_test "strength rejects no digit" test_strength_rejects_no_digit
 run_test "strength accepts strong password" test_strength_accepts_strong
-run_test "validate_config fails with insecure defaults" test_config_fails_with_defaults
+run_test "validate_config passes with secure defaults" test_config_passes_with_defaults
 run_test "validate_config passes with secure values" test_config_passes_with_secure_values
 run_test "validate_config fails with example.com email" test_config_fails_with_example_email
 run_test "validate_config fails with weak UI password" test_config_fails_with_weak_ui_password

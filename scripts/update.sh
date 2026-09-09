@@ -136,16 +136,16 @@ fi
 # Restart services
 echo -e "\n${YELLOW}🚀 Restarting services...${NC}"
 if confirm_action "Restart all services?"; then
-    if [[ -f "$PROJECT_DIR/rpi-vnc-remote.sh" ]]; then
+    if [[ -f "$PROJECT_DIR/src/rpi-vnc-remote.sh" ]]; then
         echo -e "${BLUE}🔄 Restarting VNC Remote services...${NC}"
         cd "$PROJECT_DIR"
-        
+
         # Stop services
-        "$PROJECT_DIR/rpi-vnc-remote.sh" stop 2>/dev/null || true
+        "$PROJECT_DIR/src/rpi-vnc-remote.sh" stop 2>/dev/null || true
         sleep 2
-        
+
         # Start services
-        "$PROJECT_DIR/rpi-vnc-remote.sh" start
+        "$PROJECT_DIR/src/rpi-vnc-remote.sh" start
         echo -e "${GREEN}✅ Services restarted${NC}"
     else
         echo -e "${YELLOW}⚠️  Main script not found, manual restart required${NC}"

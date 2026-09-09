@@ -76,17 +76,23 @@ send_email_alert() {
 
     local message="$1"
     local level="${2:-info}"
-    local subject="[VNC Remote] $level: $message"
+    # Sanitize message and level for email headers (strip newlines/CR to
+    # prevent header injection)
+    local safe_message="${message//$'\n'/ }"
+    safe_message="${safe_message//$'\r'/ }"
+    local safe_level="${level//$'\n'/ }"
+    safe_level="${safe_level//$'\r'/ }"
+    local subject="[VNC Remote] $safe_level: $safe_message"
 
     if command -v mail &>/dev/null; then
-        echo "$message" | mail -s "$subject" "$ALERT_EMAIL_TO"
+        echo "$safe_message" | mail -s "$subject" "$ALERT_EMAIL_TO"
         success "Email alert sent"
     elif command -v sendmail &>/dev/null; then
         echo "Subject: $subject
 To: $ALERT_EMAIL_TO
 From: $ALERT_EMAIL_FROM
 
-$message" | sendmail -t
+$safe_message" | sendmail -t
         success "Email alert sent"
     else
         warn "mail/sendmail not available for email alerts"

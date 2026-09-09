@@ -74,8 +74,8 @@ if [[ -d "$BACKUP_DIR" ]]; then
     
     if [[ $backup_count -gt 3 ]]; then
         if confirm_action "Remove old backups (keep last 3)?"; then
-            cd "$BACKUP_DIR"
-            ls -t backup_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm
+            # Use a subshell to avoid changing the working directory
+            (cd "$BACKUP_DIR" && ls -t backup_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm)
             echo -e "${GREEN}✅ Old backups removed${NC}"
         fi
     fi
@@ -116,12 +116,9 @@ fi
 
 # Check disk space after cleanup
 echo -e "\n${YELLOW}💽 Disk Space After Cleanup${NC}"
-df -h "$PROJECT_DIR" 2>/dev/null | {
-    read header
-    echo "$header" | while IFS= read -r line; do
-        echo -e "${BLUE}$line${NC}"
-    done
-}
+df -h "$PROJECT_DIR" 2>/dev/null | while IFS= read -r line; do
+    echo -e "${BLUE}$line${NC}"
+done
 
 echo -e "\n${GREEN}✅ Cleanup completed successfully!${NC}"
 echo -e "${BLUE}💡 Run './scripts/health-check.sh' to verify system health${NC}"

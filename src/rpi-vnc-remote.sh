@@ -1,16 +1,33 @@
 #!/bin/bash
-# shellcheck disable=SC1091,SC2034,SC2155,SC2086
+# shellcheck disable=SC1091
 set -e
 set -o pipefail
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+export PROJECT_DIR
 LIB_DIR="$SCRIPT_DIR/lib"
+
+# Load .env file if it exists (from project root or current directory)
+for _env_file in "$PROJECT_DIR/.env" "$PWD/.env"; do
+    if [[ -f "$_env_file" ]]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$_env_file"
+        set +a
+        break
+    fi
+done
+unset _env_file
 
 # Source all modules
 source "$LIB_DIR/core/config.sh"
+source "$LIB_DIR/core/logging.sh"
+source "$LIB_DIR/core/validation.sh"
+source "$LIB_DIR/core/error_handling.sh"
 source "$LIB_DIR/core/utils.sh"
+source "$LIB_DIR/core/process_utils.sh"
 source "$LIB_DIR/security/ssl.sh"
 source "$LIB_DIR/web/nginx.sh"
 source "$LIB_DIR/security/user.sh"
@@ -19,63 +36,61 @@ source "$LIB_DIR/communication/notifications.sh"
 source "$LIB_DIR/security/fail2ban.sh"
 source "$LIB_DIR/monitoring/healthcheck.sh"
 source "$LIB_DIR/monitoring/health_web_server.sh"
-source "$LIB_DIR/security/portknock.sh"
 source "$LIB_DIR/monitoring/monitoring.sh"
 source "$LIB_DIR/features/recording.sh"
 source "$LIB_DIR/web/user_ui.sh"
 source "$LIB_DIR/communication/alerts.sh"
 
-# Handle command line arguments
-handle_command "$1"
-
 # ============================================================================
 # ERROR HANDLING
 # ============================================================================
 
+# Cleanup function for trap: runs on EXIT, INT, TERM, ERR.
+# Stops the health monitor/web server and removes the temp user (unless
+# KEEP_TEMP_USER=true). The 'stop' command calls stop_services() first,
+# then exits 0 which triggers this trap.
+_CLEANING_UP=0
+HEALTH_MONITOR_PID=""
+
 cleanup() {
+    # Guard against double execution (ERR then EXIT)
+    (( _CLEANING_UP )) && return
+    _CLEANING_UP=1
+
     local exit_code=$?
     log "yellow" "Cleaning up..."
-    
+
     # Stop services if they were started
     if [[ "$exit_code" -ne 0 ]]; then
         log "red" "Script failed with exit code: $exit_code"
-        # Attempt to stop services that might have been started
-        pkill -f "tigervncserver" 2>/dev/null || true
-        pkill -f "novnc_proxy" 2>/dev/null || true
-        pkill -f "ttyd" 2>/dev/null || true
+        kill_processes_by_pattern "tigervncserver" 5 || true
+        kill_processes_by_pattern "novnc_proxy" 5 || true
+        kill_processes_by_pattern "ttyd" 5 || true
     fi
-    
+
+    # Stop health monitor (infinite loop in background)
+    if [[ -n "$HEALTH_MONITOR_PID" ]] && kill -0 "$HEALTH_MONITOR_PID" 2>/dev/null; then
+        log "yellow" "Stopping health monitor (PID: $HEALTH_MONITOR_PID)..."
+        kill "$HEALTH_MONITOR_PID" 2>/dev/null || true
+    fi
+
     # Stop health web server
     stop_health_web_server
-    
+
     # Remove temporary user if KEEP_TEMP_USER is false
     if [[ "$KEEP_TEMP_USER" == "false" ]] && id "$TEMP_USER" &>/dev/null; then
         log "yellow" "Removing temporary user: $TEMP_USER"
-        
-        # Kill all processes belonging to the user first
-        sudo pkill -u "$TEMP_USER" 2>/dev/null || true
-        sleep 2
-        sudo pkill -9 -u "$TEMP_USER" 2>/dev/null || true
-        
-        # Kill specific processes that might hold the user
-        sudo pkill -f "ssh-agent.*$TEMP_USER" 2>/dev/null || true
-        sudo pkill -f "/usr/bin/ssh-agent" 2>/dev/null || true
-        
+        kill_user_processes_gracefully "$TEMP_USER" 10 || true
+        kill_processes_by_pattern "ssh-agent.*$TEMP_USER" 5 || true
+        kill_processes_by_pattern "/usr/bin/ssh-agent" 5 || true
         sleep 1
-        
-        # Try to remove the user
         if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
             log "green" "Successfully removed temporary user $TEMP_USER"
         else
-            # Force approach if needed
-            local user_processes=$(ps -u "$TEMP_USER" -o pid= 2>/dev/null | tr -d ' ')
-            if [[ -n "$user_processes" ]]; then
-                for pid in $user_processes; do
-                    sudo kill -9 "$pid" 2>/dev/null || true
-                done
-                sleep 1
+            if ! kill_user_processes_gracefully "$TEMP_USER" 5; then
+                log "yellow" "Some processes still running, attempting final cleanup..."
+                kill_user_processes_gracefully "$TEMP_USER" 2 || true
             fi
-            
             if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
                 log "green" "Successfully removed temporary user $TEMP_USER (force)"
             else
@@ -94,6 +109,9 @@ trap cleanup EXIT INT TERM ERR
 
 main() {
     print_banner
+
+    # Initialize file logging
+    init_logging
 
     print_section "Configuration Validation"
     if ! validate_config; then
@@ -118,14 +136,6 @@ main() {
         start_fail2ban
     fi
 
-    # Setup Port Knocking if enabled
-    if [[ "$PORT_KNOCK_ENABLED" == "true" ]]; then
-        print_section "Port Knocking Configuration"
-        install_knockd
-        configure_knockd
-        setup_port_knocking_firewall
-        start_knockd
-    fi
 
     # Setup Monitoring if enabled
     if [[ "$MONITORING_ENABLED" == "true" ]]; then
@@ -199,11 +209,17 @@ main() {
 
     # Start continuous health monitoring
     start_health_monitor &
-    
+    HEALTH_MONITOR_PID=$!
+
     # Start health web server
     start_health_web_server &
 
     wait
 }
 
-main
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+# Dispatch to the appropriate function based on the first argument.
+# If no command is given, default to 'setup' (full install + start).
+handle_command "${1:-setup}"

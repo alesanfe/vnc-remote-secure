@@ -1,23 +1,24 @@
 #!/bin/bash
 # shellcheck disable=SC2155
-set -e
-set -o pipefail
 # ============================================================================
 # USER MANAGEMENT
 # ============================================================================
 
 get_next_uid() {
-    local last_uid=$(getent passwd | cut -d: -f3 | sort -n | tail -n 1)
-    local next_uid=$((last_uid + 1))
-    
-    # Ensure UID is within valid range (1000-60000)
-    if (( next_uid < 1000 )); then
-        echo 1000
-    elif (( next_uid > 60000 )); then
-        echo 60000
-    else
-        echo "$next_uid"
-    fi
+    # Find the first available UID in the standard non-system range (1000-60000)
+    local used_uids
+    used_uids=$(getent passwd | cut -d: -f3 | sort -n)
+    local uid=1000
+    while (( uid <= 60000 )); do
+        if ! echo "$used_uids" | grep -qx "$uid"; then
+            echo "$uid"
+            return 0
+        fi
+        uid=$((uid + 1))
+    done
+    # Fallback: no free UID in range
+    log "red" "No free UID available in range 1000-60000"
+    return 1
 }
 
 copy_user_config() {
@@ -38,52 +39,42 @@ copy_user_config() {
     sudo chmod 700 "/home/$target_user/.vnc"
 }
 
-create_temp_user() {
-    # Remove existing user and home directory if exists
-    if id "$TEMP_USER" &>/dev/null; then
-        log "yellow" "Removing existing user $TEMP_USER..."
-        
-        # Kill all processes belonging to the user first
-        log "yellow" "Stopping all processes for user $TEMP_USER..."
-        sudo pkill -u "$TEMP_USER" 2>/dev/null || true
-        
-        # Wait a moment for processes to terminate
-        sleep 2
-        
-        # Force kill any remaining processes
-        sudo pkill -9 -u "$TEMP_USER" 2>/dev/null || true
-        
-        # Kill specific processes that might hold the user (ssh-agent, etc.)
-        sudo pkill -f "ssh-agent.*$TEMP_USER" 2>/dev/null || true
-        sudo pkill -f "/usr/bin/ssh-agent" 2>/dev/null || true
-        
-        # Wait again
-        sleep 1
-        
-        # Now try to remove the user
+# Remove an existing temporary user and its home directory.
+# Tries graceful removal first, then force-removes if needed.
+remove_existing_temp_user() {
+    if ! id "$TEMP_USER" &>/dev/null; then
+        return 0
+    fi
+
+    log "yellow" "Removing existing user $TEMP_USER..."
+
+    # Kill all processes belonging to the user gracefully
+    kill_user_processes_gracefully "$TEMP_USER" 10 || true
+
+    # Kill specific processes that might hold the user (ssh-agent, etc.)
+    kill_processes_by_pattern "ssh-agent.*$TEMP_USER" 5 || true
+    kill_processes_by_pattern "/usr/bin/ssh-agent" 5 || true
+
+    sleep 1
+
+    # Now try to remove the user
+    if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
+        log "green" "Successfully removed existing user $TEMP_USER"
+    else
+        # If still failing, try more aggressive approach
+        log "yellow" "Standard removal failed, trying force removal..."
+
+        if ! kill_user_processes_gracefully "$TEMP_USER" 5; then
+            log "yellow" "Some processes still running, attempting final cleanup..."
+            kill_user_processes_gracefully "$TEMP_USER" 2 || true
+        fi
+
         if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
-            log "green" "Successfully removed existing user $TEMP_USER"
+            log "green" "Successfully removed user $TEMP_USER (force)"
         else
-            # If still failing, try more aggressive approach
-            log "yellow" "Standard removal failed, trying force removal..."
-            
-            # Find and kill any remaining processes by PID
-            local user_processes=$(ps -u "$TEMP_USER" -o pid= 2>/dev/null | tr -d ' ')
-            if [[ -n "$user_processes" ]]; then
-                for pid in $user_processes; do
-                    sudo kill -9 "$pid" 2>/dev/null || true
-                done
-                sleep 1
-            fi
-            
-            # Try userdel again
-            if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
-                log "green" "Successfully removed user $TEMP_USER (force)"
-            else
-                log "red" "Failed to remove user $TEMP_USER. Manual intervention required."
-                log "yellow" "Try: sudo pkill -9 -u $TEMP_USER && sudo userdel -r $TEMP_USER"
-                die "Cannot proceed with existing user $TEMP_USER blocking setup"
-            fi
+            log "red" "Failed to remove user $TEMP_USER. Manual intervention required."
+            log "yellow" "Try: kill_user_processes_gracefully $TEMP_USER && sudo userdel -r $TEMP_USER"
+            die "Cannot proceed with existing user $TEMP_USER blocking setup"
         fi
     fi
 
@@ -92,6 +83,11 @@ create_temp_user() {
         log "yellow" "Removing existing home directory /home/$TEMP_USER..."
         sudo rm -rf "/home/$TEMP_USER"
     fi
+}
+
+create_temp_user() {
+    # Remove any existing temp user first
+    remove_existing_temp_user
 
     # Validate TTYD_USERNAME exists
     if ! id "$TTYD_USERNAME" &>/dev/null; then
@@ -106,7 +102,10 @@ create_temp_user() {
 
     # Create user with bash shell
     sudo useradd -m -u "$new_uid" -g "$TTYD_GID" -s /bin/bash "$TEMP_USER"
-    echo "$TEMP_USER:$TEMP_USER_PASS" | sudo chpasswd
+    # Hash the password with SHA-512 + salt to avoid issues with : and \n in chpasswd
+    local hashed_pass
+    hashed_pass=$(openssl passwd -6 "$TEMP_USER_PASS")
+    echo "$TEMP_USER:$hashed_pass" | sudo chpasswd -e
 
     copy_user_config "$TTYD_USERNAME" "$TEMP_USER"
 

@@ -140,7 +140,7 @@ test_validate_config_end_to_end() {
     assert_eq "0" "$rc" "validate_config should pass with secure values in full chain"
 }
 
-test_validate_config_rejects_defaults_in_chain() {
+test_validate_config_defaults_pass_in_chain() {
     local rc
     rc=$( (
         set +e
@@ -149,12 +149,13 @@ test_validate_config_rejects_defaults_in_chain() {
         source "$PROJECT_ROOT/src/lib/core/validation.sh"
         source "$PROJECT_ROOT/src/lib/core/error_handling.sh"
         source "$PROJECT_ROOT/src/lib/core/utils.sh"
-        # Use defaults (TTYD_PASSWD=changeme, VNC_PASSWORD=YourStrongPassword123)
+        # Defaults are now secure: random passwords, empty EMAIL (optional),
+        # empty DUCK_DOMAIN (optional). validate_config should succeed.
         check_port_available() { return 0; }
         validate_config >/dev/null 2>&1
         echo $?
     ) 2>/dev/null)
-    assert_eq "1" "$rc" "validate_config should reject insecure defaults in full chain"
+    assert_eq "0" "$rc" "validate_config should pass with secure defaults in full chain"
 }
 
 test_security_modules_source_after_core() {
@@ -184,7 +185,7 @@ run_test "All 18 modules source without error" test_all_modules_source_without_e
 run_test "Core chain sources together (functions available)" test_core_chain_sources_together
 run_test "No duplicate function definition conflicts" test_no_duplicate_function_definitions
 run_test "validate_config end-to-end with secure values" test_validate_config_end_to_end
-run_test "validate_config rejects insecure defaults in chain" test_validate_config_rejects_defaults_in_chain
+run_test "validate_config passes with secure defaults in chain" test_validate_config_defaults_pass_in_chain
 run_test "Security modules source after core" test_security_modules_source_after_core
 
 end_suite

@@ -126,7 +126,7 @@ lint: ## Run shellcheck on all shell scripts (warnings shown, non-fatal)
 	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh || true
 	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh || true
 	@shellcheck -x tests/run_tests.sh || true
-	@find tests/unit tests/integration tests/system tests/e2e tests/maintenance tests/documentation -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x || true
+	@find tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x || true
 	@echo "$(GREEN)✓ Linting complete$(NC)"
 
 lint-strict: ## Run shellcheck and fail on any warning
@@ -135,7 +135,7 @@ lint-strict: ## Run shellcheck and fail on any warning
 	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh
 	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh
 	@shellcheck -x tests/run_tests.sh
-	@find tests/unit tests/integration tests/system tests/e2e tests/maintenance tests/documentation -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x
+	@find tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x
 	@echo "$(GREEN)✓ Linting complete (no warnings)$(NC)"
 
 # ============================================================================
@@ -180,7 +180,7 @@ docs-validate: ## Validate documentation links and structure
 
 clean: ## Clean temporary files
 	@echo "$(YELLOW)Cleaning temporary files...$(NC)"
-	@rm -f ttyd*
+	@rm -f /tmp/.ttyd-cred.* /tmp/.ttyd-launch.* 2>/dev/null || true
 	@rm -f *.log
 	@echo "$(GREEN)✓ Clean complete$(NC)"
 
@@ -244,7 +244,7 @@ user-create: ## Create temporary user
 
 user-remove: ## Remove temporary user
 	@echo "$(BLUE)Removing temporary user...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && remove_temp_user
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && remove_temp_user
 
 deps-install: ## Install system dependencies
 	@echo "$(BLUE)Installing system dependencies...$(NC)"
@@ -260,7 +260,7 @@ vnc-start: ## Start VNC server
 
 vnc-stop: ## Stop VNC server
 	@echo "$(BLUE)Stopping VNC server...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && kill_vnc_server
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && kill_vnc_server
 
 ttyd-start: ## Start ttyd
 	@echo "$(BLUE)Starting ttyd...$(NC)"

@@ -281,47 +281,35 @@ run_healthcheck() {
 
 # Auto-restart failed services
 # Arguments:
-#   $1 - Service name
+#   $1 - Service name (for logging)
 #   $2 - Port to check
+#   $3 - Start function name to call for restart
 auto_restart_service() {
     local service="$1"
     local port="$2"
+    local start_func="${3:-}"
+
+    if [[ -z "$start_func" ]]; then
+        log "red" "No start function specified for $service"
+        return 1
+    fi
 
     if ! lsof -i :"$port" >/dev/null 2>&1; then
         log "yellow" "Attempting to restart $service..."
 
-        case "$service" in
-            "noVNC")
-                if start_novnc; then
-                    log "green" "$service restarted successfully"
-                    notify_service_start "$service"
-                else
-                    log "red" "Failed to restart $service"
-                    notify_service_failure "$service"
-                fi
-                ;;
-            "ttyd")
-                if start_ttyd; then
-                    log "green" "$service restarted successfully"
-                    notify_service_start "$service"
-                else
-                    log "red" "Failed to restart $service"
-                    notify_service_failure "$service"
-                fi
-                ;;
-            "VNC Server")
-                if start_vnc_server; then
-                    log "green" "$service restarted successfully"
-                    notify_service_start "$service"
-                else
-                    log "red" "Failed to restart $service"
-                    notify_service_failure "$service"
-                fi
-                ;;
-            *)
-                log "red" "Unknown service: $service"
-                ;;
-        esac
+        if ! declare -f "$start_func" &>/dev/null; then
+            log "red" "Start function '$start_func' is not defined for $service"
+            notify_service_failure "$service"
+            return 1
+        fi
+
+        if "$start_func"; then
+            log "green" "$service restarted successfully"
+            notify_service_start "$service"
+        else
+            log "red" "Failed to restart $service"
+            notify_service_failure "$service"
+        fi
     fi
 }
 

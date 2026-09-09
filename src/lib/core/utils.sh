@@ -77,6 +77,37 @@ check_port_available() {
     return 0
 }
 
+# Validate a password and log an error if it's weak.
+# Arguments: $1 - password, $2 - variable name
+# Returns: 0 if valid, 1 if weak
+_validate_config_password() {
+    local password="$1" var_name="$2"
+
+    if ! validate_password_strength "$password"; then
+        log "red" "$var_name must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+        return 1
+    fi
+    return 0
+}
+
+# Validate a port number and check availability, logging errors.
+# Arguments: $1 - port, $2 - variable name
+# Returns: number of errors (0, 1, or 2)
+_validate_config_port() {
+    local port="$1" var_name="$2"
+    local port_errors=0
+
+    if ! validate_port "$port" "$var_name"; then
+        log "red" "$var_name must be a valid port number (1-65535)"
+        port_errors=$((port_errors + 1))
+    fi
+    if ! check_port_available "$port"; then
+        log "red" "Port $port is already in use"
+        port_errors=$((port_errors + 1))
+    fi
+    return "$port_errors"
+}
+
 # Validate configuration
 # Arguments: None
 # Returns:
@@ -99,28 +130,18 @@ validate_config() {
         errors=$((errors + 1))
     fi
 
-    # Validate password strength
-    if ! validate_password_strength "$TTYD_PASSWD"; then
-        log "red" "TTYD_PASSWD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+    # Validate passwords
+    if ! _validate_config_password "$TTYD_PASSWD" "TTYD_PASSWD"; then
         errors=$((errors + 1))
     fi
-
-    # Validate temporary user password (defaults to TTYD_PASSWD)
-    if ! validate_password_strength "$TEMP_USER_PASS"; then
-        log "red" "TEMP_USER_PASS must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+    if ! _validate_config_password "$TEMP_USER_PASS" "TEMP_USER_PASS"; then
         errors=$((errors + 1))
     fi
-
-    # Validate VNC password
-    if ! validate_password_strength "$VNC_PASSWORD"; then
-        log "red" "VNC_PASSWORD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+    if ! _validate_config_password "$VNC_PASSWORD" "VNC_PASSWORD"; then
         errors=$((errors + 1))
     fi
-
-    # Validate User Management UI password only when the UI is enabled
     if [[ "$USER_UI_ENABLED" == "true" ]]; then
-        if ! validate_password_strength "$USER_UI_PASSWORD"; then
-            log "red" "USER_UI_PASSWORD must be at least 8 characters and contain uppercase, lowercase, and digits. Cannot be a known weak/default password."
+        if ! _validate_config_password "$USER_UI_PASSWORD" "USER_UI_PASSWORD"; then
             errors=$((errors + 1))
         fi
     fi
@@ -136,41 +157,14 @@ validate_config() {
         fi
     fi
 
-    # Validate ports (using validation.sh validate_port)
-    if ! validate_port "$NOVNC_PORT" "NOVNC_PORT"; then
-        log "red" "NOVNC_PORT must be a valid port number (1-65535)"
-        errors=$((errors + 1))
-    fi
-
-    if ! validate_port "$TTYD_PORT" "TTYD_PORT"; then
-        log "red" "TTYD_PORT must be a valid port number (1-65535)"
-        errors=$((errors + 1))
-    fi
-
-    if ! validate_port "$VNC_PORT" "VNC_PORT"; then
-        log "red" "VNC_PORT must be a valid port number (1-65535)"
-        errors=$((errors + 1))
-    fi
+    # Validate ports (number + availability)
+    _validate_config_port "$NOVNC_PORT" "NOVNC_PORT" || errors=$((errors + $?))
+    _validate_config_port "$TTYD_PORT" "TTYD_PORT" || errors=$((errors + $?))
+    _validate_config_port "$VNC_PORT" "VNC_PORT" || errors=$((errors + $?))
 
     # Validate domain (using validation.sh validate_domain)
     if ! validate_domain "$DUCK_DOMAIN" "DUCK_DOMAIN"; then
         log "red" "DUCK_DOMAIN must be a valid domain name"
-        errors=$((errors + 1))
-    fi
-
-    # Check port availability
-    if ! check_port_available "$NOVNC_PORT"; then
-        log "red" "Port $NOVNC_PORT is already in use"
-        errors=$((errors + 1))
-    fi
-
-    if ! check_port_available "$TTYD_PORT"; then
-        log "red" "Port $TTYD_PORT is already in use"
-        errors=$((errors + 1))
-    fi
-
-    if ! check_port_available "$VNC_PORT"; then
-        log "red" "Port $VNC_PORT is already in use"
         errors=$((errors + 1))
     fi
 

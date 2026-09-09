@@ -27,9 +27,12 @@ load_module() {
     fi
 }
 
-# Only load modules when run standalone (not when sourced by the main script)
-if [[ -z "${TTYD_PORT:-}" ]]; then
+# Only load modules when run standalone (not when sourced by the main script).
+# We check if a known function from the core modules is already defined,
+# rather than checking a variable that .env might have already set.
+if ! declare -f log &>/dev/null; then
     load_module "core/config.sh"
+    load_module "core/logging.sh"
     load_module "core/utils.sh"
     load_module "monitoring/healthcheck.sh"
 fi

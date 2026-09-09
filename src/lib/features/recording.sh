@@ -103,9 +103,19 @@ play_recording() {
 cleanup_old_recordings() {
     local days="${1:-7}"
 
+    # Validate RECORDING_DIR before any file operations
+    if [[ -z "$RECORDING_DIR" ]]; then
+        log "red" "RECORDING_DIR is not set, cannot clean up recordings"
+        return 1
+    fi
+    if [[ ! -d "$RECORDING_DIR" ]]; then
+        log "yellow" "RECORDING_DIR ($RECORDING_DIR) does not exist, nothing to clean up"
+        return 0
+    fi
+
     log "yellow" "Cleaning up recordings older than $days days..."
 
-    find "$RECORDING_DIR" -type f -mtime +"$days" -delete 2>/dev/null
+    find "$RECORDING_DIR" -maxdepth 1 -type f -mtime +"$days" -delete 2>/dev/null
 
     success "Old recordings cleaned up."
 }

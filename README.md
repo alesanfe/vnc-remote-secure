@@ -184,13 +184,16 @@ cd docker && docker-compose run syntax-check
 ## 🚀 Comandos Principales
 
 ```bash
-# Installation and configuration
+# Full setup (install + configure + start) — default if no command given
+./src/rpi-vnc-remote.sh
+
+# Explicit setup
 ./src/rpi-vnc-remote.sh setup
 
-# Start services
+# Start services (keeps running in foreground)
 ./src/rpi-vnc-remote.sh start
 
-# Stop services
+# Stop services and cleanup
 ./src/rpi-vnc-remote.sh stop
 
 # Restart services
@@ -198,6 +201,9 @@ cd docker && docker-compose run syntax-check
 
 # Check system status
 ./src/rpi-vnc-remote.sh status
+
+# Show help
+./src/rpi-vnc-remote.sh help
 
 # Health check completo
 ./scripts/health-check.sh

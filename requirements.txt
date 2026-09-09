@@ -1,0 +1,9 @@
+# Python dependencies for the Raspberry Pi VNC Remote project
+#
+# Install with: pip3 install -r requirements.txt
+#
+# Only the User Management UI (src/lib/web/user_ui_app.py) requires Flask.
+# The health web server (src/lib/monitoring/health_web_server.py) uses
+# only Python standard library modules.
+
+Flask>=2.2,<4.0

@@ -67,19 +67,23 @@ bantime = $FAIL2BAN_BANTIME
 EOF
 
     # Create filter configuration with patterns matching actual service log formats
+    # Patterns are scoped to specific service names to avoid false-positive bans
+    # from unrelated log lines.
     sudo tee /etc/fail2ban/filter.d/vnc-remote.conf > /dev/null <<EOF
 [Definition]
 # ttyd authentication failures
 failregex = ^.*ttyd.*(?:failed|invalid|denied|unauthorized).*from <HOST>
+            ^.*ttyd.*<HOST>.*(?:failed|invalid|denied)
+# noVNC/websockify connection errors
+            ^.*websockify.*(?:error|reject).*<HOST>
+            ^.*novnc.*(?:failed|denied).*<HOST>
+# VNC server auth failures
+            ^.*vnc.*(?:auth|fail|reject).*<HOST>
+            ^.*tigervnc.*(?:auth|fail|reject).*<HOST>
+# Generic auth failures (require "auth" context to avoid false positives)
             ^.*authentication failed.*from <HOST>
             ^.*invalid (?:password|credentials|login).*from <HOST>
             ^.*access denied.*from <HOST>
-            ^.*connection (?:refused|rejected).*from <HOST>
-            ^.*<HOST>.*(?:failed|invalid|denied)
-# noVNC/websockify connection errors
-            ^.*websockify.*(?:error|reject).*<HOST>
-# VNC server auth failures
-            ^.*vnc.*(?:auth|fail|reject).*<HOST>
 ignoreregex =
 EOF
 

@@ -24,7 +24,7 @@ echo -e "${BLUE}================================================${NC}"
 echo -e "\n${YELLOW}📁 Project Structure Check${NC}"
 structure_ok=true
 
-if [[ -f "$PROJECT_DIR/rpi-vnc-remote.sh" ]]; then
+if [[ -f "$PROJECT_DIR/src/rpi-vnc-remote.sh" ]]; then
     echo -e "${GREEN}✅ Main script exists${NC}"
 else
     echo -e "${RED}❌ Main script missing${NC}"
@@ -44,7 +44,7 @@ else
     echo -e "${YELLOW}⚠️  SSL directory missing (will be created)${NC}"
 fi
 
-if [[ -d "$PROJECT_DIR/config" ]]; then
+if [[ -d "$PROJECT_DIR/src/config" ]]; then
     echo -e "${GREEN}✅ Config directory exists${NC}"
 else
     echo -e "${RED}❌ Config directory missing${NC}"

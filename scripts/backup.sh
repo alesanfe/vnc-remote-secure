@@ -32,9 +32,9 @@ tar -czf "$BACKUP_DIR/$BACKUP_FILE" \
     --exclude='*.tmp' \
     --exclude='backups/' \
     -C "$PROJECT_DIR" \
-    data/ssl/ \
+    ssl/ \
     .env \
-    config/ 2>/dev/null || {
+    src/config/ 2>/dev/null || {
     echo -e "${YELLOW}⚠️  Warning: Some files may not exist, continuing...${NC}"
 }
 

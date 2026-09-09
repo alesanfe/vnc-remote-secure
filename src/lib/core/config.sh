@@ -5,7 +5,11 @@
 # ============================================================================
 
 # User Configuration
-export TTYD_USERNAME="${TTYD_USERNAME:-$(whoami)}"
+# Default to current user, but lowercase it to satisfy username validation
+_TTYD_USERNAME_DEFAULT="$(whoami)"
+_TTYD_USERNAME_DEFAULT="${_TTYD_USERNAME_DEFAULT,,}"
+export TTYD_USERNAME="${TTYD_USERNAME:-$_TTYD_USERNAME_DEFAULT}"
+unset _TTYD_USERNAME_DEFAULT
 # No default password — generate a strong random one if not set
 # Uses /dev/urandom directly with tr. Retry until at least one special char
 # is present (probability of no special char in 20 draws is ~38%, so retry
@@ -26,6 +30,10 @@ export EMAIL="${EMAIL:-}"
 export NOVNC_PORT="${NOVNC_PORT:-6080}"
 export TTYD_PORT="${TTYD_PORT:-5000}"
 export VNC_PORT="${VNC_PORT:-5901}"
+# Host addresses for nginx upstreams (default: localhost when nginx is enabled)
+export NOVNC_HOST="${NOVNC_HOST:-127.0.0.1}"
+export TTYD_HOST="${TTYD_HOST:-127.0.0.1}"
+export HEALTH_WEB_HOST="${HEALTH_WEB_HOST:-127.0.0.1}"
 
 # SSL Configuration
 # Get absolute path to project directory (config.sh is in src/lib/core/)
@@ -41,8 +49,8 @@ export SSL_RENEW_DAYS="${SSL_RENEW_DAYS:-30}"
 # BeEF Configuration (OPTIONAL)
 export BEEF_ENABLED="${BEEF_ENABLED:-false}"
 export BEEF_HOOK_URL="${BEEF_HOOK_URL:-}"
-export INDEX_FILE="/usr/share/novnc/index.html"
-export VNC_FILE="/usr/share/novnc/vnc.html"
+export INDEX_FILE="${INDEX_FILE:-/usr/share/novnc/index.html}"
+export VNC_FILE="${VNC_FILE:-/usr/share/novnc/vnc.html}"
 
 # Discord Notifications (OPTIONAL)
 export DISCORD_ENABLED="${DISCORD_ENABLED:-false}"
@@ -105,7 +113,11 @@ export VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
 export VNC_DEPTH="${VNC_DEPTH:-24}"
 # No default VNC password — generate a strong random one if not set
 if [[ -z "${VNC_PASSWORD:-}" ]]; then
-    export VNC_PASSWORD="$(tr -dc 'A-Za-z0-9!@#' </dev/urandom | head -c 20)"
+    while true; do
+        VNC_PASSWORD="$(tr -dc 'A-Za-z0-9!@#' </dev/urandom | head -c 20)"
+        [[ "$VNC_PASSWORD" =~ [^a-zA-Z0-9] ]] && break
+    done
+    export VNC_PASSWORD
 fi
 
 # Runtime State
@@ -114,3 +126,11 @@ export SHOW_LOGS="${SHOW_LOGS:-true}"
 export LOG_DIR="${LOG_DIR:-./logs}"
 # Whether to keep the temporary user after exit (default: false = remove on exit)
 export KEEP_TEMP_USER="${KEEP_TEMP_USER:-false}"
+
+# Logging Configuration
+export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+export VERBOSE="${VERBOSE:-false}"
+
+# Flask Secret Key (for user_ui_app.py session signing)
+# No default — must be set by user for stable sessions in production
+export FLASK_SECRET_KEY="${FLASK_SECRET_KEY:-}"
