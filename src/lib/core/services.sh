@@ -91,13 +91,17 @@ TTYD_WRAPPER
         sudo -u "$TEMP_USER" "$wrapper" "$cred_file" -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
     else
         log "green" "Starting ttyd WITH SSL encryption"
-        # Ensure SSL certificates have correct permissions
-        if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
-            user_group=$(id -gn "$TEMP_USER")
-            sudo chown "$TEMP_USER:$user_group" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
-            sudo chmod 644 "$SSL_CERT" 2>/dev/null || true
-            sudo chmod 600 "$SSL_KEY" 2>/dev/null || true
+        # Validate SSL certificate files exist before attempting to start
+        if [[ ! -f "$SSL_CERT" || ! -f "$SSL_KEY" ]]; then
+            log "red" "SSL certificate or key not found: $SSL_CERT / $SSL_KEY"
+            rm -f "$cred_file" "$wrapper" 2>/dev/null
+            return 1
         fi
+        # Ensure SSL certificates have correct permissions
+        user_group=$(id -gn "$TEMP_USER")
+        sudo chown "$TEMP_USER:$user_group" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
+        sudo chmod 644 "$SSL_CERT" 2>/dev/null || true
+        sudo chmod 600 "$SSL_KEY" 2>/dev/null || true
         sudo -u "$TEMP_USER" "$wrapper" "$cred_file" -S --ssl -C "$SSL_CERT" -K "$SSL_KEY" \
             -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
     fi

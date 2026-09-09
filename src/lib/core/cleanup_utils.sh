@@ -85,8 +85,10 @@ force_cleanup() {
         sudo pkill -9 -f "$pattern" 2>/dev/null || true
     done
 
-    # Remove user forcefully
-    if id "$TEMP_USER" &>/dev/null; then
+    # Remove user forcefully (protect against killing system accounts)
+    if [[ -z "$TEMP_USER" || "$TEMP_USER" == "root" || "$TEMP_USER" == "pi" ]]; then
+        log_warn "Refusing to force-kill processes for user '$TEMP_USER' (protected)" "CLEANUP"
+    elif id "$TEMP_USER" &>/dev/null; then
         log_info "Force removing user: $TEMP_USER" "CLEANUP"
         sudo pkill -u "$TEMP_USER" 2>/dev/null || true
         sleep 2

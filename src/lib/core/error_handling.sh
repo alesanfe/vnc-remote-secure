@@ -183,20 +183,42 @@ recover_ssl_management() {
     log_info "Attempting SSL management recovery" "RECOVERY"
 
     # Check if port 80 is blocked
-    if sudo netstat -tulpn 2>/dev/null | grep -q ':80 '; then
+    if command -v lsof &>/dev/null && sudo lsof -ti:80 &>/dev/null; then
         log_warn "Port 80 is in use, attempting to free it" "RECOVERY"
 
-        # Try to stop nginx
+        # Try to stop nginx gracefully first
         if command -v systemctl &>/dev/null; then
             sudo systemctl stop nginx 2>/dev/null || true
         fi
 
-        # Kill processes on port 80
-        sudo lsof -ti:80 | xargs -r sudo kill -TERM 2>/dev/null || true
-        sleep 2
+        # Only kill processes that are nginx-related on port 80
+        # (avoid killing unrelated web servers or services)
+        local port80_pids
+        port80_pids=$(sudo lsof -ti:80 2>/dev/null || true)
+        if [[ -n "$port80_pids" ]]; then
+            local pid
+            for pid in $port80_pids; do
+                local proc_name
+                proc_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+                if [[ "$proc_name" == "nginx" || "$proc_name" == "nginx:"* ]]; then
+                    log_info "Stopping nginx process $pid on port 80" "RECOVERY"
+                    sudo kill -TERM "$pid" 2>/dev/null || true
+                else
+                    log_warn "Port 80 is held by '$proc_name' (PID $pid), not killing" "RECOVERY"
+                fi
+            done
+            sleep 2
 
-        # Force kill if still running
-        sudo lsof -ti:80 | xargs -r sudo kill -KILL 2>/dev/null || true
+            # Force kill only nginx processes still on port 80
+            port80_pids=$(sudo lsof -ti:80 2>/dev/null || true)
+            for pid in $port80_pids; do
+                local proc_name
+                proc_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+                if [[ "$proc_name" == "nginx" || "$proc_name" == "nginx:"* ]]; then
+                    sudo kill -KILL "$pid" 2>/dev/null || true
+                fi
+            done
+        fi
     fi
 
     return 0
