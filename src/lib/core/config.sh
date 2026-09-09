@@ -10,15 +10,25 @@ _TTYD_USERNAME_DEFAULT="$(whoami)"
 _TTYD_USERNAME_DEFAULT="${_TTYD_USERNAME_DEFAULT,,}"
 export TTYD_USERNAME="${TTYD_USERNAME:-$_TTYD_USERNAME_DEFAULT}"
 unset _TTYD_USERNAME_DEFAULT
-# No default password — generate a strong random one if not set
-# Uses /dev/urandom directly with tr. Retry until at least one special char
-# is present (probability of no special char in 20 draws is ~38%, so retry
-# is needed to guarantee validation passes).
-if [[ -z "${TTYD_PASSWD:-}" ]]; then
+
+# Generate a strong random password that meets all validation requirements:
+# uppercase, lowercase, digit, and special character (!@#).
+# Uses /dev/urandom and retries until all character types are present.
+_generate_strong_password() {
+    local pw
     while true; do
-        TTYD_PASSWD="$(tr -dc 'A-Za-z0-9!@#' </dev/urandom | head -c 20)"
-        [[ "$TTYD_PASSWD" =~ [^a-zA-Z0-9] ]] && break
+        pw="$(tr -dc 'A-Za-z0-9!@#' </dev/urandom | head -c 20)"
+        [[ "$pw" =~ [A-Z] ]] && \
+        [[ "$pw" =~ [a-z] ]] && \
+        [[ "$pw" =~ [0-9] ]] && \
+        [[ "$pw" =~ [^a-zA-Z0-9] ]] && break
     done
+    printf '%s' "$pw"
+}
+
+# No default password — generate a strong random one if not set
+if [[ -z "${TTYD_PASSWD:-}" ]]; then
+    TTYD_PASSWD="$(_generate_strong_password)"
     export TTYD_PASSWD
 fi
 export TEMP_USER="${TEMP_USER:-remote}"
@@ -91,10 +101,7 @@ export USER_UI_ENABLED="${USER_UI_ENABLED:-false}"
 export USER_UI_PORT="${USER_UI_PORT:-8081}"
 # No default UI password — generate a strong random one if not set
 if [[ -z "${USER_UI_PASSWORD:-}" ]]; then
-    while true; do
-        USER_UI_PASSWORD="$(tr -dc 'A-Za-z0-9!@#' </dev/urandom | head -c 20)"
-        [[ "$USER_UI_PASSWORD" =~ [^a-zA-Z0-9] ]] && break
-    done
+    USER_UI_PASSWORD="$(_generate_strong_password)"
     export USER_UI_PASSWORD
 fi
 
@@ -113,10 +120,7 @@ export VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
 export VNC_DEPTH="${VNC_DEPTH:-24}"
 # No default VNC password — generate a strong random one if not set
 if [[ -z "${VNC_PASSWORD:-}" ]]; then
-    while true; do
-        VNC_PASSWORD="$(tr -dc 'A-Za-z0-9!@#' </dev/urandom | head -c 20)"
-        [[ "$VNC_PASSWORD" =~ [^a-zA-Z0-9] ]] && break
-    done
+    VNC_PASSWORD="$(_generate_strong_password)"
     export VNC_PASSWORD
 fi
 
