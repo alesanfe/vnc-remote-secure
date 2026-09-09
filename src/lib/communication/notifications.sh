@@ -1,11 +1,26 @@
 #!/bin/bash
+# shellcheck disable=SC2155,SC2034,SC2086
 # ============================================================================
 # NOTIFICATIONS MODULE
 # ============================================================================
+# Configuration is centralized in core/config.sh (single source of truth).
 
-# Discord Configuration
-export DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
-export DISCORD_ENABLED="${DISCORD_ENABLED:-false}"
+# Escape a string for safe inclusion in JSON values
+# Uses jq if available for robust escaping, falls back to manual escaping
+json_escape() {
+    local s="$1"
+    if command -v jq &>/dev/null; then
+        printf '%s' "$s" | jq -Rs 'rtrimstr("\n")'
+        return
+    fi
+    # Manual fallback: escape backslash, quote, newline, tab, carriage return
+    s="${s//\\/\\\\}"   # backslash
+    s="${s//\"/\\\"}"  # double quote
+    s="${s//$'\n'/\\n}" # newline
+    s="${s//$'\t'/\\t}" # tab
+    s="${s//$'\r'/\\r}" # carriage return
+    printf '%s' "$s"
+}
 
 # Send Discord notification
 # Arguments:
@@ -20,19 +35,23 @@ send_discord_notification() {
         warn "Discord enabled but webhook URL not set"
         return
     }
-    
+
     local message="$1"
     local username="${2:-VNC Remote}"
     local color="${3:-3447003}"  # Blue by default
-    
+
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
+
+    local esc_message esc_username
+    esc_message=$(json_escape "$message")
+    esc_username=$(json_escape "$username")
+
     local json_payload=$(cat <<EOF
 {
-  "username": "$username",
+  "username": "$esc_username",
   "embeds": [
     {
-      "description": "$message",
+      "description": "$esc_message",
       "color": $color,
       "timestamp": "$timestamp"
     }
@@ -40,7 +59,7 @@ send_discord_notification() {
 }
 EOF
 )
-    
+
     if curl -s -X POST "$DISCORD_WEBHOOK_URL" \
         -H "Content-Type: application/json" \
         -d "$json_payload" > /dev/null 2>&1; then
@@ -58,7 +77,7 @@ send_discord_alert() {
     local message="$1"
     local level="$2"
     local color
-    
+
     case "$level" in
         success|green) color=3066993 ;;
         warning|yellow) color=15105570 ;;
@@ -66,7 +85,7 @@ send_discord_alert() {
         info|blue) color=3447003 ;;
         *) color=3447003 ;;
     esac
-    
+
     send_discord_notification "$message" "VNC Remote" "$color"
 }
 
@@ -121,8 +140,8 @@ notify_cleanup_complete() {
 notify_system_error() {
     local error="$1"
     local message="System error: $error"
-    die "$message"
     send_discord_alert "$message" "error"
+    die "$message"
 }
 
 # Send startup notification

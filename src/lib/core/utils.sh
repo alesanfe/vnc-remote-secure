@@ -35,22 +35,6 @@ debug_log() {
     log "cyan" "[$service] $action - Status: $status, Duration: ${duration}s"
 }
 
-# Log service status via systemctl
-log_service_status() {
-    [[ "$VERBOSE" != "true" ]] && return
-
-    local service="$1"
-    local status="$2"
-
-    if command -v systemctl &>/dev/null; then
-        if systemctl is-active --quiet "$service"; then
-            log "green" "[$service] Service is running"
-        else
-            log "red" "[$service] Service is not running"
-        fi
-    fi
-}
-
 # Log system resources (verbose mode)
 log_system_resources() {
     [[ "$VERBOSE" != "true" ]] && return
@@ -67,35 +51,16 @@ log_system_resources() {
 # VALIDATION (password strength and port availability, unique to this module)
 # ============================================================================
 
-# Validate password strength
+# Validate password strength (delegates to validation.sh's validate_password)
 # Arguments:
 #   $1 - Password to validate
 # Returns:
 #   0 if password is strong, 1 otherwise
+# Note: validate_password (in validation.sh) is the canonical implementation.
+# This wrapper exists for backward compatibility with callers that don't need
+# the field_name / VALIDATION_ERRORS machinery.
 validate_password_strength() {
-    local password="$1"
-    local min_length=8
-
-    if [[ ${#password} -lt $min_length ]]; then
-        return 1
-    fi
-
-    # Reject known weak/default passwords (case-insensitive substring match)
-    local weak_patterns=("changeme" "password" "123456" "qwerty" "admin" "root" "user" "yourstrongpassword" "letmein" "welcome")
-    local lc_password="${password,,}"
-    local pattern
-    for pattern in "${weak_patterns[@]}"; do
-        if [[ "$lc_password" == *"$pattern"* ]]; then
-            return 1
-        fi
-    done
-
-    # Check for at least one uppercase, one lowercase, one digit
-    if ! [[ "$password" =~ [A-Z] ]] || ! [[ "$password" =~ [a-z] ]] || ! [[ "$password" =~ [0-9] ]]; then
-        return 1
-    fi
-
-    return 0
+    validate_password "$1" "password" 2>/dev/null
 }
 
 # Check if port is available (not in use)
@@ -121,6 +86,18 @@ check_port_available() {
 #   NOVNC_PORT, TTYD_PORT, VNC_PORT, DUCK_DOMAIN
 validate_config() {
     local errors=0
+
+    # Validate TEMP_USER format (prevents command injection in useradd/userdel)
+    if ! [[ "$TEMP_USER" =~ ^[a-z][a-z0-9_-]{1,31}$ ]]; then
+        log "red" "TEMP_USER must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores (max 32 chars)."
+        errors=$((errors + 1))
+    fi
+
+    # Validate TTYD_USERNAME format (used in sudo -u and user creation)
+    if ! [[ "$TTYD_USERNAME" =~ ^[a-z][a-z0-9_-]{1,31}$ ]]; then
+        log "red" "TTYD_USERNAME must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores (max 32 chars)."
+        errors=$((errors + 1))
+    fi
 
     # Validate password strength
     if ! validate_password_strength "$TTYD_PASSWD"; then

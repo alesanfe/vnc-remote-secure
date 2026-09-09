@@ -1,6 +1,5 @@
 #!/bin/bash
-set -e
-set -o pipefail
+# shellcheck disable=SC2155,SC2034,SC2086
 # ============================================================================
 # SESSION RECORDING MODULE
 # ============================================================================
@@ -21,30 +20,26 @@ set -o pipefail
 #
 # For now, this module provides the framework for future implementation.
 # ============================================================================
-
-# Recording Configuration
-export RECORDING_ENABLED="${RECORDING_ENABLED:-false}"
-export RECORDING_DIR="${RECORDING_DIR:-./recordings}"
-export RECORDING_FORMAT="${RECORDING_FORMAT:-asciinema}"  # asciinema or script
+# Configuration is centralized in core/config.sh (single source of truth).
 
 # Install asciinema
 install_asciinema() {
     [[ "$RECORDING_ENABLED" != "true" ]] && return
-    
+
     log "yellow" "Installing asciinema..."
-    
+
     if ! command -v asciinema &>/dev/null; then
         sudo apt update
         sudo apt install -y asciinema
     fi
-    
+
     success "asciinema installed."
 }
 
 # Create recording directory
 create_recording_dir() {
     [[ "$RECORDING_ENABLED" != "true" ]] && return
-    
+
     mkdir -p "$RECORDING_DIR"
 }
 
@@ -52,12 +47,13 @@ create_recording_dir() {
 start_ttyd_recording() {
     [[ "$RECORDING_ENABLED" != "true" ]] && return
     [[ "$RECORDING_FORMAT" != "asciinema" ]] && return
-    
+
+    log "yellow" "WARNING: ttyd recording is a placeholder — no actual recording occurs."
+    log "yellow" "  Set RECORDING_ENABLED=false to suppress this message."
+
     local timestamp=$(date +%Y%m%d_%H%M%S)
     local recording_file="$RECORDING_DIR/ttyd_${timestamp}.cast"
-    
-    log "yellow" "Starting ttyd recording to $recording_file..."
-    
+
     # ttyd doesn't support direct recording, but we can record the session
     # This is a placeholder for future integration
     export TTYD_RECORDING="$recording_file"
@@ -66,11 +62,9 @@ start_ttyd_recording() {
 # Start session recording for VNC
 start_vnc_recording() {
     [[ "$RECORDING_ENABLED" != "true" ]] && return
-    
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    local recording_file="$RECORDING_DIR/vnc_${timestamp}.cast"
-    
-    log "yellow" "VNC recording not directly supported. Use screen recording tool."
+
+    log "yellow" "WARNING: VNC recording is a placeholder — no actual recording occurs."
+    log "yellow" "  Use an external screen capture tool for VNC recording."
 }
 
 # List recordings
@@ -79,7 +73,7 @@ list_recordings() {
         log "yellow" "No recordings directory found"
         return
     }
-    
+
     log "cyan" "Available recordings:"
     ls -lh "$RECORDING_DIR" 2>/dev/null || log "yellow" "No recordings found"
 }
@@ -89,11 +83,11 @@ list_recordings() {
 #   $1 - Recording file
 play_recording() {
     local file="$1"
-    
+
     if [[ ! -f "$file" ]]; then
         die "Recording file not found: $file"
     fi
-    
+
     if [[ "$file" == *.cast ]]; then
         asciinema play "$file"
     elif [[ "$file" == *.script ]]; then
@@ -108,11 +102,11 @@ play_recording() {
 #   $1 - Days to keep (default: 7)
 cleanup_old_recordings() {
     local days="${1:-7}"
-    
+
     log "yellow" "Cleaning up recordings older than $days days..."
-    
+
     find "$RECORDING_DIR" -type f -mtime +"$days" -delete 2>/dev/null
-    
+
     success "Old recordings cleaned up."
 }
 
@@ -120,7 +114,7 @@ cleanup_old_recordings() {
 # This modifies the ttyd command to include recording
 enable_ttyd_recording() {
     [[ "$RECORDING_ENABLED" != "true" ]] && return
-    
+
     # This is a placeholder - ttyd doesn't natively support recording
     # Future implementation could use script command wrapper
     log "yellow" "TTYD recording enabled (placeholder)"

@@ -1,18 +1,11 @@
 #!/bin/bash
-set -e
-set -o pipefail
+# shellcheck disable=SC2155,SC2034,SC2086
 # ============================================================================
 # ALERTS MODULE (Webhook & Email)
 # ============================================================================
+# Configuration is centralized in core/config.sh (single source of truth).
 
-# Alerts Configuration
-export ALERTS_ENABLED="${ALERTS_ENABLED:-false}"
-export ALERT_WEBHOOK_URL="${ALERT_WEBHOOK_URL:-}"
-export ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-}"
-export ALERT_EMAIL_FROM="${ALERT_EMAIL_FROM:-vnc-alerts@localhost}"
-export ALERT_SMTP_SERVER="${ALERT_SMTP_SERVER:-localhost:587}"
-export ALERT_SMTP_USER="${ALERT_SMTP_USER:-}"
-export ALERT_SMTP_PASS="${ALERT_SMTP_PASS:-}"
+# json_escape() is defined in notifications.sh (loaded before this module).
 
 # Send webhook alert
 # Arguments:
@@ -21,21 +14,25 @@ export ALERT_SMTP_PASS="${ALERT_SMTP_PASS:-}"
 send_webhook_alert() {
     [[ "$ALERTS_ENABLED" != "true" ]] && return
     [[ -z "$ALERT_WEBHOOK_URL" ]] && return
-    
+
     local message="$1"
     local level="${2:-info}"
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
+
+    local esc_message esc_level
+    esc_message=$(json_escape "$message")
+    esc_level=$(json_escape "$level")
+
     local json_payload=$(cat <<EOF
 {
   "timestamp": "$timestamp",
-  "level": "$level",
-  "message": "$message",
+  "level": "$esc_level",
+  "message": "$esc_message",
   "service": "vnc-remote"
 }
 EOF
 )
-    
+
     if curl -s -X POST "$ALERT_WEBHOOK_URL" \
         -H "Content-Type: application/json" \
         -d "$json_payload" > /dev/null 2>&1; then
@@ -45,6 +42,20 @@ EOF
     fi
 }
 
+# Validate an email address format (prevents header injection)
+# Arguments:
+#   $1 - Email address to validate
+# Returns:
+#   0 if valid, 1 if invalid
+validate_email() {
+    local email="$1"
+    [[ -z "$email" ]] && return 1
+    # Reject newlines, spaces, and other header injection characters
+    [[ "$email" =~ [\ \n\r\t] ]] && return 1
+    # Basic email format validation
+    [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]
+}
+
 # Send email alert
 # Arguments:
 #   $1 - Alert message
@@ -52,11 +63,21 @@ EOF
 send_email_alert() {
     [[ "$ALERTS_ENABLED" != "true" ]] && return
     [[ -z "$ALERT_EMAIL_TO" ]] && return
-    
+
+    # Validate email addresses to prevent header injection
+    if ! validate_email "$ALERT_EMAIL_TO"; then
+        warn "ALERT_EMAIL_TO is not a valid email address, skipping email alert"
+        return
+    fi
+    if ! validate_email "$ALERT_EMAIL_FROM"; then
+        warn "ALERT_EMAIL_FROM is not a valid email address, skipping email alert"
+        return
+    fi
+
     local message="$1"
     local level="${2:-info}"
     local subject="[VNC Remote] $level: $message"
-    
+
     if command -v mail &>/dev/null; then
         echo "$message" | mail -s "$subject" "$ALERT_EMAIL_TO"
         success "Email alert sent"
@@ -79,7 +100,7 @@ $message" | sendmail -t
 send_alert() {
     local message="$1"
     local level="${2:-info}"
-    
+
     send_webhook_alert "$message" "$level"
     send_email_alert "$message" "$level"
 }

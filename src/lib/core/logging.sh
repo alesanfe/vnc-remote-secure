@@ -36,11 +36,11 @@ declare -gA LOG_COLORS=(
 should_log() {
     local level="$1"
     local level_num="${LOG_LEVELS[$level]}"
-    
+
     if [[ -z "$level_num" ]]; then
         level_num="${LOG_LEVELS[INFO]}"
     fi
-    
+
     [[ $level_num -ge $CURRENT_LOG_LEVEL ]]
 }
 
@@ -55,35 +55,35 @@ write_log() {
     local message="$2"
     local component="${3:-MAIN}"
     local context="${4:-}"
-    
+
     if ! should_log "$level"; then
         return 0
     fi
-    
+
     local color="${LOG_COLORS[$level]:-${LOG_COLORS[RESET]}}"
     local timestamp=""
     local pid=""
-    
+
     # Add timestamp if verbose is enabled
     if [[ "$VERBOSE" == "true" ]]; then
         timestamp="[$(date '+%Y-%m-%d %H:%M:%S')] "
     fi
-    
+
     # Add PID if in debug mode
     if [[ "$LOG_LEVEL" == "DEBUG" ]]; then
         pid="[PID:$$] "
     fi
-    
+
     # Build the log entry
     local log_entry="${color}${timestamp}${pid}[${level}] [${component}] ${message}${LOG_COLORS[RESET]}"
-    
+
     # Add context if provided
     if [[ -n "$context" ]]; then
         log_entry="${log_entry} | ${context}"
     fi
-    
+
     echo -e "$log_entry"
-    
+
     # Log to file if LOG_FILE is set
     if [[ -n "$LOG_FILE" ]]; then
         local file_entry="${timestamp}[${level}] [${component}] ${message}"
@@ -123,7 +123,7 @@ log_success() {
 log() {
     local level="$1"
     local message="$2"
-    
+
     # Convert old level names to new ones
     case "$level" in
         "red") log_error "$message" ;;
@@ -167,30 +167,7 @@ log_service_stop() {
     log_info "Stopping service: $service" "$component"
 }
 
-log_service_status() {
-    local service="$1"
-    local status="$2"
-    local component="${3:-SERVICE}"
-    
-    if [[ "$status" == "running" ]]; then
-        log_success "Service $service is running" "$component"
-    else
-        log_error "Service $service is not running" "$component"
-    fi
-}
-
-log_system_resources() {
-    if [[ "$LOG_LEVEL" != "DEBUG" ]]; then
-        return 0
-    fi
-    
-    local cpu_usage mem_usage disk_usage
-    cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
-    mem_usage=$(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')
-    disk_usage=$(df -h / | awk 'NR==2 {print $5}')
-    
-    log_debug "System Resources" "SYSTEM" "CPU: ${cpu_usage}%, Memory: ${mem_usage}%, Disk: ${disk_usage}"
-}
+# log_system_resources() is defined in utils.sh (uses the VERBOSE flag).
 
 # Error context logging
 log_error_context() {
@@ -198,12 +175,12 @@ log_error_context() {
     local line_number="${2:-}"
     local function_name="${3:-}"
     local component="${4:-ERROR}"
-    
+
     local context="Line: ${line_number:-unknown}"
     if [[ -n "$function_name" ]]; then
         context="${context}, Function: $function_name"
     fi
-    
+
     log_error "$error_message" "$component" "$context"
 }
 
@@ -212,7 +189,7 @@ log_performance() {
     local operation="$1"
     local duration="$2"
     local component="${3:-PERF}"
-    
+
     log_debug "Performance: $operation took ${duration}s" "$component"
 }
 
@@ -222,7 +199,7 @@ log_security_event() {
     local source_ip="${2:-}"
     local user="${3:-}"
     local component="${4:-SECURITY}"
-    
+
     local context=""
     if [[ -n "$source_ip" ]]; then
         context="IP: $source_ip"
@@ -234,7 +211,7 @@ log_security_event() {
             context="User: $user"
         fi
     fi
-    
+
     log_warn "Security Event: $event" "$component" "$context"
 }
 
@@ -242,17 +219,17 @@ log_security_event() {
 init_logging() {
     local log_dir="${LOG_DIR:-./logs}"
     local log_file="$log_dir/system.log"
-    
+
     # Create log directory if it doesn't exist
     if [[ ! -d "$log_dir" ]]; then
         mkdir -p "$log_dir" 2>/dev/null || true
     fi
-    
+
     # Set log file if writable
     if [[ -w "$log_dir" ]]; then
         export LOG_FILE="$log_file"
     fi
-    
+
     # Log initialization
     log_info "Logging system initialized" "LOGGING" "Level: ${LOG_LEVEL:-INFO}, File: ${LOG_FILE:-none}"
 }
@@ -260,7 +237,7 @@ init_logging() {
 # Set log level dynamically
 set_log_level() {
     local new_level="$1"
-    
+
     if [[ -n "${LOG_LEVELS[$new_level]}" ]]; then
         export LOG_LEVEL="$new_level"
         export CURRENT_LOG_LEVEL="${LOG_LEVELS[$new_level]}"

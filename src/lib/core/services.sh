@@ -1,7 +1,5 @@
 #!/bin/bash
 # shellcheck disable=SC2155,SC2034
-set -e
-set -o pipefail
 # ============================================================================
 # SERVICE MANAGEMENT
 # ============================================================================
@@ -31,14 +29,14 @@ configure_vnc_password() {
 
     # Set VNC password using the available command
     log "blue" "Generating VNC password file..."
-    echo "$password" | sudo "$vncpasswd_cmd" -f | sudo tee "/home/$user/.vnc/passwd" > /dev/null
-    if [[ $? -ne 0 ]]; then
+    if ! echo "$password" | sudo "$vncpasswd_cmd" -f | sudo tee "/home/$user/.vnc/passwd" > /dev/null; then
         log "red" "Failed to generate VNC password file"
         die "$vncpasswd_cmd command failed"
     fi
 
     # Fix ownership and permissions
-    local user_group=$(id -gn "$user")
+    local user_group
+    user_group=$(id -gn "$user")
     sudo chown -R "$user:$user_group" "/home/$user/.vnc"
     sudo chmod 700 "/home/$user/.vnc"
     sudo chmod 600 "/home/$user/.vnc/passwd"
@@ -64,22 +62,52 @@ start_ttyd() {
         log "blue" "Binding to localhost (nginx will handle external access)"
     fi
 
+    # Write credentials to a temp file with restricted permissions to avoid
+    # exposing the password in the process list (ps aux).
+    local cred_file
+    cred_file=$(mktemp /tmp/.ttyd-cred.XXXXXX)
+    chmod 600 "$cred_file"
+    printf '%s:%s' "$TTYD_USERNAME" "$TTYD_PASSWD" > "$cred_file"
+
+    # Wrapper script that reads credentials from file and execs ttyd
+    local wrapper
+    wrapper=$(mktemp /tmp/.ttyd-launch.XXXXXX)
+    cat > "$wrapper" << 'TTYD_WRAPPER'
+#!/bin/bash
+cred_file="$1"; shift
+cred=$(cat "$cred_file")
+rm -f "$cred_file"
+exec ttyd -c "$cred" "$@"
+TTYD_WRAPPER
+    chmod 700 "$wrapper"
+
     if [[ "$DISABLE_SSL" == true ]] || [[ "$NGINX_ENABLED" == "true" ]]; then
         log "yellow" "Starting ttyd WITHOUT SSL encryption (nginx handles SSL when enabled)"
-        sudo -u "$TEMP_USER" ttyd -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
+        sudo -u "$TEMP_USER" "$wrapper" "$cred_file" -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
     else
         log "green" "Starting ttyd WITH SSL encryption"
         # Ensure SSL certificates have correct permissions
         if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
-            sudo chown "$TEMP_USER:$TEMP_USER" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
+            local user_group
+            user_group=$(id -gn "$TEMP_USER")
+            sudo chown "$TEMP_USER:$user_group" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
             sudo chmod 644 "$SSL_CERT" 2>/dev/null || true
             sudo chmod 600 "$SSL_KEY" 2>/dev/null || true
         fi
-        sudo -u "$TEMP_USER" ttyd -S --ssl -C "$SSL_CERT" -K "$SSL_KEY" \
-            -c "$TTYD_USERNAME:$TTYD_PASSWD" -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
+        sudo -u "$TEMP_USER" "$wrapper" "$cred_file" -S --ssl -C "$SSL_CERT" -K "$SSL_KEY" \
+            -p "$TTYD_PORT" -a "$bind_address" bash >/dev/null 2>&1 &
     fi
+    # Clean up wrapper after a short delay (ttyd has already read credentials)
+    ( sleep 5 && rm -f "$wrapper" 2>/dev/null ) &
     sleep 2
-    success "Terminal service started on port $TTYD_PORT"
+    # Verify ttyd is actually listening
+    if lsof -i :"$TTYD_PORT" >/dev/null 2>&1; then
+        success "Terminal service started on port $TTYD_PORT"
+    else
+        log "red" "ttyd failed to start on port $TTYD_PORT"
+        rm -f "$cred_file" "$wrapper" 2>/dev/null
+        return 1
+    fi
 }
 
 start_vnc_server() {
@@ -124,7 +152,9 @@ start_novnc() {
         log "green" "Starting noVNC WITH SSL encryption"
         # Ensure SSL certificates have correct permissions
         if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
-            sudo chown "$TEMP_USER:$TEMP_USER" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
+            local user_group
+            user_group=$(id -gn "$TEMP_USER")
+            sudo chown "$TEMP_USER:$user_group" "$SSL_CERT" "$SSL_KEY" 2>/dev/null || true
             sudo chmod 644 "$SSL_CERT" 2>/dev/null || true
             sudo chmod 600 "$SSL_KEY" 2>/dev/null || true
         fi
@@ -134,6 +164,12 @@ start_novnc() {
             --cert "$SSL_CERT" --key "$SSL_KEY" --ssl-only >/dev/null 2>&1 &
     fi
     sleep 2
-    success "Web VNC interface started on port $NOVNC_PORT"
+    # Verify noVNC is actually listening
+    if lsof -i :"$NOVNC_PORT" >/dev/null 2>&1; then
+        success "Web VNC interface started on port $NOVNC_PORT"
+    else
+        log "red" "noVNC failed to start on port $NOVNC_PORT"
+        return 1
+    fi
 }
 
