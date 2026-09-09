@@ -22,52 +22,61 @@ terminate_process_gracefully() {
         return 2
     fi
 
-    # Get PID if process name was provided
-    local pid
+    # Get PID(s) if process name was provided
+    local pids
     if [[ "$target" =~ ^[0-9]+$ ]]; then
-        pid="$target"
+        pids="$target"
     else
-        pid=$(pgrep -f "$target" | head -1)
+        pids=$(pgrep -f "$target" 2>/dev/null || true)
     fi
 
-    if [[ -z "$pid" ]]; then
+    if [[ -z "$pids" ]]; then
         log "yellow" "Process '$target' not found"
         return 0
     fi
 
-    log "cyan" "Terminating process $pid (signal: $signal, timeout: ${timeout}s)..."
+    # Terminate all matching PIDs
+    local overall_rc=0
+    local pid
+    for pid in $pids; do
+        log "cyan" "Terminating process $pid (signal: $signal, timeout: ${timeout}s)..."
 
-    # Send initial signal
-    if ! kill -"$signal" "$pid" 2>/dev/null; then
-        log "red" "Failed to send signal $signal to process $pid"
-        return 2
-    fi
+        # Send initial signal
+        if ! kill -"$signal" "$pid" 2>/dev/null; then
+            log "red" "Failed to send signal $signal to process $pid"
+            overall_rc=2
+            continue
+        fi
 
-    # Wait for graceful termination
-    local count=0
-    while kill -0 "$pid" 2>/dev/null && [[ $count -lt $timeout ]]; do
-        sleep 1
-        count=$((count + 1))
+        # Wait for graceful termination
+        local count=0
+        while kill -0 "$pid" 2>/dev/null && [[ $count -lt $timeout ]]; do
+            sleep 1
+            count=$((count + 1))
+        done
+
+        # Check if process terminated
+        if ! kill -0 "$pid" 2>/dev/null; then
+            log "green" "Process $pid terminated gracefully"
+            continue
+        fi
+
+        # Process still running, use force signal
+        log "yellow" "Process $pid did not terminate gracefully, using force signal $force_signal..."
+        if kill -"$force_signal" "$pid" 2>/dev/null; then
+            sleep 2
+            if ! kill -0 "$pid" 2>/dev/null; then
+                log "green" "Process $pid terminated with force signal"
+                [[ $overall_rc -eq 0 ]] && overall_rc=1
+                continue
+            fi
+        fi
+
+        log "red" "Failed to terminate process $pid"
+        overall_rc=2
     done
 
-    # Check if process terminated
-    if ! kill -0 "$pid" 2>/dev/null; then
-        log "green" "Process $pid terminated gracefully"
-        return 0
-    fi
-
-    # Process still running, use force signal
-    log "yellow" "Process $pid did not terminate gracefully, using force signal $force_signal..."
-    if kill -"$force_signal" "$pid" 2>/dev/null; then
-        sleep 2
-        if ! kill -0 "$pid" 2>/dev/null; then
-            log "green" "Process $pid terminated with force signal"
-            return 1
-        fi
-    fi
-
-    log "red" "Failed to terminate process $pid"
-    return 2
+    return $overall_rc
 }
 
 # Kill all processes matching pattern gracefully
