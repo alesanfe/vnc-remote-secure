@@ -147,7 +147,21 @@ check_ssl_cert() {
         local issue_date=$(openssl x509 -startdate -noout -in "$SSL_CERT" 2>/dev/null | cut -d= -f2)
         local subject=$(openssl x509 -subject -noout -in "$SSL_CERT" 2>/dev/null | sed 's/subject=//')
         local issuer=$(openssl x509 -issuer -noout -in "$SSL_CERT" 2>/dev/null | sed 's/issuer=//')
-        local expiry_epoch=$(date -d "$expiry_date" +%s)
+        # Use GNU date if available, fall back to Python for non-GNU systems
+        local expiry_epoch
+        expiry_epoch=$(date -d "$expiry_date" +%s 2>/dev/null) || \
+            expiry_epoch=$(python3 -c "
+from datetime import datetime
+import sys
+try:
+    print(int(datetime.strptime(sys.argv[1], '%b %d %H:%M:%S %Y %Z').timestamp()))
+except Exception:
+    sys.exit(1)
+" "$expiry_date" 2>/dev/null)
+        if [[ -z "$expiry_epoch" ]]; then
+            log "yellow" "SSL: Cannot parse expiry date '$expiry_date'"
+            return 1
+        fi
         local current_epoch=$(date +%s)
         local days_left=$(( (expiry_epoch - current_epoch) / 86400 ))
         local cert_serial=$(openssl x509 -serial -noout -in "$SSL_CERT" 2>/dev/null | cut -d= -f2)
