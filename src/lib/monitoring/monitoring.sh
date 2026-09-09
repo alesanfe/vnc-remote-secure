@@ -21,7 +21,11 @@ install_node_exporter() {
 
         local tmpdir
         tmpdir=$(mktemp -d)
-        wget --timeout=60 --tries=3 https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-${arch}.tar.gz -O "$tmpdir/node_exporter.tar.gz"
+        if ! wget --timeout=60 --tries=3 https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-${arch}.tar.gz -O "$tmpdir/node_exporter.tar.gz"; then
+            log "red" "Failed to download node_exporter"
+            rm -rf "$tmpdir"
+            return 1
+        fi
         tar -xzf "$tmpdir/node_exporter.tar.gz" -C "$tmpdir"
         sudo mv "$tmpdir/node_exporter-1.6.1.linux-${arch}/node_exporter" /usr/local/bin/
         sudo chmod +x /usr/local/bin/node_exporter
@@ -47,7 +51,11 @@ install_prometheus() {
 
         local tmpdir
         tmpdir=$(mktemp -d)
-        wget --timeout=60 --tries=3 https://github.com/prometheus/prometheus/releases/download/v2.45.0/prometheus-2.45.0.linux-${arch}.tar.gz -O "$tmpdir/prometheus.tar.gz"
+        if ! wget --timeout=60 --tries=3 https://github.com/prometheus/prometheus/releases/download/v2.45.0/prometheus-2.45.0.linux-${arch}.tar.gz -O "$tmpdir/prometheus.tar.gz"; then
+            log "red" "Failed to download prometheus"
+            rm -rf "$tmpdir"
+            return 1
+        fi
         tar -xzf "$tmpdir/prometheus.tar.gz" -C "$tmpdir"
         sudo mv "$tmpdir/prometheus-2.45.0.linux-${arch}" /opt/prometheus
         sudo ln -sf /opt/prometheus/prometheus /usr/local/bin/prometheus
@@ -114,6 +122,11 @@ configure_grafana() {
         grafana_password="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)"
     fi
 
+    # Back up existing grafana.ini before overwriting
+    if [[ -f /etc/grafana/grafana.ini ]]; then
+        sudo cp /etc/grafana/grafana.ini "/etc/grafana/grafana.ini.bak.$(date +%s)" 2>/dev/null || true
+    fi
+
     sudo tee /etc/grafana/grafana.ini > /dev/null <<EOF
 [server]
 http_port = $GRAFANA_PORT
@@ -155,7 +168,7 @@ EOF
         sudo systemctl enable node_exporter
     }
 
-    sudo systemctl start node_exporter || /usr/local/bin/node_exporter --web.listen-address=:$NODE_EXPORTER_PORT &
+    sudo systemctl start node_exporter || nohup /usr/local/bin/node_exporter --web.listen-address=:$NODE_EXPORTER_PORT >/dev/null 2>&1 &
 
     success "Node Exporter started."
 }
@@ -185,7 +198,7 @@ EOF
         sudo systemctl enable prometheus
     }
 
-    sudo systemctl start prometheus || /opt/prometheus/prometheus --config.file=/opt/prometheus/prometheus.yml --web.listen-address=:$PROMETHEUS_PORT &
+    sudo systemctl start prometheus || nohup /opt/prometheus/prometheus --config.file=/opt/prometheus/prometheus.yml --web.listen-address=:$PROMETHEUS_PORT >/dev/null 2>&1 &
 
     success "Prometheus started on port $PROMETHEUS_PORT."
 }

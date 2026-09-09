@@ -172,17 +172,21 @@ jobs:
 
   # Notify on success
   notify-success:
-    name: Notify Success
+    name: Notify Result
     runs-on: ubuntu-latest
     needs: [deploy-production, deploy-staging]
     if: always()
     steps:
       - name: Send notification
         run: |
-          if [ "${{ needs.deploy-production.result }}" == "success" ] || [ "${{ needs.deploy-staging.result }}" == "success" ]; then
+          prod="${{ needs.deploy-production.result }}"
+          staging="${{ needs.deploy-staging.result }}"
+          if [ "$prod" == "success" ] || [ "$staging" == "success" ]; then
             echo "✅ Deployment completed successfully"
             # Add webhook notification here
+          elif [ "$prod" == "skipped" ] && [ "$staging" == "skipped" ]; then
+            echo "ℹ️ No deployment needed (PR or non-deploy branch)"
           else
-            echo "❌ Deployment failed"
+            echo "❌ Deployment failed (prod: $prod, staging: $staging)"
             # Add failure notification here
           fi
