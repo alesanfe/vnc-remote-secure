@@ -1,7 +1,5 @@
 #!/bin/bash
 # shellcheck disable=SC2034
-set -e
-set -o pipefail
 # ============================================================================
 # INPUT VALIDATION SYSTEM
 # ============================================================================
@@ -348,25 +346,6 @@ validate_required() {
         return 1
     fi
     
-    return 0
-}
-
-# Validate configuration object
-# Arguments:
-#   $1 - Associative array name containing config
-#   $2 - Validation rules array name
-# Returns:
-#   0 if all validations pass, 1 otherwise
-validate_config() {
-    local config_name="$1"
-    local rules_name="$2"
-    local errors=0
-    
-    # Clear previous errors
-    VALIDATION_ERRORS=()
-    
-    # This would need to be implemented with eval or by passing the actual arrays
-    # For now, return success
     return 0
 }
 

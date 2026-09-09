@@ -120,5 +120,9 @@ helpers, so definitions in `utils.sh` take precedence. When adding a utility,
 place it in the appropriate `*_utils.sh` module and avoid redefining it in
 `utils.sh` unless intentional.
 
-Note: `src/lib/core/utils_refactored.sh` is NOT loaded by the main script and is
-kept only as a reference; do not rely on it at runtime.
+Note: `src/lib/core/utils.sh` only contains functions unique to it (cleanup,
+validate_password_strength, check_port_available, validate_config, show_logs,
+debug helpers). All other helpers (logging, display, commands, cleanup
+primitives, validation, dependency installation) live in their respective
+`*_utils.sh` / `logging.sh` / `validation.sh` modules and must not be
+duplicated here.

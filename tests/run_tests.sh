@@ -75,7 +75,7 @@ list_tests() {
         if [[ -d "$level_dir" ]]; then
             echo -e "${BLUE}[$level]${NC}"
             while IFS= read -r test_file; do
-                local rel="${test_file#$SCRIPT_DIR/}"
+                local rel="${test_file#"$SCRIPT_DIR"/}"
                 echo -e "  ${GREEN}$rel${NC}"
                 count=$((count + 1))
             done < <(find "$level_dir" -name "test_*.sh" -type f | sort)
@@ -99,7 +99,7 @@ discover_tests() {
             continue
         fi
         while IFS= read -r f; do
-            local rel="${f#$SCRIPT_DIR/}"
+            local rel="${f#"$SCRIPT_DIR"/}"
             if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
                 echo "$f"
             fi
@@ -144,7 +144,7 @@ fi
 
 # Run each test file
 for test_path in "${test_files[@]}"; do
-    rel="${test_path#$SCRIPT_DIR/}"
+    rel="${test_path#"$SCRIPT_DIR"/}"
     echo -e "${BLUE}Running: $rel${NC}"
     echo ""
 

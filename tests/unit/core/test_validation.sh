@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC1091,SC2034,SC2317,SC2153
 # ============================================================================
 # UNIT TESTS: Validation module (src/lib/core/validation.sh)
 # ============================================================================
@@ -148,9 +149,9 @@ test_sanitize_escapes_html() {
     setup
     local result
     result=$(sanitize_input '<script>alert(1)</script>')
-    # sanitize_input replaces < with < and > with >
-    assert_contains "$result" "<script>" "sanitize should escape < and > to HTML entities"
-    assert_contains "$result" "</script>" "sanitize should escape closing tag too"
+    # sanitize_input replaces < with &lt; and > with &gt;
+    assert_contains "$result" "&lt;script&gt;" "sanitize should escape < to &lt; and > to &gt;"
+    assert_contains "$result" "&lt;/script&gt;" "sanitize should escape closing tag too"
     # Original raw < should NOT appear
     if [[ "$result" == *"<"* ]]; then
         echo "    raw < still present in sanitized output: '$result'"

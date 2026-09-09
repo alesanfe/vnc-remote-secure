@@ -1,33 +1,27 @@
 #!/bin/bash
-# shellcheck disable=SC2034
-set -e
-set -o pipefail
+# shellcheck disable=SC2034,SC1091
 # ============================================================================
 # MAIN UTILITIES MODULE (Refactored)
 # ============================================================================
+# This module sources specialized utility sub-modules and provides only
+# functions that are NOT defined elsewhere. Definitions in the sub-modules
+# (logging.sh, display_utils.sh, command_utils.sh, cleanup_utils.sh,
+# validation.sh, dependency_utils.sh) are the single source of truth.
+#
+# Sourcing order: the main entry point sources logging.sh, validation.sh,
+# error_handling.sh, then utils.sh. utils.sh in turn sources:
+#   display_utils.sh, dependency_utils.sh, command_utils.sh, cleanup_utils.sh
 
 # Import specialized utility modules
 source "$(dirname "${BASH_SOURCE[0]}")/display_utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/dependency_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/process_utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/command_utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/cleanup_utils.sh"
 
-# Legacy log function (delegates to new logging system)
-log() {
-    local level="$1"
-    local message="$2"
-    
-    # Convert old level names to new ones
-    case "$level" in
-        "red") log_error "$message" ;;
-        "green") log_success "$message" ;;
-        "yellow") log_warn "$message" ;;
-        "blue") log_info "$message" ;;
-        "purple"|"cyan") log_debug "$message" ;;
-        "white"|"bright") log_info "$message" ;;
-        *) log_info "$message" ;;
-    esac
-}
+# ============================================================================
+# DEBUG AND DIAGNOSTIC HELPERS (unique to this module)
+# ============================================================================
 
 # Enhanced debug logging with service status and timing
 debug_log() {
@@ -41,7 +35,7 @@ debug_log() {
     log "cyan" "[$service] $action - Status: $status, Duration: ${duration}s"
 }
 
-# Log service status
+# Log service status via systemctl
 log_service_status() {
     [[ "$VERBOSE" != "true" ]] && return
 
@@ -57,197 +51,20 @@ log_service_status() {
     fi
 }
 
-# Log system resources
+# Log system resources (verbose mode)
 log_system_resources() {
     [[ "$VERBOSE" != "true" ]] && return
 
-    local cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
-    local mem_usage=$(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')
-    local disk_usage=$(df -h / | awk 'NR==2 {print $5}')
+    local cpu_usage mem_usage disk_usage
+    cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
+    mem_usage=$(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')
+    disk_usage=$(df -h / | awk 'NR==2 {print $5}')
 
     log "cyan" "System Resources - CPU: ${cpu_usage}%, Memory: ${mem_usage}%, Disk: ${disk_usage}"
 }
 
-print_header() {
-    local title="$1"
-    local width=60
-    local padding=$(( (width - ${#title}) / 2 ))
-    local line=""
-
-    for ((i=0; i<width; i++)); do
-        line+="═"
-    done
-
-    echo -e "\033[1;36m${line}\033[0m"
-    printf "\033[1;36m%*s%s%*s\033[0m\n" $padding "" "$title" $padding ""
-    echo -e "\033[1;36m${line}\033[0m"
-}
-
-print_section() {
-    local title="$1"
-    echo ""
-    echo -e "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-    echo -e "\033[1;34m  ${title}\033[0m"
-    echo -e "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-}
-
-print_separator() {
-    echo -e "\033[0;90m────────────────────────────────────────────────────────────\033[0m"
-}
-
-print_step() {
-    local step="$1"
-    local total="$2"
-    local message="$3"
-    echo -e "\033[1;33m[Step ${step}/${total}] ${message}\033[0m"
-}
-
-print_progress() {
-    local current="$1"
-    local total="$2"
-    local message="$3"
-    local percent=$(( current * 100 / total ))
-    local filled=$(( percent / 2 ))
-    local empty=$(( 50 - filled ))
-
-    local bar=""
-    for ((i=0; i<filled; i++)); do bar+="█"; done
-    for ((i=0; i<empty; i++)); do bar+="░"; done
-
-    echo -e "\033[0;36m${message}\033[0m"
-    echo -e "\033[0;36m[${bar}] ${percent}%\033[0m"
-}
-
-die() {
-    echo ""
-    echo -e "\033[1;41m  ERROR: $1 \033[0m"
-    echo ""
-    exit 1
-}
-
-warn() {
-    log "yellow" "WARNING: $1"
-}
-
-info() {
-    log "blue" "INFO: $1"
-}
-
-success() {
-    log "green" "SUCCESS: $1"
-}
-
 # ============================================================================
-# COMMAND HANDLING
-# ============================================================================
-
-show_help() {
-    cat << EOF
-Usage: $0 [COMMAND]
-
-Commands:
-  stop    Stop all services and cleanup
-  help    Show this help message
-
-Environment Variables:
-  TTYD_USERNAME       Username for ttyd authentication (default: current user)
-  TTYD_PASSWD         Password for ttyd authentication (default: changeme)
-  TEMP_USER           Temporary user name (default: remote)
-  TEMP_USER_PASS      Temporary user password (default: TTYD_PASSWD)
-  EMAIL               Email for SSL certificate (default: user@example.com)
-  NOVNC_PORT          Port for noVNC (default: 6080)
-  TTYD_PORT           Port for ttyd (default: 5000)
-  VNC_PORT            Port for VNC (default: 5901)
-  SSL_DIR             Directory for SSL certificates (default: ./ssl)
-  DUCK_DOMAIN         Domain for SSL certificate (required for SSL)
-  SSL_RENEW_DAYS      Days before SSL expiration to renew (default: 30)
-  BEEF_ENABLED        Enable BeEF injection (default: false)
-  BEEF_HOOK_URL       URL for BeEF hook script
-  VNC_DISPLAY         VNC display number (default: :2)
-  VNC_GEOMETRY        VNC resolution (default: 1920x1080)
-  VNC_DEPTH           VNC color depth (default: 24)
-
-Examples:
-  TTYD_PASSWD=mypassword DUCK_DOMAIN=mydomain.duckdns.org $0
-  $0 stop
-EOF
-    exit 0
-}
-
-handle_command() {
-    case "$1" in
-        stop)
-            log "yellow" "Stopping services..."
-            cleanup
-            exit 0
-            ;;
-        help|--help|-h)
-            show_help
-            ;;
-    esac
-}
-
-# ============================================================================
-# CLEANUP FUNCTIONS
-# ============================================================================
-
-kill_process_on_port() {
-    local port="$1"
-    local pid=$(lsof -t -i :"$port" 2>/dev/null)
-    
-    if [[ -n "$pid" ]]; then
-        log "yellow" "Stopping process on port $port (PID: $pid)..."
-        terminate_process_gracefully "$pid" 5 || true
-    fi
-}
-
-kill_vnc_server() {
-    if pgrep -x "Xtigervnc" > /dev/null; then
-        log "yellow" "Stopping TigerVNC server..."
-        sudo -u "$TEMP_USER" tigervncserver -kill "$VNC_DISPLAY" 2>/dev/null || true
-        kill_processes_by_pattern "tigervncserver" 5 || true
-    fi
-}
-
-remove_temp_user() {
-    if id "$TEMP_USER" &>/dev/null; then
-        log "yellow" "Removing temporary user $TEMP_USER..."
-        kill_user_processes_gracefully "$TEMP_USER" 5 || true
-        sudo deluser --remove-home "$TEMP_USER" 2>/dev/null || true
-    fi
-}
-
-cleanup() {
-    log "blue" "Cleaning up environment..."
-    
-    # Stop nginx if enabled
-    if [[ "$NGINX_ENABLED" == "true" ]]; then
-        stop_nginx
-    fi
-    
-    kill_process_on_port "$NOVNC_PORT"
-    kill_process_on_port "$TTYD_PORT"
-    kill_process_on_port "$VNC_PORT"
-    kill_vnc_server
-    remove_temp_user
-    
-    rm -f ttyd.armhf* 2>/dev/null || true
-    
-    success "Cleanup complete."
-    
-    # Send notification if Discord enabled
-    if [[ "$DISCORD_ENABLED" == "true" ]]; then
-        notify_cleanup_complete
-    fi
-    
-    # Send alert if alerts enabled
-    if [[ "$ALERTS_ENABLED" == "true" ]]; then
-        alert_cleanup
-    fi
-}
-
-# ============================================================================
-# VALIDATION FUNCTIONS
+# VALIDATION (password strength and port availability, unique to this module)
 # ============================================================================
 
 # Validate password strength
@@ -281,47 +98,6 @@ validate_password_strength() {
     return 0
 }
 
-# Validate port number
-# Arguments:
-#   $1 - Port number to validate
-# Returns:
-#   0 if valid, 1 otherwise
-validate_port() {
-    local port="$1"
-    
-    # Check if numeric
-    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
-        return 1
-    fi
-    
-    # Check if in valid range (1-65535)
-    if (( port < 1 || port > 65535 )); then
-        return 1
-    fi
-    
-    return 0
-}
-
-# Validate domain name format
-# Arguments:
-#   $1 - Domain to validate
-# Returns:
-#   0 if valid or empty, 1 otherwise
-validate_domain() {
-    local domain="$1"
-    
-    if [[ -z "$domain" ]]; then
-        return 0  # Empty is valid (SSL disabled)
-    fi
-    
-    # Basic domain validation
-    if [[ ! "$domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9](\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])+$ ]]; then
-        return 1
-    fi
-    
-    return 0
-}
-
 # Check if port is available (not in use)
 # Arguments:
 #   $1 - Port to check
@@ -329,7 +105,7 @@ validate_domain() {
 #   0 if available, 1 if in use
 check_port_available() {
     local port="$1"
-    
+
     if lsof -i :"$port" >/dev/null 2>&1; then
         return 1
     fi
@@ -383,24 +159,24 @@ validate_config() {
         fi
     fi
 
-    # Validate ports
-    if ! validate_port "$NOVNC_PORT"; then
+    # Validate ports (using validation.sh validate_port)
+    if ! validate_port "$NOVNC_PORT" "NOVNC_PORT"; then
         log "red" "NOVNC_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
 
-    if ! validate_port "$TTYD_PORT"; then
+    if ! validate_port "$TTYD_PORT" "TTYD_PORT"; then
         log "red" "TTYD_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
 
-    if ! validate_port "$VNC_PORT"; then
+    if ! validate_port "$VNC_PORT" "VNC_PORT"; then
         log "red" "VNC_PORT must be a valid port number (1-65535)"
         errors=$((errors + 1))
     fi
 
-    # Validate domain
-    if ! validate_domain "$DUCK_DOMAIN"; then
+    # Validate domain (using validation.sh validate_domain)
+    if ! validate_domain "$DUCK_DOMAIN" "DUCK_DOMAIN"; then
         log "red" "DUCK_DOMAIN must be a valid domain name"
         errors=$((errors + 1))
     fi
@@ -430,130 +206,17 @@ validate_config() {
 }
 
 # ============================================================================
-# DEPENDENCY MANAGEMENT
-# ============================================================================
-
-install_dependencies() {
-    log "yellow" "Installing required packages..."
-
-    sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq > /dev/null 2>&1
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        wget iproute2 lsof tigervnc-standalone-server novnc \
-        xfce4 xfce4-goodies x11-xserver-utils certbot \
-        python3-certbot-dns-standalone acl > /dev/null 2>&1
-
-    success "Dependencies installed successfully."
-}
-
-detect_ttyd_arch() {
-    local arch=$(uname -m)
-    
-    case "$arch" in
-        armv7l|armhf) echo "armhf" ;;
-        aarch64|arm64) echo "arm64" ;;
-        x86_64) echo "amd64" ;;
-        *) die "Unsupported architecture: $arch" ;;
-    esac
-}
-
-install_ttyd() {
-    if command -v ttyd &>/dev/null; then
-        success "ttyd is already installed."
-        return
-    fi
-    
-    log "yellow" "Installing ttyd..."
-    rm -f ttyd.armhf* 2>/dev/null || true
-    
-    local ttyd_arch=$(detect_ttyd_arch)
-    log "cyan" "Downloading ttyd for $(uname -m)..."
-    
-    wget -q "https://github.com/tsl0922/ttyd/releases/download/1.7.4/ttyd.linux-$ttyd_arch" -O ttyd || {
-        warn "Failed to download ttyd. Trying fallback version..."
-        wget "https://github.com/tsl0922/ttyd/releases/download/1.6.3/ttyd.$ttyd_arch" -O ttyd
-    }
-    
-    if [[ $? -eq 0 ]]; then
-        sudo cp ttyd /usr/local/bin/ttyd
-        sudo chmod +x /usr/local/bin/ttyd
-        rm -f ttyd
-        success "ttyd installed successfully."
-    else
-        die "Failed to install ttyd."
-    fi
-}
-
-# ============================================================================
-# DISPLAY FUNCTIONS
-# ============================================================================
-
-print_banner() {
-    echo ""
-    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════════════\033[0m"
-    echo -e "\033[1;33m   🖥️  Raspberry Pi VNC Remote Setup - Secure Remote Access\033[0m"
-    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════════════\033[0m"
-    echo ""
-}
-
-print_access_info() {
-    local protocol="http"
-    local port_suffix=""
-    
-    if [[ "$NGINX_ENABLED" == "true" ]]; then
-        protocol="https"
-        # nginx uses standard ports, no need to show port in URL
-    elif [[ "$DISABLE_SSL" == false ]]; then
-        protocol="https"
-        port_suffix=":${NOVNC_PORT}"
-    else
-        port_suffix=":${NOVNC_PORT}"
-    fi
-
-    echo ""
-    echo -e "\033[1;36m╔══════════════════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[1;36m║\033[1;33m                    ACCESS INFORMATION                  \033[1;36m║\033[0m"
-    echo -e "\033[1;36m╚══════════════════════════════════════════════════════════════╝\033[0m"
-    echo ""
-    
-    if [[ "$NGINX_ENABLED" == "true" ]]; then
-        echo -e "\033[1;34m  Desktop Access (noVNC):\033[0m"
-        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}/vnc/\033[0m"
-        echo ""
-        echo -e "\033[1;34m  Terminal Access (ttyd):\033[0m"
-        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}/terminal/\033[0m"
-        echo ""
-        echo -e "\033[1;32m  nginx reverse proxy is enabled (single port: 443)\033[0m"
-    else
-        echo -e "\033[1;34m  Desktop Access (noVNC):\033[0m"
-        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}${port_suffix}\033[0m"
-        echo ""
-        echo -e "\033[1;34m  Terminal Access (ttyd):\033[0m"
-        echo -e "     \033[1;36m${protocol}://${DUCK_DOMAIN:-localhost}:${TTYD_PORT}\033[0m"
-    fi
-    
-    echo ""
-    echo -e "\033[1;34m  Username:\033[0m \033[1;33m$TTYD_USERNAME\033[0m"
-    echo -e "\033[1;34m  Password:\033[0m \033[1;33m$TTYD_PASSWD\033[0m"
-    echo ""
-    
-    if [[ "$DISABLE_SSL" == true ]] && [[ "$NGINX_ENABLED" != "true" ]]; then
-        echo -e "\033[1;33m  WARNING: SSL is disabled. For production, set DUCK_DOMAIN or enable NGINX_ENABLED.\033[0m"
-    fi
-    echo ""
-}
-
-# ============================================================================
 # LOG VIEWING
 # ============================================================================
 
 show_logs() {
     if [[ "$SHOW_LOGS" != "true" ]]; then
-        log "yellow" "Log viewing is disabled. Set SHOW_LOGS=true to enable." "📝"
+        log "yellow" "Log viewing is disabled. Set SHOW_LOGS=true to enable."
         wait
         return
     fi
 
-    log "blue" "Monitoring service logs (Press CTRL+C to stop)..." "📋"
+    log "blue" "Monitoring service logs (Press CTRL+C to stop)..."
     echo ""
 
     # Create a combined log viewer
@@ -563,13 +226,13 @@ show_logs() {
     elif command -v tail &>/dev/null; then
         # Use tail to follow all logs
         tail -f "$LOG_DIR"/*.log 2>/dev/null || {
-            log "yellow" "No log files found yet. Waiting for logs..." "⏳"
+            log "yellow" "No log files found yet. Waiting for logs..."
             sleep 5
             tail -f "$LOG_DIR"/*.log 2>/dev/null || wait
         }
     else
         # Fallback to just wait
-        log "yellow" "tail command not available. Using wait..." "⏳"
+        log "yellow" "tail command not available. Using wait..."
         wait
     fi
 }

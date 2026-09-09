@@ -20,8 +20,6 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BACKUP_DIR="$PROJECT_DIR/backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="backup_${TIMESTAMP}.tar.gz"
-DATA_DIR="$PROJECT_DIR/data"
-CONFIG_FILE="$PROJECT_DIR/.env"
 
 echo -e "${BLUE}🔄 Creating backup...${NC}"
 

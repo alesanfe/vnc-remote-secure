@@ -40,14 +40,18 @@ help: ## Show this help message
 # ============================================================================
 
 install: ## Install script to /usr/local/bin
-	@echo "$(YELLOW)Installing rpi-vnc-remote.sh to /usr/local/bin...$(NC)"
-	@sudo cp src/rpi-vnc-remote.sh /usr/local/bin/rpi-vnc-remote
+	@echo "$(YELLOW)Installing rpi-vnc-remote to /usr/local...$(NC)"
+	@sudo mkdir -p /usr/local/share/rpi-vnc-remote
+	@sudo cp -r src/ /usr/local/share/rpi-vnc-remote/src/
+	@sudo cp -r src/config/ /usr/local/share/rpi-vnc-remote/config/ 2>/dev/null || true
+	@printf '#!/bin/bash\nexec /usr/local/share/rpi-vnc-remote/src/rpi-vnc-remote.sh "$$@"\n' | sudo tee /usr/local/bin/rpi-vnc-remote > /dev/null
 	@sudo chmod +x /usr/local/bin/rpi-vnc-remote
 	@echo "$(GREEN)✓ Installation complete$(NC)"
 
 uninstall: ## Remove script from /usr/local/bin
-	@echo "$(YELLOW)Removing rpi-vnc-remote from /usr/local/bin...$(NC)"
+	@echo "$(YELLOW)Removing rpi-vnc-remote from /usr/local...$(NC)"
 	@sudo rm -f /usr/local/bin/rpi-vnc-remote
+	@sudo rm -rf /usr/local/share/rpi-vnc-remote
 	@echo "$(GREEN)✓ Uninstallation complete$(NC)"
 
 # ============================================================================
@@ -116,15 +120,23 @@ docker-clean: ## Remove Docker images and containers
 # LINTING
 # ============================================================================
 
-lint: ## Run shellcheck on all shell scripts
-	@echo "$(BLUE)Running shellcheck...$(NC")
-	@shellcheck src/rpi-vnc-remote.sh
-	@shellcheck src/lib/*.sh
-	@shellcheck tests/unit/*.sh
-	@shellcheck tests/integration/*.sh
-	@shellcheck tests/security/*.sh
-	@shellcheck tests/run_tests.sh
+lint: ## Run shellcheck on all shell scripts (warnings shown, non-fatal)
+	@echo "$(BLUE)Running shellcheck...$(NC)"
+	@shellcheck -x src/rpi-vnc-remote.sh || true
+	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh || true
+	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh || true
+	@shellcheck -x tests/run_tests.sh || true
+	@find tests/unit tests/integration tests/system tests/e2e tests/maintenance tests/documentation -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x || true
 	@echo "$(GREEN)✓ Linting complete$(NC)"
+
+lint-strict: ## Run shellcheck and fail on any warning
+	@echo "$(BLUE)Running shellcheck (strict)...$(NC)"
+	@shellcheck -x src/rpi-vnc-remote.sh
+	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh
+	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh
+	@shellcheck -x tests/run_tests.sh
+	@find tests/unit tests/integration tests/system tests/e2e tests/maintenance tests/documentation -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x
+	@echo "$(GREEN)✓ Linting complete (no warnings)$(NC)"
 
 # ============================================================================
 # DOCUMENTATION
@@ -296,11 +308,11 @@ services-start: ## Start all services (VNC, ttyd, noVNC)
 
 services-stop: ## Stop all services
 	@echo "$(BLUE)Stopping all services...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && cleanup
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && cleanup_processes
 
 cleanup: ## Run cleanup (remove services and temp user)
 	@echo "$(BLUE)Running cleanup...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && cleanup
+	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && cleanup_processes
 
 # ============================================================================
 # STATUS
