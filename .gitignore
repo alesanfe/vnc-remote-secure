@@ -16,6 +16,8 @@ secrets/
 # --- SSL certificates (never commit) ---
 ssl/
 data/ssl/
+# Exception: test certificates in fixtures are safe to commit
+!tests/fixtures/certificates/*.pem
 
 # --- Python ---
 __pycache__/
@@ -79,6 +81,9 @@ bin/ultravnc/
 bin/ttyd_msvc/
 bin/*.zip
 bin/*.exe
+# Exception: native launcher scripts are source code, not downloaded binaries
+!native/linux/bin/
+!native/linux/bin/*
 
 # --- Third-party cache ---
 third_party/cache/
