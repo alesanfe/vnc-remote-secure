@@ -1,4 +1,7 @@
 #!/bin/bash
+# DEPRECATED: Use 'vnc-remote stop --force' instead.
+# This script will be removed in a future release.
+echo "[DEPRECATED] kill_all.sh is deprecated. Use: vnc-remote stop --force" >&2
 # Kill all VNC Remote Secure services and free ports.
 # Works on both Windows (Git Bash/MSYS) and Linux.
 set +e

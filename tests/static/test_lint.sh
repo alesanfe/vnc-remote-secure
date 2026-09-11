@@ -64,7 +64,7 @@ test_main_script_has_shebang() {
 test_all_modules_have_shebang() {
     local f
     for f in "${ALL_SCRIPTS[@]}"; do
-        if ! head -n1 "$f" | grep -q '#!/bin/bash'; then
+        if ! head -n1 "$f" | grep -qE '^#!(/bin/bash|/usr/bin/env bash)'; then
             echo "    missing shebang: $f"
             return 1
         fi

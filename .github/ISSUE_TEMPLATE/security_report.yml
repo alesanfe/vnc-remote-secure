@@ -1,0 +1,68 @@
+name: Security Report
+description: Report a security vulnerability
+title: "[SECURITY]: "
+labels: ["security", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Security Vulnerability Report
+
+        **WARNING**: Do not include sensitive information, credentials, or
+        exploit details in this public issue. For critical vulnerabilities,
+        please review our Security Policy at SECURITY.md and report
+        privately if the issue could lead to exploitation.
+  - type: textarea
+    id: description
+    attributes:
+      label: Vulnerability Description
+      description: Describe the security issue (without exploit details).
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical (RCE, data breach, auth bypass)
+        - High (privilege escalation, significant info leak)
+        - Medium (info disclosure, DoS)
+        - Low (minor info leak, hardening)
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      options:
+        - VNC Server
+        - noVNC / websockify
+        - Web Terminal (ttyd/tornado)
+        - SSL/TLS Configuration
+        - Firewall Rules
+        - Authentication
+        - Landing Page
+        - Health Dashboard
+        - CLI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential Impact
+      description: What could an attacker do if they exploited this?
+    validations:
+      required: true
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested Mitigation
+      description: How do you think this should be fixed?
+  - type: input
+    id: version
+    attributes:
+      label: Affected Version
+      placeholder: "0.2.0"
+    validations:
+      required: true

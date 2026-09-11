@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNC Remote - Audio Receiver</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: #16213e;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #0f3460;
+            text-align: center;
+            margin-top: 0;
+        }
+        .status {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+        .status.connected {
+            background: #0f3460;
+            color: #4caf50;
+        }
+        .status.disconnected {
+            background: #1a1a2e;
+            color: #f44336;
+        }
+        .status.connecting {
+            background: #1a1a2e;
+            color: #ff9800;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        button {
+            background: #0f3460;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #1a4a7a;
+        }
+        button:disabled {
+            background: #333;
+            cursor: not-allowed;
+        }
+        .info {
+            font-size: 13px;
+            color: #888;
+            margin-top: 15px;
+            text-align: center;
+        }
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .volume-control input[type="range"] {
+            flex: 1;
+        }
+        .bt-info {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 13px;
+        }
+        .bt-info h3 {
+            margin: 0 0 8px 0;
+            color: #4caf50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Audio Receiver</h1>
+
+        <div id="status" class="status disconnected">Disconnected</div>
+
+        <div class="controls">
+            <button id="connectBtn" onclick="connectAudio()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnectAudio()" disabled>Disconnect</button>
+        </div>
+
+        <div class="volume-control">
+            <label>Volume:</label>
+            <input type="range" id="volume" min="0" max="100" value="80" oninput="setVolume(this.value)">
+            <span id="volumeLabel">80%</span>
+        </div>
+
+        <div class="bt-info">
+            <h3>Bluetooth Audio</h3>
+            <p>If you have Bluetooth headphones/speakers connected to this device,
+            the audio will play through them automatically. No extra configuration needed.</p>
+        </div>
+
+        <div class="info" id="info">
+            Connect to start receiving audio from the remote server.
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let audioContext = null;
+        let mediaSource = null;
+        let gainNode = null;
+        let audioQueue = [];
+        let isPlaying = false;
+
+        async function connectAudio() {
+            const wsUrl = `ws://${location.hostname}:7777`;
+            document.getElementById('status').className = 'status connecting';
+            document.getElementById('status').textContent = 'Connecting...';
+            document.getElementById('info').textContent = `Connecting to ${wsUrl}`;
+
+            try {
+                // Initialize AudioContext (must be after user gesture)
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    gainNode = audioContext.createGain();
+                    gainNode.connect(audioContext.destination);
+                    gainNode.gain.value = document.getElementById('volume').value / 100;
+                }
+
+                ws = new WebSocket(wsUrl);
+                ws.binaryType = 'arraybuffer';
+
+                ws.onopen = function() {
+                    document.getElementById('status').className = 'status connected';
+                    document.getElementById('status').textContent = 'Connected - Streaming';
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    document.getElementById('info').textContent = 'Receiving audio stream...';
+                };
+
+                ws.onmessage = async function(event) {
+                    if (typeof event.data === 'string') {
+                        // Control message
+                        try {
+                            const msg = JSON.parse(event.data);
+                            if (msg.type === 'status') {
+                                document.getElementById('info').textContent =
+                                    `Clients: ${msg.clients} | Device: ${msg.device} | ${msg.bitrate}`;
+                            }
+                        } catch (e) {}
+                        return;
+                    }
+
+                    // Audio data (ArrayBuffer) - decode and play
+                    try {
+                        const arrayBuffer = event.data;
+                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                        const source = audioContext.createBufferSource();
+                        source.buffer = audioBuffer;
+                        source.connect(gainNode);
+                        source.start();
+                    } catch (e) {
+                        // decodeAudioData can fail on partial frames; ignore
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    document.getElementById('status').className = 'status disconnected';
+                    document.getElementById('status').textContent = 'Error';
+                    document.getElementById('info').textContent = 'Connection error. Is the server running?';
+                };
+
+                ws.onclose = function() {
+                    document.getElementById('status').className = 'status disconnected';
+                    document.getElementById('status').textContent = 'Disconnected';
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    document.getElementById('info').textContent = 'Connection closed.';
+                    ws = null;
+                };
+
+            } catch (e) {
+                document.getElementById('status').className = 'status disconnected';
+                document.getElementById('status').textContent = 'Error';
+                document.getElementById('info').textContent = `Error: ${e.message}`;
+            }
+        }
+
+        function disconnectAudio() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            document.getElementById('status').className = 'status disconnected';
+            document.getElementById('status').textContent = 'Disconnected';
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+        }
+
+        function setVolume(value) {
+            document.getElementById('volumeLabel').textContent = value + '%';
+            if (gainNode) {
+                gainNode.gain.value = value / 100;
+            }
+        }
+    </script>
+</body>
+</html>

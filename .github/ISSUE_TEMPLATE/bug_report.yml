@@ -1,0 +1,74 @@
+name: Bug Report
+description: Report a bug to help us improve VNC Remote Secure
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below.
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Run `vnc-remote start`
+        2. Open browser at https://...
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux (Raspberry Pi)
+        - Linux (x86_64)
+        - Windows
+        - WSL
+        - Docker
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: VNC Remote Secure Version
+      description: Output of `vnc-remote version`
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Any relevant log output (remove sensitive info!).
+      render: shell
+  - type: textarea
+    id: env
+    attributes:
+      label: Configuration
+      description: Relevant .env settings (REMOVE ALL SECRETS before posting!).
+      render: shell

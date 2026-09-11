@@ -1,0 +1,53 @@
+# docker-compose.integration.yml - Integration testing overrides
+# ============================================================================
+# Extends compose.yml and adds a test runner service gated behind the
+# `test` Compose profile so it only runs when explicitly requested.
+#
+# Usage:
+#   docker compose \
+#     -f packaging/docker/compose.yml \
+#     -f packaging/docker/compose.integration.yml \
+#     --profile test \
+#     run --rm test-runner
+# ============================================================================
+services:
+  # Extend the main service with test-friendly settings.
+  vnc-remote:
+    environment:
+      VNC_REMOTE_ENV: integration
+      VNC_REMOTE_LOG_LEVEL: DEBUG
+    # In integration mode expose auxiliary ports for direct probing.
+    ports:
+      - "443:443"
+      - "6080:6080"
+      - "5000:5000"
+      - "8090:8090"
+      - "8000:8000"
+
+  # One-shot test runner. Only starts under the `test` profile.
+  test-runner:
+    profiles:
+      - test
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    image: vnc-remote-secure:latest
+    container_name: vnc-remote-test-runner
+    depends_on:
+      vnc-remote:
+        condition: service_started
+    env_file:
+      - ../../.env
+    environment:
+      VNC_REMOTE_TARGET_HOST: vnc-remote
+      VNC_REMOTE_ENV: integration
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["-q", "tests/integration/"]
+    volumes:
+      - vncrs-data:/var/lib/vnc-remote-secure:ro
+
+volumes:
+  vncrs-config:
+  vncrs-data:
+  vncrs-logs:
+  vncrs-run:

@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VNC Remote Secure configuration",
+  "description": "Schema validating the .env configuration for VNC Remote Secure.",
+  "type": "object",
+  "properties": {
+    "VNC_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the VNC server listens on."
+    },
+    "NOVNC_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the noVNC web client listens on."
+    },
+    "TTYD_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the ttyd web terminal listens on."
+    },
+    "HEALTH_WEB_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the health check web server listens on."
+    },
+    "LANDING_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the landing page server listens on."
+    },
+    "TTYD_USERNAME": {
+      "type": "string",
+      "minLength": 3,
+      "description": "Username for the ttyd web terminal."
+    },
+    "TTYD_PASSWD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the ttyd web terminal."
+    },
+    "VNC_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the VNC server."
+    },
+    "SSL_CERT": {
+      "type": "string",
+      "description": "Path to the SSL certificate file."
+    },
+    "SSL_KEY": {
+      "type": "string",
+      "description": "Path to the SSL private key file."
+    },
+    "DUCK_DOMAIN": {
+      "type": "string",
+      "description": "DuckDNS domain used for dynamic DNS."
+    },
+    "DUCKDNS_TOKEN": {
+      "type": "string",
+      "description": "DuckDNS API token."
+    },
+    "VNC_GEOMETRY": {
+      "type": "string",
+      "pattern": "^\\d+x\\d+$",
+      "description": "VNC desktop geometry as WIDTHxHEIGHT."
+    },
+    "VNC_DEPTH": {
+      "type": "integer",
+      "enum": [8, 16, 24, 32],
+      "description": "VNC color depth."
+    },
+    "KEEP_TEMP_USER": {
+      "type": "boolean",
+      "description": "Whether to keep the temporary user after the session ends."
+    },
+    "HEALTHCHECK_ENABLED": {
+      "type": "boolean",
+      "description": "Whether the health check web server is enabled."
+    },
+    "ENABLE_RECORDING": {
+      "type": "boolean",
+      "description": "Whether session recording is enabled."
+    },
+    "ENABLE_AUDIO": {
+      "type": "boolean",
+      "description": "Whether audio forwarding is enabled."
+    },
+    "ENABLE_GAMEPAD": {
+      "type": "boolean",
+      "description": "Whether gamepad forwarding is enabled."
+    },
+    "ENABLE_USER_UI": {
+      "type": "boolean",
+      "description": "Whether the user management UI is enabled."
+    },
+    "WEBTERM_SHELL": {
+      "type": "string",
+      "description": "Shell executable used by the web terminal."
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

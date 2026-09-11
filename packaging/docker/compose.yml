@@ -1,0 +1,32 @@
+# docker-compose.yml - VNC Remote Secure single-service deployment
+# ============================================================================
+# Usage:
+#   docker compose --env-file .env up -d
+# ============================================================================
+services:
+  vnc-remote:
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    image: vnc-remote-secure:latest
+    container_name: vnc-remote
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    env_file:
+      - ../../.env
+    volumes:
+      # Persistent configuration (overrides defaults from the image)
+      - vncrs-config:/etc/vnc-remote-secure
+      # Runtime data (SSL certs, generated passwords, sessions, backups)
+      - vncrs-data:/var/lib/vnc-remote-secure
+      # Logs
+      - vncrs-logs:/var/log/vnc-remote-secure
+      # Runtime socket/pid dir (tmpfs-like, but shared with host optional)
+      - vncrs-run:/run/vnc-remote-secure
+
+volumes:
+  vncrs-config:
+  vncrs-data:
+  vncrs-logs:
+  vncrs-run:

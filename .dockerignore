@@ -1,28 +1,85 @@
-# Git
-.git
+# Docker ignore file - excludes unnecessary files from Docker build context
+
+# Version control
+.git/
 .gitignore
-.github
+.gitattributes
 
 # IDE
-.idea
-.vscode
+.idea/
+.vscode/
+.qodo/
+.refact/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+*.pfx
+*.p12
+
+# SSL certificates
+data/ssl/
+ssl/
+
+# Logs and runtime
+logs/
+*.log
+*.log.*
+.runtime/
+run/
+*.pid
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Build artifacts
+dist/
+build/
+artifacts/
+
+# Binaries (downloaded at runtime, not in image)
+bin/
+novnc/
+
+# Third-party
+third_party/
+
+# Tests (not needed in production image)
+tests/
+tests/fixtures/
+
+# Documentation (not needed in production image)
+docs/
+doc/
+CHANGELOG.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+ROADMAP.md
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
 *.swp
 *.swo
 *~
-
-# SSL certificates (security)
-ssl/
-*.pem
-*.key
-*.crt
-
-# Temporary files
-ttyd*
-*.log
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Documentation (optional, keep if needed)
-# README.md
+*.tmp
+_commit_msg.txt
