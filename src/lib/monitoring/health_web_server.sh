@@ -35,6 +35,11 @@ if ! declare -f log &>/dev/null; then
     load_module "core/logging.sh"
     load_module "core/utils.sh"
     load_module "monitoring/healthcheck.sh"
+    # Load platform backend to override Linux-specific functions on Windows
+    if [[ -f "$LIB_DIR/platform/detect.sh" ]]; then
+        source "$LIB_DIR/platform/detect.sh"
+        load_platform_backend
+    fi
 fi
 
 # Generate HTML health status

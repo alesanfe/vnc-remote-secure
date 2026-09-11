@@ -1,0 +1,4 @@
+License text for tightvnc
+
+Download the full license from the project homepage.
+See third_party/manifests/tightvnc.json for the project URL.

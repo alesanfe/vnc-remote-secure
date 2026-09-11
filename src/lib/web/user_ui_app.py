@@ -23,6 +23,7 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true',
     PERMANENT_SESSION_LIFETIME=1800,
 )
 
@@ -61,6 +62,18 @@ def _record_failed_attempt(client_ip):
 def _clear_failed_attempts(client_ip):
     """Clear failed attempts after successful login."""
     _LOGIN_ATTEMPTS.pop(client_ip, None)
+
+
+def _get_client_ip():
+    """Get the real client IP, respecting X-Forwarded-For only from trusted proxies."""
+    # If behind a trusted reverse proxy, use X-Forwarded-For
+    # Set TRUSTED_PROXY=1 in env to enable X-Forwarded-For parsing
+    if os.environ.get('TRUSTED_PROXY', 'false').lower() == 'true':
+        forwarded = request.headers.get('X-Forwarded-For', '')
+        if forwarded:
+            # Take the first IP (leftmost) in the chain
+            return forwarded.split(',')[0].strip()
+    return request.remote_addr or ''
 
 
 def _verify_password(password, stored_hash):
@@ -136,7 +149,7 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle login (GET shows form, POST validates password)."""
-    client_ip = request.remote_addr or ''
+    client_ip = _get_client_ip()
     if request.method == 'POST':
         if _is_rate_limited(client_ip):
             flash('Too many login attempts. Please try again later.')
@@ -230,7 +243,7 @@ def create_user():
         # Only cleanup if useradd succeeded (don't delete pre-existing users)
         if user_created:
             subprocess.run(
-                ['sudo', 'deluser', '--remove-home', username],
+                ['sudo', 'userdel', '--remove-home', username],
                 stderr=subprocess.DEVNULL, check=False,
             )
 
@@ -254,12 +267,14 @@ def delete_user(username):
 
     try:
         subprocess.run(
-            ['sudo', 'deluser', '--remove-home', username],
+            ['sudo', 'userdel', '--remove-home', username],
             check=True,
         )
         flash(f'User {username} deleted successfully')
     except Exception as exc:  # pylint: disable=broad-except
-        flash(f'Error deleting user: {exc}')
+        # Log full error internally but show generic message to avoid leaking paths/commands
+        app.logger.error('Error deleting user %s: %s', username, exc)
+        flash('Error deleting user. Check server logs for details.')
 
     return redirect(url_for('users'))
 

@@ -1,0 +1,16 @@
+{
+  "name": "TightVNC",
+  "version": "2.8.85",
+  "platform": "windows",
+  "architecture": "x86_64",
+  "description": "VNC server for Windows (alternative to UltraVNC)",
+  "homepage": "https://www.tightvnc.com/",
+  "repository": null,
+  "license": "GPL-2.0",
+  "license_file": "third_party/licenses/tightvnc.txt",
+  "managed_by": "download",
+  "download_url": "https://www.tightvnc.com/download/tightvnc-2.8.85-gpl-setup-64bit.msi",
+  "filename": "tvnserver.exe",
+  "sha256": "TBD",
+  "notes": "Alternative VNC server. UltraVNC is preferred. Not committed to repository."
+}

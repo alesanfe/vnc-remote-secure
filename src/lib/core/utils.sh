@@ -117,13 +117,13 @@ validate_config() {
 
     # Validate TEMP_USER format (prevents command injection in useradd/userdel)
     if ! [[ "$TEMP_USER" =~ ^[a-z][a-z0-9_-]{1,31}$ ]]; then
-        log "red" "TEMP_USER must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores (max 32 chars)."
+        log "red" "TEMP_USER must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores (2-32 chars)."
         errors=$((errors + 1))
     fi
 
     # Validate TTYD_USERNAME format (used in sudo -u and user creation)
     if ! [[ "$TTYD_USERNAME" =~ ^[a-z][a-z0-9_-]{1,31}$ ]]; then
-        log "red" "TTYD_USERNAME must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores (max 32 chars)."
+        log "red" "TTYD_USERNAME must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores (2-32 chars)."
         errors=$((errors + 1))
     fi
 

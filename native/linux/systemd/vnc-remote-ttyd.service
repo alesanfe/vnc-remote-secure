@@ -1,0 +1,27 @@
+[Unit]
+Description=VNC Remote Secure - Web Terminal (ttyd)
+Documentation=https://github.com/alesanfe/vnc-remote-secure
+After=network.target
+
+[Service]
+Type=simple
+User=__TEMP_USER__
+Group=__TEMP_USER__
+EnvironmentFile=-/etc/vnc-remote/secrets/vnc.env
+# Credentials read from file (not command line) to avoid process list exposure
+ExecStart=/usr/bin/ttyd --port __TTYD_PORT__ --listen 127.0.0.1 --credential-file /etc/vnc-remote/secrets/ttyd-credentials bash
+Restart=on-failure
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/home/__TEMP_USER__ /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+# ttyd needs to spawn shells, so we can't lock too tightly
+# But we bind to localhost only (nginx proxies external access)
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+# Development dependencies for VNC Remote Secure
+# Install with: pip3 install -r requirements-dev.txt
+#
+# These are optional and only needed for development, linting, and testing.
+
+# Linting and formatting
+ruff>=0.7.0
+black>=24.0.0
+flake8>=7.0.0
+
+# Pre-commit hooks
+pre-commit>=3.5.0
+
+# Shell linting (requires shellcheck binary on PATH)
+# Install shellcheck separately:
+#   - Linux: apt-get install shellcheck
+#   - macOS: brew install shellcheck
+#   - Windows: choco install shellcheck
+
+# YAML linting (used by pre-commit yamllint hook)
+yamllint>=1.35.0
+
+# Shell formatting (used by pre-commit shfmt hook)
+# Install shfmt separately:
+#   - Linux: snap install shfmt
+#   - macOS: brew install shfmt
+#   - Windows: choco install shfmt

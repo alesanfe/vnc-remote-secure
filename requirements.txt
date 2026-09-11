@@ -1,9 +1,24 @@
-# Python dependencies for the Raspberry Pi VNC Remote project
+# Python dependencies for the VNC Remote Secure project
 #
 # Install with: pip3 install -r requirements.txt
 #
-# Only the User Management UI (src/lib/web/user_ui_app.py) requires Flask.
-# The health web server (src/lib/monitoring/health_web_server.py) uses
-# only Python standard library modules.
-
+# Core dependencies (used by Flask User Management UI):
 Flask>=2.2,<4.0
+
+# Web terminal (web_terminal.py) - Tornado WebSocket server
+tornado>=6.2
+
+# noVNC proxy (websockify) - proxies browser WebSocket to VNC RFB
+websockify>=0.10.0
+
+# SSL certificate generation (gen_ssl.py)
+cryptography>=41.0
+
+# WebSocket client for verification tests (verify_all.py)
+websocket-client>=1.6.0
+
+# WebSocket server for audio streaming and gamepad forwarding
+websockets>=12.0
+
+# Development / linting (optional, for contributors)
+# Install with: pip3 install -r requirements.txt -r requirements-dev.txt

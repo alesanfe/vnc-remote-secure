@@ -197,7 +197,7 @@ stop_service_gracefully() {
     if command -v systemctl &>/dev/null; then
         if systemctl is-active --quiet "$service" 2>/dev/null; then
             log "blue" "Using systemctl to stop $service..."
-            if systemctl stop "$service" 2>/dev/null; then
+            if sudo systemctl stop "$service" 2>/dev/null; then
                 # Wait for service to stop
                 local count=0
                 while systemctl is-active --quiet "$service" 2>/dev/null && [[ $count -lt $timeout ]]; do

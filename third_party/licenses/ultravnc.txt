@@ -1,0 +1,4 @@
+License text for ultravnc
+
+Download the full license from the project homepage.
+See third_party/manifests/ultravnc.json for the project URL.

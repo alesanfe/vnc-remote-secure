@@ -133,8 +133,18 @@ start_vnc_server() {
 
     log "blue" "Display: $VNC_DISPLAY | Resolution: $VNC_GEOMETRY | Depth: $VNC_DEPTH"
 
+    # Bind VNC to localhost when nginx is enabled (nginx proxies external access).
+    # When nginx is disabled (development mode), bind to all interfaces for direct access.
+    local vnc_localhost="yes"
+    if [[ "$NGINX_ENABLED" != "true" ]]; then
+        vnc_localhost="no"
+        log "yellow" "VNC binding to all interfaces (nginx disabled, development mode)"
+    else
+        log "blue" "VNC binding to localhost (nginx will handle external access)"
+    fi
+
     if sudo -u "$TEMP_USER" tigervncserver "$VNC_DISPLAY" -geometry "$VNC_GEOMETRY" \
-        -depth "$VNC_DEPTH" -rfbport "$VNC_PORT" -SecurityTypes VncAuth -localhost no >/dev/null 2>&1; then
+        -depth "$VNC_DEPTH" -rfbport "$VNC_PORT" -SecurityTypes VncAuth -localhost "$vnc_localhost" >/dev/null 2>&1; then
         success "VNC server started successfully on display $VNC_DISPLAY"
     else
         die "Failed to start VNC server."

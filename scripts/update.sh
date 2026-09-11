@@ -46,7 +46,7 @@ fi
 echo -e "\n${YELLOW}📦 Updating system packages...${NC}"
 if confirm_action "Update system packages?"; then
     echo -e "${BLUE}🔄 Running apt update...${NC}"
-    if sudo apt update; then
+    if sudo apt-get update; then
         echo -e "${GREEN}✅ Package lists updated${NC}"
     else
         echo -e "${RED}❌ Failed to update package lists${NC}"
@@ -54,15 +54,15 @@ if confirm_action "Update system packages?"; then
     fi
     
     echo -e "${BLUE}🔄 Running apt upgrade...${NC}"
-    if sudo apt upgrade -y; then
+    if sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq; then
         echo -e "${GREEN}✅ System packages upgraded${NC}"
     else
         echo -e "${YELLOW}⚠️  Some packages may have failed to upgrade${NC}"
     fi
     
     echo -e "${BLUE}🔄 Cleaning up unnecessary packages...${NC}"
-    sudo apt autoremove -y 2>/dev/null || true
-    sudo apt autoclean 2>/dev/null || true
+    sudo DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null || true
+    sudo apt-get autoclean 2>/dev/null || true
     echo -e "${GREEN}✅ Package cleanup completed${NC}"
 else
     echo -e "${BLUE}📋 Skipping system package update${NC}"
@@ -84,13 +84,19 @@ if [[ -d "$PROJECT_DIR/.git" ]]; then
             git stash push -m "Auto-stash before update $(date)"
         fi
         
-        # Pull latest changes
+        # Pull latest changes (respect current branch)
         echo -e "${BLUE}🔄 Pulling latest changes...${NC}"
-        if git pull origin main 2>/dev/null || git pull origin master 2>/dev/null; then
-            echo -e "${GREEN}✅ Project updated successfully${NC}"
+        current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+        if [[ -n "$current_branch" ]]; then
+            if git pull origin "$current_branch" 2>/dev/null; then
+                echo -e "${GREEN}✅ Project updated successfully (branch: $current_branch)${NC}"
+            else
+                echo -e "${RED}❌ Failed to pull changes from git${NC}"
+                echo -e "${BLUE}💡 Check your internet connection and git remote${NC}"
+                exit 1
+            fi
         else
-            echo -e "${RED}❌ Failed to pull changes from git${NC}"
-            echo -e "${BLUE}💡 Check your internet connection and git remote${NC}"
+            echo -e "${RED}❌ Could not determine current branch${NC}"
             exit 1
         fi
         

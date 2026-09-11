@@ -1,6 +1,56 @@
-# Pre-commit hooks for Raspberry Pi VNC Remote
+# Pre-commit hooks for VNC Remote Secure
 # Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
 repos:
+  # ============================================================================
+  # Local hooks (fast, no external deps)
+  # ============================================================================
+  - repo: local
+    hooks:
+      - id: forbid-crlf
+        name: Forbid CRLF line endings
+        entry: bash -c 'if grep -rlU $"\r$" --include="*.sh" --include="*.py" --include="*.yml" --include="*.yaml" --include="*.md" .; then echo "CRLF line endings found. Run: dos2unix <file>"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        entry: bash -c 'if grep -rn " $" --include="*.sh" --include="*.py" --include="*.yml" --include="*.md" .; then echo "Trailing whitespace found"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: check-merge-conflict
+        name: Check for merge conflict markers
+        entry: bash -c 'if grep -rn "^<<<<<<<\|^>>>>>>>\|^=======" --include="*.sh" --include="*.py" --include="*.yml" --include="*.md" .; then echo "Merge conflict markers found"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: no-secrets-in-env
+        name: Check .env is not staged
+        entry: bash -c 'if git diff --cached --name-only | grep -q "^\.env$"; then echo "ERROR: .env is staged. Unstage it: git reset HEAD .env"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: python-compile
+        name: Python syntax check
+        entry: python3 -m py_compile
+        language: system
+        files: \.py$
+
+      - id: bash-syntax
+        name: Bash syntax check
+        entry: bash -n
+        language: system
+        files: \.sh$
+
+  # ============================================================================
+  # Shell linting
+  # ============================================================================
   - repo: https://github.com/koalaman/shellcheck-precommit
     rev: v0.10.0
     hooks:
@@ -13,12 +63,15 @@ repos:
       - id: shfmt
         args: ["-i", "4", "-ci", "-bn"]
 
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
+  # ============================================================================
+  # Python linting and formatting
+  # ============================================================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
     hooks:
-      - id: flake8
+      - id: ruff
+        args: ["--fix"]
         files: \.py$
-        args: ["--max-line-length=120"]
 
   - repo: https://github.com/psf/black
     rev: 24.10.0
@@ -27,6 +80,9 @@ repos:
         files: \.py$
         args: ["--line-length=120"]
 
+  # ============================================================================
+  # YAML linting
+  # ============================================================================
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1
     hooks:

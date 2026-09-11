@@ -1,0 +1,569 @@
+#!/usr/bin/env bash
+# ============================================================================
+# vnc-remote — Stable CLI interface for VNC Remote Secure
+# ============================================================================
+# This is the user-facing command. Internal implementation may change,
+# but this interface remains stable.
+#
+# Usage:
+#   vnc-remote <command> [options]
+#
+# Commands:
+#   install     Install and configure the system
+#   start       Start all services
+#   stop        Stop all services and cleanup
+#   restart     Restart all services
+#   status      Check system status
+#   doctor      Diagnose system readiness
+#   backup      Create a backup
+#   restore     Restore from a backup
+#   uninstall   Remove all project changes
+#   version     Show version
+#   help        Show this help
+#
+# Global options:
+#   --verbose   Verbose output
+#   --quiet     Suppress non-error output
+#   --json      JSON output (for status and doctor)
+#   --dry-run   Simulate without making changes
+#   --version   Show version
+#   --help      Show help
+# ============================================================================
+
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+# Version
+readonly VNC_REMOTE_VERSION="0.1.0"
+
+# Get project directory (this script is at project root)
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENTRY_POINT="$PROJECT_DIR/src/rpi-vnc-remote.sh"
+
+# Global flags
+VERBOSE=false
+QUIET=false
+JSON_OUTPUT=false
+DRY_RUN=false
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# ============================================================================
+# Logging
+# ============================================================================
+
+log_info() {
+    $QUIET && return 0
+    echo -e "${BLUE}[INFO]${NC} $*"
+}
+
+log_success() {
+    $QUIET && return 0
+    echo -e "${GREEN}[OK]${NC} $*"
+}
+
+log_warn() {
+    $QUIET && return 0
+    echo -e "${YELLOW}[WARN]${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $*" >&2
+}
+
+log_debug() {
+    $VERBOSE || return 0
+    echo -e "${CYAN}[DEBUG]${NC} $*" >&2
+}
+
+# ============================================================================
+# Command: version
+# ============================================================================
+
+cmd_version() {
+    echo "vnc-remote ${VNC_REMOTE_VERSION}"
+    echo "VNC Remote Secure — Secure browser-based remote access"
+    echo ""
+    echo "Platform: $(uname -s) $(uname -r)"
+    echo "Architecture: $(uname -m)"
+    echo "Project: ${PROJECT_DIR}"
+}
+
+# ============================================================================
+# Command: help
+# ============================================================================
+
+cmd_help() {
+    cat << 'EOF'
+vnc-remote — Secure browser-based remote access
+
+USAGE:
+    vnc-remote <command> [options]
+
+COMMANDS:
+    install       Install and configure the system
+    start         Start all services
+    stop          Stop all services and cleanup
+    restart       Restart all services
+    status        Check system status
+    doctor        Diagnose system readiness
+    backup        Create a backup
+    restore       Restore from a backup [BACKUP_FILE]
+    uninstall     Remove all project changes
+    version       Show version information
+    help          Show this help message
+
+OPTIONS:
+    --verbose     Verbose output (debug messages)
+    --quiet       Suppress non-error output
+    --json        JSON output (status, doctor)
+    --dry-run     Simulate without making changes
+    --version     Show version
+    --help, -h    Show help
+
+EXAMPLES:
+    vnc-remote install                    # Full installation
+    vnc-remote install --dry-run          # Simulate installation
+    vnc-remote start --verbose            # Start with debug output
+    vnc-remote status --json              # Status as JSON
+    vnc-remote doctor                     # Check system readiness
+    vnc-remote backup                     # Create backup
+    vnc-remote restore backup_2026.tar.gz # Restore from backup
+    vnc-remote uninstall                  # Remove everything
+
+ENVIRONMENT:
+    Configuration is read from .env (see .env.example for all options)
+
+EXIT CODES:
+    0   Success
+    1   General error
+    2   Invalid arguments
+    3   Prerequisites not met
+    4   Service error
+EOF
+}
+
+# ============================================================================
+# Command: install
+# ============================================================================
+
+cmd_install() {
+    if $DRY_RUN; then
+        log_info "DRY RUN: Simulating installation (no changes will be made)"
+        echo ""
+        echo "Would perform:"
+        echo "  1. Check prerequisites (OS, architecture, dependencies)"
+        echo "  2. Install system packages (tigervnc, nginx, ttyd, certbot)"
+        echo "  3. Create temporary user: ${TEMP_USER:-remote}"
+        echo "  4. Configure VNC server (display, resolution, password)"
+        echo "  5. Configure nginx reverse proxy (if NGINX_ENABLED=true)"
+        echo "  6. Generate SSL certificates (if DUCK_DOMAIN set)"
+        echo "  7. Configure Fail2ban (if FAIL2BAN_ENABLED=true)"
+        echo "  8. Start all services"
+        echo ""
+        log_info "Run without --dry-run to perform actual installation"
+        return 0
+    fi
+
+    log_info "Starting installation..."
+    bash "$ENTRY_POINT" setup
+}
+
+# ============================================================================
+# Command: start
+# ============================================================================
+
+cmd_start() {
+    if $DRY_RUN; then
+        log_info "DRY RUN: Would start all services"
+        return 0
+    fi
+    log_info "Starting services..."
+    bash "$ENTRY_POINT" start
+}
+
+# ============================================================================
+# Command: stop
+# ============================================================================
+
+cmd_stop() {
+    if $DRY_RUN; then
+        log_info "DRY RUN: Would stop all services"
+        return 0
+    fi
+    log_info "Stopping services..."
+    bash "$ENTRY_POINT" stop
+}
+
+# ============================================================================
+# Command: restart
+# ============================================================================
+
+cmd_restart() {
+    if $DRY_RUN; then
+        log_info "DRY RUN: Would restart all services"
+        return 0
+    fi
+    log_info "Restarting services..."
+    bash "$ENTRY_POINT" restart
+}
+
+# ============================================================================
+# Command: status
+# ============================================================================
+
+cmd_status() {
+    if $JSON_OUTPUT; then
+        # JSON output for programmatic use
+        local vnc_status="stopped"
+        local novnc_status="stopped"
+        local ttyd_status="stopped"
+        local health_status="stopped"
+
+        command -v lsof &>/dev/null && {
+            lsof -i :"${VNC_PORT:-5901}" &>/dev/null && vnc_status="running"
+            lsof -i :"${NOVNC_PORT:-6080}" &>/dev/null && novnc_status="running"
+            lsof -i :"${TTYD_PORT:-5000}" &>/dev/null && ttyd_status="running"
+            lsof -i :"${HEALTH_WEB_PORT:-8080}" &>/dev/null && health_status="running"
+        }
+
+        cat << EOF
+{
+  "version": "${VNC_REMOTE_VERSION}",
+  "services": {
+    "vnc": {"status": "${vnc_status}", "port": ${VNC_PORT:-5901}},
+    "novnc": {"status": "${novnc_status}", "port": ${NOVNC_PORT:-6080}},
+    "ttyd": {"status": "${ttyd_status}", "port": ${TTYD_PORT:-5000}},
+    "health": {"status": "${health_status}", "port": ${HEALTH_WEB_PORT:-8080}}
+  }
+}
+EOF
+    else
+        log_info "System status:"
+        bash "$ENTRY_POINT" status
+    fi
+}
+
+# ============================================================================
+# Command: doctor
+# ============================================================================
+
+cmd_doctor() {
+    local checks_passed=0
+    local checks_failed=0
+    local checks_warned=0
+    local json_results=""
+
+    check() {
+        local name="$1"
+        local status="$2"
+        local detail="${3:-}"
+
+        if $JSON_OUTPUT; then
+            local status_icon
+            case "$status" in
+                OK)   status_icon="ok"; checks_passed=$((checks_passed + 1)) ;;
+                FAIL) status_icon="fail"; checks_failed=$((checks_failed + 1)) ;;
+                WARN) status_icon="warn"; checks_warned=$((checks_warned + 1)) ;;
+            esac
+            json_results+="    {\"name\": \"$name\", \"status\": \"$status_icon\", \"detail\": \"$detail\"},"
+        else
+            local icon color
+            case "$status" in
+                OK)   icon="✓"; color="$GREEN"; checks_passed=$((checks_passed + 1)) ;;
+                FAIL) icon="✗"; color="$RED"; checks_failed=$((checks_failed + 1)) ;;
+                WARN) icon="⚠"; color="$YELLOW"; checks_warned=$((checks_warned + 1)) ;;
+            esac
+            printf "  ${color}%-3s${NC} %-30s %s\n" "$icon" "$name" "$detail"
+        fi
+    }
+
+    if ! $JSON_OUTPUT; then
+        echo -e "${CYAN}vnc-remote doctor — System Diagnostics${NC}"
+        echo ""
+    fi
+
+    # Load .env if available
+    if [[ -f "$PROJECT_DIR/.env" ]]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$PROJECT_DIR/.env" 2>/dev/null || true
+        set +a
+    fi
+
+    # 1. Operating system
+    local os_name
+    os_name="$(uname -s)"
+    if [[ "$os_name" == "Linux" ]]; then
+        local distro=""
+        [[ -f /etc/os-release ]] && distro=$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown}")
+        check "Operating system" "OK" "$distro"
+    elif [[ "$os_name" == "MINGW"* || "$os_name" == "MSYS"* ]]; then
+        check "Operating system" "OK" "Windows (Git Bash)"
+    else
+        check "Operating system" "WARN" "$os_name (unsupported)"
+    fi
+
+    # 2. Architecture
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64|aarch64|armv7l|armv6l) check "Architecture" "OK" "$arch" ;;
+        *) check "Architecture" "WARN" "$arch (untested)" ;;
+    esac
+
+    # 3. Internet connectivity
+    if ping -c 1 -W 3 8.8.8.8 &>/dev/null 2>&1; then
+        check "Connectivity" "OK" "Internet reachable"
+    else
+        check "Connectivity" "WARN" "No internet (some features may fail)"
+    fi
+
+    # 4. Domain resolution (if configured)
+    if [[ -n "${DUCK_DOMAIN:-}" ]]; then
+        if host "${DUCK_DOMAIN}.duckdns.org" &>/dev/null 2>&1 || nslookup "${DUCK_DOMAIN}.duckdns.org" &>/dev/null 2>&1; then
+            check "Domain" "OK" "${DUCK_DOMAIN}.duckdns.org resolves"
+        else
+            check "Domain" "FAIL" "${DUCK_DOMAIN}.duckdns.org does not resolve"
+        fi
+    else
+        check "Domain" "WARN" "DUCK_DOMAIN not set (SSL disabled)"
+    fi
+
+    # 5. Port availability
+    for port_var in VNC_PORT NOVNC_PORT TTYD_PORT HEALTH_WEB_PORT; do
+        local port="${!port_var:-}"
+        [[ -z "$port" ]] && continue
+        if lsof -i :"$port" &>/dev/null 2>&1; then
+            check "Port $port (${port_var})" "WARN" "In use"
+        else
+            check "Port $port (${port_var})" "OK" "Available"
+        fi
+    done
+
+    # 6. Dependencies
+    for dep in bash python3; do
+        if command -v "$dep" &>/dev/null; then
+            local version
+            version=$("$dep" --version 2>&1 | head -1)
+            check "Dependency: $dep" "OK" "$version"
+        else
+            check "Dependency: $dep" "FAIL" "Not found"
+        fi
+    done
+
+    # Platform-specific dependencies
+    if [[ "$os_name" == "Linux" ]]; then
+        for dep in tigervncserver nginx ttyd; do
+            if command -v "$dep" &>/dev/null; then
+                check "Dependency: $dep" "OK" "Installed"
+            else
+                check "Dependency: $dep" "FAIL" "Not installed"
+            fi
+        done
+    fi
+
+    # 7. SSL certificates
+    local ssl_dir="${SSL_DIR:-$PROJECT_DIR/data/ssl}"
+    if [[ -f "$ssl_dir/fullchain.pem" && -f "$ssl_dir/privkey.pem" ]]; then
+        local cert_expiry
+        cert_expiry=$(openssl x509 -enddate -noout -in "$ssl_dir/fullchain.pem" 2>/dev/null | cut -d= -f2 || echo "unknown")
+        local days_left
+        days_left=$(openssl x509 -enddate -noout -in "$ssl_dir/fullchain.pem" 2>/dev/null | \
+            awk -F= '{print $2}' | xargs -I{} date -d "{}" +%s 2>/dev/null | \
+            awk -v now="$(date +%s)" '{print int(($1 - now) / 86400)}' 2>/dev/null || echo "?")
+        if [[ "$days_left" != "?" && "$days_left" -lt 30 ]]; then
+            check "TLS certificate" "WARN" "Expires in ${days_left} days ($cert_expiry)"
+        else
+            check "TLS certificate" "OK" "Expires in ${days_left} days ($cert_expiry)"
+        fi
+    else
+        check "TLS certificate" "WARN" "Not found (SSL disabled)"
+    fi
+
+    # 8. Secret files permissions
+    local secrets_dir="/etc/vnc-remote/secrets"
+    if [[ -d "$secrets_dir" ]]; then
+        local perms
+        perms=$(stat -c %a "$secrets_dir" 2>/dev/null || stat -f %A "$secrets_dir" 2>/dev/null || echo "?")
+        if [[ "$perms" == "700" ]]; then
+            check "Secrets directory" "OK" "Permissions: $perms"
+        else
+            check "Secrets directory" "WARN" "Permissions: $perms (should be 700)"
+        fi
+    else
+        check "Secrets directory" "OK" "Not created (no systemd install)"
+    fi
+
+    # 9. .env file
+    if [[ -f "$PROJECT_DIR/.env" ]]; then
+        local env_perms
+        env_perms=$(stat -c %a "$PROJECT_DIR/.env" 2>/dev/null || stat -f %A "$PROJECT_DIR/.env" 2>/dev/null || echo "?")
+        check ".env file" "OK" "Present (permissions: $env_perms)"
+    else
+        check ".env file" "WARN" "Not found (run 'vnc-remote install' or 'make setup-env')"
+    fi
+
+    # 10. Service status
+    if [[ "$os_name" == "Linux" ]]; then
+        for svc in vnc-remote-vnc vnc-remote-novnc vnc-remote-ttyd vnc-remote-health; do
+            if systemctl list-unit-files "$svc.service" &>/dev/null 2>&1; then
+                local svc_status
+                svc_status=$(systemctl is-active "$svc.service" 2>/dev/null || echo "unknown")
+                check "Service: $svc" "OK" "$svc_status"
+            fi
+        done
+    fi
+
+    # Summary
+    if $JSON_OUTPUT; then
+        # Remove trailing comma and wrap in JSON
+        json_results="${json_results%,}"
+        cat << EOF
+{
+  "version": "${VNC_REMOTE_VERSION}",
+  "checks": {
+    "passed": $checks_passed,
+    "warned": $checks_warned,
+    "failed": $checks_failed
+  },
+  "results": [
+$json_results
+  ]
+}
+EOF
+    else
+        echo ""
+        local total=$((checks_passed + checks_failed + checks_warned))
+        echo -e "  ${CYAN}Total: $total | ${GREEN}Passed: $checks_passed${NC} | ${YELLOW}Warnings: $checks_warned${NC} | ${RED}Failed: $checks_failed${NC}"
+        echo ""
+
+        if [[ $checks_failed -gt 0 ]]; then
+            log_error "Some checks failed. Fix them before installing."
+            return 3
+        elif [[ $checks_warned -gt 0 ]]; then
+            log_warn "Some warnings. Review them before proceeding."
+            return 0
+        else
+            log_success "All checks passed. System is ready."
+            return 0
+        fi
+    fi
+}
+
+# ============================================================================
+# Command: backup
+# ============================================================================
+
+cmd_backup() {
+    if $DRY_RUN; then
+        log_info "DRY RUN: Would create backup"
+        return 0
+    fi
+    if [[ ! -f "$PROJECT_DIR/scripts/backup.sh" ]]; then
+        log_error "backup.sh not found"
+        return 1
+    fi
+    bash "$PROJECT_DIR/scripts/backup.sh" "$@"
+}
+
+# ============================================================================
+# Command: restore
+# ============================================================================
+
+cmd_restore() {
+    if [[ $# -eq 0 ]]; then
+        log_error "Usage: vnc-remote restore <BACKUP_FILE>"
+        return 2
+    fi
+    if $DRY_RUN; then
+        log_info "DRY RUN: Would restore from $1"
+        return 0
+    fi
+    if [[ ! -f "$PROJECT_DIR/scripts/restore.sh" ]]; then
+        log_error "restore.sh not found"
+        return 1
+    fi
+    bash "$PROJECT_DIR/scripts/restore.sh" "$@"
+}
+
+# ============================================================================
+# Command: uninstall
+# ============================================================================
+
+cmd_uninstall() {
+    if $DRY_RUN; then
+        log_info "DRY RUN: Would uninstall (stop services, remove configs, certs, users)"
+        return 0
+    fi
+    if [[ ! -f "$PROJECT_DIR/scripts/uninstall.sh" ]]; then
+        log_error "uninstall.sh not found"
+        return 1
+    fi
+    bash "$PROJECT_DIR/scripts/uninstall.sh" "$@"
+}
+
+# ============================================================================
+# Parse global options and dispatch
+# ============================================================================
+
+main() {
+    local command=""
+    local command_args=()
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --verbose|-v)  VERBOSE=true; shift ;;
+            --quiet|-q)    QUIET=true; shift ;;
+            --json)        JSON_OUTPUT=true; shift ;;
+            --dry-run|-n)  DRY_RUN=true; shift ;;
+            --version)     cmd_version; exit 0 ;;
+            --help|-h)     cmd_help; exit 0 ;;
+            --*)           log_error "Unknown option: $1"; cmd_help; exit 2 ;;
+            *)
+                if [[ -z "$command" ]]; then
+                    command="$1"
+                else
+                    command_args+=("$1")
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # No command
+    if [[ -z "$command" ]]; then
+        cmd_help
+        exit 0
+    fi
+
+    # Dispatch
+    case "$command" in
+        install)    cmd_install "${command_args[@]+"${command_args[@]}"}" ;;
+        start)      cmd_start ;;
+        stop)       cmd_stop ;;
+        restart)    cmd_restart ;;
+        status)     cmd_status ;;
+        doctor)     cmd_doctor ;;
+        backup)     cmd_backup "${command_args[@]+"${command_args[@]}"}" ;;
+        restore)    cmd_restore "${command_args[@]+"${command_args[@]}"}" ;;
+        uninstall)  cmd_uninstall "${command_args[@]+"${command_args[@]}"}" ;;
+        version)    cmd_version ;;
+        help)       cmd_help ;;
+        *)
+            log_error "Unknown command: $command"
+            echo ""
+            cmd_help
+            exit 2
+            ;;
+    esac
+}
+
+main "$@"

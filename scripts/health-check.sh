@@ -81,13 +81,14 @@ env_ok=true
 if [[ -f "$PROJECT_DIR/.env" ]]; then
     echo -e "${GREEN}✅ Environment file exists${NC}"
     
-    # Check for required variables
+    # Check for required variables (key presence AND non-empty value)
     required_vars=("DUCK_DOMAIN" "EMAIL" "NOVNC_PORT" "TTYD_PORT" "VNC_PORT")
     for var in "${required_vars[@]}"; do
-        if grep -q "^${var}=" "$PROJECT_DIR/.env"; then
+        value=$(grep "^${var}=" "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+        if [[ -n "$value" ]]; then
             echo -e "${GREEN}✅ $var is set${NC}"
         else
-            echo -e "${YELLOW}⚠️  $var not found in .env${NC}"
+            echo -e "${YELLOW}⚠️  $var not found or empty in .env${NC}"
         fi
     done
 else
@@ -140,7 +141,13 @@ fi
 echo -e "\n${YELLOW}🌐 Port Check${NC}"
 ports_ok=true
 
-ports=("6080" "5000" "5901")
+# Read ports from environment or .env, with defaults
+NOVNC_PORT="${NOVNC_PORT:-6080}"
+TTYD_PORT="${TTYD_PORT:-5000}"
+VNC_PORT="${VNC_PORT:-5901}"
+HEALTH_WEB_PORT="${HEALTH_WEB_PORT:-8080}"
+
+ports=("$NOVNC_PORT" "$TTYD_PORT" "$VNC_PORT")
 services=("noVNC" "ttyd" "VNC")
 
 for i in "${!ports[@]}"; do
@@ -157,8 +164,8 @@ done
 
 # Check health web server
 echo -e "\n${YELLOW}🌐 Health Web Server Check${NC}"
-if ss -tlnp 2>/dev/null | grep -q ":8080 "; then
-    echo -e "${GREEN}✅ Health web server running on port 8080${NC}"
+if ss -tlnp 2>/dev/null | grep -q ":$HEALTH_WEB_PORT "; then
+    echo -e "${GREEN}✅ Health web server running on port $HEALTH_WEB_PORT${NC}"
 else
     echo -e "${YELLOW}⚠️  Health web server not running${NC}"
 fi

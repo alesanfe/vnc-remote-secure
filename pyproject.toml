@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "vnc-remote-secure"
+version = "0.2.0"
+description = "Secure browser-based remote access via VNC, noVNC, and web terminal"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.8"
+authors = [
+    {name = "VNC Remote Secure Contributors"},
+]
+keywords = ["vnc", "novnc", "remote-desktop", "web-terminal", "cross-platform"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: System :: Networking",
+]
+
+dependencies = [
+    "tornado>=6.0",
+    "websockify>=0.10.0",
+    "cryptography>=38.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "black>=23.0",
+]
+audio = [
+    "websockets>=10.0",
+]
+verification = [
+    "websocket-client>=1.0",
+]
+
+[project.scripts]
+vnc-remote = "vnc_remote_secure.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/alex0/vnc-remote-secure"
+Repository = "https://github.com/alex0/vnc-remote-secure"
+Issues = "https://github.com/alex0/vnc-remote-secure/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+vnc_remote_secure = ["web/templates/*.html", "web/static/**/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

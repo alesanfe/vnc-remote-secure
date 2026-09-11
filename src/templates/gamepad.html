@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNC Remote - Gamepad</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 700px;
+            width: 100%;
+            background: #16213e;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        h1 { color: #0f3460; text-align: center; margin-top: 0; }
+        .status {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+        .status.connected { background: #0f3460; color: #4caf50; }
+        .status.disconnected { background: #1a1a2e; color: #f44336; }
+        .status.connecting { background: #1a1a2e; color: #ff9800; }
+        .controls {
+            display: flex; gap: 10px; justify-content: center; margin: 20px 0;
+        }
+        button {
+            background: #0f3460; color: white; border: none;
+            padding: 12px 24px; border-radius: 8px; cursor: pointer;
+            font-size: 14px; transition: background 0.2s;
+        }
+        button:hover { background: #1a4a7a; }
+        button:disabled { background: #333; cursor: not-allowed; }
+        .gamepad-info {
+            background: #0f3460; border-radius: 8px; padding: 15px; margin: 15px 0;
+        }
+        .gamepad-info h3 { margin: 0 0 8px 0; color: #4caf50; }
+        .gamepad-visual {
+            display: flex; justify-content: space-around; margin: 20px 0;
+            flex-wrap: wrap; gap: 20px;
+        }
+        .stick {
+            width: 100px; height: 100px; border: 2px solid #0f3460;
+            border-radius: 50%; position: relative; background: #1a1a2e;
+        }
+        .stick-dot {
+            width: 20px; height: 20px; background: #4caf50; border-radius: 50%;
+            position: absolute; top: 40px; left: 40px; transition: all 0.05s;
+        }
+        .buttons-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 8px; margin: 15px 0;
+        }
+        .btn-indicator {
+            padding: 8px; text-align: center; background: #1a1a2e;
+            border-radius: 6px; font-size: 12px; border: 1px solid #0f3460;
+        }
+        .btn-indicator.active { background: #4caf50; color: white; }
+        .info { font-size: 13px; color: #888; text-align: center; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gamepad Forwarding</h1>
+
+        <div id="status" class="status disconnected">Disconnected</div>
+
+        <div class="controls">
+            <button id="connectBtn" onclick="connectGamepad()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnectGamepad()" disabled>Disconnect</button>
+            <button id="scanBtn" onclick="scanGamepads()">Scan for Gamepads</button>
+        </div>
+
+        <div class="gamepad-info">
+            <h3>Bluetooth Gamepad</h3>
+            <p>Pair your Bluetooth gamepad with this device (client), then click "Scan".
+            The gamepad input will be forwarded to the remote server.</p>
+        </div>
+
+        <div id="gamepadStatus" class="info">No gamepad detected. Press a button on your gamepad.</div>
+
+        <div class="gamepad-visual" id="gamepadVisual" style="display:none;">
+            <div>
+                <label>Left Stick</label>
+                <div class="stick">
+                    <div class="stick-dot" id="leftStickDot"></div>
+                </div>
+            </div>
+            <div>
+                <label>Right Stick</label>
+                <div class="stick">
+                    <div class="stick-dot" id="rightStickDot"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="buttons-grid" id="buttonsGrid" style="display:none;"></div>
+
+        <div class="info" id="info">Connect to start forwarding gamepad input to the server.</div>
+    </div>
+
+    <script>
+        let ws = null;
+        let gamepadIndex = null;
+        let pollingInterval = null;
+        let buttonStates = {};
+
+        async function connectGamepad() {
+            const wsUrl = `ws://${location.hostname}:7788`;
+            document.getElementById('status').className = 'status connecting';
+            document.getElementById('status').textContent = 'Connecting...';
+
+            try {
+                ws = new WebSocket(wsUrl);
+                ws.onopen = function() {
+                    document.getElementById('status').className = 'status connected';
+                    document.getElementById('status').textContent = 'Connected';
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    document.getElementById('info').textContent = 'Connected. Scan for gamepad to start.';
+                };
+                ws.onmessage = function(event) {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'connected') {
+                            document.getElementById('info').textContent = msg.message;
+                        } else if (msg.type === 'error') {
+                            document.getElementById('info').textContent = 'Error: ' + msg.message;
+                        }
+                    } catch(e) {}
+                };
+                ws.onerror = function() {
+                    document.getElementById('status').className = 'status disconnected';
+                    document.getElementById('status').textContent = 'Error';
+                };
+                ws.onclose = function() {
+                    document.getElementById('status').className = 'status disconnected';
+                    document.getElementById('status').textContent = 'Disconnected';
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    stopPolling();
+                    ws = null;
+                };
+            } catch(e) {
+                document.getElementById('status').textContent = 'Error: ' + e.message;
+            }
+        }
+
+        function disconnectGamepad() {
+            if (ws) { ws.close(); ws = null; }
+            stopPolling();
+            document.getElementById('status').className = 'status disconnected';
+            document.getElementById('status').textContent = 'Disconnected';
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+        }
+
+        function scanGamepads() {
+            // Trigger gamepad detection by checking navigator.getGamepads()
+            const gamepads = navigator.getGamepads();
+            let found = false;
+            for (let i = 0; i < gamepads.length; i++) {
+                if (gamepads[i]) {
+                    gamepadIndex = i;
+                    found = true;
+                    document.getElementById('gamepadStatus').textContent =
+                        `Gamepad found: ${gamepads[i].id}`;
+                    document.getElementById('gamepadVisual').style.display = 'flex';
+                    document.getElementById('buttonsGrid').style.display = 'grid';
+                    createButtonIndicators(gamepads[i].buttons.length);
+                    startPolling();
+                    break;
+                }
+            }
+            if (!found) {
+                document.getElementById('gamepadStatus').textContent =
+                    'No gamepad found. Press a button and try again.';
+            }
+        }
+
+        function createButtonIndicators(count) {
+            const grid = document.getElementById('buttonsGrid');
+            grid.innerHTML = '';
+            for (let i = 0; i < Math.min(count, 16); i++) {
+                const div = document.createElement('div');
+                div.className = 'btn-indicator';
+                div.id = `btn-${i}`;
+                div.textContent = `B${i}`;
+                grid.appendChild(div);
+            }
+        }
+
+        function startPolling() {
+            if (pollingInterval) return;
+            pollingInterval = setInterval(pollGamepad, 16); // ~60fps
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            gamepadIndex = null;
+        }
+
+        function pollGamepad() {
+            if (gamepadIndex === null || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+            const gamepad = navigator.getGamepads()[gamepadIndex];
+            if (!gamepad) return;
+
+            // Send button events (only on state change)
+            for (let i = 0; i < gamepad.buttons.length; i++) {
+                const pressed = gamepad.buttons[i].pressed ? 1 : 0;
+                if (buttonStates[i] !== pressed) {
+                    buttonStates[i] = pressed;
+                    ws.send(JSON.stringify({
+                        type: 'button',
+                        button: `button_${i}`,
+                        value: pressed
+                    }));
+                    // Update visual
+                    const elem = document.getElementById(`btn-${i}`);
+                    if (elem) {
+                        elem.classList.toggle('active', pressed === 1);
+                    }
+                }
+            }
+
+            // Send axis events
+            const axes = gamepad.axes;
+            if (axes.length >= 2) {
+                ws.send(JSON.stringify({ type: 'axis', axis: 'axis_0', value: axes[0] }));
+                ws.send(JSON.stringify({ type: 'axis', axis: 'axis_1', value: axes[1] }));
+                updateStickVisual('leftStickDot', axes[0], axes[1]);
+            }
+            if (axes.length >= 4) {
+                ws.send(JSON.stringify({ type: 'axis', axis: 'axis_2', value: axes[2] }));
+                ws.send(JSON.stringify({ type: 'axis', axis: 'axis_3', value: axes[3] }));
+                updateStickVisual('rightStickDot', axes[2], axes[3]);
+            }
+        }
+
+        function updateStickVisual(dotId, x, y) {
+            const dot = document.getElementById(dotId);
+            if (!dot) return;
+            const offsetX = x * 30;
+            const offsetY = y * 30;
+            dot.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+        }
+
+        // Listen for gamepad connection/disconnection
+        window.addEventListener('gamepadconnected', function(e) {
+            gamepadIndex = e.gamepad.index;
+            document.getElementById('gamepadStatus').textContent =
+                `Gamepad connected: ${e.gamepad.id}`;
+            document.getElementById('gamepadVisual').style.display = 'flex';
+            document.getElementById('buttonsGrid').style.display = 'grid';
+            createButtonIndicators(e.gamepad.buttons.length);
+            startPolling();
+        });
+
+        window.addEventListener('gamepaddisconnected', function(e) {
+            document.getElementById('gamepadStatus').textContent = 'Gamepad disconnected';
+            stopPolling();
+        });
+    </script>
+</body>
+</html>

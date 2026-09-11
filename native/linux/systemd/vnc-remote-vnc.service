@@ -1,0 +1,31 @@
+[Unit]
+Description=VNC Remote Secure - VNC Server (TigerVNC)
+Documentation=https://github.com/alesanfe/vnc-remote-secure
+After=network.target
+Wants=vnc-remote-novnc.service
+
+[Service]
+Type=forking
+User=__TEMP_USER__
+Group=__TEMP_USER__
+# Load environment variables from protected file
+EnvironmentFile=-/etc/vnc-remote/secrets/vnc.env
+# VNC server forks into background
+ExecStartPre=/bin/bash -c 'test -n "$VNC_PASSWORD" || { echo "VNC_PASSWORD not set"; exit 1; }'
+ExecStart=/usr/bin/vncserver __VNC_DISPLAY__ -geometry __VNC_GEOMETRY__ -depth __VNC_DEPTH__ -rfbport __VNC_PORT__ -SecurityTypes VncAuth -localhost yes
+ExecStop=/usr/bin/vncserver -kill __VNC_DISPLAY__
+Restart=on-failure
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/home/__TEMP_USER__ /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+# VNC needs to access the user's home and X11
+# ProtectHome=false is required for VNC to read ~/.vnc/passwd
+
+[Install]
+WantedBy=multi-user.target

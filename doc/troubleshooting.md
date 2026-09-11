@@ -19,13 +19,13 @@ This guide covers common issues and their solutions for Raspberry Pi VNC Remote.
 **Solution**:
 ```bash
 # Make sure you're in the project directory
-cd /path/to/raspberrypinoVNC
+cd /path/to/vnc-remote-secure
 
 # Make script executable
-chmod +x rpi-vnc-remote.sh
+chmod +x src/rpi-vnc-remote.sh
 
 # Run script
-./rpi-vnc-remote.sh
+./src/rpi-vnc-remote.sh setup
 ```
 
 ### Permission Denied
@@ -34,10 +34,10 @@ chmod +x rpi-vnc-remote.sh
 **Solution**:
 ```bash
 # Fix permissions
-chmod +x rpi-vnc-remote.sh
+chmod +x src/rpi-vnc-remote.sh
 
 # If still fails, check file ownership
-sudo chown $USER:$USER rpi-vnc-remote.sh
+sudo chown $USER:$USER src/rpi-vnc-remote.sh
 ```
 
 ### Dependencies Missing
@@ -81,11 +81,11 @@ pkill -f tigervncserver
 rm -f /tmp/.X11-unix/X*
 
 # Restart VNC
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # If still fails, check display number
 export DISPLAY=:1
-./rpi-vnc-remote.sh start
+./src/rpi-vnc-remote.sh start
 ```
 
 ### noVNC Proxy Not Working
@@ -107,7 +107,7 @@ journalctl -u novnc
 ```bash
 # Restart noVNC
 pkill -f novnc_proxy
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # Check firewall
 sudo ufw status
@@ -133,7 +133,7 @@ ttyd -p 5000 bash
 ```bash
 # Restart ttyd
 pkill -f ttyd
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # Check if port is in use
 sudo lsof -i :5000
@@ -166,7 +166,7 @@ env | grep -E "(NOVNC_PORT|TTYD_PORT|VNC_PORT)"
 
 # Regenerate nginx config
 sudo rm -f /etc/nginx/sites-enabled/rpi-vnc
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 ```
 
 ### Port Conflicts
@@ -236,7 +236,7 @@ openssl x509 -checkend 86400 -noout -in data/ssl/fullchain.pem
 **Solutions**:
 ```bash
 # Generate new certificate
-./rpi-vnc-remote.sh ssl-setup
+./src/rpi-vnc-remote.sh setup
 
 # Or use Let's Encrypt
 sudo apt install certbot
@@ -303,7 +303,7 @@ uptime
 **Solutions**:
 ```bash
 # Restart heavy processes
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # Optimize VNC settings
 # Edit .env and reduce resolution or color depth
@@ -330,7 +330,7 @@ swapon --show
 sudo sync && sudo sysctl vm.drop_caches=3
 
 # Restart services
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # Add swap space if needed
 sudo fallocate -l 2G /swapfile
@@ -357,7 +357,7 @@ ps aux | grep health_web_server
 **Solutions**:
 ```bash
 # Restart web services
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # Clear browser cache
 # Or test with curl
@@ -390,7 +390,7 @@ sudo pkill -u remote
 sudo userdel -rf remote
 
 # Recreate user
-./rpi-vnc-remote.sh setup-user
+./src/rpi-vnc-remote.sh setup
 ```
 
 ### SSH Agent Issues
@@ -430,7 +430,7 @@ grep -A 5 "location /health" /etc/nginx/sites-enabled/rpi-vnc
 ```bash
 # Restart health web server
 pkill -f health_web_server
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # Check nginx and restart if needed
 sudo nginx -t && sudo systemctl restart nginx
@@ -449,7 +449,7 @@ env | grep -E "(NOVNC_PORT|TTYD_PORT|VNC_PORT)"
 
 # Enable debug mode
 export VERBOSE=true
-./rpi-vnc-remote.sh health-check
+./scripts/health-check.sh
 ```
 
 **Solutions**:
@@ -458,7 +458,7 @@ export VERBOSE=true
 source .env
 
 # Restart services
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 ```
 
 ### Auto-refresh Not Working
@@ -483,7 +483,7 @@ Enable verbose logging for detailed diagnostics:
 
 ```bash
 export VERBOSE=true
-./rpi-vnc-remote.sh <command>
+./src/rpi-vnc-remote.sh <command>
 ```
 
 ### Log Files
@@ -509,13 +509,13 @@ Use these commands for system diagnostics:
 ./scripts/health-check.sh
 
 # System status
-./rpi-vnc-remote.sh status
+./src/rpi-vnc-remote.sh status
 
 # Service restart
-./rpi-vnc-remote.sh restart
+./src/rpi-vnc-remote.sh restart
 
 # Configuration check
-./rpi-vnc-remote.sh config-check
+./src/rpi-vnc-remote.sh status
 ```
 
 ### Reporting Issues
@@ -546,6 +546,6 @@ If the system is completely broken:
 ./scripts/restore.sh backups/backup_YYYYMMDD_HHMMSS.tar.gz
 
 # Or reset to defaults
-./rpi-vnc-remote.sh uninstall
+make uninstall
 make install
 ```

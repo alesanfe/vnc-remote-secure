@@ -1,35 +1,105 @@
-# SSL certificates (security risk)
+# ============================================================
+# VNC Remote Secure - .gitignore
+# ============================================================
+
+# --- Secrets and local configuration ---
+.env
+.env.*
+!.env.example
+.vnc-credentials
+secrets/
+*.key
+*.pem
+*.pfx
+*.p12
+
+# --- SSL certificates (never commit) ---
 ssl/
 data/ssl/
 
-# Environment files (security risk)
-.env
-.vnc-credentials
-
-# Python bytecode
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
 
-# IDE files
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+
+# --- IDE ---
 .idea/
+.vscode/
 .qodo/
 .refact/
 
-# Temporary files
+# --- Logs and runtime ---
+logs/
+*.log
+*.log.*
+data/logs/
+data/vnc/
+.runtime/
+run/
+recordings/
+*.pid
+
+# --- Backups ---
+backups/
+backup_*.tar.gz
+
+# --- Build artifacts ---
+dist/
+build/
+artifacts/
+
+# --- Temporary files ---
 *.swp
 *.swo
 *~
 *.tmp
-*.log
 
-# Backup files
-backups/
-backup_*.tar.gz
-
-# System files
+# --- System files ---
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Runtime data
-data/logs/
-*.pid
+# --- noVNC (cloned at runtime, not vendored) ---
+novnc/
+
+# --- Binaries (managed externally, not committed) ---
+bin/
+bin/ultravnc/
+bin/ttyd_msvc/
+bin/*.zip
+bin/*.exe
+
+# --- Third-party cache ---
+third_party/cache/
+vendor/bin/
+
+# --- Diagnostic / temp test files ---
+debug_*.py
+debug_*.sh
+check_*.py
+check_*.sh
+free_ports.sh
+test_ttyd_*.py
+test_ttyd_*.sh
+test_vnc_*.py
+test_webterm*.py
+test_final.py
+test_health_json.py
+health_*.log
+landing_*.log
+ttyd_*.log
+webterm_*.log
+_verify_syntax.sh
+_run_tests.sh
+_test_pw.sh

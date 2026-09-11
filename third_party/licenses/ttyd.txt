@@ -1,0 +1,4 @@
+License text for ttyd
+
+Download the full license from the project homepage.
+See third_party/manifests/ttyd.json for the project URL.

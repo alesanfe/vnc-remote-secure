@@ -1,0 +1,50 @@
+name: Integration
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ============================================================================
+  # INTEGRATION TESTS (Linux)
+  # ============================================================================
+  integration-linux:
+    name: Integration Tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run integration tests
+        run: |
+          bash tests/integration/test_module_loading.sh
+
+  # ============================================================================
+  # E2E TESTS (Linux)
+  # ============================================================================
+  e2e-linux:
+    name: E2E Tests (Linux)
+    runs-on: ubuntu-latest
+    needs: [integration-linux]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run E2E tests
+        run: |
+          bash tests/e2e/test_script_load.sh
+
+  # ============================================================================
+  # DOCKER BUILD TEST
+  # ============================================================================
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: |
+          if [ -f docker/docker-compose.yml ]; then
+            docker compose -f docker/docker-compose.yml config
+          fi

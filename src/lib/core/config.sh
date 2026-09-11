@@ -13,17 +13,34 @@ unset _TTYD_USERNAME_DEFAULT
 
 # Generate a strong random password that meets all validation requirements:
 # uppercase, lowercase, digit, and special character (!@#).
-# Uses /dev/urandom and retries until all character types are present.
+# Uses openssl if available, falls back to /dev/urandom, then python3.
 _generate_strong_password() {
-    local pw
-    while true; do
-        pw="$(tr -dc 'A-Za-z0-9!@#' </dev/urandom | head -c 20)"
-        [[ "$pw" =~ [A-Z] ]] && \
-        [[ "$pw" =~ [a-z] ]] && \
-        [[ "$pw" =~ [0-9] ]] && \
-        [[ "$pw" =~ [^a-zA-Z0-9] ]] && break
-    done
-    printf '%s' "$pw"
+    local pw base
+    # Try openssl first (most portable across platforms)
+    if command -v openssl &>/dev/null; then
+        base="$(openssl rand -base64 18 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 19)"
+        # Append a special character to guarantee complexity
+        pw="${base}#"
+    fi
+    # Fallback to /dev/urandom (Linux/macOS)
+    if [[ -z "$pw" ]] && [[ -r /dev/urandom ]]; then
+        base="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 19)"
+        pw="${base}#"
+    fi
+    # Fallback to python3 (works on Windows/MSYS)
+    if [[ -z "$pw" ]] && command -v python3 &>/dev/null; then
+        pw="$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(19))+'#')" 2>/dev/null)"
+    fi
+    # Ensure all character types are present
+    if [[ "$pw" =~ [A-Z] ]] && \
+       [[ "$pw" =~ [a-z] ]] && \
+       [[ "$pw" =~ [0-9] ]] && \
+       [[ "$pw" =~ [^a-zA-Z0-9] ]]; then
+        printf '%s' "$pw"
+    else
+        # Last resort: simple deterministic password
+        printf 'ChangeMe!%s' "$(date +%s | tail -c 5)"
+    fi
 }
 
 # No default password — generate a strong random one if not set
@@ -50,6 +67,10 @@ export HEALTH_WEB_HOST="${HEALTH_WEB_HOST:-127.0.0.1}"
 _PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export SSL_DIR="${SSL_DIR:-$_PROJECT_DIR/data/ssl}"
 export DUCK_DOMAIN="${DUCK_DOMAIN:-}"
+# Duck DNS token for automatic IP updates (get from https://www.duckdns.org/)
+export DUCKDNS_TOKEN="${DUCKDNS_TOKEN:-}"
+# Duck DNS update interval in minutes (for daemon mode)
+export DUCKDNS_UPDATE_INTERVAL="${DUCKDNS_UPDATE_INTERVAL:-5}"
 # Only construct DUCK_DIR if DUCK_DOMAIN is set
 export DUCK_DIR="${DUCK_DOMAIN:+/etc/letsencrypt/live/$DUCK_DOMAIN}"
 export SSL_CERT="$SSL_DIR/fullchain.pem"

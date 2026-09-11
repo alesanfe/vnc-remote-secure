@@ -68,10 +68,13 @@ tar -xzf "$BACKUP_FILE" -C "$PROJECT_DIR" || {
 }
 
 # Set proper permissions
-if [[ -d "$PROJECT_DIR/data/ssl" ]]; then
-    chmod 600 "$PROJECT_DIR/data/ssl"/*.pem 2>/dev/null || true
-    echo -e "${GREEN}🔒 SSL certificates permissions set${NC}"
-fi
+# Handle both data/ssl/ (current) and ssl/ (legacy) locations
+for ssl_dir in "$PROJECT_DIR/data/ssl" "$PROJECT_DIR/ssl"; do
+    if [[ -d "$ssl_dir" ]]; then
+        chmod 600 "$ssl_dir"/*.pem 2>/dev/null || true
+        echo -e "${GREEN}🔒 SSL certificates permissions set ($ssl_dir)${NC}"
+    fi
+done
 
 # Create restore info
 cat > "$RESTORE_INFO" << EOF

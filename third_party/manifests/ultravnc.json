@@ -1,0 +1,16 @@
+{
+  "name": "UltraVNC",
+  "version": "1.4.3.6",
+  "platform": "windows",
+  "architecture": "x86_64",
+  "description": "VNC server for Windows",
+  "homepage": "https://uvnc.com/",
+  "repository": "https://github.com/ultravnc/ultravnc",
+  "license": "GPL-3.0",
+  "license_file": "third_party/licenses/ultravnc.txt",
+  "managed_by": "download",
+  "download_url": "https://uvnc.com/component/jdownloads/send/70-ultravnc/120-ultravnc-1436-x64.html",
+  "filename": "winvnc.exe",
+  "sha256": "TBD",
+  "notes": "Downloaded and verified by tools/download_dependencies.py. Not committed to repository."
+}

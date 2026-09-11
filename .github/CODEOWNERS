@@ -1,0 +1,25 @@
+# These owners will be automatically requested for review
+# when a pull request modifies files in their areas
+
+# Global - all files
+* @alex0
+
+# Python package
+/src/vnc_remote_secure/ @alex0
+
+# Bash modules
+/src/lib/ @alex0
+
+# PowerShell / Windows
+/native/windows/ @alex0
+/VncRemote.ps1 @alex0
+
+# CI/CD
+/.github/workflows/ @alex0
+
+# Security
+/SECURITY.md @alex0
+/.github/ISSUE_TEMPLATE/security_report.md @alex0
+
+# Documentation
+/docs/ @alex0

@@ -58,9 +58,13 @@ temp_files=(
 )
 
 for pattern in "${temp_files[@]}"; do
-    if ls $pattern 1>/dev/null 2>&1; then
+    # Expand glob safely; nullglob avoids literal pattern when no match
+    shopt -s nullglob
+    local_files=($pattern)
+    shopt -u nullglob
+    if [[ ${#local_files[@]} -gt 0 ]]; then
         echo -e "${BLUE}Found temporary files: $pattern${NC}"
-        rm -f $pattern 2>/dev/null || true
+        rm -f -- "${local_files[@]}" 2>/dev/null || true
         echo -e "${GREEN}✅ Cleaned: $pattern${NC}"
     fi
 done

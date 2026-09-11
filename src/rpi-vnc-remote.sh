@@ -21,6 +21,9 @@ for _env_file in "$PROJECT_DIR/.env" "$PWD/.env"; do
 done
 unset _env_file
 
+# Source platform detection FIRST (sets OS_TYPE, provides helpers)
+source "$LIB_DIR/platform/detect.sh"
+
 # Source all modules
 source "$LIB_DIR/core/config.sh"
 source "$LIB_DIR/core/logging.sh"
@@ -40,6 +43,15 @@ source "$LIB_DIR/monitoring/monitoring.sh"
 source "$LIB_DIR/features/recording.sh"
 source "$LIB_DIR/web/user_ui.sh"
 source "$LIB_DIR/communication/alerts.sh"
+
+# Source platform-specific backend LAST, so it can override
+# Linux-specific functions with Windows/macOS implementations.
+load_platform_backend
+
+# On Windows, warn if not running as Administrator
+if is_windows; then
+    _platform_warn_if_not_admin
+fi
 
 # ============================================================================
 # ERROR HANDLING
@@ -63,7 +75,12 @@ cleanup() {
     # Stop services if they were started
     if [[ "$exit_code" -ne 0 ]]; then
         log "red" "Script failed with exit code: $exit_code"
-        kill_processes_by_pattern "tigervncserver" 5 || true
+        if is_windows; then
+            kill_processes_by_pattern "tvnserver" 5 || true
+            kill_processes_by_pattern "websockify" 5 || true
+        else
+            kill_processes_by_pattern "tigervncserver" 5 || true
+        fi
         kill_processes_by_pattern "novnc_proxy" 5 || true
         kill_processes_by_pattern "ttyd" 5 || true
     fi
@@ -78,23 +95,30 @@ cleanup() {
     stop_health_web_server
 
     # Remove temporary user if KEEP_TEMP_USER is false
+    # On Windows, remove_temp_user is a no-op (no temp user created)
     if [[ "$KEEP_TEMP_USER" == "false" ]] && id "$TEMP_USER" &>/dev/null; then
-        log "yellow" "Removing temporary user: $TEMP_USER"
-        kill_user_processes_gracefully "$TEMP_USER" 10 || true
-        kill_processes_by_pattern "ssh-agent.*$TEMP_USER" 5 || true
-        kill_processes_by_pattern "/usr/bin/ssh-agent" 5 || true
-        sleep 1
-        if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
-            log "green" "Successfully removed temporary user $TEMP_USER"
+        if is_windows; then
+            # Windows: no temp user to remove, just clean up processes
+            log "yellow" "Cleaning up processes for: $TEMP_USER"
+            kill_user_processes_gracefully "$TEMP_USER" 10 || true
         else
-            if ! kill_user_processes_gracefully "$TEMP_USER" 5; then
-                log "yellow" "Some processes still running, attempting final cleanup..."
-                kill_user_processes_gracefully "$TEMP_USER" 2 || true
-            fi
+            log "yellow" "Removing temporary user: $TEMP_USER"
+            kill_user_processes_gracefully "$TEMP_USER" 10 || true
+            kill_processes_by_pattern "ssh-agent.*$TEMP_USER" 5 || true
+            kill_processes_by_pattern "/usr/bin/ssh-agent" 5 || true
+            sleep 1
             if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
-                log "green" "Successfully removed temporary user $TEMP_USER (force)"
+                log "green" "Successfully removed temporary user $TEMP_USER"
             else
-                log "red" "Failed to remove temporary user $TEMP_USER"
+                if ! kill_user_processes_gracefully "$TEMP_USER" 5; then
+                    log "yellow" "Some processes still running, attempting final cleanup..."
+                    kill_user_processes_gracefully "$TEMP_USER" 2 || true
+                fi
+                if sudo userdel -r "$TEMP_USER" 2>/dev/null; then
+                    log "green" "Successfully removed temporary user $TEMP_USER (force)"
+                else
+                    log "red" "Failed to remove temporary user $TEMP_USER"
+                fi
             fi
         fi
     fi
@@ -164,6 +188,17 @@ main() {
         install_flask_deps
         create_user_ui
         start_user_ui
+    fi
+
+    # Update Duck DNS if configured (before SSL so certbot can use the domain)
+    if [[ -n "$DUCKDNS_TOKEN" && -n "$DUCK_DOMAIN" ]]; then
+        print_section "Duck DNS Update"
+        log "cyan" "Updating $DUCK_DOMAIN.duckdns.org..."
+        if bash "$PROJECT_DIR/scripts/duckdns_update.sh"; then
+            log "green" "Duck DNS updated successfully"
+        else
+            log "yellow" "Duck DNS update failed, continuing..."
+        fi
     fi
 
     print_section "SSL Configuration"

@@ -27,16 +27,37 @@ echo -e "${BLUE}🔄 Creating backup...${NC}"
 mkdir -p "$BACKUP_DIR"
 
 # Create backup of important files
-tar -czf "$BACKUP_DIR/$BACKUP_FILE" \
-    --exclude='*.log' \
-    --exclude='*.tmp' \
-    --exclude='backups/' \
-    -C "$PROJECT_DIR" \
-    ssl/ \
-    .env \
-    src/config/ 2>/dev/null || {
-    echo -e "${YELLOW}⚠️  Warning: Some files may not exist, continuing...${NC}"
-}
+# Use data/ssl/ (the actual SSL directory per config.sh) with ssl/ as fallback
+SSL_BACKUP=""
+if [[ -d "$PROJECT_DIR/data/ssl" ]]; then
+    SSL_BACKUP="data/ssl/"
+elif [[ -d "$PROJECT_DIR/ssl" ]]; then
+    SSL_BACKUP="ssl/"
+fi
+
+if [[ -n "$SSL_BACKUP" ]]; then
+    tar -czf "$BACKUP_DIR/$BACKUP_FILE" \
+        --exclude='*.log' \
+        --exclude='*.tmp' \
+        --exclude='backups/' \
+        -C "$PROJECT_DIR" \
+        $SSL_BACKUP \
+        .env \
+        src/config/ 2>/dev/null || {
+        echo -e "${YELLOW}⚠️  Warning: Some files may not exist, continuing...${NC}"
+    }
+else
+    tar -czf "$BACKUP_DIR/$BACKUP_FILE" \
+        --exclude='*.log' \
+        --exclude='*.tmp' \
+        --exclude='backups/' \
+        -C "$PROJECT_DIR" \
+        .env \
+        src/config/ 2>/dev/null || {
+        echo -e "${YELLOW}⚠️  Warning: Some files may not exist, continuing...${NC}"
+    }
+    echo -e "${YELLOW}⚠️  No SSL directory found, backing up .env and config only${NC}"
+fi
 
 # Create backup info
 cat > "$BACKUP_DIR/backup_info_${TIMESTAMP}.txt" << EOF
@@ -52,5 +73,5 @@ echo -e "${BLUE}📋 Info file: $BACKUP_DIR/backup_info_${TIMESTAMP}.txt${NC}"
 
 # Keep only last 5 backups
 cd "$BACKUP_DIR"
-ls -t backup_*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm
+ls -t backup_*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm 2>/dev/null || true
 echo -e "${BLUE}🧹 Cleaned up old backups (keeping last 5)${NC}"
