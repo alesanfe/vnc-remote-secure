@@ -8,7 +8,7 @@ Supports both Linux/Raspberry Pi (production) and Windows (local/LAN access).
 [![Python 3](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-ARM64-green.svg)](https://www.raspberrypi.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2B-blue.svg)](https://www.microsoft.com/windows)
-[![Tests](https://img.shields.io/badge/Tests-116%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-140%20passing-brightgreen.svg)](tests/)
 [![Conventional Commits](https://img.shields.io/badge/Commits-Conventional-orange.svg)](https://www.conventionalcommits.org/)
 
 ## Overview
@@ -110,35 +110,44 @@ Both CLIs provide the same functionality using native mechanisms:
 
 ```
 vnc-remote-secure/
-├── src/                          # Main application (Linux/RPi)
-│   ├── rpi-vnc-remote.sh         # Entry point
-│   └── lib/
-│       ├── core/                 # Config, logging, utils, validation
-│       ├── security/             # SSL, fail2ban, user management
-│       ├── web/                  # nginx, Flask user UI
-│       ├── monitoring/           # Health checks, dashboard
-│       ├── communication/        # Alerts, notifications
-│       ├── features/             # Session recording
-│       └── platform/             # OS detection, Windows backend
-├── launch.sh                     # Windows launcher (with --no-ssl flag)
-├── kill_all.sh                   # Windows service cleanup
-├── web_terminal.py               # Tornado-based web terminal (Windows)
-├── landing_page.py               # Landing page portal
-├── health_web_server.py          # (symlink to src/lib/monitoring/)
-├── gen_ssl.py                    # Self-signed certificate generator
-├── gen_vnc_pass.py               # VNC password hash generator
-├── verify_all.py                # End-to-end verification script
-├── config_loader.py             # Shared Python config loader
-├── tests/                        # Test pyramid (116 tests)
-│   ├── static/                   # Level 0: lint, syntax, CRLF
-│   ├── unit/                     # Level 1: isolated functions
-│   ├── integration/              # Level 3: multi-module
-│   ├── e2e/                      # Level 5: entry point
-│   └── security/                 # Level 7: hardening
-├── scripts/                      # Maintenance scripts
-├── docker/                       # Docker integration
-├── doc/                          # Documentation
+├── src/
+│   ├── rpi-vnc-remote.sh         # Linux Bash entry point (internal)
+│   ├── lib/                      # Linux Bash modules
+│   │   ├── core/                 # Config, logging, utils, validation
+│   │   ├── security/             # SSL, fail2ban, user management
+│   │   ├── web/                  # nginx, Flask user UI
+│   │   ├── monitoring/           # Health checks, dashboard
+│   │   ├── communication/        # Alerts, notifications
+│   │   ├── features/             # Session recording
+│   │   └── platform/             # OS detection, Windows backend
+│   └── vnc_remote_secure/        # Python package (cross-platform)
+│       ├── cli.py                # Unified CLI
+│       ├── core/                 # Config, paths, sessions, validation
+│       ├── platform/{linux,windows}/  # Platform adapters
+│       ├── services/             # audio, gamepad, health, landing, novnc, terminal, vnc
+│       ├── security/             # authentication, certificates, credentials
+│       ├── monitoring/           # alerts, health, metrics, status
+│       ├── web/                  # Flask app, routes, templates, static
+│       └── vendor/d3des.py       # VNC DES (legacy protocol compat)
+├── native/
+│   ├── linux/systemd/            # systemd unit files
+│   └── windows/                  # PowerShell module + commands
+├── config/                       # Schema, defaults, nginx, examples
+├── packaging/{linux,windows,docker}/  # Packaging scripts
+├── scripts/{development,maintenance,release,utilities}/
+├── tests/                        # Test pyramid (140 tests)
+│   ├── unit/ integration/ e2e/ security/
+│   ├── powershell/               # Pester tests
+│   ├── shell/                    # Bats tests
+│   └── fixtures/                 # Test data
+├── third_party/                  # External dependency manifests, licenses, checksums
+├── tools/                        # doctor, download/verify deps, migrate config
+├── docs/                         # Architecture, ADRs, installation, user-guide, developer
+├── vnc-remote                    # Unified CLI entry point
+├── VncRemote.ps1                 # Windows PowerShell wrapper
+├── launch.sh                     # Windows launcher (deprecated, use vnc-remote)
 ├── Makefile                      # Central command hub
+├── pyproject.toml                # Package metadata and dependencies
 └── .env.example                  # Configuration template
 ```
 
@@ -349,7 +358,7 @@ through the VNC/noVNC session — no configuration needed.
 
 - Audio streaming requires ffmpeg on the server
 - Gamepad forwarding on Linux requires evdev and uinput access
-- Gamepad buttons are mapped to keyboard keys (see `gamepad_server.py` for mapping)
+- Gamepad buttons are mapped to keyboard keys (see `src/vnc_remote_secure/services/gamepad.py` for mapping)
 - Audio is streamed as MP3 (low latency, but not lossless)
 - Both features bind to `127.0.0.1` by default; set host to `0.0.0.0` for LAN access
 
@@ -379,7 +388,7 @@ make user-remove     # Remove temp user
 
 ## Testing
 
-The project uses a testing pyramid with 5 levels (116 tests total):
+The project uses a testing pyramid with multiple levels (140 tests total: 116 Bash + 24 PowerShell):
 
 ```bash
 make test-all          # Run all tests
@@ -427,7 +436,7 @@ See `CONTRIBUTING.md` for full guidelines.
 
 ## Troubleshooting
 
-See [`doc/troubleshooting.md`](doc/troubleshooting.md) for common issues and solutions.
+See [`docs/user-guide/troubleshooting.md`](docs/user-guide/troubleshooting.md) for common issues and solutions.
 
 Quick checks:
 

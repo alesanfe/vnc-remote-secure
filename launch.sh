@@ -1,6 +1,8 @@
 #!/bin/bash
 # ============================================================================
-# VNC Remote Secure - Windows launcher
+# VNC Remote Secure - Windows launcher (compatibility wrapper)
+# DEPRECATED: Use 'vnc-remote start' instead. This wrapper will be removed
+# in a future release.
 # Usage: ./launch.sh [--no-ssl]
 #   --no-ssl  Start without SSL (HTTP only, for preview/testing)
 # ============================================================================

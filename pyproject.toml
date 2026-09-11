@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=64", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "vnc-remote-secure"
@@ -25,36 +25,37 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: System :: Networking",
 ]
 
 dependencies = [
-    "tornado>=6.0",
+    "Flask>=2.2,<4.0",
+    "tornado>=6.2",
     "websockify>=0.10.0",
-    "cryptography>=38.0",
+    "cryptography>=41.0",
+    "websockets>=12.0",
+    "websocket-client>=1.6.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "ruff>=0.1.0",
-    "black>=23.0",
-]
-audio = [
-    "websockets>=10.0",
-]
-verification = [
-    "websocket-client>=1.0",
+    "ruff>=0.7.0",
+    "black>=24.0",
+    "flake8>=7.0",
+    "pre-commit>=3.5",
+    "yamllint>=1.35",
 ]
 
 [project.scripts]
 vnc-remote = "vnc_remote_secure.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/alex0/vnc-remote-secure"
-Repository = "https://github.com/alex0/vnc-remote-secure"
-Issues = "https://github.com/alex0/vnc-remote-secure/issues"
+Homepage = "https://github.com/alesanfe/vnc-remote-secure"
+Repository = "https://github.com/alesanfe/vnc-remote-secure"
+Issues = "https://github.com/alesanfe/vnc-remote-secure/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

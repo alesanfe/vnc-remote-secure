@@ -34,7 +34,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # Version
-readonly VNC_REMOTE_VERSION="0.1.0"
+readonly VNC_REMOTE_VERSION="0.2.0"
 
 # Get project directory (this script is at project root)
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

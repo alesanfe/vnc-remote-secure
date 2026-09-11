@@ -86,7 +86,7 @@ setup-env: ## Copy .env.example to .env (if not exists)
 setup-deps: ## Install Python dependencies
 	@echo "$(BLUE)Installing Python dependencies...$(NC)"
 	@if command -v pip3 &>/dev/null; then \
-		pip3 install -r requirements.txt; \
+		pip3 install -e ".[dev]"; \
 	else \
 		echo "$(RED)pip3 not found. Install Python 3 first.$(NC)"; exit 1; \
 	fi
@@ -129,18 +129,17 @@ stop: ## Stop all services (Linux)
 
 win-run: ## Run on Windows with SSL
 	@echo "$(BLUE)Starting VNC Remote Secure (Windows + SSL)...$(NC)"
-	@if [[ ! -f launch.sh ]]; then echo "$(RED)Error: launch.sh not found$(NC)"; exit 1; fi
-	@bash launch.sh
+	@./vnc-remote start
 
 win-run-nossl: ## Run on Windows without SSL (HTTP, for testing)
 	@echo "$(BLUE)Starting VNC Remote Secure (Windows, no SSL)...$(NC)"
-	@bash launch.sh --no-ssl
+	@./vnc-remote start --profile local
 
 win-stop: ## Stop all Windows services
-	@bash kill_all.sh
+	@./vnc-remote stop --force
 
 win-verify: ## Verify all Windows services are responding
-	@python3 verify_all.py
+	@python3 -m vnc_remote_secure.cli doctor
 
 # ============================================================================
 # TESTING
@@ -188,7 +187,8 @@ lint: ## Run shellcheck on all shell scripts (non-fatal)
 	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh || true
 	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh || true
 	@shellcheck -x src/lib/platform/*.sh || true
-	@shellcheck -x scripts/*.sh launch.sh kill_all.sh || true
+	@shellcheck -x scripts/development/*.sh scripts/maintenance/*.sh scripts/release/*.sh || true
+	@shellcheck -x launch.sh vnc-remote || true
 	@shellcheck -x tests/run_tests.sh || true
 	@find tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x || true
 	@echo "$(GREEN)✓ Linting complete$(NC)"
@@ -199,22 +199,23 @@ lint-strict: ## Run shellcheck and fail on any warning
 	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh
 	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh
 	@shellcheck -x src/lib/platform/*.sh
-	@shellcheck -x scripts/*.sh launch.sh kill_all.sh
+	@shellcheck -x scripts/development/*.sh scripts/maintenance/*.sh scripts/release/*.sh
+	@shellcheck -x launch.sh vnc-remote
 	@shellcheck -x tests/run_tests.sh
 	@find tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x
 	@echo "$(GREEN)✓ Linting complete (no warnings)$(NC)"
 
-lint-python: ## Run Python linters (black, ruff if available)
+lint-python: ## Run Python linters (ruff, black if available)
 	@echo "$(BLUE)Running Python linters...$(NC)"
-	@if command -v ruff &>/dev/null; then ruff check *.py src/lib/web/*.py src/lib/monitoring/*.py || true; \
+	@if command -v ruff &>/dev/null; then ruff check src/vnc_remote_secure/ tools/ scripts/utilities/ || true; \
 	else echo "$(YELLOW)ruff not installed, skipping$(NC)"; fi
-	@if command -v black &>/dev/null; then black --check *.py src/lib/web/*.py src/lib/monitoring/*.py || true; \
+	@if command -v black &>/dev/null; then black --check src/vnc_remote_secure/ tools/ scripts/utilities/ || true; \
 	else echo "$(YELLOW)black not installed, skipping$(NC)"; fi
 	@echo "$(GREEN)✓ Python linting complete$(NC)"
 
 format: ## Format Python code with black (if available)
 	@echo "$(BLUE)Formatting Python code...$(NC)"
-	@if command -v black &>/dev/null; then black *.py src/lib/web/*.py src/lib/monitoring/*.py; \
+	@if command -v black &>/dev/null; then black src/vnc_remote_secure/ tools/ scripts/utilities/; \
 	else echo "$(YELLOW)black not installed. Install with: pip install black$(NC)"; fi
 	@echo "$(GREEN)✓ Formatting complete$(NC)"
 
@@ -227,25 +228,25 @@ check: lint lint-python test-fast ## Run all quality checks (lint + fast tests)
 
 docker-build: ## Build Docker image
 	@echo "$(BLUE)Building Docker image...$(NC)"
-	@cd docker && docker build -t rpi-vnc-remote-test -f Dockerfile ..
+	@cd packaging/docker && docker build -t vnc-remote-secure-test -f Dockerfile ../..
 
 docker-test: docker-build ## Run tests in Docker
 	@echo "$(BLUE)Running tests in Docker...$(NC)"
-	@cd docker && docker-compose run test
+	@cd packaging/docker && docker compose run test
 
 docker-compose-up: ## Start Docker Compose integration services
 	@echo "$(BLUE)Starting Docker Compose services...$(NC)"
-	@docker-compose -f docker-compose.integration.yml up -d
+	@docker compose -f packaging/docker/compose.integration.yml up -d
 
 docker-compose-down: ## Stop Docker Compose integration services
 	@echo "$(BLUE)Stopping Docker Compose services...$(NC)"
-	@docker-compose -f docker-compose.integration.yml down
+	@docker compose -f packaging/docker/compose.integration.yml down
 
 docker-clean: ## Remove Docker images and containers
 	@echo "$(YELLOW)Cleaning Docker resources...$(NC)"
-	@docker rmi rpi-vnc-remote-test 2>/dev/null || true
-	@cd docker && docker-compose down -v 2>/dev/null || true
-	@docker-compose -f docker-compose.integration.yml down -v 2>/dev/null || true
+	@docker rmi vnc-remote-secure-test 2>/dev/null || true
+	@cd packaging/docker && docker compose down -v 2>/dev/null || true
+	@docker compose -f packaging/docker/compose.integration.yml down -v 2>/dev/null || true
 	@echo "$(GREEN)✓ Docker clean complete$(NC)"
 
 # ============================================================================
@@ -308,18 +309,18 @@ ssl-check: ## Check SSL certificate expiry
 
 duckdns-update: ## Update Duck DNS IP (one-shot)
 	@echo "$(BLUE)Updating Duck DNS...$(NC)"
-	@bash scripts/duckdns_update.sh
+	@bash scripts/utilities/duckdns_update.sh
 
 duckdns-daemon: ## Start Duck DNS update daemon (runs until Ctrl+C)
 	@echo "$(BLUE)Starting Duck DNS daemon...$(NC)"
-	@bash scripts/duckdns_update.sh --daemon
+	@bash scripts/utilities/duckdns_update.sh --daemon
 
 duckdns-check: ## Check Duck DNS resolution
 	@echo "$(BLUE)Checking Duck DNS...$(NC)"
-	@bash scripts/duckdns_update.sh --check
+	@bash scripts/utilities/duckdns_update.sh --check
 
 duckdns-update-py: ## Update Duck DNS IP via Python (cross-platform fallback)
-	@python3 scripts/duckdns_update.py
+	@python3 scripts/utilities/duckdns_update.py
 
 user-create: ## Create temporary user
 	@echo "$(BLUE)Creating temporary user...$(NC)"
@@ -383,14 +384,13 @@ status: ## Show status of services
 # ============================================================================
 
 docs: ## Show documentation index
-	@echo "$(BLUE)Documentation available in doc/ directory$(NC)"
+	@echo "$(BLUE)Documentation available in docs/ directory$(NC)"
 	@echo ""
-	@echo "Quick Start:     doc/installation/quick-start.md"
-	@echo "Installation:    doc/installation/detailed-setup.md"
-	@echo "Configuration:   doc/installation/configuration.md"
-	@echo "Troubleshooting: doc/troubleshooting.md"
-	@echo "Developer:       doc/developer/"
-	@echo "Reference:       doc/reference/"
+	@echo "Architecture:    docs/architecture/"
+	@echo "Installation:    docs/installation/"
+	@echo "User Guide:      docs/user-guide/"
+	@echo "Developer:       docs/developer/"
+	@echo "ADRs:            docs/adr/"
 
 docs-serve: ## Serve documentation locally (requires mkdocs)
 	@echo "$(BLUE)Serving documentation locally...$(NC)"
@@ -419,11 +419,11 @@ install: ## Install vnc-remote CLI to /usr/local/bin (Linux, system-wide)
 
 uninstall: ## Uninstall: stop services, remove systemd units, nginx, certs, temp user
 	@echo "$(YELLOW)Uninstalling VNC Remote Secure...$(NC)"
-	@sudo bash scripts/uninstall.sh
+	@sudo bash scripts/maintenance/uninstall.sh
 
 install-systemd: ## Install systemd service units (requires sudo, Linux only)
 	@echo "$(BLUE)Installing systemd service units...$(NC)"
-	@sudo bash scripts/install_systemd.sh
+	@sudo bash scripts/maintenance/install_systemd.sh
 
 systemd-start: ## Start all systemd services
 	@sudo systemctl start vnc-remote-vnc vnc-remote-novnc vnc-remote-ttyd vnc-remote-health
