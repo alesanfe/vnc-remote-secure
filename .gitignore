@@ -75,6 +75,10 @@ desktop.ini
 # --- noVNC (cloned at runtime, not vendored) ---
 novnc/
 
+# --- Old directories (replaced by docs/ and packaging/docker/) ---
+doc/
+docker/
+
 # --- Binaries (managed externally, not committed) ---
 bin/
 bin/ultravnc/
