@@ -165,6 +165,18 @@ validate_email() {
     local email="$1"
     local field_name="${2:-email}"
 
+    # Reject empty emails
+    if [[ -z "$email" ]]; then
+        VALIDATION_ERRORS["$field_name"]="Email cannot be empty"
+        return 1
+    fi
+
+    # Reject newlines, spaces, and other whitespace (prevents header injection)
+    if [[ "$email" =~ [[:space:]] ]]; then
+        VALIDATION_ERRORS["$field_name"]="Email contains invalid characters"
+        return 1
+    fi
+
     # Basic email validation
     if [[ ! "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
         VALIDATION_ERRORS["$field_name"]="Invalid email format"

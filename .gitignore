@@ -13,6 +13,7 @@ __pycache__/
 # IDE files
 .idea/
 .qodo/
+.refact/
 
 # Temporary files
 *.swp

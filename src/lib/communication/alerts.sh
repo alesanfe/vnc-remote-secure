@@ -42,20 +42,6 @@ EOF
     fi
 }
 
-# Validate an email address format (prevents header injection)
-# Arguments:
-#   $1 - Email address to validate
-# Returns:
-#   0 if valid, 1 if invalid
-validate_email() {
-    local email="$1"
-    [[ -z "$email" ]] && return 1
-    # Reject newlines, spaces, and other header injection characters
-    [[ "$email" =~ [\ \n\r\t] ]] && return 1
-    # Basic email format validation
-    [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]
-}
-
 # Send email alert
 # Arguments:
 #   $1 - Alert message
@@ -65,6 +51,7 @@ send_email_alert() {
     [[ -z "$ALERT_EMAIL_TO" ]] && return
 
     # Validate email addresses to prevent header injection
+    # validate_email is defined in core/validation.sh (loaded before this module)
     if ! validate_email "$ALERT_EMAIL_TO"; then
         warn "ALERT_EMAIL_TO is not a valid email address, skipping email alert"
         return
