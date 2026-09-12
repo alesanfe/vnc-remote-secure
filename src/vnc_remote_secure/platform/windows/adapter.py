@@ -9,10 +9,15 @@ Handles:
 - Event Log integration
 - Paths: ProgramFiles, ProgramData
 """
+import logging
 import os
+import shutil
+import socket
 import subprocess
 
 from vnc_remote_secure.platform.base import PlatformAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class WindowsAdapter(PlatformAdapter):
@@ -26,6 +31,9 @@ class WindowsAdapter(PlatformAdapter):
             'config_dir': os.path.join(os.environ.get('ProgramData', 'C:\\ProgramData'), 'VncRemoteSecure', 'config'),
             'data_dir': os.path.join(os.environ.get('ProgramData', 'C:\\ProgramData'), 'VncRemoteSecure', 'data'),
             'log_dir': os.path.join(os.environ.get('ProgramData', 'C:\\ProgramData'), 'VncRemoteSecure', 'logs'),
+            'default_vnc_port': 5900,
+            'default_health_port': 8090,
+            'default_webterm_shell': 'cmd.exe',
         }
 
     def _run_powershell(self, script):
@@ -109,3 +117,89 @@ class WindowsAdapter(PlatformAdapter):
             capture_output=True
         )
         return result.returncode == 0
+
+    # ---- Service-specific platform operations ----
+
+    def get_lan_ips(self):
+        """Return LAN IP addresses, filtering out virtual/loopback adapters."""
+        ips = []
+        # UDP socket trick for primary LAN IP
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(2)
+            s.connect(('8.8.8.8', 80))
+            primary_ip = s.getsockname()[0]
+            s.close()
+            if primary_ip and not primary_ip.startswith('127.'):
+                ips.append(primary_ip)
+        except Exception as e:
+            logger.debug("LAN IP detection via UDP socket failed: %s", e)
+        # PowerShell Get-NetIPAddress for physical adapters
+        try:
+            ps_cmd = (
+                "Get-NetIPAddress -AddressFamily IPv4 | "
+                "Where-Object { $_.IPAddress -ne '127.0.0.1' -and "
+                "$_.IPAddress -notlike '169.254.*' -and "
+                "$_.IPAddress -notlike '172.*' -and "
+                "$_.IPAddress -notlike '192.168.56.*' -and "
+                "$_.IPAddress -notlike '192.168.96.*' -and "
+                "$_.IPAddress -notlike '192.168.204.*' } | "
+                "Select-Object -ExpandProperty IPAddress -Unique"
+            )
+            result = subprocess.run(
+                ['powershell', '-NoProfile', '-Command', ps_cmd],
+                capture_output=True, text=True, timeout=10, check=False
+            )
+            for line in result.stdout.strip().split('\n'):
+                line = line.strip()
+                if line and line not in ips and not line.startswith('127.'):
+                    ips.append(line)
+        except Exception as e:
+            logger.debug("LAN IP detection via PowerShell failed: %s", e)
+        # Filter virtual adapter ranges
+        virtual_ranges = [f'172.{i}.' for i in range(16, 32)]
+        virtual_ranges += ['192.168.56.', '192.168.96.', '192.168.204.']
+        ips = [ip for ip in ips if not any(ip.startswith(r) for r in virtual_ranges)]
+        # Deduplicate preserving order
+        seen = set()
+        return [ip for ip in ips if not (ip in seen or seen.add(ip))]
+
+    def start_vnc_server(self, display, geometry, depth, password):
+        """Start UltraVNC winvnc.exe. Returns subprocess.Popen."""
+        exe = shutil.which('winvnc')
+        if not exe:
+            from vnc_remote_secure.core.exceptions import ServiceError
+            raise ServiceError("UltraVNC winvnc.exe not found on PATH")
+        return subprocess.Popen([exe])
+
+    def stop_vnc_process(self, pid):
+        """Stop a VNC process by PID using taskkill."""
+        subprocess.run(['taskkill', '/PID', str(pid), '/F'],
+                       capture_output=True)
+
+    def get_audio_capture_cmd(self, ffmpeg, device, bitrate):
+        """Return ffmpeg input args for DirectShow capture."""
+        if not device:
+            device = "audio=Stereo Mix (Realtek High Definition Audio)"
+        return ["-f", "dshow", "-i", device]
+
+    def list_audio_devices(self, ffmpeg):
+        """List DirectShow audio capture devices."""
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+                capture_output=True, text=True, timeout=10
+            )
+            # ffmpeg outputs device list to stderr
+            logger.info("%s", result.stderr)
+        except Exception as e:
+            logger.error("Error listing devices: %s", e)
+
+    def create_gamepad_injector(self):
+        """Return a WindowsInputInjector (or None if unavailable)."""
+        try:
+            from vnc_remote_secure.platform.windows.gamepad import WindowsInputInjector
+            return WindowsInputInjector()
+        except Exception as e:
+            logger.debug("Windows gamepad injector unavailable: %s", e)
+            return None

@@ -18,16 +18,21 @@ Features:
 """
 import os
 import sys
+import logging
 import subprocess
 import threading
 import json
-import base64
 import glob
-import hmac
 
 import tornado.web
 import tornado.websocket
 import tornado.ioloop
+
+from vnc_remote_secure.core.constants import DEFAULT_BIND_HOST, DEFAULT_WEBTERM_SHELL
+from vnc_remote_secure.core.errors import log_exception
+from vnc_remote_secure.security.http_auth import check_terminal_auth
+
+logger = logging.getLogger(__name__)
 
 # Load configuration from .env file (never hardcode credentials)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -36,16 +41,22 @@ from vnc_remote_secure.core.config import load_env_file, generate_random_passwor
 load_env_file()
 
 # Configuration - credentials read from environment, never hardcoded
-PORT = int(os.environ.get('TTYD_PORT', '5000'))
-USERNAME = os.environ.get('TTYD_USERNAME', 'admin')
+from vnc_remote_secure.core.constants import (
+    DEFAULT_TTYD_PORT as _DEFAULT_TTYD_PORT,
+    DEFAULT_TTYD_USERNAME as _DEFAULT_TTYD_USERNAME,
+    DEFAULT_CMD_TIMEOUT,
+    DEFAULT_MAX_OUTPUT,
+)
+PORT = int(os.environ.get('TTYD_PORT', str(_DEFAULT_TTYD_PORT)))
+HOST = os.environ.get('TTYD_HOST', DEFAULT_BIND_HOST)
+USERNAME = os.environ.get('TTYD_USERNAME', _DEFAULT_TTYD_USERNAME)
 PASSWORD = os.environ.get('TTYD_PASSWD', '')
 if not PASSWORD:
     PASSWORD = generate_random_password(16)
-    print(f"[web_terminal] WARNING: TTYD_PASSWD not set, generated: {PASSWORD}",
-          file=sys.stderr)
+    logger.warning("TTYD_PASSWD not set; generated a random password (not shown for security)")
 CERT_FILE = os.environ.get('SSL_CERT', '')
 KEY_FILE = os.environ.get('SSL_KEY', '')
-SHELL = os.environ.get('WEBTERM_SHELL', 'cmd.exe')  # cmd.exe or powershell.exe
+SHELL = os.environ.get('WEBTERM_SHELL', DEFAULT_WEBTERM_SHELL)
 
 # Common commands for tab completion (no duplicates)
 COMMON_COMMANDS = [
@@ -272,24 +283,17 @@ HTML_PAGE = """<!DOCTYPE html>
 
 class MainHandler(tornado.web.RequestHandler):
     def get(self):
-        auth = self.request.headers.get('Authorization')
-        if not auth or not self._check_auth(auth):
-            self.set_status(401)
+        auth = self.request.headers.get('Authorization', '')
+        if not check_terminal_auth(auth):
+            from vnc_remote_secure.core.errors import error_json
+            body, status = error_json('Unauthorized', 401)
+            self.set_status(status)
             self.set_header('WWW-Authenticate', 'Basic realm="Terminal"')
+            self.set_header('Content-Type', 'application/json')
+            self.write(body)
             return
         self.set_header('Content-Type', 'text/html')
         self.write(HTML_PAGE)
-
-    def _check_auth(self, auth):
-        try:
-            if not auth.startswith('Basic '):
-                return False
-            decoded = base64.b64decode(auth[6:]).decode('utf-8')
-            expected = f'{USERNAME}:{PASSWORD}'
-            # Use constant-time comparison to prevent timing attacks
-            return hmac.compare_digest(decoded, expected)
-        except Exception:
-            return False
 
 
 class TerminalWebSocket(tornado.websocket.WebSocketHandler):
@@ -334,21 +338,21 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             host = parsed.hostname
             if host in ('localhost', '127.0.0.1', '::1'):
                 return True
-        except Exception:
-            pass
-        print(f"[Terminal] Rejected WebSocket from origin: {origin}")
+        except Exception as e:
+            logger.debug("Origin parsing failed for '%s': %s", origin, e)
+        logger.warning("Rejected WebSocket from origin: %s", origin)
         return False
 
     def open(self):
-        auth = self.request.headers.get('Authorization')
-        if not auth or not self._check_auth(auth):
+        auth = self.request.headers.get('Authorization', '')
+        if not check_terminal_auth(auth):
             self.close(code=1008, reason='Unauthorized')
             return
 
         self.current_process = None
         self.cwd = os.environ.get('USERPROFILE', 'C:\\')
         self.history = []
-        print(f"[Terminal] Client connected from {self.request.remote_ip}")
+        logger.info("Client connected from %s", self.request.remote_ip)
 
         self.write_message(f"\x1b[36m\r\n  VNC Remote Secure - Web Terminal\r\n\x1b[0m")
         self.write_message(f"\x1b[90m  Shell: {SHELL} | OS: {os.name}\r\n\x1b[0m")
@@ -356,17 +360,6 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self.write_message(f"\x1b[90m  Type 'help' for commands, 'exit' to disconnect.\r\n\x1b[0m")
         self.write_message(f"\r\n")
         self._send_prompt()
-
-    def _check_auth(self, auth):
-        try:
-            if not auth.startswith('Basic '):
-                return False
-            decoded = base64.b64decode(auth[6:]).decode('utf-8')
-            expected = f'{USERNAME}:{PASSWORD}'
-            # Use constant-time comparison to prevent timing attacks
-            return hmac.compare_digest(decoded, expected)
-        except Exception:
-            return False
 
     def _send_prompt(self):
         """Send the shell prompt with ANSI color."""
@@ -382,7 +375,8 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
     def on_message(self, message):
         try:
             msg = json.loads(message)
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.debug("Ignoring malformed terminal message: %s", exc)
             return
 
         msg_type = msg.get('type')
@@ -431,8 +425,8 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                     self.write_message('\r\n\x1b[31m^C\x1b[0m\r\n')
                     self._send_prompt()
                     self._set_busy(False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to terminate process on interrupt: %s", e)
             else:
                 self.write_message('\r\n')
                 self._send_prompt()
@@ -486,11 +480,19 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                             name = os.path.basename(line.strip()).replace('.exe', '').replace('.EXE', '')
                             if name and name not in suggestions:
                                 suggestions.append(name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Tab completion via 'where' failed: %s", e)
         else:
             # Completing a file/directory argument
             last_word = parts[-1]
+            # Sanitize: reject null bytes and control characters
+            if '\x00' in last_word or any(ord(c) < 32 for c in last_word):
+                self.write_message(json.dumps({
+                    "type": "completion",
+                    "suggestions": [],
+                    "input": input_str
+                }))
+                return
             # Determine the directory to search
             if os.path.isabs(last_word):
                 search_dir = os.path.dirname(last_word)
@@ -502,6 +504,16 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             if not os.path.isdir(search_dir):
                 search_dir = self.cwd
 
+            # Resolve and constrain to cwd tree to prevent arbitrary traversal
+            try:
+                real_search = os.path.realpath(search_dir)
+                real_cwd = os.path.realpath(self.cwd)
+                if not real_search.startswith(real_cwd):
+                    search_dir = self.cwd
+            except (OSError, ValueError) as e:
+                logger.debug("Path validation failed: %s", e)
+                search_dir = self.cwd
+
             try:
                 pattern = os.path.join(search_dir, prefix + '*')
                 for entry in glob.glob(pattern):
@@ -509,8 +521,8 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                     if os.path.isdir(entry):
                         name += '\\'
                     suggestions.append(name)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Tab completion via glob failed: %s", e)
 
         # Limit suggestions
         suggestions = suggestions[:20]
@@ -523,18 +535,30 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
 
     def _execute_command(self, cmd):
         """Execute a command and stream output.
-        Note: This is a full terminal - command chaining (&&, ||, ;, |) is
-        intentionally supported as it is expected shell behavior.
-        Security is provided by authentication and origin checking, not by
-        restricting command syntax.
+
+        SECURITY NOTE:
+            This is a full interactive web terminal. Authenticated WebSocket
+            clients can execute arbitrary shell commands, including command
+            chaining (&&, ||, ;, |). This is intentional — the terminal
+            provides full shell access, not a restricted command set.
+
+            Security relies on:
+              1. WebSocket authentication (Basic auth on the upgrade request)
+              2. Origin checking (rejects cross-origin connections)
+              3. ALLOWED_LAN_IPS filtering (optional IP allowlist)
+              4. SSL/TLS encryption (when SSL_CERT/SSL_KEY are configured)
+
+            If authentication is compromised, an attacker gains full shell
+            access. Ensure strong credentials and network-level controls
+            (firewall, VPN) are in place before exposing the terminal.
         """
         self.write_message(f'\r\n')
         self._set_busy(True)
 
         # Command timeout (seconds) - prevents infinite-running commands
-        CMD_TIMEOUT = 30
+        CMD_TIMEOUT = DEFAULT_CMD_TIMEOUT
         # Max output size (bytes) - prevents memory exhaustion
-        MAX_OUTPUT = 1024 * 1024  # 1 MB
+        MAX_OUTPUT = DEFAULT_MAX_OUTPUT
 
         if SHELL == 'powershell.exe':
             args = [
@@ -545,15 +569,33 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             args = ['C:\\Windows\\System32\\cmd.exe', '/c', cmd]
 
         try:
+            # Build a sanitized environment for the child process so that
+            # secrets loaded from .env (VNC_PASSWORD, TTYD_PASSWD, tokens, etc.)
+            # are not exfiltrable via `set`/`env` commands run in the terminal.
+            child_env = {
+                k: v for k, v in os.environ.items()
+                if k not in (
+                    'VNC_PASSWORD', 'TTYD_PASSWD',
+                    'LANDING_PASSWORD', 'DUCKDNS_TOKEN', 'FLASK_SECRET_KEY',
+                    'AUTH_SECRET', 'SSL_KEY', 'USER_UI_PASSWORD',
+                )
+            }
+            # CREATE_NO_WINDOW is Windows-only; on Linux the attribute does
+            # not exist and passing it raises AttributeError.
+            kwargs = {}
+            if sys.platform == 'win32':
+                kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
             self.current_process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,
                 cwd=self.cwd,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                env=child_env,
+                **kwargs
             )
         except Exception as e:
+            log_exception(e, 'Terminal subprocess start')
             self.write_message(f"\x1b[31mError: {e}\x1b[0m\r\n")
             self._send_prompt()
             self._set_busy(False)
@@ -595,7 +637,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                     f"\r\n\x1b[33m[command timed out after {CMD_TIMEOUT}s]\x1b[0m\r\n")
                 ioloop.add_callback(self._after_command, cmd, -1)
             except Exception as e:
-                print(f"[Terminal] Read error: {e}")
+                log_exception(e, 'Terminal read output')
                 ioloop.add_callback(self._send_output, f"\r\n\x1b[31mError: {e}\x1b[0m\r\n")
                 ioloop.add_callback(self._after_command, cmd, -1)
 
@@ -608,8 +650,8 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             text = text.replace('\n', '\r\n')
             try:
                 self.write_message(text)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to send terminal output: %s", e)
             if not text.endswith('\r\n'):
                 self.write_message('\r\n')
 
@@ -636,12 +678,12 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self._set_busy(False)
 
     def on_close(self):
-        print(f"[Terminal] Client disconnected")
+        logger.info("Client disconnected")
         if self.current_process:
             try:
                 self.current_process.terminate()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to terminate process on close: %s", e)
             self.current_process = None
 
 
@@ -656,20 +698,18 @@ def main():
     app = make_app()
     TerminalWebSocket.main_ioloop = tornado.ioloop.IOLoop.current()
 
-    ssl_options = None
-    if CERT_FILE and KEY_FILE and os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
-        import ssl
-        ssl_options = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ssl_options.load_cert_chain(CERT_FILE, KEY_FILE)
-        print(f"[Terminal] SSL enabled: {CERT_FILE}")
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    ssl_options = create_ssl_context(CERT_FILE, KEY_FILE)
+    if ssl_options:
+        logger.info("SSL enabled: %s", CERT_FILE)
     else:
-        print("[Terminal] No SSL (HTTP mode)")
+        logger.warning("No SSL (HTTP mode)")
 
-    server = app.listen(PORT, '0.0.0.0', ssl_options=ssl_options)
-    print(f"[Terminal] Web terminal running on port {PORT}")
-    print(f"[Terminal] URL: {'https' if ssl_options else 'http'}://localhost:{PORT}")
-    print(f"[Terminal] Auth: {USERNAME}:***")
-    print(f"[Terminal] Shell: {SHELL}")
+    server = app.listen(PORT, HOST, ssl_options=ssl_options)
+    logger.info("Web terminal running on %s:%s", HOST, PORT)
+    logger.info("URL: %s://localhost:%s", 'https' if ssl_options else 'http', PORT)
+    logger.info("Auth: %s:***", USERNAME)
+    logger.info("Shell: %s", SHELL)
 
     try:
         tornado.ioloop.IOLoop.current().start()

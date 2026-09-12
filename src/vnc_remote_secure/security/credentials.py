@@ -78,7 +78,7 @@ def verify_password(password, stored_hash):
     except ImportError:
         pass
     if not stored_hash.startswith('pbkdf2:'):
-        return hmac.compare_digest(str(password), stored_hash)
+        return False
     # Parse pbkdf2:iterations$salt$hash
     try:
         body = stored_hash[len('pbkdf2:'):]

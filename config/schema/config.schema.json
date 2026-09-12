@@ -83,27 +83,77 @@
       "type": "boolean",
       "description": "Whether the health check web server is enabled."
     },
-    "ENABLE_RECORDING": {
+    "RECORDING_ENABLED": {
       "type": "boolean",
       "description": "Whether session recording is enabled."
     },
-    "ENABLE_AUDIO": {
+    "AUDIO_STREAM_ENABLED": {
       "type": "boolean",
       "description": "Whether audio forwarding is enabled."
     },
-    "ENABLE_GAMEPAD": {
+    "GAMEPAD_ENABLED": {
       "type": "boolean",
       "description": "Whether gamepad forwarding is enabled."
     },
-    "ENABLE_USER_UI": {
+    "USER_UI_ENABLED": {
       "type": "boolean",
       "description": "Whether the user management UI is enabled."
     },
     "WEBTERM_SHELL": {
       "type": "string",
       "description": "Shell executable used by the web terminal."
+    },
+    "USER_UI_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the user management UI listens on."
+    },
+    "USER_UI_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the user management UI."
+    },
+    "FLASK_SECRET_KEY": {
+      "type": "string",
+      "description": "Secret key for Flask session signing."
+    },
+    "AUTH_SECRET": {
+      "type": "string",
+      "description": "Secret key for JWT/token signing."
+    },
+    "HEALTH_AUTH_TOKEN": {
+      "type": "string",
+      "description": "Bearer token required to access health endpoints."
+    },
+    "LANDING_HOST": {
+      "type": "string",
+      "description": "Bind address for the landing page server."
+    },
+    "LANDING_PASSWORD": {
+      "type": "string",
+      "description": "Optional Basic-auth password for the landing page."
+    },
+    "TTYD_HOST": {
+      "type": "string",
+      "description": "Bind address for the ttyd web terminal."
+    },
+    "VNC_HTTP_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the VNC HTTP server listens on (UltraVNC)."
+    },
+    "USER_UI_SESSION_TIMEOUT": {
+      "type": "integer",
+      "minimum": 60,
+      "description": "Session timeout in seconds for the user UI."
+    },
+    "TRUSTED_PROXY": {
+      "type": "boolean",
+      "description": "Whether to trust X-Forwarded-* headers from a reverse proxy."
     }
   },
   "required": [],
-  "additionalProperties": false
+  "additionalProperties": true
 }

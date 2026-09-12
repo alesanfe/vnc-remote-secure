@@ -50,7 +50,8 @@ def authenticate(username, password):
         ``True`` if the credentials match, ``False`` otherwise.
     """
     load_env_file()
-    expected_user = os.environ.get('TTYD_USERNAME', 'admin')
+    from vnc_remote_secure.core.constants import DEFAULT_TTYD_USERNAME
+    expected_user = os.environ.get('TTYD_USERNAME', DEFAULT_TTYD_USERNAME)
     # Support both plain-text and hashed passwords.
     stored_password = os.environ.get('TTYD_PASSWD') or os.environ.get('USER_UI_PASSWORD', '')
     if not stored_password:
@@ -104,3 +105,29 @@ def validate_session_token(token):
     if time.time() > expiry:
         raise SecurityError("Token expired")
     return username
+
+
+def create_web_session(flask_session, username, csrf_token_bytes=32):
+    """Populate a Flask session dict with the canonical session fields.
+
+    This helper centralizes the session model shared by the Flask UI
+    (``web/routes/users.py``) and the legacy Bash-stack UI
+    (``lib/web/user_ui_app.py``) so both use the same keys, CSRF token
+    length, and signed-token semantics.
+
+    Args:
+        flask_session: The Flask ``session`` proxy (or any dict-like
+            object that supports item assignment).
+        username: The authenticated username to store.
+        csrf_token_bytes: Length of the CSRF token in bytes (default 32).
+
+    Returns:
+        The signed session token string (also stored under the ``token``
+        key in the session).
+    """
+    token = create_session_token(username)
+    flask_session['user'] = username
+    flask_session['token'] = token
+    flask_session['login_time'] = time.time()
+    flask_session['csrf_token'] = secrets.token_hex(csrf_token_bytes)
+    return token

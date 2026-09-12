@@ -35,7 +35,7 @@ dependencies = [
     "websockify>=0.10.0",
     "cryptography>=41.0",
     "websockets>=12.0",
-    "websocket-client>=1.6.0",
+    "werkzeug>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +47,12 @@ dev = [
     "flake8>=7.0",
     "pre-commit>=3.5",
     "yamllint>=1.35",
+    "websocket-client>=1.0",
+    "hypothesis>=6.100",
+    "bandit>=1.7",
+]
+linux = [
+    "evdev>=1.0",
 ]
 
 [project.scripts]

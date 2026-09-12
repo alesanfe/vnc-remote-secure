@@ -14,8 +14,8 @@ Works on:
     - Windows: dshow (DirectShow) or WASAPI
 
 Usage:
-    python3 audio_stream_server.py [--port 7777] [--host 127.0.0.1]
-    python3 audio_stream_server.py --list-devices   # List available audio devices
+    python3 -m vnc_remote_secure.services.audio [--port 7777] [--host 127.0.0.1]
+    python3 -m vnc_remote_secure.services.audio --list-devices   # List available audio devices
 
 Environment variables:
     AUDIO_STREAM_PORT  - WebSocket port (default: 7777)
@@ -27,25 +27,24 @@ Environment variables:
 import argparse
 import asyncio
 import json
+import logging
 import os
-import platform
 import subprocess
-import sys
 import websockets
-from pathlib import Path
+
+from vnc_remote_secure.core.constants import (
+    DEFAULT_AUDIO_STREAM_PORT,
+    DEFAULT_BIND_HOST,
+    DEFAULT_PING_INTERVAL,
+    DEFAULT_PING_TIMEOUT,
+)
+
+logger = logging.getLogger(__name__)
 
 # Defaults
-DEFAULT_PORT = 7777
-DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = DEFAULT_AUDIO_STREAM_PORT
+DEFAULT_HOST = DEFAULT_BIND_HOST
 DEFAULT_BITRATE = 128
-
-
-def is_windows():
-    return platform.system() == "Windows"
-
-
-def is_linux():
-    return platform.system() == "Linux"
 
 
 def find_ffmpeg():
@@ -61,46 +60,18 @@ def list_audio_devices():
     """List available audio capture devices."""
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
-        print("ERROR: ffmpeg not found. Install it to use audio streaming.")
-        print("  Linux:   sudo apt-get install ffmpeg")
-        print("  Windows: choco install ffmpeg  or  download from https://ffmpeg.org/")
+        logger.error("ffmpeg not found. Install it to use audio streaming.")
+        logger.error("  Linux:   sudo apt-get install ffmpeg")
+        logger.error("  Windows: choco install ffmpeg  or  download from https://ffmpeg.org/")
         return
 
     print("Available audio capture devices:\n")
 
-    if is_linux():
-        # PulseAudio sources
-        try:
-            result = subprocess.run(
-                ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=10
-            )
-            print("PulseAudio sources:")
-            for line in result.stdout.strip().split("\n"):
-                if line:
-                    print(f"  {line}")
-        except FileNotFoundError:
-            print("  pactl not found, trying ALSA...")
-            try:
-                result = subprocess.run(
-                    ["arecord", "-l"],
-                    capture_output=True, text=True, timeout=10
-                )
-                print(result.stdout)
-            except FileNotFoundError:
-                print("  arecord not found either")
-
-    elif is_windows():
-        # DirectShow devices
-        try:
-            result = subprocess.run(
-                ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
-                capture_output=True, text=True, timeout=10
-            )
-            # ffmpeg outputs device list to stderr
-            print(result.stderr)
-        except Exception as e:
-            print(f"  Error listing devices: {e}")
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+        get_adapter().list_audio_devices(ffmpeg)
+    except Exception as e:
+        logger.error("Error listing devices: %s", e)
 
     print("\nSet AUDIO_DEVICE=<name> in .env to use a specific device.")
 
@@ -111,37 +82,12 @@ def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
     if not ffmpeg:
         return None
 
-    if is_linux():
-        # PulseAudio: capture from default monitor source
-        if not device:
-            # Auto-detect default monitor source
-            try:
-                result = subprocess.run(
-                    ["pactl", "get-default-source"],
-                    capture_output=True, text=True, timeout=5
-                )
-                default_source = result.stdout.strip()
-                if default_source:
-                    # Use the monitor of the default source
-                    device = f"{default_source}.monitor"
-            except Exception:
-                pass
-
-        if device:
-            input_args = ["-f", "pulse", "-i", device]
-        else:
-            # Fallback: ALSA default
-            input_args = ["-f", "alsa", "-i", "default"]
-
-    elif is_windows():
-        # DirectShow: capture from audio device
-        if not device:
-            # Try common device names
-            device = "audio=Stereo Mix (Realtek High Definition Audio)"
-        input_args = ["-f", "dshow", "-i", device]
-
-    else:
-        # macOS
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+        input_args = get_adapter().get_audio_capture_cmd(ffmpeg, device, bitrate)
+    except Exception as e:
+        logger.debug("Platform audio capture cmd failed: %s", e)
+        # Fallback: macOS avfoundation
         if not device:
             device = ":0"
         input_args = ["-f", "avfoundation", "-i", device]
@@ -175,7 +121,7 @@ class AudioStreamServer:
         """Start ffmpeg process to capture audio."""
         cmd = get_ffmpeg_capture_cmd(self.device, self.bitrate)
         if not cmd:
-            print("ERROR: ffmpeg not found or audio device not available")
+            logger.error("ffmpeg not found or audio device not available")
             return False
 
         try:
@@ -184,10 +130,10 @@ class AudioStreamServer:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
-            print(f"ffmpeg started (PID: {self.ffmpeg_process.pid})")
+            logger.info("ffmpeg started (PID: %s)", self.ffmpeg_process.pid)
             return True
         except Exception as e:
-            print(f"ERROR: Failed to start ffmpeg: {e}")
+            logger.error("Failed to start ffmpeg: %s", e)
             return False
 
     async def stop_ffmpeg(self):
@@ -196,7 +142,7 @@ class AudioStreamServer:
             self.ffmpeg_process.terminate()
             await self.ffmpeg_process.wait()
             self.ffmpeg_process = None
-            print("ffmpeg stopped")
+            logger.info("ffmpeg stopped")
 
     async def audio_reader(self):
         """Read audio from ffmpeg stdout and broadcast to clients."""
@@ -207,7 +153,7 @@ class AudioStreamServer:
             data = await self.ffmpeg_process.stdout.read(4096)
             if not data:
                 # ffmpeg ended, try to restart
-                print("ffmpeg stream ended, restarting...")
+                logger.warning("ffmpeg stream ended, restarting...")
                 await asyncio.sleep(2)
                 await self.start_ffmpeg()
                 if not self.ffmpeg_process:
@@ -229,7 +175,7 @@ class AudioStreamServer:
         """Handle a new WebSocket client connection."""
         self.clients.add(websocket)
         client_ip = websocket.remote_address[0] if websocket.remote_address else "unknown"
-        print(f"Client connected: {client_ip} (total: {len(self.clients)})")
+        logger.info("Client connected: %s (total: %s)", client_ip, len(self.clients))
 
         # Start ffmpeg if not running
         async with self._ffmpeg_lock:
@@ -253,13 +199,13 @@ class AudioStreamServer:
                                 "device": self.device or "auto",
                                 "bitrate": f"{self.bitrate}k"
                             }))
-                    except json.JSONDecodeError:
-                        pass
+                    except json.JSONDecodeError as exc:
+                        logger.debug("Ignoring malformed audio message: %s", exc)
         except websockets.ConnectionClosed:
             pass
         finally:
             self.clients.discard(websocket)
-            print(f"Client disconnected (total: {len(self.clients)})")
+            logger.info("Client disconnected (total: %s)", len(self.clients))
 
             # Stop ffmpeg if no clients
             if not self.clients:
@@ -268,26 +214,31 @@ class AudioStreamServer:
 
     async def run(self):
         """Start the WebSocket server."""
-        print(f"Audio Stream Server")
-        print(f"  Host:   {self.host}")
-        print(f"  Port:   {self.port}")
-        print(f"  Device: {self.device or 'auto-detect'}")
-        print(f"  Format: MP3 {self.bitrate}kbps")
-        print(f"  URL:    ws://{self.host}:{self.port}")
-        print()
+        # Optional TLS via shared SSL context builder.
+        from vnc_remote_secure.security.certificates import create_ssl_context
+        ssl_ctx = create_ssl_context()
+        scheme = 'wss' if ssl_ctx else 'ws'
+
+        logger.info("Audio Stream Server")
+        logger.info("  Host:   %s", self.host)
+        logger.info("  Port:   %s", self.port)
+        logger.info("  Device: %s", self.device or 'auto-detect')
+        logger.info("  Format: MP3 %skbps", self.bitrate)
+        logger.info("  URL:    %s://%s:%s", scheme, self.host, self.port)
 
         # Start audio reader task
         asyncio.create_task(self.audio_reader())
 
-        # Start WebSocket server
+        # Start WebSocket server (with optional TLS).
         async with websockets.serve(
             self.handle_client,
             self.host,
             self.port,
-            ping_interval=20,
-            ping_timeout=60
+            ssl=ssl_ctx,
+            ping_interval=DEFAULT_PING_INTERVAL,
+            ping_timeout=DEFAULT_PING_TIMEOUT
         ):
-            print("Server running. Press Ctrl+C to stop.")
+            logger.info("Server running. Press Ctrl+C to stop.")
             await asyncio.Future()  # Run forever
 
 

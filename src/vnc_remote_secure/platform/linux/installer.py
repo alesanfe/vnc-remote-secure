@@ -7,6 +7,7 @@ service user. Requires root privileges.
 import os
 import shutil
 import subprocess
+import logging
 
 from vnc_remote_secure.core.paths import (
     ensure_dirs,
@@ -55,11 +56,12 @@ def install(project_root=None, service_user='vnc-remote'):
     install_service('vnc-remote', unit_file)
 
     # 5. Set ownership on data/log directories.
+    logger = logging.getLogger(__name__)
     for path in (get_data_dir(), get_log_dir()):
         try:
             shutil.chown(path, service_user, service_user)
-        except (LookupError, OSError):
-            pass
+        except (LookupError, OSError) as exc:
+            logger.warning("Failed to chown %s to %s: %s", path, service_user, exc)
 
     return True
 

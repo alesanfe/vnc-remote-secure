@@ -5,8 +5,48 @@ and reports their expiry dates. Uses the ``cryptography`` library when
 available; falls back to the ``openssl`` CLI otherwise.
 """
 import datetime
+import logging
 import os
 import subprocess
+
+logger = logging.getLogger(__name__)
+
+
+def create_ssl_context(cert_file=None, key_file=None):
+    """Build an :class:`ssl.SSLContext` from env-configured cert/key paths.
+
+    Reads ``SSL_CERT`` and ``SSL_KEY`` from the environment when the
+    arguments are not provided. Returns ``None`` when TLS is disabled
+    (no cert/key configured or files missing) so callers can fall back
+    to plain HTTP/WSS gracefully.
+
+    When ``TLS_ENABLED=false`` is set in the environment, TLS is
+    explicitly disabled even if cert files exist.
+    """
+    import ssl
+
+    # Allow explicit opt-out via TLS_ENABLED=false.
+    tls_enabled = os.environ.get('TLS_ENABLED', 'true').lower()
+    if tls_enabled in ('false', '0', 'no'):
+        return None
+
+    cert = cert_file or os.environ.get('SSL_CERT', '')
+    key = key_file or os.environ.get('SSL_KEY', '')
+
+    if not cert or not key:
+        return None
+    if not os.path.exists(cert) or not os.path.exists(key):
+        logger.debug("SSL cert/key not found: %s / %s", cert, key)
+        return None
+
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        logger.info("SSL context loaded from %s", cert)
+        return context
+    except Exception as exc:
+        logger.warning("Failed to load SSL context: %s", exc)
+        return None
 
 
 def generate_self_signed(cert_path, key_path, common_name='vnc-remote-secure',

@@ -45,8 +45,8 @@ def migrate_env_file(project_root):
 def check_old_scripts(project_root):
     """Check for deprecated scripts and warn."""
     deprecated = [
-        ('launch_nossl.sh', 'Use: vnc-remote start --profile local'),
-        ('kill_all.sh', 'Use: vnc-remote stop --force'),
+        ('launch_nossl.sh', 'Use: vnc-remote start'),
+        ('kill_all.sh', 'Use: vnc-remote stop'),
     ]
     for script, replacement in deprecated:
         path = os.path.join(project_root, script)

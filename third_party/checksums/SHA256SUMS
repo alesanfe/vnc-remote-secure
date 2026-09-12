@@ -1,3 +1,5 @@
 # SHA-256 checksums for verified third-party downloads
 # Format: <sha256>  <filename>
-# Fill these after downloading and verifying binaries
+29379afd1ca5439c82931d623fda335174dc416e5b013591457fa1f7bbe564db  winvnc.exe
+e33a27501b10b96981335bcba938b1145c7f52551a343e72160f00ab71832b37  ttyd.exe
+e4b80953edda4f404adf4108264d30b5a087562cf2f07c9766841a24daa7cd2c  tightvnc.zip

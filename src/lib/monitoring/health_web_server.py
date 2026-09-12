@@ -5,6 +5,15 @@ Provides HTTP endpoint for health status monitoring.
 
 Works on both Linux and Windows. On Windows, uses Windows-native
 commands (tasklist, netstat, wmic) instead of Linux equivalents.
+
+DEPRECATED: This is the legacy Bash-stack health dashboard. The
+preferred JSON API is the package-based ``vnc_remote_secure.services.health``
+module (``get_health_status()``), which is also exposed via Flask in
+``web/routes/health.py`` and via the ``SimpleWebApp`` fallback. The
+JSON endpoint (``/health_status.json``) of this legacy server now
+delegates to the package for contract consistency. The HTML dashboard
+is retained because the package does not generate HTML. This module
+will be removed once the Bash stack migrates to the package CLI.
 """
 
 import http.server
@@ -15,10 +24,14 @@ import signal
 import subprocess
 import platform
 import json
+import logging
 import time
 import re
 import html
+import hmac
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def is_windows():
@@ -43,7 +56,8 @@ def get_process_info(name):
                         if pid.isdigit():
                             pids.append(int(pid))
             return (len(pids) > 0, pids)
-        except Exception:
+        except Exception as e:
+            logger.warning("get_process_info(%s) failed on Windows: %s", name, e)
             return (False, [])
     else:
         try:
@@ -53,7 +67,8 @@ def get_process_info(name):
             )
             pids = [int(p) for p in result.stdout.strip().split('\n') if p.strip().isdigit()]
             return (len(pids) > 0, pids)
-        except Exception:
+        except Exception as e:
+            logger.warning("get_process_info(%s) failed on Linux: %s", name, e)
             return (False, [])
 
 
@@ -72,7 +87,8 @@ def check_port(port):
                         pid = parts[-1]
                         return (True, pid)
             return (False, None)
-        except Exception:
+        except Exception as e:
+            logger.warning("check_port(%s) failed on Windows: %s", port, e)
             return (False, None)
     else:
         try:
@@ -84,16 +100,26 @@ def check_port(port):
                 if f':{port} ' in line and 'LISTEN' in line:
                     return (True, None)
             return (False, None)
-        except Exception:
+        except Exception as e:
+            logger.warning("check_port(%s) failed on Linux: %s", port, e)
             return (False, None)
 
 
 def http_check(url, timeout=5):
-    """Check if an HTTP endpoint responds. Returns (ok, status_code)."""
+    """Check if an HTTP endpoint responds. Returns (ok, status_code).
+
+    SECURITY NOTE:
+        SSL certificate validation is intentionally disabled because health
+        checks target local services that may use self-signed certificates.
+        This is acceptable for internal health monitoring within a trusted
+        network. For remote or untrusted endpoints, use a separate check
+        with proper certificate validation.
+    """
     try:
         import urllib.request
         import ssl
         ctx = ssl.create_default_context()
+        # Disable cert validation: health checks target local self-signed certs
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         req = urllib.request.Request(url)
@@ -132,7 +158,8 @@ def get_system_info():
                     info['uptime'] = boot_str
             else:
                 info['uptime'] = 'Unknown'
-        except Exception:
+        except Exception as e:
+            logger.warning("Windows uptime query failed: %s", e)
             info['uptime'] = 'Unknown'
 
         # CPU and memory
@@ -143,7 +170,8 @@ def get_system_info():
             )
             match = re.search(r'LoadPercentage=(\d+)', result.stdout)
             info['cpu_usage'] = f"{match.group(1)}%" if match else 'N/A'
-        except Exception:
+        except Exception as e:
+            logger.warning("Windows CPU query failed: %s", e)
             info['cpu_usage'] = 'N/A'
 
         try:
@@ -163,7 +191,8 @@ def get_system_info():
             else:
                 info['memory_usage'] = 'N/A'
                 info['memory_detail'] = ''
-        except Exception:
+        except Exception as e:
+            logger.warning("Windows memory query failed: %s", e)
             info['memory_usage'] = 'N/A'
             info['memory_detail'] = ''
 
@@ -210,7 +239,8 @@ def get_system_info():
                 used_pct = ((size_gb - free_gb) / size_gb) * 100 if size_gb > 0 else 0
                 disks.append(f"{current['Caption']} {used_pct:.0f}% ({free_gb:.0f} GB free)")
             info['disk_usage'] = '; '.join(disks) if disks else 'N/A'
-        except Exception:
+        except Exception as e:
+            logger.warning("Windows disk query failed: %s", e)
             info['disk_usage'] = 'N/A'
     else:
         # Linux
@@ -220,7 +250,8 @@ def get_system_info():
                 hours = int(uptime_sec // 3600)
                 minutes = int((uptime_sec % 3600) // 60)
                 info['uptime'] = f"{hours}h {minutes}m"
-        except Exception:
+        except Exception as e:
+            logger.warning("Linux uptime read failed: %s", e)
             info['uptime'] = 'Unknown'
 
         try:
@@ -234,7 +265,8 @@ def get_system_info():
                     info['disk_usage'] = f"/ {parts[4]} ({parts[2]} used, {parts[3]} free)"
                 else:
                     info['disk_usage'] = 'N/A'
-        except Exception:
+        except Exception as e:
+            logger.warning("Linux disk query failed: %s", e)
             info['disk_usage'] = 'N/A'
 
         try:
@@ -242,7 +274,8 @@ def get_system_info():
                 # This is load average, not CPU usage percentage
                 load = f.readline().split()[0]
                 info['cpu_usage'] = f"Load avg: {load}"
-        except Exception:
+        except Exception as e:
+            logger.warning("Linux loadavg read failed: %s", e)
             info['cpu_usage'] = 'N/A'
 
         try:
@@ -256,7 +289,8 @@ def get_system_info():
                     info['memory_usage'] = f"{pct:.1f}%"
                     info['memory_detail'] = f"{used} MB / {total} MB"
                     break
-        except Exception:
+        except Exception as e:
+            logger.warning("Linux memory query failed: %s", e)
             info['memory_usage'] = 'N/A'
             info['memory_detail'] = ''
 
@@ -265,10 +299,26 @@ def get_system_info():
 
 def check_services():
     """Check all services and return structured status."""
-    vnc_port = int(os.environ.get('VNC_PORT', '5900'))
-    novnc_port = int(os.environ.get('NOVNC_PORT', '6080'))
-    ttyd_port = int(os.environ.get('TTYD_PORT', '5000'))
-    health_port = int(os.environ.get('HEALTH_WEB_PORT', '8090'))
+    try:
+        from vnc_remote_secure.core.constants import (
+            DEFAULT_HEALTH_PORT,
+            DEFAULT_NOVNC_PORT,
+            DEFAULT_TTYD_PORT,
+            DEFAULT_VNC_PORT,
+        )
+        default_health_port = DEFAULT_HEALTH_PORT
+        default_vnc_port = DEFAULT_VNC_PORT
+        default_novnc_port = DEFAULT_NOVNC_PORT
+        default_ttyd_port = DEFAULT_TTYD_PORT
+    except ImportError:
+        default_health_port = 8090
+        default_vnc_port = 5900
+        default_novnc_port = 6080
+        default_ttyd_port = 5000
+    vnc_port = int(os.environ.get('VNC_PORT', str(default_vnc_port)))
+    novnc_port = int(os.environ.get('NOVNC_PORT', str(default_novnc_port)))
+    ttyd_port = int(os.environ.get('TTYD_PORT', str(default_ttyd_port)))
+    health_port = int(os.environ.get('HEALTH_WEB_PORT', str(default_health_port)))
 
     services = []
 
@@ -532,13 +582,34 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP request handler for health status endpoints."""
 
     def do_GET(self):
-        if self.path == '/health_status':
+        # Enforce HEALTH_AUTH_TOKEN if configured (constant-time comparison)
+        auth_token = os.environ.get('HEALTH_AUTH_TOKEN', '').strip()
+        if auth_token:
+            provided = self.headers.get('Authorization', '')
+            expected = f'Bearer {auth_token}'
+            if not hmac.compare_digest(provided, expected):
+                body = json.dumps(
+                    {'error': True, 'message': 'Bearer token required'}
+                ).encode('utf-8')
+                self.send_response(401)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except BrokenPipeError:
+                    pass
+                return
+        if self.path in ('/health_status', '/health'):
             self._serve_health_status()
-        elif self.path == '/health_status.json':
+        elif self.path in ('/health_status.json', '/health.json'):
             self._serve_health_json()
+        elif self.path == '/health/all':
+            self._serve_health_all()
         elif self.path == '/':
             self.send_response(302)
-            self.send_header('Location', '/health_status')
+            self.send_header('Location', '/health')
             self.end_headers()
         else:
             self._serve_not_found()
@@ -555,18 +626,30 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
             except BrokenPipeError:
                 pass
         except Exception as e:
+            logger.exception("Health status generation failed")
+            body = json.dumps(
+                {'error': True, 'message': 'Health status generation failed'}
+            ).encode('utf-8')
             self.send_response(500)
-            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Type', 'application/json')
             self._send_security_headers()
+            self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             try:
-                self.wfile.write(f'Health status generation failed: {e}'.encode())
+                self.wfile.write(body)
             except BrokenPipeError:
                 pass
 
     def _serve_health_json(self):
         try:
-            content = generate_json()
+            # Delegate to the package's standardized health status for JSON API
+            # consistency across Bash and Python stacks. The HTML dashboard
+            # still uses the richer check_services() for process/PID display.
+            try:
+                from vnc_remote_secure.services.health import get_health_status
+                content = json.dumps(get_health_status(), indent=2)
+            except ImportError:
+                content = generate_json()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._send_security_headers()
@@ -576,12 +659,52 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
             except BrokenPipeError:
                 pass
         except Exception as e:
+            logger.exception("Health JSON generation failed")
+            body = json.dumps(
+                {'error': True, 'message': 'JSON generation failed'}
+            ).encode('utf-8')
             self.send_response(500)
-            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Type', 'application/json')
             self._send_security_headers()
+            self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             try:
-                self.wfile.write(f'JSON generation failed: {e}'.encode())
+                self.wfile.write(body)
+            except BrokenPipeError:
+                pass
+
+    def _serve_health_all(self):
+        """Serve aggregated health (system + services) as JSON.
+
+        Delegates to the package's ``get_all_health`` so the legacy
+        Bash stack exposes the same ``/health/all`` contract as the
+        Python stack, the landing page, ``launch.sh`` and ``nginx.conf``.
+        """
+        try:
+            from vnc_remote_secure.monitoring.health import get_all_health
+            content = json.dumps(get_all_health(), indent=2)
+            body = content.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._send_security_headers()
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except BrokenPipeError:
+                pass
+        except Exception:
+            logger.exception("Aggregated health generation failed")
+            body = json.dumps(
+                {'error': True, 'message': 'Aggregated health generation failed'}
+            ).encode('utf-8')
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self._send_security_headers()
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
             except BrokenPipeError:
                 pass
 
@@ -592,11 +715,13 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Referrer-Policy', 'no-referrer')
 
     def _serve_not_found(self):
+        body = json.dumps({'error': True, 'message': 'Not found'}).encode('utf-8')
         self.send_response(404)
-        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         try:
-            self.wfile.write(b'Not Found')
+            self.wfile.write(body)
         except BrokenPipeError:
             pass
 
@@ -606,7 +731,7 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
 
 def signal_handler(signum, frame):
     del signum, frame
-    print('Health web server shutting down...')
+    logger.info('Health web server shutting down...')
     sys.exit(0)
 
 
@@ -616,25 +741,31 @@ if hasattr(signal, 'SIGTERM'):
 
 
 def main():
-    port = int(os.environ.get('HEALTH_WEB_PORT', '8090'))
+    try:
+        from vnc_remote_secure.core.constants import DEFAULT_HEALTH_PORT
+        default_port = DEFAULT_HEALTH_PORT
+    except ImportError:
+        default_port = 8090
+    port = int(os.environ.get('HEALTH_WEB_PORT', str(default_port)))
     # Default to 127.0.0.1 for security; set HEALTH_WEB_HOST=0.0.0.0 to expose
     host = os.environ.get('HEALTH_WEB_HOST', '127.0.0.1')
 
     try:
         socketserver.ThreadingTCPServer.allow_reuse_address = True
         with socketserver.ThreadingTCPServer((host, port), HealthHandler) as httpd:
-            print(f'Health web server running on {host}:{port}')
-            print(f'  Dashboard: http://localhost:{port}/health_status')
-            print(f'  JSON API:  http://localhost:{port}/health_status.json')
+            logger.info('Health web server running on %s:%s', host, port)
+            _protocol = 'https' if os.environ.get('HEALTH_BACKEND_PROTOCOL', 'http') == 'https' else 'http'
+            logger.info('  Dashboard:  %s://localhost:%s/health', _protocol, port)
+            logger.info('  JSON API:   %s://localhost:%s/health/all', _protocol, port)
             httpd.serve_forever()
     except OSError as exc:
         if 'Address already in use' in str(exc):
-            print(f'ERROR: Port {port} is already in use')
+            logger.error('Port %s is already in use', port)
         else:
-            print(f'Health web server error: {exc}')
+            logger.error('Health web server error: %s', exc)
         sys.exit(1)
     except KeyboardInterrupt:
-        print('Health web server stopped')
+        logger.info('Health web server stopped')
 
 
 if __name__ == '__main__':

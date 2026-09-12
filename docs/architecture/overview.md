@@ -1,113 +1,58 @@
-# 📚 Documentation Overview
+# Documentation Overview
 
-This directory contains comprehensive documentation for the Raspberry Pi VNC Remote project.
+This directory contains comprehensive documentation for the VNC Remote Secure project.
 
-## 📁 Documentation Structure
+## Documentation Structure
 
 ```
-doc/
-├── OVERVIEW.md               # This file - documentation overview
-├── installation/             # Installation guides
-│   ├── quick-start.md       # Quick start guide (5 minutes)
-│   ├── detailed-setup.md    # Detailed installation instructions
-│   ├── configuration.md     # Configuration options
-│   └── troubleshooting.md   # Common issues and solutions
-├── user-guide/               # User documentation
-│   ├── getting-started.md   # Getting started guide
-│   ├── security.md          # Security best practices
-│   └── advanced-usage.md    # Advanced features and usage
-├── health-endpoint.md        # Health endpoint API reference
-├── developer/                # Developer documentation
-│   ├── architecture.md      # System architecture
-│   ├── testing.md           # Testing guide
-│   └── contributing.md      # How to contribute
-├── troubleshooting.md        # Troubleshooting guide
-├── DOCKER.md                 # Docker configuration and testing
-├── PROJECT_STRUCTURE.md      # Project structure and organization
-└── ARCHIVE_README_ORIGINAL.md # Original README (archived)
+docs/
+├── architecture/               # System architecture
+│   ├── overview.md             # This file
+│   ├── components.md           # Project structure and modules
+│   └── security-model.md       # Security architecture
+├── adr/                        # Architecture Decision Records
+│   ├── 0007-cross-platform-windows-support.md
+│   └── 0008-bash-python-coexistence.md
+├── installation/               # Installation guides
+│   ├── windows.md              # Windows installation
+│   └── uninstall.md           # Uninstallation guide
+├── user-guide/                 # User documentation
+├── developer/                  # Developer guides
+├── archive/                    # Archived documentation
+└── reports/                    # Audit and review reports
 ```
 
-## 🚀 Quick Navigation
+## Quick Navigation
 
 ### For New Users
-1. **[Quick Start](installation/quick-start.md)** - Get running in 5 minutes
-2. **[Getting Started](user-guide/getting-started.md)** - Learn how to use the system
-3. **[Security Guide](user-guide/security.md)** - Security best practices
+1. **[Project Structure](components.md)** - Understand the codebase layout
+2. **[Installation (Windows)](../installation/windows.md)** - Get running on Windows
+3. **[Security Model](security-model.md)** - Security architecture
 
 ### For System Administrators
-1. **[Installation Guide](installation/detailed-setup.md)** - Complete setup
-2. **[Configuration](installation/configuration.md)** - All configuration options
-3. **[Troubleshooting](guides/troubleshooting.md)** - Common issues
+1. **[Installation (Windows)](../installation/windows.md)** - Complete setup
+2. **[Uninstall Guide](../installation/uninstall.md)** - Removal instructions
+3. **`.env.example`** - All configuration options
 
 ### For Developers
-1. **[Architecture](developer/architecture.md)** - System design
-2. **[API Reference](api/health-endpoint.md)** - Health endpoint API
-3. **[Contributing](development/contributing.md)** - How to contribute
+1. **[Project Structure](components.md)** - System design and modules
+2. **[ADR-0008](../adr/0008-bash-python-coexistence.md)** - Bash/Python coexistence
+3. **[ADR-0007](../adr/0007-cross-platform-windows-support.md)** - Windows support
+4. **`AGENTS.md`** - Operational guide and verification commands
 
 ### For Operations
-1. **[Docker Guide](DOCKER.md)** - Docker testing environments
-2. **[Project Structure](PROJECT_STRUCTURE.md)** - Organization details
-3. **[Maintenance Scripts](../scripts/)** - Automated tools
+1. **`Makefile`** - Build, test, and lint targets
+2. **`scripts/maintenance/`** - Backup, restore, cleanup, update
+3. **`tools/doctor.py`** - System diagnostics
 
-## 📋 Documentation Index
-
-### Installation & Setup
-- **[Quick Start](installation/quick-start.md)** - Fast 5-minute setup
-- **[Detailed Setup](installation/detailed-setup.md)** - Complete installation
-- **[Configuration](installation/configuration.md)** - All configuration options
-- **[Troubleshooting](installation/troubleshooting.md)** - Installation issues
-
-### User Guides
-- **[Getting Started](user-guide/getting-started.md)** - Basic usage
-- **[Security](user-guide/security.md)** - Security best practices
-- **[Advanced Usage](user-guide/advanced-usage.md)** - Advanced features
-
-### API & Development
-- **[Health Endpoint API](api/health-endpoint.md)** - REST API documentation
-- **[Architecture](developer/architecture.md)** - System design
-- **[Testing](developer/testing.md)** - Testing framework
-- **[Contributing](development/contributing.md)** - Contribution guidelines
-
-### Operations & Maintenance
-- **[Docker Configuration](DOCKER.md)** - Container testing
-- **[Project Structure](PROJECT_STRUCTURE.md)** - File organization
-- **[Troubleshooting Guide](guides/troubleshooting.md)** - Common issues
-
-## 🎯 Recommended Reading Order
-
-### For New Users
-1. [Quick Start](installation/quick-start.md)
-2. [Getting Started](user-guide/getting-started.md)
-3. [Security Guide](user-guide/security.md)
-
-### For System Administrators
-1. [Installation Guide](installation/detailed-setup.md)
-2. [Configuration](installation/configuration.md)
-3. [Troubleshooting](guides/troubleshooting.md)
-
-### For Developers
-1. [Architecture](developer/architecture.md)
-2. [API Reference](api/health-endpoint.md)
-3. [Contributing](development/contributing.md)
-
-## 🔍 Search Tips
-
-Looking for something specific?
-
-- **Installation issues** → Check [troubleshooting](guides/troubleshooting.md)
-- **API usage** → Check [Health Endpoint API](api/health-endpoint.md)
-- **Docker testing** → Check [Docker Guide](DOCKER.md)
-- **Project structure** → Check [Project Structure](PROJECT_STRUCTURE.md)
-- **Security** → Check [Security Guide](user-guide/security.md)
-
-## 📝 Contributing to Documentation
+## Contributing to Documentation
 
 Found an error or want to improve the documentation?
 
-1. Check the [Contributing Guide](development/contributing.md)
+1. Check `CONTRIBUTING.md` at the project root
 2. Submit a pull request with your improvements
-3. Follow the documentation style guidelines
+3. Follow the existing documentation style
 
 ---
 
-**💡 Tip:** Start with the [Quick Start](installation/quick-start.md) guide if you're new to the project!
+**Tip:** Start with the [Project Structure](components.md) guide if you're new to the project!

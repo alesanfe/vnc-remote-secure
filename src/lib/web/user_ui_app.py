@@ -2,8 +2,16 @@
 """
 User Management UI for Raspberry Pi VNC Remote.
 Provides web interface for user management.
+
+DEPRECATED: This is the legacy Bash-stack user management UI. The
+preferred implementation is the package-based ``vnc_remote_secure.web``
+Flask application (``web/routes/users.py``) which is cross-platform,
+uses session tokens, and shares ``RESERVED_USERNAMES`` with the rest
+of the package. This module is retained for the Bash stack only and
+will be removed once the Bash stack migrates to the package CLI.
 """
 
+import getpass
 import os
 import re
 import secrets
@@ -30,8 +38,13 @@ app.config.update(
 # Session timeout in seconds (default: 30 minutes)
 SESSION_TIMEOUT = int(os.environ.get('USER_UI_SESSION_TIMEOUT', '1800'))
 
-# Reserved usernames that cannot be created or deleted via the UI
-RESERVED_USERNAMES = {'root', 'pi', 'admin', 'daemon', 'bin', 'sys', 'nobody'}
+# Reserved usernames that cannot be created or deleted via the UI.
+# Import from the shared constants to keep both UIs in sync.
+try:
+    from vnc_remote_secure.core.constants import RESERVED_USERNAMES as RESERVED_USERNAMES
+except ImportError:
+    # Fallback for standalone execution outside the package
+    RESERVED_USERNAMES = {'root', 'pi', 'admin', 'daemon', 'bin', 'sys', 'nobody', 'www-data'}
 
 # Hash the admin password at startup using werkzeug (salted pbkdf2)
 _ADMIN_PASSWORD = os.environ.get('USER_UI_PASSWORD', '')
@@ -67,8 +80,8 @@ def _clear_failed_attempts(client_ip):
 def _get_client_ip():
     """Get the real client IP, respecting X-Forwarded-For only from trusted proxies."""
     # If behind a trusted reverse proxy, use X-Forwarded-For
-    # Set TRUSTED_PROXY=1 in env to enable X-Forwarded-For parsing
-    if os.environ.get('TRUSTED_PROXY', 'false').lower() == 'true':
+    # Set TRUSTED_PROXY=true (or 1/yes) in env to enable X-Forwarded-For parsing
+    if os.environ.get('TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes'):
         forwarded = request.headers.get('X-Forwarded-For', '')
         if forwarded:
             # Take the first IP (leftmost) in the chain
@@ -110,7 +123,7 @@ def login_required(view):
     """Decorator that enforces login and session timeout."""
     @wraps(view)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
+        if not session.get('user'):
             return redirect(url_for('login'))
         if session.get('login_time') and \
                 (time.time() - session['login_time']) > SESSION_TIMEOUT:
@@ -157,9 +170,16 @@ def login():
         password = request.form.get('password', '')
         if _verify_password(password, _ADMIN_PASSWORD_HASH):
             _clear_failed_attempts(client_ip)
-            session['logged_in'] = True
-            session['login_time'] = time.time()
-            session['csrf_token'] = secrets.token_hex(32)
+            # Use the shared session helper to align with the Flask UI
+            try:
+                from vnc_remote_secure.security.authentication import create_web_session
+                create_web_session(session, 'admin')
+            except ImportError:
+                # Fallback for standalone execution outside the package
+                session['user'] = 'admin'
+                session['login_time'] = time.time()
+                session['token'] = ''
+                session['csrf_token'] = secrets.token_hex(32)
             return redirect(url_for('index'))
         _record_failed_attempt(client_ip)
         flash('Invalid password')
@@ -200,6 +220,7 @@ def users():
             RESERVED_USERNAMES=RESERVED_USERNAMES,
         )
     except Exception:  # pylint: disable=broad-except
+        app.logger.exception("User list failed")
         return 'Internal Server Error', 500
 
 
@@ -239,6 +260,7 @@ def create_user():
                 raise RuntimeError('chpasswd failed')
         flash(f'User {username} created successfully')
     except Exception:  # pylint: disable=broad-except
+        app.logger.exception("User creation failed for %s", username)
         flash('Error creating user. Check server logs for details.')
         # Only cleanup if useradd succeeded (don't delete pre-existing users)
         if user_created:
@@ -261,7 +283,7 @@ def delete_user(username):
         flash('Invalid username')
         return redirect(url_for('users'))
 
-    if username in RESERVED_USERNAMES or username == os.environ.get('USER', ''):
+    if username in RESERVED_USERNAMES or username == getpass.getuser():
         flash('Cannot delete system users')
         return redirect(url_for('users'))
 
@@ -277,6 +299,14 @@ def delete_user(username):
         flash('Error deleting user. Check server logs for details.')
 
     return redirect(url_for('users'))
+
+
+# Protect Flask's default /static endpoint with the same auth as the app.
+@app.route('/static/<path:filename>')
+@login_required
+def protected_static(filename):
+    """Serve static files only to authenticated users."""
+    return app.send_static_file(filename)
 
 
 if __name__ == '__main__':

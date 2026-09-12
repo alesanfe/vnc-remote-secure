@@ -19,7 +19,7 @@
 BeforeAll {
     $script:ProjectDir = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
     $script:CliScript = Join-Path $script:ProjectDir 'VncRemote.ps1'
-    $script:FirewallScript = Join-Path $script:ProjectDir 'scripts\Manage-Firewall.ps1'
+    $script:FirewallScript = Join-Path $script:ProjectDir 'native\windows\Firewall.ps1'
 
     # Helper: run CLI and capture output
     function Invoke-Cli {
@@ -41,9 +41,9 @@ Describe 'VncRemote CLI' {
     }
 
     Context 'Get-Version' {
-        It 'Returns version 0.1.0' {
+        It 'Returns version 0.2.0' {
             $output = Invoke-Cli -CliArgs 'Get-Version'
-            $output | Should -Match '0\.1\.0'
+            $output | Should -Match '0\.2\.0'
         }
 
         It 'Shows platform as Windows' {

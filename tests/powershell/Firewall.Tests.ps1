@@ -12,9 +12,9 @@ Describe "Firewall Management" -Tag "Windows" {
 
     Context "Firewall rule naming" {
         It "Should use consistent rule naming pattern" {
-            # The firewall script should use 'VNC-Remote-*' prefix
+            # The firewall script should use 'VncRemoteSecure' prefix
             $scriptContent = Get-Content "$PSScriptRoot\..\..\native\windows\Firewall.ps1" -Raw
-            $scriptContent | Should -Match 'VNC-Remote'
+            $scriptContent | Should -Match 'VncRemoteSecure'
         }
     }
 

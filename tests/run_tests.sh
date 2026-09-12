@@ -11,6 +11,12 @@
 #   e2e/          → Level 5: entry-point and full-flow tests
 #   security/     → Level 7: password policy, sanitization, hardening
 #
+# Supports multiple test formats:
+#   test_*.sh     → Bash tests (run with bash)
+#   *.bats        → Bats tests (run with bats)
+#   test_*.py     → Python tests (run with pytest)
+#   *.Tests.ps1   → PowerShell tests (run with pwsh -c Invoke-Pester)
+#
 # Usage:
 #   ./run_tests.sh                 # Run all levels in order
 #   ./run_tests.sh static/         # Run only static tests
@@ -56,6 +62,12 @@ show_help() {
     echo "  e2e/         Level 5: entry-point and full-flow"
     echo "  security/    Level 7: password policy, sanitization"
     echo ""
+    echo "Supported test formats:"
+    echo "  test_*.sh    Bash tests"
+    echo "  *.bats       Bats tests"
+    echo "  test_*.py    Python tests (pytest)"
+    echo "  *.Tests.ps1  PowerShell tests (Pester)"
+    echo ""
     echo "Examples:"
     echo "  $0                        # Run all levels"
     echo "  $0 static/                # Run only static tests"
@@ -74,11 +86,30 @@ list_tests() {
         local level_dir="$SCRIPT_DIR/$level"
         if [[ -d "$level_dir" ]]; then
             echo -e "${BLUE}[$level]${NC}"
+            # Bash tests
             while IFS= read -r test_file; do
                 local rel="${test_file#"$SCRIPT_DIR"/}"
                 echo -e "  ${GREEN}$rel${NC}"
                 count=$((count + 1))
-            done < <(find "$level_dir" -name "test_*.sh" -type f | sort)
+            done < <(find "$level_dir" -name "test_*.sh" -type f 2>/dev/null | sort)
+            # Bats tests
+            while IFS= read -r test_file; do
+                local rel="${test_file#"$SCRIPT_DIR"/}"
+                echo -e "  ${GREEN}$rel${NC}"
+                count=$((count + 1))
+            done < <(find "$level_dir" -name "*.bats" -type f 2>/dev/null | sort)
+            # Python tests
+            while IFS= read -r test_file; do
+                local rel="${test_file#"$SCRIPT_DIR"/}"
+                echo -e "  ${GREEN}$rel${NC}"
+                count=$((count + 1))
+            done < <(find "$level_dir" -name "test_*.py" -type f 2>/dev/null | sort)
+            # PowerShell tests
+            while IFS= read -r test_file; do
+                local rel="${test_file#"$SCRIPT_DIR"/}"
+                echo -e "  ${GREEN}$rel${NC}"
+                count=$((count + 1))
+            done < <(find "$level_dir" -name "*.Tests.ps1" -type f 2>/dev/null | sort)
             echo ""
         fi
     done
@@ -98,13 +129,89 @@ discover_tests() {
         if [[ -n "$filter" ]] && [[ "$filter" != "$level"* ]]; then
             continue
         fi
+        # Bash tests (test_*.sh)
         while IFS= read -r f; do
             local rel="${f#"$SCRIPT_DIR"/}"
             if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
                 echo "$f"
             fi
-        done < <(find "$level_dir" -name "test_*.sh" -type f | sort)
+        done < <(find "$level_dir" -name "test_*.sh" -type f 2>/dev/null | sort)
+        # Bats tests (*.bats)
+        while IFS= read -r f; do
+            local rel="${f#"$SCRIPT_DIR"/}"
+            if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
+                echo "$f"
+            fi
+        done < <(find "$level_dir" -name "*.bats" -type f 2>/dev/null | sort)
+        # Python tests (test_*.py)
+        while IFS= read -r f; do
+            local rel="${f#"$SCRIPT_DIR"/}"
+            if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
+                echo "$f"
+            fi
+        done < <(find "$level_dir" -name "test_*.py" -type f 2>/dev/null | sort)
+        # PowerShell tests (*.Tests.ps1)
+        while IFS= read -r f; do
+            local rel="${f#"$SCRIPT_DIR"/}"
+            if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
+                echo "$f"
+            fi
+        done < <(find "$level_dir" -name "*.Tests.ps1" -type f 2>/dev/null | sort)
     done
+}
+
+# Run a single test file based on its extension
+run_test_file() {
+    local test_path="$1"
+    local ext="${test_path##*.}"
+
+    if [[ "$ext" == "sh" ]]; then
+        bash "$test_path"
+    elif [[ "$ext" == "bats" ]]; then
+        if command -v bats &>/dev/null; then
+            bats "$test_path"
+        else
+            echo -e "${YELLOW}[SKIP] bats not installed, skipping $test_path${NC}"
+            return 0
+        fi
+    elif [[ "$ext" == "py" ]]; then
+        # Try pytest, then python3 -m pytest, then Windows Python (python.exe
+        # or py.exe) for WSL environments where Linux Python may not have
+        # pytest installed. When using Windows Python from WSL, convert paths
+        # to Windows format via wslpath.
+        if command -v pytest &>/dev/null; then
+            pytest "$test_path" -q
+        elif command -v python3 &>/dev/null && python3 -m pytest --version &>/dev/null; then
+            python3 -m pytest "$test_path" -q
+        elif command -v python.exe &>/dev/null; then
+            local win_path="$test_path"
+            if command -v wslpath &>/dev/null; then
+                win_path=$(wslpath -w "$test_path")
+            fi
+            PYTHONPATH=src python.exe -m pytest "$win_path" -q
+        elif command -v py.exe &>/dev/null; then
+            local win_path="$test_path"
+            if command -v wslpath &>/dev/null; then
+                win_path=$(wslpath -w "$test_path")
+            fi
+            PYTHONPATH=src py.exe -3 -m pytest "$win_path" -q
+        else
+            echo -e "${YELLOW}[SKIP] pytest not installed, skipping $test_path${NC}"
+            return 0
+        fi
+    elif [[ "$ext" == "ps1" ]]; then
+        if command -v pwsh &>/dev/null; then
+            pwsh -NoProfile -Command "Invoke-Pester '$test_path' -Output Detailed"
+        elif command -v powershell &>/dev/null; then
+            powershell -NoProfile -Command "Invoke-Pester '$test_path' -Output Detailed"
+        else
+            echo -e "${YELLOW}[SKIP] PowerShell not available, skipping $test_path${NC}"
+            return 0
+        fi
+    else
+        echo -e "${YELLOW}[SKIP] Unknown test type: $test_path${NC}"
+        return 0
+    fi
 }
 
 # Parse arguments
@@ -148,7 +255,7 @@ for test_path in "${test_files[@]}"; do
     echo -e "${BLUE}Running: $rel${NC}"
     echo ""
 
-    if bash "$test_path"; then
+    if run_test_file "$test_path"; then
         echo -e "${GREEN}PASS: $rel${NC}"
         total_passed=$((total_passed + 1))
     else

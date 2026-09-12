@@ -1,0 +1,177 @@
+"""Unit tests for services.gamepad module.
+
+External dependencies (platform adapter, websockets) are mocked so the
+tests are deterministic and do not require evdev or a running server.
+"""
+import asyncio
+import os
+import sys
+import json
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+
+from vnc_remote_secure.services import gamepad
+
+
+class _FakeInjector:
+    """Fake gamepad injector for testing."""
+    available = True
+
+    def __init__(self):
+        self.buttons = []
+        self.axes = []
+        self.closed = False
+        self.device_created = False
+
+    def create_device(self):
+        self.device_created = True
+        return True
+
+    def inject_button(self, button, value):
+        self.buttons.append((button, value))
+
+    def inject_axis(self, axis, value):
+        self.axes.append((axis, value))
+
+    def close(self):
+        self.closed = True
+
+
+class _UnavailableInjector:
+    """Fake injector that is not available."""
+    available = False
+
+    def close(self):
+        pass
+
+
+def _patch_adapter(monkeypatch, injector):
+    """Patch get_adapter() to return an adapter with the given injector."""
+    class _Adapter:
+        def create_gamepad_injector(self):
+            return injector
+    monkeypatch.setattr(
+        'vnc_remote_secure.platform.base.get_adapter', lambda: _Adapter()
+    )
+
+
+# ---------------------------------------------------------------------------
+# GamepadServer.__init__
+# ---------------------------------------------------------------------------
+
+def test_gamepad_server_creates_injector(monkeypatch):
+    """GamepadServer obtains the injector from the platform adapter."""
+    injector = _FakeInjector()
+    _patch_adapter(monkeypatch, injector)
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    assert server.injector is injector
+    assert server.host == '127.0.0.1'
+    assert server.port == 7788
+
+
+def test_gamepad_server_handles_unavailable_injector(monkeypatch):
+    """GamepadServer survives when the adapter returns None."""
+    class _Adapter:
+        def create_gamepad_injector(self):
+            return None
+    monkeypatch.setattr(
+        'vnc_remote_secure.platform.base.get_adapter', lambda: _Adapter()
+    )
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    assert server.injector is None
+
+
+def test_gamepad_server_handles_adapter_exception(monkeypatch):
+    """GamepadServer survives when get_adapter() raises."""
+    def _raise():
+        raise RuntimeError("platform not supported")
+    monkeypatch.setattr(
+        'vnc_remote_secure.platform.base.get_adapter', _raise
+    )
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    assert server.injector is None
+
+
+# ---------------------------------------------------------------------------
+# GamepadServer.handle_client
+# ---------------------------------------------------------------------------
+
+def _run(coro):
+    """Run a coroutine synchronously for testing."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+class _FakeWebSocket:
+    """Fake websocket for testing handle_client."""
+    def __init__(self, messages=None, remote_ip='127.0.0.1'):
+        self._messages = list(messages or [])
+        self.sent = []
+        self.closed = False
+        self.remote_address = (remote_ip, 12345)
+
+    async def send(self, msg):
+        self.sent.append(msg)
+
+    async def close(self):
+        self.closed = True
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._messages:
+            return self._messages.pop(0)
+        raise StopAsyncIteration
+
+
+def test_handle_client_rejects_when_injector_unavailable(monkeypatch):
+    """handle_client sends an error and closes when no injector."""
+    class _Adapter:
+        def create_gamepad_injector(self):
+            return _UnavailableInjector()
+    monkeypatch.setattr(
+        'vnc_remote_secure.platform.base.get_adapter', lambda: _Adapter()
+    )
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    ws = _FakeWebSocket()
+    _run(server.handle_client(ws))
+    assert ws.closed is True
+    assert any('"type": "error"' in m for m in ws.sent)
+
+
+def test_handle_client_creates_device_and_processes_events(monkeypatch):
+    """handle_client creates the device and forwards button/axis events."""
+    injector = _FakeInjector()
+    _patch_adapter(monkeypatch, injector)
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+
+    messages = [
+        json.dumps({"type": "button", "button": "button_0", "value": 1}),
+        json.dumps({"type": "axis", "axis": "axis_0", "value": 0.5}),
+        json.dumps({"type": "ping"}),
+    ]
+    ws = _FakeWebSocket(messages=messages)
+    _run(server.handle_client(ws))
+
+    assert injector.device_created is True
+    assert ("button_0", 1) in injector.buttons
+    assert ("axis_0", 0.5) in injector.axes
+    assert any('"type": "pong"' in m for m in ws.sent)
+    assert any('"type": "connected"' in m for m in ws.sent)
+
+
+def test_handle_client_ignores_malformed_messages(monkeypatch):
+    """handle_client ignores malformed JSON without crashing."""
+    injector = _FakeInjector()
+    _patch_adapter(monkeypatch, injector)
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+
+    messages = ["not-json", json.dumps({"type": "button", "button": "button_1", "value": 0})]
+    ws = _FakeWebSocket(messages=messages)
+    _run(server.handle_client(ws))
+    assert ("button_1", 0) in injector.buttons

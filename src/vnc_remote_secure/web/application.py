@@ -4,11 +4,14 @@ Creates and configures a Flask application with secure session
 settings, registered route blueprints, and optional SSL. Falls back to
 a minimal ``http.server``-based app when Flask is not installed.
 """
+import logging
 import os
 import secrets
 
 from vnc_remote_secure.core.config import get_config, load_env_file
 from vnc_remote_secure.core.logging import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(config=None):
@@ -53,6 +56,11 @@ def create_app(config=None):
     app.register_blueprint(landing_bp)
     app.register_blueprint(users_bp)
 
+    # Attach SSL context to the app config so callers (e.g. app.run())
+    # can enable HTTPS consistently with other services.
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    app.config['SSL_CONTEXT'] = create_ssl_context()
+
     return app
 
 
@@ -68,12 +76,59 @@ class SimpleWebApp:
 
     def __call__(self, environ, start_response):
         path = environ.get('PATH_INFO', '/')
+        auth_header = environ.get('HTTP_AUTHORIZATION', '')
         if path in ('/health', '/health_status', '/health_status.json'):
+            from vnc_remote_secure.security.http_auth import check_health_auth
+            from vnc_remote_secure.core.errors import error_json
+            if not check_health_auth(auth_header):
+                body, status = error_json('Unauthorized', 401)
+                body = body.encode('utf-8')
+                start_response(f'{status} Unauthorized',
+                               [('Content-Type', 'application/json'),
+                                ('WWW-Authenticate', 'Bearer realm="Health"'),
+                                ('Content-Length', str(len(body)))])
+                return [body]
             from vnc_remote_secure.services.health import get_health_status
             import json
             body = json.dumps(get_health_status(), indent=2).encode('utf-8')
             start_response('200 OK', [('Content-Type', 'application/json'),
                                       ('Content-Length', str(len(body)))])
+            return [body]
+        if path == '/health/all':
+            from vnc_remote_secure.security.http_auth import check_health_auth
+            from vnc_remote_secure.core.errors import error_json
+            if not check_health_auth(auth_header):
+                body, status = error_json('Unauthorized', 401)
+                body = body.encode('utf-8')
+                start_response(f'{status} Unauthorized',
+                               [('Content-Type', 'application/json'),
+                                ('WWW-Authenticate', 'Bearer realm="Health"'),
+                                ('Content-Length', str(len(body)))])
+                return [body]
+            from vnc_remote_secure.monitoring.health import get_all_health
+            import json
+            try:
+                body = json.dumps(get_all_health(), indent=2).encode('utf-8')
+                start_response('200 OK', [('Content-Type', 'application/json'),
+                                          ('Content-Length', str(len(body)))])
+                return [body]
+            except Exception:
+                logger.exception("Health status generation failed")
+                body, _ = error_json('Health status generation failed', 500)
+                body = body.encode('utf-8')
+                start_response('500 Internal Server Error',
+                               [('Content-Type', 'application/json'),
+                                ('Content-Length', str(len(body)))])
+                return [body]
+        from vnc_remote_secure.security.http_auth import check_landing_auth
+        from vnc_remote_secure.core.errors import error_json
+        if not check_landing_auth(auth_header):
+            body, status = error_json('Unauthorized', 401)
+            body = body.encode('utf-8')
+            start_response(f'{status} Unauthorized',
+                           [('Content-Type', 'application/json'),
+                            ('WWW-Authenticate', 'Basic realm="VNC Remote Secure"'),
+                            ('Content-Length', str(len(body)))])
             return [body]
         body = b"VNC Remote Secure - Flask not installed. Install Flask for full UI."
         start_response('200 OK', [('Content-Type', 'text/plain'),

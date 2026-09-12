@@ -10,9 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
 LIB_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Load environment and modules
+# Load environment and modules (CRLF-safe for Windows .env files)
 if [[ -f "$PROJECT_DIR/.env" ]]; then
-    source "$PROJECT_DIR/.env"
+    source <(tr -d '\r' < "$PROJECT_DIR/.env")
 fi
 
 # Load modules with error handling (guarded to avoid re-sourcing when this

@@ -6,12 +6,12 @@ on:
   pull_request:
     branches: [main, develop]
 
-env:
-  PYTHON_VERSION: '3.11'
+permissions:
+  contents: read
 
 jobs:
   # ============================================================================
-  # LINT (Linux + Windows in parallel)
+  # LINT (Linux)
   # ============================================================================
   lint-linux:
     name: Lint & Syntax (Linux)
@@ -29,32 +29,27 @@ jobs:
       - name: ShellCheck (errors only)
         run: |
           find src/ scripts/ -name '*.sh' -exec shellcheck -S error {} \;
-      - name: Python compile
-        run: |
-          python3 -m py_compile src/vnc_remote_secure/core/config.py
-          python3 -m py_compile src/vnc_remote_secure/vendor/d3des.py
-          python3 -m py_compile src/vnc_remote_secure/cli.py
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Ruff (Python lint)
         run: |
           pip install ruff
-          ruff check src/vnc_remote_secure/ || true
-      - name: shfmt check
+          ruff check src/vnc_remote_secure/
+      - name: Python compile all
         run: |
-          go install github.com/mvdan/sh@latest
-          ~/go/bin/sh -version || true
+          python -m compileall src/vnc_remote_secure/ -q
 
   lint-windows:
     name: Lint (Windows - PSScriptAnalyzer)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PSScriptAnalyzer
-        shell: pwsh
+      - name: Run PSScriptAnalyzer
+        shell: pwsh -NoProfile
         run: |
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
-      - name: Run PSScriptAnalyzer
-        shell: pwsh
-        run: |
           $results = Invoke-ScriptAnalyzer -Path . -Recurse -IncludeDefaultRules
           if ($results) {
             $results | Format-Table
@@ -67,10 +62,34 @@ jobs:
           Write-Host "PSScriptAnalyzer: no errors found"
 
   # ============================================================================
-  # UNIT TESTS (Linux)
+  # PYTHON TESTS (matrix: Ubuntu + Windows, Python 3.11/3.12/3.13)
   # ============================================================================
-  unit-tests:
-    name: Unit Tests (Linux)
+  python-tests:
+    name: Python Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+      - name: Run pytest
+        run: |
+          python -m pytest tests/unit tests/security -q
+
+  # ============================================================================
+  # BASH TEST PYRAMID (Linux)
+  # ============================================================================
+  bash-tests:
+    name: Bash Test Pyramid (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,26 +98,24 @@ jobs:
           bash tests/run_tests.sh
 
   # ============================================================================
-  # WINDOWS TESTS (Pester)
+  # PESTER TESTS (Windows, -NoProfile)
   # ============================================================================
-  windows-tests:
-    name: Windows Tests (Pester)
+  pester-tests:
+    name: Pester Tests (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Pester
-        shell: pwsh
+        shell: pwsh -NoProfile
         run: |
           Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck
       - name: Run Pester tests
-        shell: pwsh
+        shell: pwsh -NoProfile
         run: |
-          if (Test-Path tests/windows) {
-            Invoke-Pester -Path tests/windows -Output Detailed -PassThru | Export-Clixml -Path pester-results.xml
-          } elseif (Test-Path tests/powershell) {
+          if (Test-Path tests/powershell) {
             Invoke-Pester -Path tests/powershell -Output Detailed -PassThru | Export-Clixml -Path pester-results.xml
           } else {
-            Write-Host "No Windows tests directory found"
+            Write-Host "No Pester tests directory found"
           }
       - name: Upload test results
         if: always()
@@ -106,3 +123,71 @@ jobs:
         with:
           name: pester-results
           path: pester-results.xml
+
+  # ============================================================================
+  # SECURITY SCANS (Bandit, Semgrep, CodeQL)
+  # ============================================================================
+  security-scan:
+    name: Security Scan (Bandit + Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Bandit
+        run: pip install bandit
+      - name: Run Bandit
+        run: |
+          bandit -r src/vnc_remote_secure/ -f json -o bandit-report.json || true
+          bandit -r src/vnc_remote_secure/ -ll || true
+      - name: Install Semgrep
+        run: pip install semgrep
+      - name: Run Semgrep
+        run: |
+          semgrep scan --config=auto --error src/vnc_remote_secure/ || true
+      - name: Upload Bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  # ============================================================================
+  # DEPENDENCY REVIEW (block PRs introducing vulnerable deps)
+  # ============================================================================
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+
+  # ============================================================================
+  # CLEAN INSTALL TEST (verify the project installs from scratch)
+  # ============================================================================
+  install-test:
+    name: Clean Install Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Clean install
+        run: |
+          pip install -e ".[dev]"
+      - name: Verify CLI works
+        run: |
+          python -m vnc_remote_secure.cli version
+          python -m vnc_remote_secure.cli help

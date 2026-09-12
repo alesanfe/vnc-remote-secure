@@ -22,14 +22,41 @@ _src_path = os.path.join(_project_root, 'src')
 sys.path.insert(0, _src_path)
 from vnc_remote_secure.vendor import d3des as d
 from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.constants import (
+    DEFAULT_TTYD_USERNAME,
+    DEFAULT_VNC_PORT,
+    DEFAULT_VNC_HTTP_PORT,
+    DEFAULT_NOVNC_PORT,
+    DEFAULT_TTYD_PORT,
+    DEFAULT_HEALTH_PORT,
+)
 
 # Load .env file for credentials
 load_env_file()
 
 # Read credentials from environment (never hardcoded)
 VNC_PASSWORD = os.environ.get('VNC_PASSWORD', '')
-TTYD_USERNAME = os.environ.get('TTYD_USERNAME', 'admin')
+TTYD_USERNAME = os.environ.get('TTYD_USERNAME', DEFAULT_TTYD_USERNAME)
 TTYD_PASSWORD = os.environ.get('TTYD_PASSWD', '')
+
+# Configured ports (respect .env overrides, fall back to platform-aware defaults)
+VNC_PORT = int(os.environ.get('VNC_PORT', str(DEFAULT_VNC_PORT)))
+VNC_HTTP_PORT = int(os.environ.get('VNC_HTTP_PORT', str(DEFAULT_VNC_HTTP_PORT)))
+NOVNC_PORT = int(os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)))
+TTYD_PORT = int(os.environ.get('TTYD_PORT', str(DEFAULT_TTYD_PORT)))
+HEALTH_WEB_PORT = int(os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT)))
+
+# Health endpoint auth and TLS
+HEALTH_AUTH_TOKEN = os.environ.get('HEALTH_AUTH_TOKEN', '')
+_tls_enabled = os.environ.get('TLS_ENABLED', 'true').lower()
+HEALTH_USE_HTTPS = _tls_enabled not in ('false', '0', 'no')
+# HEALTH_BACKEND_PROTOCOL (used by nginx) takes precedence over TLS_ENABLED
+# inference, so doctor.py matches the protocol nginx uses to reach the backend.
+HEALTH_PROTOCOL = os.environ.get(
+    'HEALTH_BACKEND_PROTOCOL',
+    'https' if HEALTH_USE_HTTPS else 'http',
+)
+HEALTH_USE_HTTPS = HEALTH_PROTOCOL == 'https'
 
 if not VNC_PASSWORD:
     print("WARNING: VNC_PASSWORD not set, VNC auth tests will be skipped", file=sys.stderr)
@@ -83,12 +110,12 @@ def section(title):
 # 1. VNC RFB Authentication Test
 # ============================================================================
 def test_vnc_rfb():
-    section("1. VNC Server (RFB Protocol - port 5900)")
-    
+    section(f"1. VNC Server (RFB Protocol - port {VNC_PORT})")
+
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(10)
-        s.connect(('localhost', 5900))
+        s.connect(('localhost', VNC_PORT))
         
         # RFB version handshake
         version = s.recv(12)
@@ -144,7 +171,7 @@ def test_vnc_rfb():
         auth_result = struct.unpack('>I', result)[0]
         
         if auth_result == 0:
-            ok(f"Authentication SUCCESSFUL with password '{VNC_PASS_8}'")
+            ok("Authentication SUCCESSFUL (VNC credentials accepted)")
             
             # Try to receive FramebufferUpdate to confirm desktop is available
             # Send ClientInit (shared flag = 1)
@@ -172,15 +199,15 @@ def test_vnc_rfb():
 # 2. noVNC via websockify (WebSocket proxy test)
 # ============================================================================
 def test_novnc_websocket():
-    section("2. noVNC via websockify (HTTPS WebSocket - port 6080)")
-    
+    section(f"2. noVNC via websockify (HTTPS WebSocket - port {NOVNC_PORT})")
+
     # Test HTTP page
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    
+
     try:
-        req = urllib.request.Request('https://localhost:6080/vnc.html')
+        req = urllib.request.Request(f'https://localhost:{NOVNC_PORT}/vnc.html')
         resp = urllib.request.urlopen(req, context=ctx, timeout=10)
         if resp.status == 200:
             ok("vnc.html page served (HTTP 200)")
@@ -193,10 +220,10 @@ def test_novnc_websocket():
             fail(f"HTTP status: {resp.status}")
     except Exception as e:
         fail(f"HTTP request failed: {e}")
-    
+
     # Test WebSocket proxy to VNC
     try:
-        ws_url = "wss://localhost:6080/websockify"
+        ws_url = f"wss://localhost:{NOVNC_PORT}/websockify"
         ws = websocket.create_connection(
             ws_url,
             sslopt={"cert_reqs": ssl.CERT_NONE},
@@ -234,47 +261,47 @@ def test_novnc_websocket():
 
 
 # ============================================================================
-# 3. UltraVNC HTTP server (port 5800)
+# 3. VNC HTTP server
 # ============================================================================
 def test_ultravnc_http():
-    section("3. UltraVNC HTTP Server (port 5800)")
-    
+    section(f"3. VNC HTTP Server (port {VNC_HTTP_PORT})")
+
     try:
-        req = urllib.request.Request('http://localhost:5800/')
+        req = urllib.request.Request(f'http://localhost:{VNC_HTTP_PORT}/')
         resp = urllib.request.urlopen(req, timeout=10)
         if resp.status == 200:
-            ok("UltraVNC HTTP server responding (HTTP 200)")
+            ok("VNC HTTP server responding (HTTP 200)")
             content = resp.read(500).decode('utf-8', errors='replace')
             if 'vnc' in content.lower() or 'ultravnc' in content.lower() or 'java' in content.lower():
-                ok("Content appears to be UltraVNC viewer page")
+                ok("Content appears to be VNC viewer page")
             else:
                 warn(f"Page served but content unclear: {content[:100]}")
         else:
             fail(f"HTTP status: {resp.status}")
     except urllib.error.HTTPError as e:
-        warn(f"HTTP error {e.code} - UltraVNC HTTP may require different path")
+        warn(f"HTTP error {e.code} - VNC HTTP may require different path")
     except Exception as e:
-        warn(f"UltraVNC HTTP server test: {e}")
+        warn(f"VNC HTTP server test: {e}")
 
 
 # ============================================================================
 # 4. Web Terminal (port 5000)
 # ============================================================================
 def test_web_terminal():
-    section("4. Web Terminal (HTTPS WebSocket - port 5000)")
-    
+    section(f"4. Web Terminal (HTTPS WebSocket - port {TTYD_PORT})")
+
     if not TTYD_PASSWORD:
         skip("TTYD_PASSWD not set, skipping terminal tests")
         return
-    
+
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    
+
     # Test HTTP page
     try:
         credentials = base64.b64encode(f'{TTYD_USERNAME}:{TTYD_PASSWORD}'.encode()).decode('ascii')
-        req = urllib.request.Request('https://localhost:5000/')
+        req = urllib.request.Request(f'https://localhost:{TTYD_PORT}/')
         req.add_header('Authorization', f'Basic {credentials}')
         resp = urllib.request.urlopen(req, context=ctx, timeout=10)
         if resp.status == 200:
@@ -283,10 +310,10 @@ def test_web_terminal():
             fail(f"HTTP status: {resp.status}")
     except Exception as e:
         fail(f"HTTP request failed: {e}")
-    
+
     # Test without auth
     try:
-        req = urllib.request.Request('https://localhost:5000/')
+        req = urllib.request.Request(f'https://localhost:{TTYD_PORT}/')
         resp = urllib.request.urlopen(req, context=ctx, timeout=10)
         fail("Terminal page served WITHOUT auth (should be 401)")
     except urllib.error.HTTPError as e:
@@ -296,10 +323,10 @@ def test_web_terminal():
             fail(f"Unexpected status without auth: {e.code}")
     except Exception as e:
         fail(f"Auth test error: {e}")
-    
+
     # Test WebSocket with multiple commands
     try:
-        ws_url = "wss://localhost:5000/ws"
+        ws_url = f"wss://localhost:{TTYD_PORT}/ws"
         credentials = base64.b64encode(f'{TTYD_USERNAME}:{TTYD_PASSWORD}'.encode()).decode('ascii')
         ws = websocket.create_connection(
             ws_url,
@@ -394,88 +421,94 @@ def test_web_terminal():
 # ============================================================================
 # 5. Health Dashboard (port 8090)
 # ============================================================================
+def _health_request(path):
+    """Build a Request for the health endpoint, honoring TLS and auth token."""
+    url = f'{HEALTH_PROTOCOL}://localhost:{HEALTH_WEB_PORT}{path}'
+    req = urllib.request.Request(url)
+    if HEALTH_AUTH_TOKEN:
+        req.add_header('Authorization', f'Bearer {HEALTH_AUTH_TOKEN}')
+    return req
+
+
+def _urlopen_health(path):
+    """Open a health endpoint request, using an SSL context if HTTPS."""
+    req = _health_request(path)
+    if HEALTH_USE_HTTPS:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return urllib.request.urlopen(req, context=ctx, timeout=10)
+    return urllib.request.urlopen(req, timeout=10)
+
+
 def test_health_dashboard():
-    section("5. Health Dashboard (HTTP - port 8090)")
-    
-    # Test HTML
+    section(f"5. Health Dashboard ({HEALTH_PROTOCOL.upper()} - port {HEALTH_WEB_PORT})")
+
+    # Test the canonical health endpoint (JSON in the Python stack,
+    # HTML in the legacy Bash stack). Detect the content type and
+    # validate accordingly so doctor.py works against either server.
     try:
-        req = urllib.request.Request('http://localhost:8090/health_status')
-        resp = urllib.request.urlopen(req, timeout=10)
+        resp = _urlopen_health('/health')
         if resp.status == 200:
-            content = resp.read().decode('utf-8')
-            ok("Health dashboard HTML served (HTTP 200)")
-            
-            # Check for ANSI codes (should not be present)
-            if '\033[' in content:
-                fail("ANSI escape codes found in HTML output")
+            content_type = resp.headers.get('Content-Type', '')
+            body = resp.read().decode('utf-8')
+            ok(f"Health endpoint responding (HTTP 200, {content_type})")
+
+            if 'json' in content_type or body.lstrip().startswith('{'):
+                # Python stack: JSON response — validate the contract
+                try:
+                    data = json.loads(body)
+                    if {'status', 'services_up', 'services_total', 'services'}.issubset(data.keys()):
+                        ok("JSON contract valid (status, services_up, services_total, services)")
+                    else:
+                        fail(f"JSON contract invalid, missing keys: "
+                             f"{'status, services_up, services_total, services' - set(data.keys())}")
+                    ok(f"Overall status: {data.get('status', 'unknown').upper()}")
+                    ok(f"Services up: {data.get('services_up', 0)}/{data.get('services_total', 0)}")
+                except json.JSONDecodeError as exc:
+                    fail(f"JSON decode failed: {exc}")
             else:
-                ok("No ANSI escape codes in HTML")
-            
-            # Check for service cards
-            if 'service-card' in content:
-                ok("Service cards present in HTML")
-            else:
-                fail("Service cards not found in HTML")
-            
-            # Check for system info
-            if 'system-info' in content:
-                ok("System info section present")
-            else:
-                fail("System info section not found")
-            
-            # Check for no 'N/A' in critical fields
-            if 'Disk: N/A' not in content:
-                ok("Disk usage is populated")
-            else:
-                warn("Disk usage shows N/A")
+                # Legacy Bash stack: HTML response — validate the markup
+                if '\033[' in body:
+                    fail("ANSI escape codes found in HTML output")
+                else:
+                    ok("No ANSI escape codes in HTML")
+
+                if 'service-card' in body:
+                    ok("Service cards present in HTML")
+                else:
+                    warn("Service cards not found (legacy HTML may differ)")
+
+                if 'system-info' in body:
+                    ok("System info section present")
+                else:
+                    warn("System info section not found (legacy HTML may differ)")
+
+                if 'Disk: N/A' not in body:
+                    ok("Disk usage is populated")
+                else:
+                    warn("Disk usage shows N/A")
         else:
             fail(f"HTTP status: {resp.status}")
     except Exception as e:
-        fail(f"HTML request failed: {e}")
-    
-    # Test JSON
+        fail(f"Health endpoint request failed: {e}")
+
+    # Test /health/all (aggregated system + services)
     try:
-        req = urllib.request.Request('http://localhost:8090/health_status.json')
-        resp = urllib.request.urlopen(req, timeout=10)
+        resp = _urlopen_health('/health/all')
         if resp.status == 200:
             data = json.loads(resp.read().decode('utf-8'))
-            ok("Health JSON API responding (HTTP 200)")
-            
-            # Check structure
-            if 'system' in data and 'services' in data and 'summary' in data:
-                ok("JSON structure valid (system, services, summary)")
+            ok("Health /all endpoint responding (HTTP 200)")
+            if 'system' in data and 'services' in data:
+                ok("Aggregated contract valid (system, services)")
+                svc = data.get('services', {})
+                ok(f"Services up: {svc.get('services_up', 0)}/{svc.get('services_total', 0)}")
             else:
-                fail("JSON structure invalid")
-            
-            # Check all services
-            for svc in data.get('services', []):
-                name = svc.get('name', '?')
-                status = svc.get('status', '?')
-                port = svc.get('port', '?')
-                listening = svc.get('port_listening', False)
-                if status == 'healthy' and listening:
-                    ok(f"  {name}: {status.upper()} on port {port}")
-                elif status == 'warning':
-                    warn(f"  {name}: {status.upper()} on port {port}")
-                else:
-                    fail(f"  {name}: {status.upper()} on port {port}")
-            
-            # Check summary
-            summary = data.get('summary', {})
-            ok(f"Summary: {summary.get('healthy',0)} healthy, {summary.get('warning',0)} warning, {summary.get('error',0)} error")
-            
-            # Check system info
-            sys_info = data.get('system', {})
-            for field in ['hostname', 'os', 'uptime', 'cpu_usage', 'memory_usage', 'disk_usage']:
-                val = sys_info.get(field, 'MISSING')
-                if val and val != 'MISSING' and val != 'N/A':
-                    pass  # ok(f"  System {field}: {val}")
-                else:
-                    warn(f"  System {field}: {val}")
+                fail("Aggregated contract invalid (missing system or services)")
         else:
-            fail(f"JSON HTTP status: {resp.status}")
+            fail(f"HTTP status: {resp.status}")
     except Exception as e:
-        fail(f"JSON request failed: {e}")
+        fail(f"Health /all request failed: {e}")
 
 
 # ============================================================================
@@ -483,13 +516,13 @@ def test_health_dashboard():
 # ============================================================================
 def test_port_bindings():
     section("6. Port Binding Check")
-    
+
     ports = {
-        5900: 'UltraVNC RFB',
-        5800: 'UltraVNC HTTP',
-        6080: 'noVNC/websockify',
-        5000: 'Web Terminal',
-        8090: 'Health Dashboard',
+        VNC_PORT: 'VNC RFB',
+        VNC_HTTP_PORT: 'VNC HTTP',
+        NOVNC_PORT: 'noVNC/websockify',
+        TTYD_PORT: 'Web Terminal',
+        HEALTH_WEB_PORT: 'Health Dashboard',
     }
     
     for port, name in ports.items():

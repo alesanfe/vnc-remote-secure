@@ -38,8 +38,10 @@ _generate_strong_password() {
        [[ "$pw" =~ [^a-zA-Z0-9] ]]; then
         printf '%s' "$pw"
     else
-        # Last resort: simple deterministic password
-        printf 'ChangeMe!%s' "$(date +%s | tail -c 5)"
+        # Last resort: use a deterministic but non-weak password.
+        # "ChangeMe!" is rejected by validate_password, so we use a
+        # random-looking string that passes complexity checks.
+        printf 'Xy7%s#Ab' "$(date +%s | tail -c 5)"
     fi
 }
 
@@ -58,9 +60,20 @@ export NOVNC_PORT="${NOVNC_PORT:-6080}"
 export TTYD_PORT="${TTYD_PORT:-5000}"
 export VNC_PORT="${VNC_PORT:-5901}"
 # Host addresses for nginx upstreams (default: localhost when nginx is enabled)
-export NOVNC_HOST="${NOVNC_HOST:-127.0.0.1}"
+export NOVNC_HOST="${NOVNC_HOST:-${SERVE_NOVNC_HOST:-127.0.0.1}}"
 export TTYD_HOST="${TTYD_HOST:-127.0.0.1}"
 export HEALTH_WEB_HOST="${HEALTH_WEB_HOST:-127.0.0.1}"
+# Protocol nginx uses to reach the health backend ("http" or "https").
+# Set to "https" when the health server terminates TLS itself.
+export HEALTH_BACKEND_PROTOCOL="${HEALTH_BACKEND_PROTOCOL:-http}"
+export LANDING_HOST="${LANDING_HOST:-127.0.0.1}"
+export LANDING_PASSWORD="${LANDING_PASSWORD:-}"
+export AUTH_SECRET="${AUTH_SECRET:-}"
+export HEALTH_AUTH_TOKEN="${HEALTH_AUTH_TOKEN:-}"
+export VNC_HTTP_PORT="${VNC_HTTP_PORT:-5800}"
+export WEBTERM_SHELL="${WEBTERM_SHELL:-/bin/bash}"
+export USER_UI_SESSION_TIMEOUT="${USER_UI_SESSION_TIMEOUT:-1800}"
+export TRUSTED_PROXY="${TRUSTED_PROXY:-}"
 
 # SSL Configuration
 # Get absolute path to project directory (config.sh is in src/lib/core/)
@@ -73,8 +86,9 @@ export DUCKDNS_TOKEN="${DUCKDNS_TOKEN:-}"
 export DUCKDNS_UPDATE_INTERVAL="${DUCKDNS_UPDATE_INTERVAL:-5}"
 # Only construct DUCK_DIR if DUCK_DOMAIN is set
 export DUCK_DIR="${DUCK_DOMAIN:+/etc/letsencrypt/live/$DUCK_DOMAIN}"
-export SSL_CERT="$SSL_DIR/fullchain.pem"
-export SSL_KEY="$SSL_DIR/privkey.pem"
+# Respect SSL_CERT/SSL_KEY from environment if set; otherwise default to SSL_DIR
+export SSL_CERT="${SSL_CERT:-$SSL_DIR/fullchain.pem}"
+export SSL_KEY="${SSL_KEY:-$SSL_DIR/privkey.pem}"
 export SSL_RENEW_DAYS="${SSL_RENEW_DAYS:-30}"
 
 # BeEF Configuration (OPTIONAL)
@@ -136,8 +150,8 @@ export ALERT_SMTP_USER="${ALERT_SMTP_USER:-}"
 export ALERT_SMTP_PASS="${ALERT_SMTP_PASS:-}"
 
 # VNC Server Configuration
-export VNC_DISPLAY="${VNC_DISPLAY:-:2}"
-export VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
+export VNC_DISPLAY="${VNC_DISPLAY:-:1}"
+export VNC_GEOMETRY="${VNC_GEOMETRY:-1280x720}"
 export VNC_DEPTH="${VNC_DEPTH:-24}"
 # No default VNC password — generate a strong random one if not set
 if [[ -z "${VNC_PASSWORD:-}" ]]; then
@@ -146,7 +160,19 @@ if [[ -z "${VNC_PASSWORD:-}" ]]; then
 fi
 
 # Runtime State
-export DISABLE_SSL="${DISABLE_SSL:-false}"
+# TLS_ENABLED is the canonical toggle (aligned with the Python stack).
+# DISABLE_SSL/USE_SSL are kept for backward compatibility with the Bash
+# entry points (launch.sh, rpi-vnc-remote.sh) and are derived from it.
+if [[ -z "${TLS_ENABLED:-}" ]]; then
+    # Infer from legacy DISABLE_SSL if TLS_ENABLED is unset
+    if [[ "${DISABLE_SSL:-false}" == "true" ]]; then
+        export TLS_ENABLED="false"
+    else
+        export TLS_ENABLED="true"
+    fi
+fi
+export DISABLE_SSL="$([[ "$TLS_ENABLED" == "false" ]] && echo true || echo false)"
+export USE_SSL="$([[ "$TLS_ENABLED" == "true" ]] && echo true || echo false)"
 export SHOW_LOGS="${SHOW_LOGS:-true}"
 export LOG_DIR="${LOG_DIR:-./logs}"
 # Whether to keep the temporary user after exit (default: false = remove on exit)

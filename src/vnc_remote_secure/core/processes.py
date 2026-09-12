@@ -89,14 +89,22 @@ def kill_process(pid):
 
 
 def is_port_available(port, host='127.0.0.1'):
-    """Return ``True`` if ``port`` is free to bind on ``host``."""
+    """Return ``True`` if ``port`` is free to bind on ``host``.
+
+    Uses a connect-based probe rather than bind-based because Windows
+    ``SO_REUSEADDR`` allows multiple sockets to bind the same port,
+    producing false negatives (reporting a port as available when it
+    is actively listening).
+    """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((host, port))
-            return True
-    except OSError:
+            s.settimeout(0.3)
+            s.connect((host, port))
+        # Connection succeeded → something is listening → port NOT available
         return False
+    except (OSError, ConnectionRefusedError, socket.timeout):
+        # Nothing listening → port IS available
+        return True
 
 
 def get_free_port(host='127.0.0.1', start_range=(49152, 65535)):

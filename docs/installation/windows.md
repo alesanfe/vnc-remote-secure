@@ -55,9 +55,9 @@ vnc-remote uninstall
 
 The installer creates a minimal firewall rule exposing only port 443 (HTTPS):
 ```powershell
-.\scripts\Manage-Firewall.ps1 -Action Create
-.\scripts\Manage-Firewall.ps1 -Action List
-.\scripts\Manage-Firewall.ps1 -Action Verify
+.\native\windows\Firewall.ps1 -Action Create
+.\native\windows\Firewall.ps1 -Action List
+.\native\windows\Firewall.ps1 -Action Verify
 ```
 
 ## Limitations on Windows

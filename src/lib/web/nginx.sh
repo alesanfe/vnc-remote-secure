@@ -31,10 +31,10 @@ configure_nginx() {
     local template_file="$PROJECT_DIR/src/config/nginx.conf"
 
     if [[ -f "$template_file" ]]; then
-        # Load .env file if it exists
+        # Load .env file if it exists (CRLF-safe for Windows .env files)
         if [[ -f "$PROJECT_DIR/.env" ]]; then
             # shellcheck source=/dev/null
-            source "$PROJECT_DIR/.env"
+            source <(tr -d '\r' < "$PROJECT_DIR/.env")
         fi
 
         # Set default values for environment variables
@@ -47,6 +47,7 @@ configure_nginx() {
         export TTYD_PORT="${TTYD_PORT:-5000}"
         export HEALTH_WEB_HOST="${HEALTH_WEB_HOST:-127.0.0.1}"
         export HEALTH_WEB_PORT="${HEALTH_WEB_PORT:-8080}"
+        export HEALTH_BACKEND_PROTOCOL="${HEALTH_BACKEND_PROTOCOL:-http}"
 
         # Convert SSL paths to absolute paths
         local SSL_CERT_CLEAN SSL_KEY_CLEAN
@@ -68,7 +69,7 @@ configure_nginx() {
 
         # Process template with environment variables (only substitute specific vars)
         # shellcheck disable=SC2016  # single quotes intentional: envsubst reads var names literally
-        envsubst '\$DUCK_DOMAIN|\$SSL_CERT|\$SSL_KEY|\$NGINX_HTTP_PORT|\$NGINX_HTTPS_PORT|\$NOVNC_HOST|\$NOVNC_PORT|\$TTYD_HOST|\$TTYD_PORT|\$HEALTH_WEB_HOST|\$HEALTH_WEB_PORT' < "$template_file" | sudo tee "$nginx_conf" > /dev/null
+        envsubst '\$DUCK_DOMAIN|\$SSL_CERT|\$SSL_KEY|\$NGINX_HTTP_PORT|\$NGINX_HTTPS_PORT|\$NOVNC_HOST|\$NOVNC_PORT|\$TTYD_HOST|\$TTYD_PORT|\$HEALTH_WEB_HOST|\$HEALTH_WEB_PORT|\$HEALTH_BACKEND_PROTOCOL' < "$template_file" | sudo tee "$nginx_conf" > /dev/null
         log "blue" "Nginx configuration created from template"
     else
         log "red" "Nginx template not found at $template_file"

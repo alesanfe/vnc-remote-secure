@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-11
+
+### Added
+- Unified HTTP authentication model (`security/http_auth.py`) shared across all services
+- Shared SSL/TLS context creation (`security/certificates.py::create_ssl_context()`)
+- Unified Flask JSON error envelope (`core/errors.py::json_error()`)
+- Optional health endpoint authentication via `HEALTH_AUTH_TOKEN`
+- Sanitized environment for terminal subprocesses (no secret leakage)
+- Cross-platform test runner with Windows Python fallback from WSL
+
+### Changed
+- Migrated landing, terminal, and health services to shared auth helpers
+- All 7 HTTP/WebSocket services now support TLS consistently via `create_ssl_context()`
+- Flask routes return unified JSON error schema
+- `Firewall.ps1` parameter `Action` no longer mandatory (defaults to `List`)
+- CRLF-safe `.env` loading in all Bash scripts
+- `run_tests.sh` detects and uses Windows Python from WSL
+- `shellcheck` test skips gracefully when not functional
+
+### Fixed
+- `subprocess.CREATE_NO_WINDOW` now conditional on Windows (was crashing Linux)
+- Flask health and landing routes now require authentication
+- `VncRemote.ps1` correctly finds `bash.exe` in Git for Windows
+- `VncRemote.ps1` uses `vnc-remote` instead of deprecated `launch.sh`
+- `launch.sh` respects `KEEP_TEMP_USER` from `.env` (was forced to `true`)
+- `config.sh` fallback password no longer generates the prohibited `ChangeMe!` pattern
+- `common.env` no longer forces Windows ports on Linux
+- Removed unused `pycryptodome` dependency; added `werkzeug`
+- Dead variables removed from `landing.py`
+
 ## [0.1.0] - 2026-09-11
 
 ### First public release

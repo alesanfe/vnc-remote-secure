@@ -17,6 +17,8 @@ Commands:
     restart     Restart all services
     status      Check system status
     doctor      Diagnose system readiness
+    session     Manage ephemeral remote sessions
+    secrets     Manage secrets (status, rotate, redact)
     backup      Create a backup
     restore     Restore from a backup
     uninstall   Remove all project changes
@@ -24,6 +26,7 @@ Commands:
     help        Show this help message
 """
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -120,7 +123,7 @@ def cmd_install(args):
     if _is_windows():
         return _run_powershell(project_root, 'VncRemote.ps1', ['Install'])
     else:
-        return _run_bash_script(project_root, 'src/rpi-vnc-remote.sh', ['install'])
+        return _run_bash_script(project_root, 'src/rpi-vnc-remote.sh', ['setup'])
 
 
 def cmd_start(args):
@@ -131,9 +134,15 @@ def cmd_start(args):
         return 0
 
     if _is_windows():
-        return _run_powershell(project_root, 'VncRemote.ps1', ['Start'])
+        ps_args = ['Start']
+        if getattr(args, 'no_ssl', False):
+            ps_args.append('-NoSsl')
+        return _run_powershell(project_root, 'VncRemote.ps1', ps_args)
     else:
-        return _run_bash_script(project_root, 'launch.sh')
+        bash_args = ['start']
+        if getattr(args, 'no_ssl', False):
+            bash_args.append('--no-ssl')
+        return _run_bash_script(project_root, 'src/rpi-vnc-remote.sh', bash_args)
 
 
 def cmd_stop(args):
@@ -146,9 +155,9 @@ def cmd_stop(args):
     if _is_windows():
         return _run_powershell(project_root, 'VncRemote.ps1', ['Stop'])
     else:
-        kill_script = os.path.join(project_root, 'kill_all.sh')
-        if os.path.exists(kill_script):
-            return _run_bash_script(project_root, 'kill_all.sh')
+        rpi_script = os.path.join(project_root, 'src', 'rpi-vnc-remote.sh')
+        if os.path.exists(rpi_script):
+            return _run_bash_script(project_root, 'src/rpi-vnc-remote.sh', ['stop'])
         print("No stop script found", file=sys.stderr)
         return 1
 
@@ -178,9 +187,11 @@ def cmd_status(args):
     else:
         cli_script = os.path.join(project_root, 'vnc-remote')
         if os.path.exists(cli_script):
-            bash_args = ['status']
+            # Bash wrapper expects global flags before the subcommand.
+            bash_args = []
             if args.json:
                 bash_args.append('--json')
+            bash_args.append('status')
             return _run_bash_script(project_root, 'vnc-remote', bash_args)
         print("CLI not found", file=sys.stderr)
         return 1
@@ -198,9 +209,11 @@ def cmd_doctor(args):
     else:
         cli_script = os.path.join(project_root, 'vnc-remote')
         if os.path.exists(cli_script):
-            bash_args = ['doctor']
+            # Bash wrapper expects global flags before the subcommand.
+            bash_args = []
             if args.json:
                 bash_args.append('--json')
+            bash_args.append('doctor')
             return _run_bash_script(project_root, 'vnc-remote', bash_args)
         print("CLI not found", file=sys.stderr)
         return 1
@@ -216,7 +229,7 @@ def cmd_backup(args):
     if _is_windows():
         return _run_powershell(project_root, 'VncRemote.ps1', ['Backup'])
     else:
-        return _run_bash_script(project_root, 'scripts/backup.sh')
+        return _run_bash_script(project_root, 'scripts/maintenance/backup.sh')
 
 
 def cmd_restore(args):
@@ -233,7 +246,7 @@ def cmd_restore(args):
     if _is_windows():
         return _run_powershell(project_root, 'VncRemote.ps1', ['Restore', args.backup_file])
     else:
-        return _run_bash_script(project_root, 'scripts/restore.sh', [args.backup_file])
+        return _run_bash_script(project_root, 'scripts/maintenance/restore.sh', [args.backup_file])
 
 
 def cmd_uninstall(args):
@@ -246,7 +259,36 @@ def cmd_uninstall(args):
     if _is_windows():
         return _run_powershell(project_root, 'VncRemote.ps1', ['Uninstall'])
     else:
-        return _run_bash_script(project_root, 'scripts/uninstall.sh')
+        return _run_bash_script(project_root, 'scripts/maintenance/uninstall.sh')
+
+
+def cmd_service(args):
+    """Run in Windows service mode (foreground)."""
+    project_root = _find_project_root()
+    if args.dry_run:
+        print("[DRY RUN] Would run in service mode (foreground)")
+        return 0
+
+    if not getattr(args, 'run', False):
+        print("Error: --run flag required for service mode", file=sys.stderr)
+        return 1
+
+    # Start all services and keep running until interrupted
+    print("[SERVICE] Starting VNC Remote Secure in service mode...")
+    rc = cmd_start(args)
+    if rc != 0:
+        print(f"[SERVICE] Failed to start services (exit code {rc})", file=sys.stderr)
+        return rc
+
+    print("[SERVICE] Services started. Running until interrupted (Ctrl+C)...")
+    try:
+        import time
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[SERVICE] Stopping services...")
+        cmd_stop(args)
+        return 0
 
 
 def cmd_version(args):
@@ -266,6 +308,161 @@ def cmd_version(args):
         print(f"Platform: {info['platform']} {info['architecture']}")
         print(f"Python: {info['python']}")
     return 0
+
+
+def cmd_session(args):
+    """Manage ephemeral remote sessions."""
+    from vnc_remote_secure.security.ephemeral_sessions import (
+        get_session_store, ROLES, PERM_VIEW, PERM_CONTROL,
+    )
+
+    store = get_session_store()
+
+    if args.session_action == 'create':
+        expires_in = _parse_duration(args.expires or '30m')
+        role = args.role or 'viewer'
+        if role not in ROLES:
+            print(f"Error: unknown role '{role}'. Available: {', '.join(ROLES.keys())}")
+            return 1
+
+        session, signed_token = store.create(
+            expires_in=expires_in,
+            role=role,
+            single_use=args.single_use,
+            view_only=args.view_only,
+            no_terminal=args.no_terminal,
+            allowed_ip=args.allowed_ip,
+            created_by=os.environ.get('USER', 'admin'),
+        )
+
+        # Build the access URL
+        host = os.environ.get('DUCK_DOMAIN', 'localhost')
+        https_port = os.environ.get('NGINX_HTTPS_PORT', '443')
+        if https_port == '443':
+            base_url = f"https://{host}"
+        else:
+            base_url = f"https://{host}:{https_port}"
+
+        if args.json:
+            print(json.dumps({
+                'token': signed_token,
+                'url': f"{base_url}/?session={signed_token}",
+                'expires_in': expires_in,
+                'role': role,
+                'view_only': args.view_only,
+                'no_terminal': args.no_terminal,
+                'single_use': args.single_use,
+            }, indent=2))
+        else:
+            print(f"Session created (role: {role}, expires in {expires_in}s)")
+            print(f"URL: {base_url}/?session={signed_token}")
+            if args.view_only:
+                print("  View-only: yes")
+            if args.no_terminal:
+                print("  Terminal: disabled")
+            if args.single_use:
+                print("  Single-use: yes")
+            if args.allowed_ip:
+                print(f"  IP restriction: {args.allowed_ip}")
+        return 0
+
+    elif args.session_action == 'list':
+        sessions = store.list_active()
+        if args.json:
+            print(json.dumps(sessions, indent=2))
+        else:
+            if not sessions:
+                print("No active sessions.")
+            else:
+                print(f"Active sessions ({len(sessions)}):")
+                for s in sessions:
+                    print(f"  role={s['role']} expires={s['expires_at']} "
+                          f"view_only={s['view_only']} single_use={s['single_use']}")
+        return 0
+
+    elif args.session_action == 'revoke':
+        if not args.token:
+            print("Error: --token required for revoke")
+            return 1
+        if store.revoke(args.token):
+            print("Session revoked.")
+            return 0
+        else:
+            print("Session not found.")
+            return 1
+
+    print(f"Unknown session action: {args.session_action}")
+    return 1
+
+
+def cmd_secrets(args):
+    """Manage secrets (status, rotate, redact)."""
+    from vnc_remote_secure.security.redaction import get_secret_status, redact_env
+    from vnc_remote_secure.core.config import load_env_file
+    import secrets as secrets_mod
+    import string
+
+    load_env_file()
+
+    if args.secrets_action == 'status':
+        status = get_secret_status()
+        if args.json:
+            print(json.dumps(status, indent=2))
+        else:
+            print("Secret status:")
+            for name, val in status.items():
+                print(f"  {name}: {val}")
+        return 0
+
+    elif args.secrets_action == 'rotate':
+        if not args.secret_name:
+            print("Error: --name required. Available: TTYD_PASSWD, TEMP_USER_PASS, VNC_PASSWORD")
+            return 1
+
+        name = args.secret_name.upper()
+        rotatable = {'TTYD_PASSWD', 'TEMP_USER_PASS', 'VNC_PASSWORD', 'HEALTH_AUTH_TOKEN'}
+        if name not in rotatable:
+            print(f"Error: cannot rotate '{name}'. Rotatable: {', '.join(sorted(rotatable))}")
+            return 1
+
+        chars = string.ascii_letters + string.digits + '!@%^&*'
+        while True:
+            new_val = ''.join(secrets_mod.choice(chars) for _ in range(24))
+            if (any(c.isupper() for c in new_val) and any(c.islower() for c in new_val)
+                and any(c.isdigit() for c in new_val) and any(c in '!@%^&*' for c in new_val)):
+                break
+
+        os.environ[name] = new_val
+        print(f"Rotated {name} (new value set in environment, update .env manually)")
+        print(f"  Fingerprint: {hashlib.sha256(new_val.encode()).hexdigest()[:8]}")
+        return 0
+
+    elif args.secrets_action == 'redact':
+        if not args.secret_name:
+            print("Error: --name required")
+            return 1
+        print(f"{args.secret_name}: {redact_env(args.secret_name, show_fingerprint=True)}")
+        return 0
+
+    print(f"Unknown secrets action: {args.secrets_action}")
+    return 1
+
+
+def _parse_duration(s: str) -> int:
+    """Parse a duration string like '30m', '2h', '1d' into seconds."""
+    if not s:
+        return 1800
+    s = s.strip().lower()
+    units = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
+    if s[-1] in units:
+        try:
+            return int(s[:-1]) * units[s[-1]]
+        except ValueError:
+            pass
+    try:
+        return int(s)
+    except ValueError:
+        return 1800
 
 
 def cmd_help(args):
@@ -303,6 +500,8 @@ def create_parser():
     p_start = subparsers.add_parser('start', help='Start all services')
     for args_list, kwargs in common_args:
         p_start.add_argument(*args_list, **kwargs)
+    p_start.add_argument('--no-ssl', action='store_true',
+                         help='Start without SSL/TLS (HTTP only)')
     p_start.set_defaults(func=cmd_start)
 
     # Stop
@@ -348,10 +547,46 @@ def create_parser():
         p_uninstall.add_argument(*args_list, **kwargs)
     p_uninstall.set_defaults(func=cmd_uninstall)
 
+    # Service (Windows service mode)
+    p_service = subparsers.add_parser('service', help='Run in Windows service mode')
+    p_service.add_argument('--run', action='store_true',
+                           help='Start all services in foreground (service mode)')
+    for args_list, kwargs in common_args:
+        p_service.add_argument(*args_list, **kwargs)
+    p_service.set_defaults(func=cmd_service)
+
     # Version
     p_version = subparsers.add_parser('version', help='Show version information')
     p_version.add_argument('--json', action='store_true', help='JSON output')
     p_version.set_defaults(func=cmd_version)
+
+    # Session (ephemeral remote sessions)
+    p_session = subparsers.add_parser('session', help='Manage ephemeral remote sessions')
+    p_session_sub = p_session.add_subparsers(dest='session_action')
+    p_create = p_session_sub.add_parser('create', help='Create a new ephemeral session')
+    p_create.add_argument('--expires', default='30m', help='Duration (e.g. 30m, 2h, 1d)')
+    p_create.add_argument('--role', default='viewer', choices=['viewer', 'support', 'operator', 'administrator'], help='Role (viewer, support, operator, administrator)')
+    p_create.add_argument('--view-only', action='store_true', help='View-only (no keyboard/mouse)')
+    p_create.add_argument('--no-terminal', action='store_true', help='Disable terminal access')
+    p_create.add_argument('--single-use', action='store_true', help='Session expires after first use')
+    p_create.add_argument('--allowed-ip', help='Restrict to a specific IP')
+    p_create.add_argument('--json', action='store_true', help='JSON output')
+    p_list = p_session_sub.add_parser('list', help='List active sessions')
+    p_list.add_argument('--json', action='store_true', help='JSON output')
+    p_revoke = p_session_sub.add_parser('revoke', help='Revoke a session')
+    p_revoke.add_argument('--token', required=True, help='Session token to revoke')
+    p_session.set_defaults(func=cmd_session)
+
+    # Secrets (status, rotate, redact)
+    p_secrets = subparsers.add_parser('secrets', help='Manage secrets (status, rotate, redact)')
+    p_secrets_sub = p_secrets.add_subparsers(dest='secrets_action')
+    p_sstatus = p_secrets_sub.add_parser('status', help='Show secret status (no values)')
+    p_sstatus.add_argument('--json', action='store_true', help='JSON output')
+    p_srotate = p_secrets_sub.add_parser('rotate', help='Rotate a secret (generates new value)')
+    p_srotate.add_argument('--name', required=True, help='Secret to rotate (e.g. TTYD_PASSWD)')
+    p_sredact = p_secrets_sub.add_parser('redact', help='Show redacted value of a secret')
+    p_sredact.add_argument('--name', required=True, help='Secret name to redact')
+    p_secrets.set_defaults(func=cmd_secrets)
 
     # Help
     p_help = subparsers.add_parser('help', help='Show this help message')

@@ -39,18 +39,20 @@ param(
     [string[]]$Arguments,
 
     [switch]$Json,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$NoSsl
 )
 
 # Version
-$script:Version = '0.1.0'
+$script:Version = '0.2.0'
 
 # Get project directory (script is at project root)
 $script:ProjectDir = $PSScriptRoot
 $script:LaunchScript = Join-Path $script:ProjectDir 'launch.sh'
-$script:UninstallScript = Join-Path $script:ProjectDir 'scripts\uninstall.sh'
-$script:BackupScript = Join-Path $script:ProjectDir 'scripts\backup.sh'
-$script:RestoreScript = Join-Path $script:ProjectDir 'scripts\restore.sh'
+$script:UninstallScript = Join-Path $script:ProjectDir 'scripts\maintenance\uninstall.sh'
+$script:BackupScript = Join-Path $script:ProjectDir 'scripts\maintenance\backup.sh'
+$script:RestoreScript = Join-Path $script:ProjectDir 'scripts\maintenance\restore.sh'
+$script:FirewallScript = Join-Path $script:ProjectDir 'native\windows\Firewall.ps1'
 
 # Colors (only if interactive)
 if ($Host.UI.RawUI) {
@@ -146,6 +148,7 @@ COMMANDS:
     Help                 Show this help message
 
 OPTIONS:
+    -NoSsl              Start services without SSL/TLS (HTTP only, not recommended)
     -Verbose             Verbose output (debug messages)
     -Json                JSON output (Get-Status, Test-Configuration)
     -DryRun              Simulate without making changes
@@ -156,6 +159,7 @@ EXAMPLES:
     .\VncRemote.ps1 Install                    # Full installation
     .\VncRemote.ps1 Install -WhatIf            # Simulate installation
     .\VncRemote.ps1 Start -Verbose             # Start with debug output
+    .\VncRemote.ps1 Start -NoSsl               # Start without TLS (HTTP only)
     .\VncRemote.ps1 Get-Status -Json           # Status as JSON
     .\VncRemote.ps1 Test-Configuration         # Check system readiness
     .\VncRemote.ps1 Backup                     # Create backup
@@ -197,12 +201,15 @@ function Install-VncRemote {
         return
     }
 
-    if (-not (Test-Path $script:LaunchScript)) {
-        Write-InfoMessage "launch.sh not found at $script:LaunchScript" 'Error'
-        throw "launch.sh not found"
-    }
-
     Write-InfoMessage "Starting installation..." 'Info'
+
+    # Create firewall rules (requires admin; skip in dry-run)
+    if (Test-Path $script:FirewallScript) {
+        Write-InfoMessage "Creating firewall rules..." 'Info'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $script:FirewallScript -Action Create
+    } else {
+        Write-InfoMessage "Firewall.ps1 not found at $script:FirewallScript; skipping firewall setup" 'Warning'
+    }
 
     # Find Git Bash
     $gitBash = Get-Command git -ErrorAction SilentlyContinue
@@ -212,15 +219,25 @@ function Install-VncRemote {
     }
 
     $gitDir = Split-Path $gitBash.Source -Parent
-    $bashExe = Join-Path $gitDir 'bash.exe'
+    # Git for Windows places bash.exe in bin/, not cmd/ (where git.exe lives).
+    $bashExe = Join-Path (Split-Path $gitDir -Parent) 'bin\bash.exe'
+    if (-not (Test-Path $bashExe)) {
+        # Fallback: try same directory as git.exe
+        $bashExe = Join-Path $gitDir 'bash.exe'
+    }
+    if (-not (Test-Path $bashExe)) {
+        # Fallback: try Get-Command bash directly
+        $bashCmd = Get-Command bash -ErrorAction SilentlyContinue
+        if ($bashCmd) { $bashExe = $bashCmd.Source }
+    }
 
     if (-not (Test-Path $bashExe)) {
-        Write-InfoMessage "bash.exe not found at $bashExe" 'Error'
+        Write-InfoMessage "bash.exe not found. Please install Git for Windows." 'Error'
         throw "bash.exe not found"
     }
 
-    # Run launch.sh via Git Bash
-    & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash launch.sh"
+    # Run vnc-remote via Git Bash (launch.sh is deprecated)
+    & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash vnc-remote start"
 }
 
 # ============================================================================
@@ -245,9 +262,19 @@ function Start-VncRemote {
     }
 
     $gitDir = Split-Path $gitBash.Source -Parent
-    $bashExe = Join-Path $gitDir 'bash.exe'
+    # Git for Windows places bash.exe in bin/, not cmd/ (where git.exe lives).
+    $bashExe = Join-Path (Split-Path $gitDir -Parent) 'bin\bash.exe'
+    if (-not (Test-Path $bashExe)) {
+        $bashExe = Join-Path $gitDir 'bash.exe'
+    }
+    if (-not (Test-Path $bashExe)) {
+        $bashCmd = Get-Command bash -ErrorAction SilentlyContinue
+        if ($bashCmd) { $bashExe = $bashCmd.Source }
+    }
 
-    & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash launch.sh"
+    $sslFlag = ''
+    if ($NoSsl) { $sslFlag = ' --no-ssl' }
+    & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash vnc-remote start$sslFlag"
 }
 
 # ============================================================================
@@ -265,16 +292,17 @@ function Stop-VncRemote {
 
     Write-InfoMessage "Stopping services..." 'Info'
 
-    $killScript = Join-Path $script:ProjectDir 'kill_all.sh'
-    if (Test-Path $killScript) {
+    # Use the unified CLI (vnc-remote) to stop services consistently across platforms.
+    $vncRemote = Join-Path $script:ProjectDir 'vnc-remote'
+    if (Test-Path $vncRemote) {
         $gitBash = Get-Command git -ErrorAction SilentlyContinue
         if ($gitBash) {
             $gitDir = Split-Path $gitBash.Source -Parent
             $bashExe = Join-Path $gitDir 'bash.exe'
-            & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash kill_all.sh"
+            & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash vnc-remote stop"
         }
     } else {
-        Write-InfoMessage "kill_all.sh not found" 'Warn'
+        Write-InfoMessage "vnc-remote wrapper not found; cannot stop services" 'Warn'
     }
 }
 
@@ -442,6 +470,7 @@ function Test-VncRemoteConfiguration {
 
     # 6. UltraVNC
     $ultraVncPaths = @(
+        (Join-Path $script:ProjectDir 'bin\ultravnc\x64\winvnc.exe'),
         (Join-Path $script:ProjectDir 'bin\ultravnc\winvnc.exe'),
         'C:\Program Files\UltraVNC\winvnc.exe',
         'C:\Program Files (x86)\UltraVNC\winvnc.exe'
@@ -594,8 +623,17 @@ function Backup-VncRemote {
     $gitBash = Get-Command git -ErrorAction SilentlyContinue
     if ($gitBash) {
         $gitDir = Split-Path $gitBash.Source -Parent
-        $bashExe = Join-Path $gitDir 'bash.exe'
-        & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash scripts/backup.sh"
+        $bashExe = Join-Path (Split-Path $gitDir -Parent) 'bin\bash.exe'
+        if (-not (Test-Path $bashExe)) { $bashExe = Join-Path $gitDir 'bash.exe' }
+        if (-not (Test-Path $bashExe)) {
+            $bashCmd = Get-Command bash -ErrorAction SilentlyContinue
+            if ($bashCmd) { $bashExe = $bashCmd.Source }
+        }
+        & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash scripts/maintenance/backup.sh"
+    }
+    else {
+        Write-InfoMessage "Git Bash not found. Install Git for Windows to use Backup." 'Error'
+        throw "Git Bash not found"
     }
 }
 
@@ -623,9 +661,18 @@ function Restore-VncRemote {
     $gitBash = Get-Command git -ErrorAction SilentlyContinue
     if ($gitBash) {
         $gitDir = Split-Path $gitBash.Source -Parent
-        $bashExe = Join-Path $gitDir 'bash.exe'
+        $bashExe = Join-Path (Split-Path $gitDir -Parent) 'bin\bash.exe'
+        if (-not (Test-Path $bashExe)) { $bashExe = Join-Path $gitDir 'bash.exe' }
+        if (-not (Test-Path $bashExe)) {
+            $bashCmd = Get-Command bash -ErrorAction SilentlyContinue
+            if ($bashCmd) { $bashExe = $bashCmd.Source }
+        }
         $backupPath = ($BackupFile -replace '\\','/')
-        & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash scripts/restore.sh '$backupPath'"
+        & $bashExe -c "cd '$($script:ProjectDir -replace '\\','/')' && bash scripts/maintenance/restore.sh '$backupPath'"
+    }
+    else {
+        Write-InfoMessage "Git Bash not found. Install Git for Windows to use Restore." 'Error'
+        throw "Git Bash not found"
     }
 }
 
@@ -646,7 +693,7 @@ function Uninstall-VncRemote {
     Stop-VncRemote
 
     # Remove firewall rules using dedicated script
-    $fwScript = Join-Path $script:ProjectDir 'scripts\Manage-Firewall.ps1'
+    $fwScript = Join-Path $script:ProjectDir 'native\windows\Firewall.ps1'
     if (Test-Path $fwScript) {
         & $fwScript -Action Remove
     } else {

@@ -15,7 +15,7 @@ Use DuckDNS (https://www.duckdns.org/) as the default dynamic DNS provider:
 - Supports both IPv4 and IPv6
 - Cross-platform update scripts (Bash + Python fallback)
 
-Implemented in `scripts/duckdns_update.sh` and `scripts/duckdns_update.py`,
+Implemented in `scripts/utilities/duckdns_update.sh` and `scripts/utilities/duckdns_update.py`,
 integrated into both `launch.sh` (Windows) and `src/rpi-vnc-remote.sh` (Linux).
 
 ## Alternatives considered

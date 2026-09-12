@@ -37,13 +37,25 @@ def main():
         filename = manifest.get('filename')
         expected_sha = manifest.get('sha256', 'TBD')
         platform = manifest.get('platform', 'cross-platform')
+        managed_by = manifest.get('managed_by', 'download')
+        target_path_rel = manifest.get('target_path')
+        clone_target = manifest.get('clone_target')
 
         if platform == 'windows':
             target_dir = os.path.join(project_root, 'bin')
         else:
             target_dir = os.path.join(project_root, 'vendor')
 
-        target_path = os.path.join(target_dir, filename) if filename else None
+        # Prefer explicit target_path (used by manual/managed binaries),
+        # then clone_target (git-clone), then filename as fallback.
+        if target_path_rel:
+            target_path = os.path.join(project_root, target_path_rel)
+        elif clone_target:
+            target_path = os.path.join(project_root, clone_target)
+        elif filename:
+            target_path = os.path.join(target_dir, filename)
+        else:
+            target_path = None
 
         if not target_path or not os.path.exists(target_path):
             print(f"[MISSING] {name}: {target_path or 'no filename'}")

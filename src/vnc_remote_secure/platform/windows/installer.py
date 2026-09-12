@@ -5,6 +5,7 @@ Firewall rules for the service ports, and generates self-signed SSL
 certificates when none are present.
 """
 import os
+import logging
 
 from vnc_remote_secure.core.constants import (
     DEFAULT_HEALTH_PORT,
@@ -51,9 +52,10 @@ def install(project_root=None, configure_firewall_rules=True):
     if not (os.path.exists(cert_path) and os.path.exists(key_path)):
         try:
             generate_self_signed(cert_path, key_path)
-        except Exception:
-            # Certificate generation is best-effort during install.
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Self-signed certificate generation failed: %s", exc
+            )
 
     return True
 

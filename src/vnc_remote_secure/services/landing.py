@@ -11,45 +11,46 @@ or .env file for credentials.
 """
 import os
 import sys
-import ssl
 import json
+import logging
 import socket
 import platform
 import subprocess
-import urllib.request
 import re
-import html
-import base64
-import hmac
-from datetime import datetime
 
 import http.server
 import socketserver
 
+from vnc_remote_secure.core.errors import error_json, log_exception
+from vnc_remote_secure.security.http_auth import check_landing_auth
+
+logger = logging.getLogger(__name__)
+
 # Load configuration from .env file (never hardcode credentials)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.constants import (
+    DEFAULT_LANDING_PORT,
+    DEFAULT_VNC_PORT,
+    DEFAULT_NOVNC_PORT,
+    DEFAULT_TTYD_PORT,
+    DEFAULT_HEALTH_PORT,
+    DEFAULT_VNC_HTTP_PORT,
+    DEFAULT_BIND_HOST,
+)
 
 load_env_file()
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-PORT = int(os.environ.get('LANDING_PORT', '8000'))
-HOST = os.environ.get('LANDING_HOST', '0.0.0.0')
+PORT = int(os.environ.get('LANDING_PORT', str(DEFAULT_LANDING_PORT)))
+HOST = os.environ.get('LANDING_HOST', DEFAULT_BIND_HOST)
 CERT_FILE = os.environ.get('SSL_CERT', '')
 KEY_FILE = os.environ.get('SSL_KEY', '')
 
-VNC_PORT = int(os.environ.get('VNC_PORT', '5900'))
-NOVNC_PORT = int(os.environ.get('NOVNC_PORT', '6080'))
-TTYD_PORT = int(os.environ.get('TTYD_PORT', '5000'))
-HEALTH_PORT = int(os.environ.get('HEALTH_WEB_PORT', '8090'))
-VNC_HTTP_PORT = 5800
-
-# Credentials are read from env but NOT displayed on the page
-# They are only used internally, never exposed in HTML or JSON
-VNC_PASSWORD = os.environ.get('VNC_PASSWORD', '')
-TTYD_USERNAME = os.environ.get('TTYD_USERNAME', 'admin')
-TTYD_PASSWORD = os.environ.get('TTYD_PASSWD', '')
+VNC_PORT = int(os.environ.get('VNC_PORT', str(DEFAULT_VNC_PORT)))
+NOVNC_PORT = int(os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)))
+TTYD_PORT = int(os.environ.get('TTYD_PORT', str(DEFAULT_TTYD_PORT)))
+HEALTH_PORT = int(os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT)))
+VNC_HTTP_PORT = int(os.environ.get('VNC_HTTP_PORT', str(DEFAULT_VNC_HTTP_PORT)))
 
 # Optional auth for the landing page itself (set LANDING_PASSWORD to enable)
 LANDING_PASSWORD = os.environ.get('LANDING_PASSWORD', '')
@@ -63,174 +64,65 @@ def check_port(port):
         result = s.connect_ex(('localhost', port))
         s.close()
         return result == 0
-    except Exception:
+    except Exception as e:
+        logger.debug("Port check failed: %s", e)
         return False
 
 
 def get_lan_ips():
-    """Get all LAN IP addresses."""
-    ips = []
+    """Get real LAN IP addresses, filtering out virtual adapters.
+
+    Delegates to the platform adapter for the OS-specific discovery.
+    """
     try:
-        result = subprocess.run(
-            ['ipconfig'] if platform.system() == 'Windows' else ['ip', 'addr'],
-            capture_output=True, text=True, timeout=10, check=False
-        )
-        if platform.system() == 'Windows':
-            for line in result.stdout.split('\n'):
-                if 'IPv4' in line:
-                    ip = line.split(':')[-1].strip()
-                    if ip and not ip.startswith('169.254'):
-                        ips.append(ip)
-        else:
-            # Linux: parse 'ip addr' output correctly
-            # Lines look like: "    inet 192.168.1.100/24 brd ..."
-            for line in result.stdout.split('\n'):
-                if 'inet ' in line and '127.0.0.1' not in line:
-                    parts = line.strip().split()
-                    for part in parts:
-                        if part.startswith('inet ') or part == 'inet':
-                            continue
-                        if part.startswith('inet') and '/' in part:
-                            ip = part.split('/')[0].replace('inet', '').strip()
-                            if ip and not ip.startswith('127'):
-                                ips.append(ip)
-                        elif part.startswith('inet') and '/' not in part:
-                            # 'inet' is separate from the IP, find next token
-                            idx = parts.index(part)
-                            if idx + 1 < len(parts):
-                                ip = parts[idx + 1].split('/')[0]
-                                if ip and not ip.startswith('127'):
-                                    ips.append(ip)
-    except Exception:
-        pass
-    return ips
+        from vnc_remote_secure.platform.base import get_adapter
+        return get_adapter().get_lan_ips()
+    except Exception as e:
+        logger.debug("Platform LAN IP detection failed: %s", e)
+        return []
 
 
 def get_system_metrics():
-    """Get quick system metrics for the landing page."""
+    """Get quick system metrics for the landing page.
+
+    Delegates CPU/memory/disk/uptime collection to the platform adapter
+    (``platform/{linux,windows}/metrics.py``) and adds hostname/os on top.
+    """
     metrics = {
         'cpu': 'N/A', 'memory': 'N/A', 'disk': 'N/A',
         'uptime': 'N/A', 'hostname': platform.node(),
         'os': f'{platform.system()} {platform.release()}',
     }
 
+    # Delegate core metrics to the platform adapter
+    try:
+        if platform.system() == 'Windows':
+            from vnc_remote_secure.platform.windows.metrics import get_system_metrics as _get
+        else:
+            from vnc_remote_secure.platform.linux.metrics import get_system_metrics as _get
+        platform_metrics = _get()
+        metrics.update(platform_metrics)
+    except Exception as e:
+        logger.debug("Platform metrics collection failed: %s", e)
+
+    # Detect Windows 11 properly (platform.release() returns "10" on Win11)
     if platform.system() == 'Windows':
         try:
             result = subprocess.run(
-                ['wmic', 'cpu', 'get', 'loadpercentage', '/value'],
+                ['wmic', 'os', 'get', 'Caption', '/value'],
                 capture_output=True, text=True, timeout=5, check=False
             )
-            match = re.search(r'LoadPercentage=(\d+)', result.stdout)
-            if match:
-                metrics['cpu'] = f"{match.group(1)}%"
-        except Exception:
-            pass
-
-        try:
-            result = subprocess.run(
-                ['wmic', 'OS', 'get', 'TotalVisibleMemorySize,FreePhysicalMemory', '/value'],
-                capture_output=True, text=True, timeout=5, check=False
-            )
-            total_match = re.search(r'TotalVisibleMemorySize=(\d+)', result.stdout)
-            free_match = re.search(r'FreePhysicalMemory=(\d+)', result.stdout)
-            if total_match and free_match:
-                total_kb = int(total_match.group(1))
-                free_kb = int(free_match.group(1))
-                used_kb = total_kb - free_kb
-                pct = (used_kb / total_kb) * 100 if total_kb > 0 else 0
-                metrics['memory'] = f"{pct:.0f}% ({used_kb // 1024} MB / {total_kb // 1024} MB)"
-        except Exception:
-            pass
-
-        try:
-            result = subprocess.run(
-                ['wmic', 'logicaldisk', 'get', 'size,freespace,caption', '/value'],
-                capture_output=True, text=True, timeout=5, check=False
-            )
-            current = {}
-            for line in result.stdout.strip().split('\n'):
-                line = line.strip()
-                if not line:
-                    continue
-                if '=' in line:
-                    key, val = line.split('=', 1)
-                    key, val = key.strip(), val.strip()
-                    if key == 'Caption':
-                        if current.get('Caption') and current.get('Size') and current.get('FreeSpace'):
-                            size_gb = int(current['Size']) / (1024**3)
-                            free_gb = int(current['FreeSpace']) / (1024**3)
-                            pct = ((size_gb - free_gb) / size_gb) * 100 if size_gb > 0 else 0
-                            if metrics['disk'] == 'N/A':
-                                metrics['disk'] = f"{current['Caption']} {pct:.0f}% ({free_gb:.0f} GB free)"
-                        current = {'Caption': val}
-                    elif key == 'Size':
-                        try: current['Size'] = int(val)
-                        except ValueError: pass
-                    elif key == 'FreeSpace':
-                        try: current['FreeSpace'] = int(val)
-                        except ValueError: pass
-            if current.get('Caption') and current.get('Size') and current.get('FreeSpace'):
-                size_gb = int(current['Size']) / (1024**3)
-                free_gb = int(current['FreeSpace']) / (1024**3)
-                pct = ((size_gb - free_gb) / size_gb) * 100 if size_gb > 0 else 0
-                if metrics['disk'] == 'N/A':
-                    metrics['disk'] = f"{current['Caption']} {pct:.0f}% ({free_gb:.0f} GB free)"
-        except Exception:
-            pass
-
-        try:
-            result = subprocess.run(
-                ['wmic', 'os', 'get', 'LastBootUpTime', '/value'],
-                capture_output=True, text=True, timeout=5, check=False
-            )
-            match = re.search(r'LastBootUpTime=(.+)', result.stdout)
-            if match:
-                boot_str = match.group(1).strip()
-                if '.' in boot_str:
-                    boot_dt = datetime.strptime(boot_str.split('.')[0], '%Y%m%d%H%M%S')
-                    delta = datetime.now() - boot_dt
-                    hours = int(delta.total_seconds() // 3600)
-                    minutes = int((delta.total_seconds() % 3600) // 60)
-                    metrics['uptime'] = f"{hours}h {minutes}m"
-        except Exception:
-            pass
-    else:
-        # Linux
-        try:
-            with open('/proc/uptime', 'r') as f:
-                uptime_sec = float(f.readline().split()[0])
-                hours = int(uptime_sec // 3600)
-                minutes = int((uptime_sec % 3600) // 60)
-                metrics['uptime'] = f"{hours}h {minutes}m"
-        except Exception:
-            pass
-        try:
-            with open('/proc/loadavg', 'r') as f:
-                metrics['cpu'] = f"Load: {f.readline().split()[0]}"
-        except Exception:
-            pass
-        # Linux memory (was missing)
-        try:
-            result = subprocess.run(['free', '-m'], capture_output=True, text=True, timeout=5)
-            for line in result.stdout.split('\n'):
-                if line.startswith('Mem:'):
-                    parts = line.split()
-                    total = int(parts[1])
-                    used = int(parts[2])
-                    pct = (used / total) * 100 if total > 0 else 0
-                    metrics['memory'] = f"{pct:.0f}% ({used} MB / {total} MB)"
-                    break
-        except Exception:
-            pass
-        # Linux disk
-        try:
-            result = subprocess.run(['df', '-h', '/'], capture_output=True, text=True, timeout=5)
-            lines = result.stdout.strip().split('\n')
-            if len(lines) > 1:
-                parts = lines[1].split()
-                metrics['disk'] = f"/ {parts[4]} ({parts[3]} used)" if len(parts) > 4 else 'N/A'
-        except Exception:
-            pass
+            caption_match = re.search(r'Caption=(.+)', result.stdout)
+            if caption_match:
+                caption = caption_match.group(1).strip()
+                if 'Windows 11' in caption:
+                    metrics['os'] = 'Windows 11'
+                elif 'Windows 10' in caption:
+                    metrics['os'] = 'Windows 10'
+                else:
+                    metrics['os'] = caption
+        except Exception as e:
+            logger.debug("Windows OS caption detection failed: %s", e)
 
     return metrics
 
@@ -238,15 +130,39 @@ def get_system_metrics():
 def generate_landing_page():
     """Generate the landing page HTML."""
     lan_ips = get_lan_ips()
-    use_ssl = bool(CERT_FILE and os.path.exists(CERT_FILE))
+    # Use create_ssl_context() as the single source of truth so that
+    # links match the actual protocol the servers will use. This
+    # requires both CERT_FILE and KEY_FILE to exist and TLS_ENABLED
+    # to not be explicitly disabled.
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    use_ssl = create_ssl_context(CERT_FILE, KEY_FILE) is not None
     protocol = 'https' if use_ssl else 'http'
     metrics = get_system_metrics()
+
+    # Platform-aware descriptions
+    is_windows = platform.system() == 'Windows'
+    desktop_desc = (
+        'Escritorio Windows completo en el navegador. Controla el ratón y teclado desde cualquier dispositivo.'
+        if is_windows else
+        'Escritorio remoto completo en el navegador. Controla el ratón y teclado desde cualquier dispositivo.'
+    )
+    terminal_desc = (
+        'Terminal de comandos (cmd.exe) en el navegador. Ejecuta comandos de Windows remotamente.'
+        if is_windows else
+        'Terminal del sistema en el navegador. Ejecuta comandos de Linux remotamente.'
+    )
+    vnc_http_name = 'UltraVNC HTTP Viewer' if is_windows else 'VNC HTTP Viewer'
+    vnc_http_desc = (
+        'Visor VNC Java legacy de UltraVNC. Alternativa al noVNC moderno.'
+        if is_windows else
+        'Visor VNC HTTP legacy. Alternativa al noVNC moderno.'
+    )
 
     # All services with detailed info
     services = [
         {
             'name': 'VNC Desktop (noVNC)',
-            'desc': 'Escritorio Windows completo en el navegador. Controla el ratón y teclado desde cualquier dispositivo.',
+            'desc': desktop_desc,
             'features': ['Mouse y teclado completos', 'Portapapeles', 'Multi-monitor', 'Escalado automático'],
             'icon': '🖥️',
             'url': f'{protocol}://localhost:{NOVNC_PORT}/vnc.html',
@@ -257,7 +173,7 @@ def generate_landing_page():
         },
         {
             'name': 'Web Terminal',
-            'desc': 'Terminal de comandos (cmd.exe) en el navegador. Ejecuta comandos de Windows remotamente.',
+            'desc': terminal_desc,
             'features': ['Historial de comandos', 'Tab completion', 'Ctrl+C interrupt', 'Colores ANSI'],
             'icon': '⌨️',
             'url': f'{protocol}://localhost:{TTYD_PORT}/',
@@ -271,17 +187,17 @@ def generate_landing_page():
             'desc': 'Panel de monitorización con estado de servicios, CPU, memoria, disco y red.',
             'features': ['Estado por servicio', 'CPU/RAM/Disco', 'API JSON', 'Auto-refresh 30s'],
             'icon': '📊',
-            'url': f'http://localhost:{HEALTH_PORT}/health_status',
-            'url2': f'http://localhost:{HEALTH_PORT}/health_status.json',
-            'url2_label': 'API JSON',
+            'url': f'{protocol}://localhost:{HEALTH_PORT}/health',
+            'url2': f'{protocol}://localhost:{HEALTH_PORT}/health/all',
+            'url2_label': 'System + Services',
             'port': HEALTH_PORT,
             'running': check_port(HEALTH_PORT),
             'color': '#ff9800',
             'category': 'monitoring',
         },
         {
-            'name': 'UltraVNC HTTP Viewer',
-            'desc': 'Visor VNC Java legacy de UltraVNC. Alternativa al noVNC moderno.',
+            'name': vnc_http_name,
+            'desc': vnc_http_desc,
             'features': ['Java applet', 'Conexión directa', 'Legacy support'],
             'icon': '🔌',
             'url': f'http://localhost:{VNC_HTTP_PORT}/',
@@ -399,7 +315,8 @@ def generate_landing_page():
                 <div class="ip-links">
                     <a href="{protocol}://{ip}:{NOVNC_PORT}/vnc.html">🖥️ VNC Desktop</a>
                     <a href="{protocol}://{ip}:{TTYD_PORT}/">⌨️ Terminal</a>
-                    <a href="http://{ip}:{HEALTH_PORT}/health_status">📊 Health</a>
+                    <a href="{protocol}://{ip}:{HEALTH_PORT}/health">📊 Health</a>
+                    <a href="{protocol}://{ip}:{HEALTH_PORT}/health/all">📋 Health (all)</a>
                     <a href="{protocol}://{ip}:{PORT}">🏠 Portal</a>
                 </div>
             </div>"""
@@ -432,7 +349,23 @@ def generate_landing_page():
     </div>"""
 
     # What you can do section
-    features_section = """
+    ssl_feature = ""
+    if use_ssl:
+        ssl_feature = """
+            <div class="feature-card">
+                <span class="feature-icon">🔒</span>
+                <h3>Conexión cifrada</h3>
+                <p>Todos los servicios web usan HTTPS con certificado SSL (self-signed). Acepta la advertencia del navegador.</p>
+            </div>"""
+    else:
+        ssl_feature = """
+            <div class="feature-card">
+                <span class="feature-icon">⚠️</span>
+                <h3>Sin cifrado SSL</h3>
+                <p>Los servicios se ejecutan sin SSL (modo local). No expongas los puertos a Internet sin HTTPS.</p>
+            </div>"""
+
+    features_section = f"""
     <div class="features-section">
         <h2>✨ ¿Qué puedes hacer?</h2>
         <div class="feature-cards">
@@ -454,13 +387,9 @@ def generate_landing_page():
             <div class="feature-card">
                 <span class="feature-icon">📡</span>
                 <h3>VNC nativo</h3>
-                <p>Conecta con apps VNC externas (TigerVNC, RealVNC) directamente al puerto 5900 sin navegador.</p>
+                <p>Conecta con apps VNC externas (TigerVNC, RealVNC) directamente al puerto {VNC_PORT} sin navegador.</p>
             </div>
-            <div class="feature-card">
-                <span class="feature-icon">🔒</span>
-                <h3>Conexión cifrada</h3>
-                <p>Todos los servicios web usan HTTPS con certificado SSL (self-signed). Acepta la advertencia del navegador.</p>
-            </div>
+            {ssl_feature}
             <div class="feature-card">
                 <span class="feature-icon">🌐</span>
                 <h3>Acceso LAN</h3>
@@ -469,13 +398,20 @@ def generate_landing_page():
         </div>
     </div>"""
 
-    # Firewall note
+    # Firewall note (platform-aware, uses configured ports)
+    firewall_ports = ','.join(str(p) for p in [TTYD_PORT, NOVNC_PORT, HEALTH_PORT, VNC_PORT, VNC_HTTP_PORT, PORT])
     firewall_html = ''
-    if platform.system() == 'Windows':
-        firewall_html = """
+    if is_windows:
+        firewall_html = f"""
         <div class="notice">
             <strong>⚠️ Firewall de Windows:</strong> Para acceso remoto, ejecuta como administrador:
-            <code>New-NetFirewallRule -DisplayName "VNC Remote" -Direction Inbound -LocalPort 5000,6080,8090,5900,5800,8000 -Protocol TCP -Action Allow</code>
+            <code>New-NetFirewallRule -DisplayName "VNC Remote" -Direction Inbound -LocalPort {firewall_ports} -Protocol TCP -Action Allow</code>
+        </div>"""
+    else:
+        firewall_html = f"""
+        <div class="notice">
+            <strong>⚠️ Firewall de Linux:</strong> Para acceso remoto, abre los puertos necesarios:
+            <code>sudo ufw allow {firewall_ports}/tcp</code>
         </div>"""
 
     ssl_note = ''
@@ -672,14 +608,15 @@ def generate_landing_page():
 
 class LandingHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        # Check auth if LANDING_PASSWORD is set
-        if LANDING_PASSWORD:
-            auth = self.request.headers.get('Authorization')
-            if not self._check_auth(auth):
-                self.send_response(401)
-                self.set_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
-                self.end_headers()
-                return
+        # Check auth if LANDING_PASSWORD is set (uses shared helper)
+        if not check_landing_auth(self.headers.get('Authorization', '')):
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Unauthorized', 401)
+            self.wfile.write(body.encode())
+            return
         if self.path == '/' or self.path == '/index.html':
             self._serve_landing()
         elif self.path == '/status.json':
@@ -690,34 +627,30 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_template('gamepad.html')
         else:
             self.send_response(404)
+            self.send_header('Content-Type', 'application/json')
             self.end_headers()
-
-    def _check_auth(self, auth):
-        try:
-            if not auth or not auth.startswith('Basic '):
-                return False
-            decoded = base64.b64decode(auth[6:]).decode('utf-8')
-            expected = f'admin:{LANDING_PASSWORD}'
-            return hmac.compare_digest(decoded, expected)
-        except Exception:
-            return False
+            body, _ = error_json('Not found', 404)
+            self.wfile.write(body.encode())
 
     def _serve_landing(self):
         try:
             content = generate_landing_page()
             self.send_response(200)
-            self.set_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
             self.wfile.write(content.encode('utf-8'))
         except Exception as e:
-            self.send_response(500)
+            log_exception(e, 'Landing _serve_landing')
+            body, code = error_json('Failed to render landing page', 500)
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(f'Error: {e}'.encode())
+            self.wfile.write(body.encode())
 
     def _serve_template(self, template_name):
-        """Serve an HTML template from src/templates/."""
+        """Serve an HTML template from the web templates directory."""
         try:
-            template_path = os.path.join(PROJECT_DIR, 'src', 'templates', template_name)
+            template_path = os.path.join(os.path.dirname(__file__), '..', 'web', 'templates', template_name)
             if not os.path.isfile(template_path):
                 self.send_response(404)
                 self.end_headers()
@@ -726,13 +659,16 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             with open(template_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             self.send_response(200)
-            self.set_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
             self.wfile.write(content.encode('utf-8'))
         except Exception as e:
-            self.send_response(500)
+            log_exception(e, 'Landing _serve_template')
+            body, code = error_json(f'Failed to serve template {template_name}', 500)
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(f'Error: {e}'.encode())
+            self.wfile.write(body.encode())
 
     def _serve_status_json(self):
         try:
@@ -750,24 +686,25 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                 # Credentials are NOT exposed in JSON for security
             }
             self.send_response(200)
-            self.set_header('Content-Type', 'application/json')
+            self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(data, indent=2).encode())
         except Exception as e:
-            self.send_response(500)
+            log_exception(e, 'Landing _serve_status_json')
+            body, code = error_json('Failed to build status JSON', 500)
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(f'Error: {e}'.encode())
+            self.wfile.write(body.encode())
 
     def log_message(self, fmt, *args):
-        del fmt, args
+        # Route stdlib access logs to the module logger instead of discarding.
+        logger.info("%s - %s", self.client_address[0], fmt % args)
 
 
 def main():
-    ssl_options = None
-    if CERT_FILE and KEY_FILE and os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
-        ssl_options = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ssl_options.load_cert_chain(CERT_FILE, KEY_FILE)
-        print(f"[Landing] SSL enabled")
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    ssl_options = create_ssl_context(CERT_FILE, KEY_FILE)
 
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     server = socketserver.ThreadingTCPServer((HOST, PORT), LandingHandler)
@@ -775,13 +712,13 @@ def main():
     if ssl_options:
         server.socket = ssl_options.wrap_socket(server.socket, server_side=True)
 
-    print(f"[Landing] Portal running on {HOST}:{PORT}")
-    print(f"[Landing] URL: {'https' if ssl_options else 'http'}://localhost:{PORT}")
+    logger.info("Landing portal running on %s:%s", HOST, PORT)
+    logger.info("URL: %s://localhost:%s", 'https' if ssl_options else 'http', PORT)
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[Landing] Shutting down...")
+        logger.info("Shutting down...")
         server.shutdown()
 
 

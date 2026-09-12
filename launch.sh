@@ -10,6 +10,14 @@ set +e
 
 cd "$(dirname "$0")"
 export PROJECT_DIR="$(pwd)"
+export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+
+# Detect Python interpreter (python3 preferred, fall back to python for Windows Git Bash)
+PYTHON_BIN="$(command -v python3 || command -v python)"
+if [[ -z "$PYTHON_BIN" ]]; then
+    echo -e "${RED}  ERROR: python3/python not found on PATH${NC}"
+    exit 1
+fi
 
 # Parse arguments
 USE_SSL=true
@@ -41,21 +49,22 @@ echo ""
 if [[ -f "$PROJECT_DIR/.env" ]]; then
     set -a
     # shellcheck source=/dev/null
-    source "$PROJECT_DIR/.env"
+    # Strip carriage returns so CRLF (Windows) .env files work in bash.
+    source <(tr -d '\r' < "$PROJECT_DIR/.env")
     set +a
 fi
 
 # Read credentials from environment (with secure random fallback)
 VNC_PASS="${VNC_PASSWORD:-}"
 if [[ -z "$VNC_PASS" ]]; then
-    VNC_PASS=$(python3 -c "import secrets, string; print(''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12)))" 2>/dev/null)
+    VNC_PASS=$("$PYTHON_BIN" -c "from vnc_remote_secure.core.config import generate_random_password; print(generate_random_password(12))" 2>/dev/null || "$PYTHON_BIN" -c "import secrets, string; chars=string.ascii_letters+string.digits+'!@#\$%^&*'; print(''.join([secrets.choice(string.ascii_letters),secrets.choice(string.digits),secrets.choice('!@#\$%^&*')]+[secrets.choice(chars) for _ in range(9)]))")
     echo -e "${YELLOW}  VNC_PASSWORD not set, generated random${NC}"
 fi
 
 TTYD_USER="${TTYD_USERNAME:-admin}"
 TTYD_PASS="${TTYD_PASSWD:-}"
 if [[ -z "$TTYD_PASS" ]]; then
-    TTYD_PASS=$(python3 -c "import secrets, string; print(''.join(secrets.choice(string.ascii_letters + string.digits + '!@#\$%^&*') for _ in range(16)))" 2>/dev/null)
+    TTYD_PASS=$("$PYTHON_BIN" -c "from vnc_remote_secure.core.config import generate_random_password; print(generate_random_password(16))" 2>/dev/null || "$PYTHON_BIN" -c "import secrets, string; chars=string.ascii_letters+string.digits+'!@#\$%^&*'; print(''.join([secrets.choice(string.ascii_letters),secrets.choice(string.digits),secrets.choice('!@#\$%^&*')]+[secrets.choice(chars) for _ in range(13)]))")
     echo -e "${YELLOW}  TTYD_PASSWD not set, generated random${NC}"
 fi
 
@@ -78,12 +87,14 @@ export AUDIO_STREAM_PORT GAMEPAD_PORT
 # Health/landing bind (default 127.0.0.1 for security; set to 0.0.0.0 in .env to expose)
 export HEALTH_WEB_HOST="${HEALTH_WEB_HOST:-127.0.0.1}"
 export LANDING_HOST="${LANDING_HOST:-127.0.0.1}"
+export NOVNC_HOST="${NOVNC_HOST:-${SERVE_NOVNC_HOST:-127.0.0.1}}"
+export VNC_HTTP_PORT="${VNC_HTTP_PORT:-5800}"
 
 # ============================================================================
 # 0. Free ports
 # ============================================================================
 echo -e "${YELLOW}Freeing ports...${NC}"
-for port in $TTYD_PORT $NOVNC_PORT $HEALTH_WEB_PORT $VNC_PORT 5800 $LANDING_PORT; do
+for port in $TTYD_PORT $NOVNC_PORT $HEALTH_WEB_PORT $VNC_PORT $VNC_HTTP_PORT $LANDING_PORT; do
     pids=$(netstat -ano 2>/dev/null | grep ":$port " | grep LISTENING | awk '{print $NF}' | tr -d '\r' | sort -u)
     for pid in $pids; do
         taskkill /PID "$pid" /T /F 2>/dev/null || true
@@ -97,7 +108,7 @@ sleep 2
 # ============================================================================
 if [[ -n "${DUCKDNS_TOKEN:-}" && -n "${DUCK_DOMAIN:-}" ]]; then
     echo -e "${YELLOW}Updating Duck DNS (${DUCK_DOMAIN}.duckdns.org)...${NC}"
-    bash "$PROJECT_DIR/scripts/duckdns_update.sh" || echo -e "${YELLOW}  Duck DNS update failed, continuing...${NC}"
+    bash "$PROJECT_DIR/scripts/utilities/duckdns_update.sh" || echo -e "${YELLOW}  Duck DNS update failed, continuing...${NC}"
 else
     echo -e "${YELLOW}Duck DNS not configured (DUCKDNS_TOKEN/DUCK_DOMAIN not set in .env)${NC}"
 fi
@@ -115,7 +126,7 @@ if $USE_SSL; then
     SSL_CERT="$SSL_DIR/fullchain.pem"
     SSL_KEY="$SSL_DIR/privkey.pem"
 
-    python3 "$PROJECT_DIR/gen_ssl.py"
+    "$PYTHON_BIN" "$PROJECT_DIR/scripts/utilities/generate_certificate.py"
 
     if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
         echo -e "${GREEN}  SSL certificate generated: $SSL_CERT${NC}"
@@ -142,7 +153,7 @@ if [[ ! -f "$ULTRAVNC_DIR/winvnc.exe" ]]; then
     echo -e "${RED}  ERROR: winvnc.exe not found at $ULTRAVNC_DIR${NC}"
     echo -e "${RED}  VNC desktop will not be available${NC}"
 else
-    VNC_HASH=$(python3 "$PROJECT_DIR/gen_vnc_pass.py" "$VNC_PASS" 2>/dev/null | grep "Encrypted" | cut -d: -f2 | tr -d ' ')
+    VNC_HASH=$(VNC_PASSWORD="$VNC_PASS" "$PYTHON_BIN" "$PROJECT_DIR/scripts/utilities/generate_vnc_password.py" --ultravnc 2>/dev/null | grep "UltraVNC encrypted (hex):" | cut -d: -f2 | tr -d ' ')
     if [[ -z "$VNC_HASH" ]]; then
         echo -e "${RED}  ERROR: VNC hash generation failed. Aborting VNC setup.${NC}"
         exit 1
@@ -155,7 +166,7 @@ AllowLoopback=1
 PortNumber=$VNC_PORT
 SocketConnect=1
 HTTPConnect=1
-HTTPPortNumber=5800
+HTTPPortNumber=$VNC_HTTP_PORT
 AutoPortSelect=0
 RemoveWallpaper=0
 RemoveAero=0
@@ -232,7 +243,7 @@ fi
 # ============================================================================
 echo ""
 echo -e "${YELLOW}Starting web terminal on port $TTYD_PORT...${NC}"
-python3 "$PROJECT_DIR/web_terminal.py" &
+"$PYTHON_BIN" -m vnc_remote_secure.services.terminal &
 TTYD_PID=$!
 sleep 2
 if netstat -ano 2>/dev/null | grep ":$TTYD_PORT " | grep -q LISTENING; then
@@ -255,12 +266,12 @@ fi
 if [[ -n "$SSL_CERT" && -n "$SSL_KEY" ]]; then
     CERT_WIN=$(cygpath -w "$SSL_CERT" 2>/dev/null || echo "$SSL_CERT")
     KEY_WIN=$(cygpath -w "$SSL_KEY" 2>/dev/null || echo "$SSL_KEY")
-    python3 -m websockify --web "$NOVNC_DIR" \
+    "$PYTHON_BIN" -m websockify --web "$NOVNC_DIR" \
         --cert "$CERT_WIN" --key "$KEY_WIN" --ssl-only \
-        0.0.0.0:$NOVNC_PORT localhost:$VNC_PORT &
+        "$NOVNC_HOST:$NOVNC_PORT" localhost:$VNC_PORT &
 else
-    python3 -m websockify --web "$NOVNC_DIR" \
-        0.0.0.0:$NOVNC_PORT localhost:$VNC_PORT &
+    "$PYTHON_BIN" -m websockify --web "$NOVNC_DIR" \
+        "$NOVNC_HOST:$NOVNC_PORT" localhost:$VNC_PORT &
 fi
 WS_PID=$!
 sleep 3
@@ -287,9 +298,9 @@ export USER_UI_ENABLED=false
 export TEMP_USER="$USERNAME"
 export LOG_LEVEL=INFO
 export VERBOSE=false
-export KEEP_TEMP_USER=true
+export KEEP_TEMP_USER="${KEEP_TEMP_USER:-false}"
 
-python3 "$PROJECT_DIR/src/lib/monitoring/health_web_server.py" &
+"$PYTHON_BIN" -m vnc_remote_secure.services.health &
 HEALTH_PID=$!
 sleep 2
 if netstat -ano 2>/dev/null | grep ":$HEALTH_WEB_PORT " | grep -q LISTENING; then
@@ -303,7 +314,7 @@ fi
 # ============================================================================
 echo ""
 echo -e "${YELLOW}Starting landing page on port $LANDING_PORT...${NC}"
-python3 "$PROJECT_DIR/landing_page.py" &
+"$PYTHON_BIN" -m vnc_remote_secure.services.landing &
 LANDING_PID=$!
 sleep 2
 if netstat -ano 2>/dev/null | grep ":$LANDING_PORT " | grep -q LISTENING; then
@@ -318,7 +329,7 @@ fi
 if [[ "${AUDIO_STREAM_ENABLED:-false}" == "true" ]]; then
     echo ""
     echo -e "${YELLOW}Starting audio stream server on port $AUDIO_STREAM_PORT...${NC}"
-    python3 "$PROJECT_DIR/audio_stream_server.py" &
+    "$PYTHON_BIN" -m vnc_remote_secure.services.audio &
     AUDIO_PID=$!
     sleep 2
     if netstat -ano 2>/dev/null | grep ":$AUDIO_STREAM_PORT " | grep -q LISTENING; then
@@ -337,7 +348,7 @@ fi
 if [[ "${GAMEPAD_ENABLED:-false}" == "true" ]]; then
     echo ""
     echo -e "${YELLOW}Starting gamepad forwarding server on port $GAMEPAD_PORT...${NC}"
-    python3 "$PROJECT_DIR/gamepad_server.py" &
+    "$PYTHON_BIN" -m vnc_remote_secure.services.gamepad &
     GAMEPAD_PID=$!
     sleep 2
     if netstat -ano 2>/dev/null | grep ":$GAMEPAD_PORT " | grep -q LISTENING; then
@@ -367,8 +378,9 @@ echo "Local access (this machine):"
 echo "  Portal (landing page): $PROTOCOL://localhost:$LANDING_PORT"
 echo "  VNC desktop (noVNC):   $PROTOCOL://localhost:$NOVNC_PORT/vnc.html"
 echo "  Terminal (web):        $PROTOCOL://localhost:$TTYD_PORT"
-echo "  Health dashboard:      http://localhost:$HEALTH_WEB_PORT/health_status"
-echo "  UltraVNC HTTP:         http://localhost:5800"
+echo "  Health (JSON):         $PROTOCOL://localhost:$HEALTH_WEB_PORT/health"
+echo "  Health (full):         $PROTOCOL://localhost:$HEALTH_WEB_PORT/health/all"
+echo "  UltraVNC HTTP:         http://localhost:$VNC_HTTP_PORT"
 if [[ "${AUDIO_STREAM_ENABLED:-false}" == "true" ]]; then
     echo "  Audio receiver:        $PROTOCOL://localhost:$LANDING_PORT/audio_receiver.html"
 fi
@@ -383,7 +395,8 @@ for ip in $ALL_IPS; do
     echo "    Portal:        $PROTOCOL://$ip:$LANDING_PORT"
     echo "    VNC desktop:   $PROTOCOL://$ip:$NOVNC_PORT/vnc.html"
     echo "    Terminal:      $PROTOCOL://$ip:$TTYD_PORT"
-    echo "    Health:        http://$ip:$HEALTH_WEB_PORT/health_status"
+    echo "    Health (JSON):  $PROTOCOL://$ip:$HEALTH_WEB_PORT/health"
+    echo "    Health (full):  $PROTOCOL://$ip:$HEALTH_WEB_PORT/health/all"
     echo ""
 done
 

@@ -50,20 +50,37 @@ test_help_command_exits_zero() {
 }
 
 test_no_args_does_not_hang() {
-    # Running with no args should not hang indefinitely. The script calls
-    # main() which starts services and calls `wait`. Since we don't have
-    # the dependencies installed, it should fail fast on validation or
-    # dependency installation. Use a generous timeout.
-    local rc
-    rc=$(timeout 10 bash "$MAIN_SCRIPT" >/dev/null 2>&1; echo $?)
-    # 124 = timeout (hung), which is a failure for a script that should
-    # fail fast without dependencies. But since it may start background
-    # processes, we accept 124 as "started but couldn't complete".
-    if [[ "$rc" == "124" ]]; then
-        echo "    script ran for 10s (may have started bg processes) - rc=124"
+    # Running with no args defaults to 'setup' (full install + start).
+    # The script should produce meaningful output (banner, validation,
+    # dependency checks) within a reasonable time. A silent hang is a
+    # failure; a timeout after producing output is acceptable because
+    # the script enters `wait` for background services.
+    local output rc
+    output=$(mktemp)
+    bash "$MAIN_SCRIPT" >"$output" 2>&1 &
+    local pid=$!
+    sleep 10
+    if kill -0 "$pid" 2>/dev/null; then
+        # Still running after 10s — script entered service wait loop.
+        # Verify it produced meaningful output, not a silent hang.
+        kill -9 "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+        local lines
+        lines=$(wc -l < "$output")
+        if (( lines < 5 )); then
+            echo "    script hung with only $lines lines of output"
+            rm -f "$output"
+            return 1
+        fi
+        echo "    script ran for 10s with $lines lines of output (entered service wait)"
+        rm -f "$output"
+        return 0
+    else
+        wait "$pid" 2>/dev/null
+        rc=$?
+        rm -f "$output"
         return 0
     fi
-    return 0
 }
 
 test_cleanup_removes_temp_user() {

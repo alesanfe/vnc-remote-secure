@@ -1,7 +1,7 @@
 # Installer.Tests.ps1 - Tests for Windows installer
-BeforeAll {
-    . "$PSScriptRoot\..\..\native\windows\commands\Install-VncRemote.ps1" -ErrorAction SilentlyContinue
-}
+# These tests verify static properties of the installer script (existence,
+# WhatIf support, default path). They do NOT execute the installer, which
+# would require administrator privileges and create system directories.
 
 Describe "Installer" -Tag "Windows" {
     Context "Script exists" {

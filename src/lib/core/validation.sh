@@ -229,8 +229,8 @@ validate_username() {
         return 1
     fi
 
-    # Check for reserved usernames
-    local reserved=("root" "daemon" "bin" "sys" "sync" "games" "man" "lp" "mail" "news" "uucp" "proxy" "www-data" "backup" "list" "irc" "gnats" "nobody" "systemd-network" "systemd-resolve" "syslog" "messagebus" "uuidd" "dnsmasq" "usbmux" "rtkit" "pulse" "speech-dispatcher" "avahi" "saned" "colord" "hplip" "geoclue" "gnome-initial-setup" "gdm")
+    # Check for reserved usernames (aligned with Python RESERVED_USERNAMES)
+    local reserved=("root" "pi" "admin" "daemon" "bin" "sys" "sync" "games" "man" "lp" "mail" "news" "uucp" "proxy" "www-data" "backup" "list" "irc" "gnats" "nobody" "systemd-network" "systemd-resolve" "syslog" "messagebus" "uuidd" "dnsmasq" "usbmux" "rtkit" "pulse" "speech-dispatcher" "avahi" "saned" "colord" "hplip" "geoclue" "gnome-initial-setup" "gdm")
     for reserved_user in "${reserved[@]}"; do
         if [[ "$username" == "$reserved_user" ]]; then
             VALIDATION_ERRORS["$field_name"]="Username '$username' is reserved by the system"

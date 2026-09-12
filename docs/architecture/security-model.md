@@ -24,9 +24,13 @@ This project includes multiple security features to protect your Raspberry Pi re
 ## 🔐 Authentication
 
 ### Password Requirements
-- **Length**: 12+ characters
+- **Length**: 8+ characters (enforced by `validate_password` via `MIN_PASSWORD_LENGTH`)
 - **Complexity**: Uppercase, lowercase, numbers, symbols
 - **Different passwords** for VNC and terminal access
+
+> Note: VNC's legacy DES protocol truncates the password to 8 characters, so
+> longer passwords do not increase VNC auth strength. Use HTTPS/VPN/SSH
+> tunneling for transport security.
 
 ### User Management
 The project creates a temporary user for remote sessions:

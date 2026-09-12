@@ -135,6 +135,13 @@ test_shellcheck_no_errors() {
         echo "    (shellcheck not installed - skipping)"
         return 0
     fi
+    # Functional check: shellcheck wrappers (e.g. npm) may exist on PATH but
+    # fail at runtime if their runtime (node) is missing. Verify shellcheck
+    # actually works before relying on it.
+    if ! shellcheck --version >/dev/null 2>&1; then
+        echo "    (shellcheck found but not functional - skipping)"
+        return 0
+    fi
     local f
     local errors=0
     for f in "${ALL_SCRIPTS[@]}"; do
@@ -154,6 +161,11 @@ test_shellcheck_warnings_advisory() {
     # the count but does not fail the suite.
     if ! command -v shellcheck >/dev/null 2>&1; then
         echo "    (shellcheck not installed - skipping)"
+        return 0
+    fi
+    # Functional check (see test_shellcheck_no_errors for rationale).
+    if ! shellcheck --version >/dev/null 2>&1; then
+        echo "    (shellcheck found but not functional - skipping)"
         return 0
     fi
     local f

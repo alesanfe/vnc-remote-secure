@@ -124,6 +124,7 @@ OPTIONS:
     --quiet       Suppress non-error output
     --json        JSON output (status, doctor)
     --dry-run     Simulate without making changes
+    --no-ssl      Disable SSL/TLS for start (testing only)
     --version     Show version
     --help, -h    Show help
 
@@ -185,7 +186,7 @@ cmd_start() {
         return 0
     fi
     log_info "Starting services..."
-    bash "$ENTRY_POINT" start
+    bash "$ENTRY_POINT" start "${command_args[@]+"${command_args[@]}"}"
 }
 
 # ============================================================================
@@ -466,11 +467,11 @@ cmd_backup() {
         log_info "DRY RUN: Would create backup"
         return 0
     fi
-    if [[ ! -f "$PROJECT_DIR/scripts/backup.sh" ]]; then
+    if [[ ! -f "$PROJECT_DIR/scripts/maintenance/backup.sh" ]]; then
         log_error "backup.sh not found"
         return 1
     fi
-    bash "$PROJECT_DIR/scripts/backup.sh" "$@"
+    bash "$PROJECT_DIR/scripts/maintenance/backup.sh" "$@"
 }
 
 # ============================================================================
@@ -486,11 +487,11 @@ cmd_restore() {
         log_info "DRY RUN: Would restore from $1"
         return 0
     fi
-    if [[ ! -f "$PROJECT_DIR/scripts/restore.sh" ]]; then
+    if [[ ! -f "$PROJECT_DIR/scripts/maintenance/restore.sh" ]]; then
         log_error "restore.sh not found"
         return 1
     fi
-    bash "$PROJECT_DIR/scripts/restore.sh" "$@"
+    bash "$PROJECT_DIR/scripts/maintenance/restore.sh" "$@"
 }
 
 # ============================================================================
@@ -502,11 +503,11 @@ cmd_uninstall() {
         log_info "DRY RUN: Would uninstall (stop services, remove configs, certs, users)"
         return 0
     fi
-    if [[ ! -f "$PROJECT_DIR/scripts/uninstall.sh" ]]; then
+    if [[ ! -f "$PROJECT_DIR/scripts/maintenance/uninstall.sh" ]]; then
         log_error "uninstall.sh not found"
         return 1
     fi
-    bash "$PROJECT_DIR/scripts/uninstall.sh" "$@"
+    bash "$PROJECT_DIR/scripts/maintenance/uninstall.sh" "$@"
 }
 
 # ============================================================================
@@ -526,6 +527,7 @@ main() {
             --dry-run|-n)  DRY_RUN=true; shift ;;
             --version)     cmd_version; exit 0 ;;
             --help|-h)     cmd_help; exit 0 ;;
+            --no-ssl)      command_args+=("$1"); shift ;;
             --*)           log_error "Unknown option: $1"; cmd_help; exit 2 ;;
             *)
                 if [[ -z "$command" ]]; then
@@ -547,7 +549,7 @@ main() {
     # Dispatch
     case "$command" in
         install)    cmd_install "${command_args[@]+"${command_args[@]}"}" ;;
-        start)      cmd_start ;;
+        start)      cmd_start "${command_args[@]+"${command_args[@]}"}" ;;
         stop)       cmd_stop ;;
         restart)    cmd_restart ;;
         status)     cmd_status ;;

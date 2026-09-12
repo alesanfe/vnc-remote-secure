@@ -156,4 +156,4 @@ project layout and module organization.
 
 ## Questions?
 
-Open an issue on GitHub or see [`doc/`](doc/) for detailed documentation.
+Open an issue on GitHub or see [`docs/`](docs/) for detailed documentation.

@@ -2,25 +2,30 @@
 
 Starts and stops a VNC server (TigerVNC on Linux, UltraVNC on Windows)
 for a given display and reports its status. The actual process
-management is delegated to platform-specific binaries.
+management is delegated to platform-specific binaries via the platform
+adapter.
 """
-import os
-import shutil
-import subprocess
+import getpass
+import platform
 
-from vnc_remote_secure.core.constants import DEFAULT_VNC_DEPTH, DEFAULT_VNC_GEOMETRY
+from vnc_remote_secure.core.constants import (
+    DEFAULT_VNC_DEPTH,
+    DEFAULT_VNC_GEOMETRY,
+    DEFAULT_VNC_PORT,
+)
 from vnc_remote_secure.core.exceptions import ServiceError
 from vnc_remote_secure.core.processes import find_process, is_port_available
 from vnc_remote_secure.core.sessions import create_session, destroy_session
-from vnc_remote_secure.platform.detection import is_windows
+from vnc_remote_secure.platform.base import get_adapter
 
 
 def _vnc_port(display):
-    """Convert a display number to a TCP port (5900 + display)."""
+    """Convert a display number to a TCP port (DEFAULT_VNC_PORT + display)."""
+    base = DEFAULT_VNC_PORT
     if display is None:
-        return 5900
+        return base
     num = int(str(display).lstrip(':'))
-    return 5900 + num
+    return base + num
 
 
 def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,
@@ -47,23 +52,16 @@ def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,
     if not is_port_available(port):
         raise ServiceError(f"VNC server already running on {display_str} (port {port})")
 
-    if is_windows():
-        exe = shutil.which('winvnc')
-        if not exe:
-            raise ServiceError("UltraVNC winvnc.exe not found on PATH")
-        proc = subprocess.Popen([exe])
-        create_session(os.environ.get('USERNAME', 'unknown'), display_str, proc.pid)
-        return proc.pid
-    else:
-        exe = shutil.which('tigervncserver') or shutil.which('vncserver')
-        if not exe:
-            raise ServiceError("VNC server binary not found on PATH")
-        cmd = [exe, display_str, '-geometry', geometry, '-depth', str(depth)]
-        if password:
-            cmd.extend(['-password', password])
-        proc = subprocess.Popen(cmd)
-        create_session(os.environ.get('USER', 'unknown'), display_str, proc.pid)
+    adapter = get_adapter()
+    proc = adapter.start_vnc_server(display_str, geometry, depth, password)
+    username = getpass.getuser()
+    if hasattr(proc, 'pid'):
+        create_session(username, display_str, proc.pid)
+        # Windows adapter contract: return PID; Linux: return Popen
+        if platform.system() == 'Windows':
+            return proc.pid
         return proc
+    return proc
 
 
 def stop_vnc(display=':1'):
@@ -77,11 +75,8 @@ def stop_vnc(display=':1'):
     port = _vnc_port(display_str)
     pid = find_process(port)
     if pid:
-        if is_windows():
-            subprocess.run(['taskkill', '/PID', str(pid), '/F'],
-                           capture_output=True)
-        else:
-            subprocess.run(['kill', '-TERM', str(pid)], capture_output=True)
+        adapter = get_adapter()
+        adapter.stop_vnc_process(pid)
     destroy_session(display_str)
     return True
 

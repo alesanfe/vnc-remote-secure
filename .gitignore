@@ -7,6 +7,8 @@
 .env.*
 !.env.example
 .vnc-credentials
+.runtime_credentials.json
+*.runtime_credentials.json
 secrets/
 *.key
 *.pem

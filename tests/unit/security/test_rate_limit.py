@@ -1,0 +1,61 @@
+"""Unit tests for rate limiting module."""
+import os
+import sys
+import time
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+
+from vnc_remote_secure.security.rate_limit import RateLimiter
+
+
+class TestRateLimiter:
+    def test_allows_initial_attempts(self):
+        rl = RateLimiter(max_attempts=3, lockout_seconds=60, window_seconds=60)
+        assert not rl.is_locked('user1')
+        assert rl.remaining_attempts('user1') == 3
+
+    def test_records_failures(self):
+        rl = RateLimiter(max_attempts=3, lockout_seconds=60, window_seconds=60)
+        rl.record_failure('user1')
+        rl.record_failure('user1')
+        assert rl.remaining_attempts('user1') == 1
+        assert not rl.is_locked('user1')
+
+    def test_locks_after_max_attempts(self):
+        rl = RateLimiter(max_attempts=3, lockout_seconds=60, window_seconds=60)
+        for _ in range(3):
+            rl.record_failure('user1')
+        assert rl.is_locked('user1')
+        assert rl.get_lockout_remaining('user1') > 0
+
+    def test_success_clears_history(self):
+        rl = RateLimiter(max_attempts=3, lockout_seconds=60, window_seconds=60)
+        rl.record_failure('user1')
+        rl.record_failure('user1')
+        rl.record_success('user1')
+        assert rl.remaining_attempts('user1') == 3
+        assert not rl.is_locked('user1')
+
+    def test_different_keys_independent(self):
+        rl = RateLimiter(max_attempts=2, lockout_seconds=60, window_seconds=60)
+        rl.record_failure('user1')
+        rl.record_failure('user1')
+        assert rl.is_locked('user1')
+        assert not rl.is_locked('user2')
+        assert rl.remaining_attempts('user2') == 2
+
+    def test_lockout_expires(self):
+        rl = RateLimiter(max_attempts=1, lockout_seconds=1, window_seconds=10)
+        rl.record_failure('user1')
+        assert rl.is_locked('user1')
+        time.sleep(1.1)
+        assert not rl.is_locked('user1')
+
+    def test_window_pruning(self):
+        rl = RateLimiter(max_attempts=2, lockout_seconds=60, window_seconds=1)
+        rl.record_failure('user1')
+        time.sleep(1.1)
+        # Old attempt should be pruned
+        assert rl.remaining_attempts('user1') == 2

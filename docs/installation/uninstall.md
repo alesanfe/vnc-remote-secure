@@ -49,7 +49,7 @@ rm -rf /var/log/vnc-remote-secure/
 ### Windows
 ```powershell
 # Remove firewall rules
-.\scripts\Manage-Firewall.ps1 -Action Remove
+.\native\windows\Firewall.ps1 -Action Remove
 
 # Remove generated files
 Remove-Item -Recurse -Force data\ssl\

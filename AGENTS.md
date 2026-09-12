@@ -49,7 +49,7 @@ CLI común en Python (vnc-remote)
 - **Linux Bash**: `src/rpi-vnc-remote.sh` + `src/lib/{core,security,web,monitoring,communication,features}/`
 - **Windows PowerShell**: `native/windows/` (module + commands)
 - **Native assets**: `native/linux/systemd/`, `native/windows/service/`
-- **Configuration**: `config/{schema,defaults,nginx,examples}/`
+- **Configuration**: `config/{schema,defaults,examples}/` (nginx template lives at `src/config/nginx.conf`)
 - **External deps**: `third_party/{manifests,licenses,checksums}/`
 - **Tools**: `tools/{doctor,download_dependencies,verify_dependencies,migrate_configuration}.py`
 - **Scripts**: `scripts/{development,maintenance,release,utilities}/`
@@ -112,12 +112,26 @@ tests/
 ├── e2e/            # End-to-end scenarios (linux, windows)
 ├── security/       # Security tests (permissions, secret exposure, network)
 ├── powershell/     # Pester tests for Windows PowerShell module
+├── windows/        # Pester tests for Windows wrapper (VncRemote.ps1)
 ├── shell/          # Bats-style shell tests
 ├── fixtures/       # Static test data (config, certificates, responses)
 └── lib/            # Bash test framework
 ```
 
-**Baseline: 140 tests passing (116 Bash + 24 PowerShell).**
+### Supported test formats
+
+| Format | Runner | Description |
+|--------|--------|-------------|
+| `test_*.sh` | `bash` | Bash test scripts |
+| `*.bats` | `bats` | Bats-style shell tests |
+| `test_*.py` | `pytest` | Python unit/integration tests |
+| `*.Tests.ps1` | `pwsh` / `powershell` | Pester tests for PowerShell |
+
+`run_tests.sh` auto-discovers all four formats. Tests for unavailable
+runners (e.g., `bats` or `pwsh` on Linux) are skipped with a warning.
+
+**Note: Test counts vary by platform and installed runners. Run
+`bash tests/run_tests.sh -l` to see the exact count for your environment.**
 
 Always run `bash tests/run_tests.sh` before committing changes to `src/` or `tests/`.
 

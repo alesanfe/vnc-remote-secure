@@ -5,7 +5,8 @@ query the status of all managed services. The HTTP server uses only the
 standard library so it has no external dependencies.
 """
 import json
-import socket
+import logging
+import os
 import threading
 
 from vnc_remote_secure.core.constants import (
@@ -14,19 +15,33 @@ from vnc_remote_secure.core.constants import (
     DEFAULT_NOVNC_PORT,
     DEFAULT_TTYD_PORT,
     DEFAULT_VNC_PORT,
+    DEFAULT_BIND_HOST,
 )
+from vnc_remote_secure.core.errors import log_exception, error_json
 from vnc_remote_secure.core.processes import is_port_available
 
 import http.server
 
+logger = logging.getLogger(__name__)
 
-_SERVICE_PORTS = {
-    'vnc': DEFAULT_VNC_PORT,
-    'novnc': DEFAULT_NOVNC_PORT,
-    'ttyd': DEFAULT_TTYD_PORT,
-    'health': DEFAULT_HEALTH_PORT,
-    'landing': DEFAULT_LANDING_PORT,
-}
+
+def _service_ports():
+    """Return the service-to-port mapping, honoring .env overrides.
+
+    Reads ``VNC_PORT``, ``NOVNC_PORT``, ``TTYD_PORT``, ``HEALTH_WEB_PORT``
+    and ``LANDING_PORT`` from the environment (falling back to the
+    platform-aware ``DEFAULT_*`` constants) so the health check probes
+    the ports the operator actually configured.
+    """
+    from vnc_remote_secure.core.config import load_env_file
+    load_env_file()
+    return {
+        'vnc': int(os.environ.get('VNC_PORT', str(DEFAULT_VNC_PORT))),
+        'novnc': int(os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT))),
+        'ttyd': int(os.environ.get('TTYD_PORT', str(DEFAULT_TTYD_PORT))),
+        'health': int(os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT))),
+        'landing': int(os.environ.get('LANDING_PORT', str(DEFAULT_LANDING_PORT))),
+    }
 
 
 def _check_port(port):
@@ -36,7 +51,7 @@ def _check_port(port):
 
 def check_health():
     """Return a dict mapping service names to listening booleans."""
-    return {name: _check_port(port) for name, port in _SERVICE_PORTS.items()}
+    return {name: _check_port(port) for name, port in _service_ports().items()}
 
 
 def get_health_status():
@@ -66,10 +81,24 @@ def get_health_status():
 
 
 class _HealthHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP request handler for the health endpoint."""
+    """HTTP request handler for the health endpoint.
+
+    Auth is controlled by ``HEALTH_AUTH_TOKEN`` via the shared
+    :func:`check_health_auth` helper. When the token is unset, access
+    is open (intended for localhost-only binding via ``DEFAULT_BIND_HOST``).
+    """
 
     def do_GET(self):  # noqa: N802 - stdlib API
+        from vnc_remote_secure.security.http_auth import check_health_auth
         if self.path in ('/health', '/health_status', '/health_status.json'):
+            if not check_health_auth(self.headers.get('Authorization', '')):
+                body, _ = error_json('Unauthorized', 401)
+                self.send_response(401)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
+                self.end_headers()
+                self.wfile.write(body.encode('utf-8'))
+                return
             status = get_health_status()
             body = json.dumps(status, indent=2).encode('utf-8')
             self.send_response(200)
@@ -77,21 +106,74 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == '/health/all':
+            if not check_health_auth(self.headers.get('Authorization', '')):
+                body, _ = error_json('Unauthorized', 401)
+                self.send_response(401)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
+                self.end_headers()
+                self.wfile.write(body.encode('utf-8'))
+                return
+            from vnc_remote_secure.monitoring.health import get_all_health
+            try:
+                status = get_all_health()
+                body = json.dumps(status, indent=2).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception:
+                logger.exception("Health status generation failed")
+                body, _ = error_json('Health status generation failed', 500)
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body.encode('utf-8'))
         else:
+            body, _ = error_json('Not found', 404)
             self.send_response(404)
+            self.send_header('Content-Type', 'application/json')
             self.end_headers()
+            self.wfile.write(body.encode('utf-8'))
 
-    def log_message(self, fmt, *args):  # noqa: D401 - silence stdlib logs
-        pass
+    def log_message(self, fmt, *args):  # noqa: D401 - route stdlib logs to logger
+        logger.info("%s - %s", self.client_address[0], fmt % args)
 
 
-def start_health_server(port=DEFAULT_HEALTH_PORT, host='0.0.0.0'):
+def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST, ssl_context=None):
     """Start the health HTTP server in a background thread.
+
+    Args:
+        port: Port to listen on.
+        host: Bind address.
+        ssl_context: Optional :class:`ssl.SSLContext` to enable HTTPS.
 
     Returns the :class:`http.server.HTTPServer` instance. The caller is
     responsible for calling ``shutdown()`` when finished.
     """
     server = http.server.HTTPServer((host, port), _HealthHandler)
+    if ssl_context:
+        server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server
+
+
+if __name__ == '__main__':
+    import time
+
+    _port = int(os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT)))
+    _host = os.environ.get('HEALTH_WEB_HOST', DEFAULT_BIND_HOST)
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    _ssl = create_ssl_context()
+    logger.info("Health server starting on %s:%s (%s)", _host, _port, 'https' if _ssl else 'http')
+    srv = start_health_server(port=_port, host=_host, ssl_context=_ssl)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        srv.shutdown()
+        logger.info("Health server stopped")

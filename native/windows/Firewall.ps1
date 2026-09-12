@@ -10,10 +10,10 @@
     Rules are tagged with 'VncRemoteSecure' prefix for easy identification and removal.
 
 .EXAMPLE
-    .\Manage-Firewall.ps1 -Action Create
-    .\Manage-Firewall.ps1 -Action Remove
-    .\Manage-Firewall.ps1 -Action List
-    .\Manage-Firewall.ps1 -Action Create -WhatIf
+    .\Firewall.ps1 -Action Create
+    .\Firewall.ps1 -Action Remove
+    .\Firewall.ps1 -Action List
+    .\Firewall.ps1 -Action Create -WhatIf
 
 .NOTES
     Requires: Administrator privileges
@@ -22,9 +22,8 @@
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [Parameter(Mandatory = $true)]
     [ValidateSet('Create', 'Remove', 'List', 'Verify')]
-    [string]$Action,
+    [string]$Action = 'List',
 
     [int]$HttpsPort = 443,
 

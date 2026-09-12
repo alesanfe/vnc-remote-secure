@@ -1,181 +1,173 @@
-# 🏥 Health API Endpoint
+# Health API Endpoint
 
-## 📋 Overview
-The health endpoint provides real-time system status information through a web interface.
+## Overview
 
-## 🔗 Endpoint Details
+The health endpoint provides real-time system status information through a
+JSON API. Two implementations coexist:
+
+- **Python (Flask)**: `src/vnc_remote_secure/web/routes/health.py` — served
+  via the Flask application in `web/application.py`.
+- **Python (stdlib)**: `src/vnc_remote_secure/services/health.py` — a
+  zero-dependency `http.server` fallback used when Flask is not installed.
+
+Both expose the same contract documented below.
+
+## Endpoint Details
 
 ### URL
+
 ```
-GET https://your-domain.com/health
+GET http://<host>:<HEALTH_WEB_PORT>/health
+GET http://<host>:<HEALTH_WEB_PORT>/health/all
 ```
+
+- `HEALTH_WEB_PORT` defaults to `8080` on Linux and `8090` on Windows.
+- `HEALTH_WEB_HOST` defaults to `127.0.0.1` (localhost only). Set it to
+  `0.0.0.0` to expose the endpoint on the LAN (use with `HEALTH_AUTH_TOKEN`).
 
 ### Authentication
-- **Public endpoint** (when SSL is enabled)
-- **No authentication required** for basic health checks
-- **Rate limited** to prevent abuse
+
+- **Open access** when `HEALTH_AUTH_TOKEN` is not set (intended for
+  localhost binding).
+- **Bearer token** required when `HEALTH_AUTH_TOKEN` is set. Send the
+  `Authorization: Bearer <token>` header.
+- On failure, the server returns `401` with
+  `WWW-Authenticate: Bearer realm="Health"`.
 
 ### Response Format
-- **Content-Type**: `text/html`
-- **Response**: Interactive HTML dashboard with auto-refresh
 
-## Features
+- **Content-Type**: `application/json`
+- **Body**: JSON object (see schemas below)
 
-### Real-time Information
-- **System Information**: Hostname, OS, Kernel, Uptime
-- **Service Status**: noVNC, ttyd, VNC Server with PIDs and addresses
-- **Resource Usage**: Memory, CPU, Disk utilization
-- **SSL Certificate**: Expiry date and validation status
-- **User Management**: Temporary user status
+## `/health` — Service health
 
-### Interactive Elements
-- **Auto-refresh**: Every 15 seconds (toggleable)
-- **Manual refresh**: Instant update button
-- **Responsive design**: Mobile-friendly interface
-- **Status indicators**: Color-coded health status
+Returns aggregated service status.
 
-## Template Variables
-
-The HTML template uses the following environment variables:
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `HOSTNAME` | System hostname | `pi` |
-| `OS` | Operating system | `Raspberry Pi OS` |
-| `KERNEL` | Kernel version | `6.1.21-v8+` |
-| `UPTIME` | System uptime | `up 2 hours, 30 minutes` |
-| `TIMESTAMP` | Current timestamp | `2026-04-28 21:13:00` |
-| `SERVICE_STATUS` | Generated HTML of service statuses | Dynamic content |
-
-## Implementation Details
-
-### Backend Components
-- **Health Web Server**: Python HTTP server on port 8080
-- **Template Engine**: `envsubst` for variable substitution
-- **Health Checks**: Bash scripts for system monitoring
-- **Configuration**: `src/templates/health.html`
-
-### Nginx Configuration
-```nginx
-location /health {
-    access_log off;
-    proxy_pass http://127.0.0.1:8080/health_status;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+```json
+{
+  "status": "healthy",
+  "services_up": 5,
+  "services_total": 5,
+  "services": {
+    "vnc": true,
+    "novnc": true,
+    "ttyd": true,
+    "health": true,
+    "landing": true
+  }
 }
 ```
 
-### Health Check Process
-1. **Request received** at `/health`
-2. **Nginx proxies** to health web server
-3. **Template processed** with current system data
-4. **HTML generated** and returned to client
-5. **Auto-refresh** updates every 15 seconds
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `healthy` (all up), `degraded` (some up), `down` (none up), or `unknown` |
+| `services_up` | int | Number of services listening |
+| `services_total` | int | Total number of tracked services |
+| `services` | object | Map of service name to listening boolean |
 
-## Status Indicators
+## `/health/all` — Combined system + service health
 
-| Status | Color | Meaning |
-|--------|-------|---------|
-| ✅ OK | Green | Service running normally |
-| ❌ Error | Red | Service failed or not running |
-| ⚠️ Warning | Yellow | Service degraded or attention needed |
+Returns system metrics plus the service status block above.
+
+```json
+{
+  "system": {
+    "hostname": "pi",
+    "os": "Linux 6.1.21-v8+",
+    "uptime": "2h 30m",
+    "cpu": "12%",
+    "memory": "1024MB / 4096MB",
+    "disk": "N/A"
+  },
+  "services": {
+    "status": "healthy",
+    "services_up": 5,
+    "services_total": 5,
+    "services": {
+      "vnc": true,
+      "novnc": true,
+      "ttyd": true,
+      "health": true,
+      "landing": true
+    }
+  }
+}
+```
+
+System metrics are collected via the platform adapter
+(`platform/linux/metrics.py` or `platform/windows/metrics.py`).
+
+## Error Responses
+
+All errors use the unified JSON envelope:
+
+```json
+{
+  "error": true,
+  "message": "Unauthorized"
+}
+```
+
+| Status | Cause |
+|--------|-------|
+| `401` | Missing or invalid `HEALTH_AUTH_TOKEN` |
+| `404` | Unknown path (stdlib server only) |
+
+## Integration Examples
+
+### Simple health check
+
+```bash
+curl -s http://127.0.0.1:8080/health | jq '.status'
+```
+
+### With Bearer token
+
+```bash
+curl -s -H "Authorization: Bearer $HEALTH_AUTH_TOKEN" \
+  http://127.0.0.1:8080/health/all | jq '.system.cpu'
+```
+
+### Monitoring script
+
+```bash
+#!/bin/bash
+HEALTH_URL="http://127.0.0.1:8080/health"
+RESPONSE=$(curl -s -f "$HEALTH_URL") || exit 1
+STATUS=$(echo "$RESPONSE" | jq -r '.status')
+if [ "$STATUS" = "healthy" ]; then
+  echo "System healthy"
+  exit 0
+else
+  echo "System issues detected: $STATUS"
+  exit 1
+fi
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Health endpoint not responding
 
-#### Health Page Not Loading
 ```bash
-# Check health web server
-ps aux | grep health_web_server
+# Check the port
+ss -tlnp 2>/dev/null | grep :8080 || netstat -ano | grep :8080
 
-# Check port 8080
-ss -tlnp | grep :8080
-
-# Restart health web server
-./rpi-vnc-remote.sh restart
+# Restart the stack
+vnc-remote restart
 ```
 
-#### Missing Information
-```bash
-# Run complete health check
-./scripts/health-check.sh
-
-# Check environment variables
-cat .env | grep -E "(NOVNC_PORT|TTYD_PORT|VNC_PORT)"
-```
-
-#### SSL Certificate Issues
-```bash
-# Check certificate expiry
-openssl x509 -enddate -noout -in data/ssl/fullchain.pem
-
-# Test certificate validity
-openssl x509 -checkend 86400 -noout -in data/ssl/fullchain.pem
-```
-
-### Debug Mode
-Enable verbose logging for detailed diagnostics:
+### 401 Unauthorized
 
 ```bash
-# Set verbose mode
-export VERBOSE=true
-
-# Run with debug
-./rpi-vnc-remote.sh health-check
+# Verify the token is set and matches
+grep HEALTH_AUTH_TOKEN .env
+curl -H "Authorization: Bearer $(grep HEALTH_AUTH_TOKEN .env | cut -d= -f2)" \
+  http://127.0.0.1:8080/health
 ```
 
 ## Security Considerations
 
-- **Rate limiting**: Configured in nginx (10r/s for VNC, 5r/s for terminal)
-- **SSL required**: HTTPS-only access recommended
-- **Access logs**: Disabled for health endpoint (privacy)
-- **Information disclosure**: Only system status, no sensitive data exposed
-
-## Integration
-
-### Monitoring Systems
-The endpoint can be integrated with external monitoring:
-
-```bash
-# Simple health check
-curl -k https://your-domain.com/health | grep -q "✅ All systems healthy"
-
-# JSON extraction (with custom parsing)
-curl -k https://your-domain.com/health | grep -o "✅.*running"
-```
-
-### Automation Scripts
-```bash
-#!/bin/bash
-# Automated health monitoring
-HEALTH_URL="https://your-domain.com/health"
-RESPONSE=$(curl -k -s "$HEALTH_URL")
-
-if echo "$RESPONSE" | grep -q "✅ All systems healthy"; then
-    echo "System healthy"
-    exit 0
-else
-    echo "System issues detected"
-    echo "$RESPONSE" | grep -E "(❌|⚠️)"
-    exit 1
-fi
-```
-
-## Customization
-
-### Template Modification
-Edit `src/templates/health.html` to customize:
-- Visual design (CSS)
-- Information displayed
-- Refresh intervals
-- Additional monitoring metrics
-
-### Status Checks
-Modify health check functions in `src/lib/monitoring/healthcheck.sh` to add:
-- Custom service monitoring
-- Additional system metrics
-- Custom alert thresholds
-- Integration with external APIs
+- **Bind to localhost by default**: `HEALTH_WEB_HOST=127.0.0.1`.
+- **Set `HEALTH_AUTH_TOKEN`** when binding to `0.0.0.0`.
+- **No sensitive data**: Only status booleans and system metrics are exposed.
+- **Access logs**: routed to the application logger at INFO level.

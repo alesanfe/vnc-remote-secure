@@ -6,10 +6,13 @@ import os
 
 from flask import Blueprint, current_app, render_template, send_from_directory
 
+from vnc_remote_secure.security.http_auth import require_auth, check_landing_auth
+
 landing_bp = Blueprint('landing', __name__)
 
 
 @landing_bp.route('/')
+@require_auth(check_landing_auth)
 def index():
     """Render the landing page.
 
@@ -32,6 +35,7 @@ def index():
 
 
 @landing_bp.route('/static/<path:filename>')
+@require_auth(check_landing_auth)
 def static_files(filename):
     """Serve static assets from the web templates directory."""
     static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')

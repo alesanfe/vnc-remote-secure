@@ -8,9 +8,9 @@
   "repository": null,
   "license": "GPL-2.0",
   "license_file": "third_party/licenses/tightvnc.txt",
-  "managed_by": "download",
+  "managed_by": "manual",
   "download_url": "https://www.tightvnc.com/download/tightvnc-2.8.85-gpl-setup-64bit.msi",
-  "filename": "tvnserver.exe",
-  "sha256": "TBD",
-  "notes": "Alternative VNC server. UltraVNC is preferred. Not committed to repository."
+  "filename": "tightvnc-2.8.85-gpl-setup-64bit.msi",
+  "sha256": "e4b80953edda4f404adf4108264d30b5a087562cf2f07c9766841a24daa7cd2c",
+  "notes": "TightVNC is distributed as an MSI installer (not a zip). It cannot be auto-extracted by download_dependencies.py. Marked manual: download the MSI and run the installer, or extract with msiexec. UltraVNC is the preferred VNC server. Not committed to repository."
 }

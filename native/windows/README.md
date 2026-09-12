@@ -34,10 +34,10 @@ Test-VncRemoteConfiguration
 
 ### Firewall management
 ```powershell
-.\scripts\Manage-Firewall.ps1 -Action Create
-.\scripts\Manage-Firewall.ps1 -Action List
-.\scripts\Manage-Firewall.ps1 -Action Verify
-.\scripts\Manage-Firewall.ps1 -Action Remove
+.\native\windows\Firewall.ps1 -Action Create
+.\native\windows\Firewall.ps1 -Action List
+.\native\windows\Firewall.ps1 -Action Verify
+.\native\windows\Firewall.ps1 -Action Remove
 ```
 
 ## What Windows Support Includes

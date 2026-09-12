@@ -133,10 +133,10 @@ win-run: ## Run on Windows with SSL
 
 win-run-nossl: ## Run on Windows without SSL (HTTP, for testing)
 	@echo "$(BLUE)Starting VNC Remote Secure (Windows, no SSL)...$(NC)"
-	@./vnc-remote start --profile local
+	@./vnc-remote start --no-ssl
 
 win-stop: ## Stop all Windows services
-	@./vnc-remote stop --force
+	@./vnc-remote stop
 
 win-verify: ## Verify all Windows services are responding
 	@python3 -m vnc_remote_secure.cli doctor

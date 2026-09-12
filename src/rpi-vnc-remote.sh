@@ -10,11 +10,12 @@ export PROJECT_DIR
 LIB_DIR="$SCRIPT_DIR/lib"
 
 # Load .env file if it exists (from project root or current directory)
+# Strip carriage returns so CRLF (Windows) .env files work in bash.
 for _env_file in "$PROJECT_DIR/.env" "$PWD/.env"; do
     if [[ -f "$_env_file" ]]; then
         set -a
         # shellcheck source=/dev/null
-        source "$_env_file"
+        source <(tr -d '\r' < "$_env_file")
         set +a
         break
     fi
@@ -194,7 +195,7 @@ main() {
     if [[ -n "$DUCKDNS_TOKEN" && -n "$DUCK_DOMAIN" ]]; then
         print_section "Duck DNS Update"
         log "cyan" "Updating $DUCK_DOMAIN.duckdns.org..."
-        if bash "$PROJECT_DIR/scripts/duckdns_update.sh"; then
+        if bash "$PROJECT_DIR/scripts/utilities/duckdns_update.sh"; then
             log "green" "Duck DNS updated successfully"
         else
             log "yellow" "Duck DNS update failed, continuing..."
@@ -257,4 +258,15 @@ main() {
 # ============================================================================
 # Dispatch to the appropriate function based on the first argument.
 # If no command is given, default to 'setup' (full install + start).
-handle_command "${1:-setup}"
+# Parse --no-ssl flag to disable SSL/TLS.
+CMD="${1:-setup}"
+shift 2>/dev/null || true
+for arg in "$@"; do
+    case "$arg" in
+        --no-ssl)
+            export DISABLE_SSL=true
+            export USE_SSL=false
+            ;;
+    esac
+done
+handle_command "$CMD"

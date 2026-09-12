@@ -55,6 +55,37 @@ class PlatformAdapter:
         """Return platform information dict."""
         raise NotImplementedError
 
+    # ---- Service-specific platform operations ----
+
+    def get_lan_ips(self):
+        """Return a list of LAN IP addresses (excluding virtual/loopback)."""
+        raise NotImplementedError
+
+    def start_vnc_server(self, display, geometry, depth, password):
+        """Start the platform VNC server.
+
+        Returns a process object (with a ``pid`` attribute) on success, or
+        raises :class:`ServiceError` if the server binary is missing or fails
+        to start.
+        """
+        raise NotImplementedError
+
+    def stop_vnc_process(self, pid):
+        """Stop a VNC process by PID."""
+        raise NotImplementedError
+
+    def get_audio_capture_cmd(self, ffmpeg, device, bitrate):
+        """Return ffmpeg input args for audio capture on this platform."""
+        raise NotImplementedError
+
+    def list_audio_devices(self, ffmpeg):
+        """List available audio capture devices (platform-specific)."""
+        raise NotImplementedError
+
+    def create_gamepad_injector(self):
+        """Return a platform-specific gamepad injector instance (or None)."""
+        raise NotImplementedError
+
 
 def get_adapter():
     """Detect platform and return the appropriate adapter instance."""

@@ -4,10 +4,28 @@ Aggregates system-level and per-service health into a unified view.
 System health covers CPU, memory, disk, and uptime; service health
 delegates to the health-check service.
 """
+import logging
 import platform
-import subprocess
 
-from vnc_remote_secure.services.health import check_health
+from vnc_remote_secure.services.health import get_health_status
+
+logger = logging.getLogger(__name__)
+
+
+def _get_platform_metrics():
+    """Delegate system metrics collection to the platform adapter."""
+    if platform.system() == 'Windows':
+        try:
+            from vnc_remote_secure.platform.windows.metrics import get_system_metrics
+        except ImportError:
+            return {}
+        return get_system_metrics()
+    else:
+        try:
+            from vnc_remote_secure.platform.linux.metrics import get_system_metrics
+        except ImportError:
+            return {}
+        return get_system_metrics()
 
 
 def get_system_health():
@@ -24,26 +42,7 @@ def get_system_health():
         'hostname': platform.node(),
         'os': f'{platform.system()} {platform.release()}',
     }
-
-    if platform.system() == 'Windows':
-        try:
-            result = subprocess.run(
-                ['wmic', 'cpu', 'get', 'loadpercentage', '/value'],
-                capture_output=True, text=True, timeout=5,
-            )
-            import re
-            match = re.search(r'LoadPercentage=(\d+)', result.stdout)
-            if match:
-                metrics['cpu'] = f"{match.group(1)}%"
-        except Exception:
-            pass
-    else:
-        try:
-            with open('/proc/loadavg', 'r') as f:
-                metrics['cpu'] = f"Load: {f.readline().split()[0]}"
-        except Exception:
-            pass
-
+    metrics.update(_get_platform_metrics())
     return metrics
 
 
@@ -57,15 +56,20 @@ def get_service_health(name=None):
     Returns:
         A dict (single service) or dict of dicts (all services).
     """
-    services = check_health()
+    services = get_health_status()['services']
     if name:
         return {name: services.get(name, False)}
     return services
 
 
 def get_all_health():
-    """Return a combined system + service health snapshot."""
+    """Return a combined system + service health snapshot.
+
+    The ``services`` key contains the aggregated status dict produced
+    by :func:`get_health_status` (with ``status``, ``services_up``,
+    ``services_total`` and per-service booleans).
+    """
     return {
         'system': get_system_health(),
-        'services': get_service_health(),
+        'services': get_health_status(),
     }

@@ -25,5 +25,9 @@
 - [Testing](developer/testing.md) - Test suite guide
 - [Releasing](developer/releasing.md) - Release process
 
+## Security
+- [Threat Model](THREAT_MODEL.md) - Formal STRIDE threat model and risk matrix
+- [Security Policy](../SECURITY.md) - Responsible disclosure and scope
+
 ## Archive
 - [Original README](archive/README-original.md) - Original project README
