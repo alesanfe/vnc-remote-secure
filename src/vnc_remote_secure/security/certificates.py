@@ -73,9 +73,9 @@ def generate_self_signed(cert_path, key_path, common_name='vnc-remote-secure',
 
     try:
         from cryptography import x509
-        from cryptography.x509.oid import NameOID
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
     except ImportError:
         return _generate_via_openssl(cert_path, key_path, common_name, days_valid)
 

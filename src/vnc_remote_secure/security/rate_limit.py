@@ -4,13 +4,12 @@ Implements a simple in-memory sliding-window rate limiter to prevent
 brute-force attacks. Tracks failed attempts per IP address and per
 username, with progressive delays and temporary lockouts.
 """
+import os
 import time
 from collections import defaultdict
 from threading import Lock
 
 from vnc_remote_secure.core.config import load_env_file
-import os
-
 
 # Default limits (configurable via env vars)
 DEFAULT_MAX_ATTEMPTS = 5

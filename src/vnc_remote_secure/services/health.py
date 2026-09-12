@@ -4,23 +4,22 @@ Provides a lightweight HTTP health endpoint and helper functions to
 query the status of all managed services. The HTTP server uses only the
 standard library so it has no external dependencies.
 """
+import http.server
 import json
 import logging
 import os
 import threading
 
 from vnc_remote_secure.core.constants import (
+    DEFAULT_BIND_HOST,
     DEFAULT_HEALTH_PORT,
     DEFAULT_LANDING_PORT,
     DEFAULT_NOVNC_PORT,
     DEFAULT_TTYD_PORT,
     DEFAULT_VNC_PORT,
-    DEFAULT_BIND_HOST,
 )
-from vnc_remote_secure.core.errors import log_exception, error_json
+from vnc_remote_secure.core.errors import error_json
 from vnc_remote_secure.core.processes import is_port_available
-
-import http.server
 
 logger = logging.getLogger(__name__)
 

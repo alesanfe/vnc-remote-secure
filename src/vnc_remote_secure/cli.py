@@ -164,7 +164,7 @@ def cmd_stop(args):
 
 def cmd_restart(args):
     """Restart all services."""
-    project_root = _find_project_root()
+    _find_project_root()
     if args.dry_run:
         print("[DRY RUN] Would restart all services")
         return 0
@@ -264,7 +264,7 @@ def cmd_uninstall(args):
 
 def cmd_service(args):
     """Run in Windows service mode (foreground)."""
-    project_root = _find_project_root()
+    _find_project_root()
     if args.dry_run:
         print("[DRY RUN] Would run in service mode (foreground)")
         return 0
@@ -304,7 +304,7 @@ def cmd_version(args):
         print(json.dumps(info, indent=2))
     else:
         print(f"vnc-remote {__version__}")
-        print(f"VNC Remote Secure - Secure browser-based remote access")
+        print("VNC Remote Secure - Secure browser-based remote access")
         print(f"Platform: {info['platform']} {info['architecture']}")
         print(f"Python: {info['python']}")
     return 0
@@ -313,7 +313,8 @@ def cmd_version(args):
 def cmd_session(args):
     """Manage ephemeral remote sessions."""
     from vnc_remote_secure.security.ephemeral_sessions import (
-        get_session_store, ROLES, PERM_VIEW, PERM_CONTROL,
+        ROLES,
+        get_session_store,
     )
 
     store = get_session_store()
@@ -397,10 +398,11 @@ def cmd_session(args):
 
 def cmd_secrets(args):
     """Manage secrets (status, rotate, redact)."""
-    from vnc_remote_secure.security.redaction import get_secret_status, redact_env
-    from vnc_remote_secure.core.config import load_env_file
     import secrets as secrets_mod
     import string
+
+    from vnc_remote_secure.core.config import load_env_file
+    from vnc_remote_secure.security.redaction import get_secret_status, redact_env
 
     load_env_file()
 

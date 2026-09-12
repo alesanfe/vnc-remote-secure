@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import subprocess
+
 import websockets
 
 from vnc_remote_secure.core.constants import (

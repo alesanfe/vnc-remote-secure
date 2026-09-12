@@ -4,8 +4,8 @@ Calculates a local security score (0-100) based on configuration,
 exposure, authentication, and operational settings. Designed for
 display in the operational dashboard.
 """
-import os
 import logging
+import os
 from typing import List
 
 from vnc_remote_secure.core.config import load_env_file

@@ -4,10 +4,9 @@ Copies project files into the standard system directories, installs
 systemd unit files, creates runtime directories, and configures the
 service user. Requires root privileges.
 """
+import logging
 import os
 import shutil
-import subprocess
-import logging
 
 from vnc_remote_secure.core.paths import (
     ensure_dirs,

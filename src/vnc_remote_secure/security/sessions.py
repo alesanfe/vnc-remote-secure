@@ -91,7 +91,7 @@ def verify_session_cookie(cookie_value: str) -> Optional[dict]:
     now = time.time()
     if now > expires:
         return None
-    idle = _get_env_int('SESSION_IDLE_TIMEOUT', DEFAULT_IDLE_TIMEOUT)
+    _get_env_int('SESSION_IDLE_TIMEOUT', DEFAULT_IDLE_TIMEOUT)
     # Idle timeout is enforced by the cookie max-age; if the client
     # sends an old cookie, the browser would have expired it. But if
     # the client tampers with max-age, we still check absolute expiry.

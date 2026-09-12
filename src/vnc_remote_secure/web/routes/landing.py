@@ -6,7 +6,7 @@ import os
 
 from flask import Blueprint, current_app, render_template, send_from_directory
 
-from vnc_remote_secure.security.http_auth import require_auth, check_landing_auth
+from vnc_remote_secure.security.http_auth import check_landing_auth, require_auth
 
 landing_bp = Blueprint('landing', __name__)
 

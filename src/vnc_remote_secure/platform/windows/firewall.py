@@ -1,8 +1,6 @@
 """Windows Firewall management via PowerShell NetFirewall cmdlets."""
 import subprocess
 
-from vnc_remote_secure.core.exceptions import PlatformError
-
 
 def _run_powershell(script):
     """Run a PowerShell command and return the CompletedProcess."""

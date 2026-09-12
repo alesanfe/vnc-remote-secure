@@ -3,11 +3,11 @@
 Usage: python3 -m vnc_remote_secure.services.novnc [novnc_dir] [port]
 """
 import http.server
-import socketserver
 import logging
 import os
-import sys
 import signal
+import socketserver
+import sys
 
 logger = logging.getLogger(__name__)
 

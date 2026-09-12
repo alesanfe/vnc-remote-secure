@@ -5,10 +5,10 @@ so that landing, terminal, health, and the Flask UI use a single auth
 model instead of each service implementing its own.
 """
 import base64
+import functools
 import hmac
 import logging
 import os
-import functools
 
 from vnc_remote_secure.core.config import load_env_file
 
@@ -94,6 +94,7 @@ def require_auth(check_func, scheme='Basic', realm='VNC Remote Secure'):
         @functools.wraps(view)
         def wrapper(*args, **kwargs):
             from flask import request
+
             from vnc_remote_secure.core.errors import json_error
             auth = request.headers.get('Authorization', '')
             if not check_func(auth):

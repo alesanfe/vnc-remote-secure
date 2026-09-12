@@ -6,11 +6,9 @@ Thin wrapper around
 expected by the platform adapter contract.
 """
 from vnc_remote_secure.platform.windows.permissions import (
-    create_user,
     create_restricted_user,
+    create_user,
     remove_user,
-    restrict_user,
-    user_exists,
 )
 
 

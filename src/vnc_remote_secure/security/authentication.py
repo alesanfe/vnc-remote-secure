@@ -4,8 +4,8 @@ Provides username/password authentication backed by environment-configured
 credentials, plus session-token creation and validation using HMAC-signed
 tokens. Tokens are stateless and expire after a configurable lifetime.
 """
-import hmac
 import hashlib
+import hmac
 import os
 import secrets
 import time
@@ -13,7 +13,6 @@ import time
 from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.core.exceptions import SecurityError
 from vnc_remote_secure.security.credentials import verify_password
-
 
 # Default session token lifetime in seconds (30 minutes).
 DEFAULT_TOKEN_LIFETIME = 1800

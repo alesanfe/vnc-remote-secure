@@ -1,6 +1,5 @@
 """Platform detection utilities."""
 import platform
-import os
 
 
 def detect_platform():

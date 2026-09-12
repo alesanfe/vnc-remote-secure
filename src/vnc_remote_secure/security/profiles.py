@@ -16,8 +16,8 @@ Profiles:
     private-vpn        — Behind Tailscale/WireGuard, nginx public
     internet-hardened  — Public internet, Let's Encrypt, MFA, strict
 """
-import os
 import logging
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)

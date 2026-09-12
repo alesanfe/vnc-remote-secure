@@ -7,7 +7,6 @@ the module has no hard external dependency.
 """
 import hashlib
 import hmac
-import os
 import secrets
 import string
 

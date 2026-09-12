@@ -4,11 +4,9 @@ Collects system and service metrics into a single dictionary and
 formats them for human or machine consumption (text, JSON).
 """
 import json
-import platform
 import time
 
 from vnc_remote_secure.monitoring.health import get_all_health
-from vnc_remote_secure.monitoring.status import get_status
 
 # In-memory snapshot of the last collected metrics.
 _last_metrics = None

@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import platform
+
 import websockets
 
 from vnc_remote_secure.core.constants import (

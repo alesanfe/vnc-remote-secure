@@ -22,19 +22,15 @@ from vnc_remote_secure.security.authentication import (
     validate_session_token,
 )
 from vnc_remote_secure.security.mfa import (
-    verify_totp,
-    verify_recovery_code,
-    is_mfa_enabled,
     mfa_required_for_login,
+    verify_recovery_code,
+    verify_totp,
 )
 from vnc_remote_secure.security.rate_limit import get_auth_limiter
 from vnc_remote_secure.security.sessions import (
     create_session_cookie,
-    verify_session_cookie,
-    verify_csrf_token,
-    get_cookie_attributes,
     invalidate_session_cookie,
-    CSRF_HEADER,
+    verify_session_cookie,
 )
 
 logger = logging.getLogger(__name__)
@@ -197,8 +193,8 @@ def check_websocket_upgrade(
     if required_permission and bearer_token:
         from vnc_remote_secure.security.ephemeral_sessions import (
             check_permission,
-            is_session_revoked,
             is_session_expired,
+            is_session_revoked,
         )
         if is_session_revoked(bearer_token):
             return False, 'Session revoked'
@@ -231,8 +227,8 @@ def check_permission_for_action(
     """
     from vnc_remote_secure.security.ephemeral_sessions import (
         check_permission,
-        is_session_revoked,
         is_session_expired,
+        is_session_revoked,
     )
     if not bearer_token:
         return False, 'No token provided'

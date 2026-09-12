@@ -9,17 +9,16 @@ Security: Credentials are NOT displayed on the page. The landing page
 shows service status and URLs only. Users must check the launcher output
 or .env file for credentials.
 """
-import os
-import sys
+import http.server
 import json
 import logging
-import socket
+import os
 import platform
-import subprocess
 import re
-
-import http.server
+import socket
 import socketserver
+import subprocess
+import sys
 
 from vnc_remote_secure.core.errors import error_json, log_exception
 from vnc_remote_secure.security.http_auth import check_landing_auth
@@ -30,13 +29,13 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.core.constants import (
+    DEFAULT_BIND_HOST,
+    DEFAULT_HEALTH_PORT,
     DEFAULT_LANDING_PORT,
-    DEFAULT_VNC_PORT,
     DEFAULT_NOVNC_PORT,
     DEFAULT_TTYD_PORT,
-    DEFAULT_HEALTH_PORT,
     DEFAULT_VNC_HTTP_PORT,
-    DEFAULT_BIND_HOST,
+    DEFAULT_VNC_PORT,
 )
 
 load_env_file()

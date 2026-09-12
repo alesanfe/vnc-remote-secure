@@ -4,8 +4,8 @@ Creates the ProgramData directory structure, configures Windows
 Firewall rules for the service ports, and generates self-signed SSL
 certificates when none are present.
 """
-import os
 import logging
+import os
 
 from vnc_remote_secure.core.constants import (
     DEFAULT_HEALTH_PORT,
@@ -63,6 +63,7 @@ def install(project_root=None, configure_firewall_rules=True):
 def uninstall():
     """Remove installed directories and firewall rules."""
     import shutil
+
     from vnc_remote_secure.platform.windows.firewall import remove_firewall_rule
     for port in (DEFAULT_VNC_PORT, DEFAULT_NOVNC_PORT,
                  DEFAULT_TTYD_PORT, DEFAULT_HEALTH_PORT,

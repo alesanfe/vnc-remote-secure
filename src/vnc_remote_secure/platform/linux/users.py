@@ -7,7 +7,6 @@ providing the ``create_runtime_user``/``remove_runtime_user``/
 from vnc_remote_secure.platform.linux.permissions import (
     create_user,
     remove_user,
-    user_exists,
 )
 
 

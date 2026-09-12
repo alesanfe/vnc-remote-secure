@@ -33,7 +33,7 @@ class WindowsInputInjector:
 
         # SendInput structures
         INPUT_KEYBOARD = 1
-        INPUT_MOUSE = 2
+        _INPUT_MOUSE = 2  # defined for completeness, not currently used
 
         KEYEVENTF_KEYDOWN = 0x0000
         KEYEVENTF_KEYUP = 0x0002

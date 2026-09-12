@@ -13,7 +13,6 @@ from typing import Optional
 
 from vnc_remote_secure.core.config import load_env_file
 
-
 # TOTP parameters (RFC 6238 defaults)
 TOTP_INTERVAL = 30  # seconds
 TOTP_DIGITS = 6

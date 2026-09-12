@@ -16,17 +16,17 @@ Features:
   - ANSI color support
   - PowerShell or cmd.exe backend
 """
-import os
-import sys
-import logging
-import subprocess
-import threading
-import json
 import glob
+import json
+import logging
+import os
+import subprocess
+import sys
+import threading
 
+import tornado.ioloop
 import tornado.web
 import tornado.websocket
-import tornado.ioloop
 
 from vnc_remote_secure.core.constants import DEFAULT_BIND_HOST, DEFAULT_WEBTERM_SHELL
 from vnc_remote_secure.core.errors import log_exception
@@ -36,17 +36,22 @@ logger = logging.getLogger(__name__)
 
 # Load configuration from .env file (never hardcode credentials)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from vnc_remote_secure.core.config import load_env_file, generate_random_password
+from vnc_remote_secure.core.config import generate_random_password, load_env_file
 
 load_env_file()
 
 # Configuration - credentials read from environment, never hardcoded
 from vnc_remote_secure.core.constants import (
-    DEFAULT_TTYD_PORT as _DEFAULT_TTYD_PORT,
-    DEFAULT_TTYD_USERNAME as _DEFAULT_TTYD_USERNAME,
     DEFAULT_CMD_TIMEOUT,
     DEFAULT_MAX_OUTPUT,
 )
+from vnc_remote_secure.core.constants import (
+    DEFAULT_TTYD_PORT as _DEFAULT_TTYD_PORT,
+)
+from vnc_remote_secure.core.constants import (
+    DEFAULT_TTYD_USERNAME as _DEFAULT_TTYD_USERNAME,
+)
+
 PORT = int(os.environ.get('TTYD_PORT', str(_DEFAULT_TTYD_PORT)))
 HOST = os.environ.get('TTYD_HOST', DEFAULT_BIND_HOST)
 USERNAME = os.environ.get('TTYD_USERNAME', _DEFAULT_TTYD_USERNAME)
@@ -354,11 +359,11 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self.history = []
         logger.info("Client connected from %s", self.request.remote_ip)
 
-        self.write_message(f"\x1b[36m\r\n  VNC Remote Secure - Web Terminal\r\n\x1b[0m")
+        self.write_message("\x1b[36m\r\n  VNC Remote Secure - Web Terminal\r\n\x1b[0m")
         self.write_message(f"\x1b[90m  Shell: {SHELL} | OS: {os.name}\r\n\x1b[0m")
         self.write_message(f"\x1b[90m  Working directory: {self.cwd}\r\n\x1b[0m")
-        self.write_message(f"\x1b[90m  Type 'help' for commands, 'exit' to disconnect.\r\n\x1b[0m")
-        self.write_message(f"\r\n")
+        self.write_message("\x1b[90m  Type 'help' for commands, 'exit' to disconnect.\r\n\x1b[0m")
+        self.write_message("\r\n")
         self._send_prompt()
 
     def _send_prompt(self):
@@ -552,7 +557,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             access. Ensure strong credentials and network-level controls
             (firewall, VPN) are in place before exposing the terminal.
         """
-        self.write_message(f'\r\n')
+        self.write_message('\r\n')
         self._set_busy(True)
 
         # Command timeout (seconds) - prevents infinite-running commands
@@ -705,7 +710,7 @@ def main():
     else:
         logger.warning("No SSL (HTTP mode)")
 
-    server = app.listen(PORT, HOST, ssl_options=ssl_options)
+    app.listen(PORT, HOST, ssl_options=ssl_options)
     logger.info("Web terminal running on %s:%s", HOST, PORT)
     logger.info("URL: %s://localhost:%s", 'https' if ssl_options else 'http', PORT)
     logger.info("Auth: %s:***", USERNAME)

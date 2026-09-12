@@ -78,8 +78,8 @@ class SimpleWebApp:
         path = environ.get('PATH_INFO', '/')
         auth_header = environ.get('HTTP_AUTHORIZATION', '')
         if path in ('/health', '/health_status', '/health_status.json'):
-            from vnc_remote_secure.security.http_auth import check_health_auth
             from vnc_remote_secure.core.errors import error_json
+            from vnc_remote_secure.security.http_auth import check_health_auth
             if not check_health_auth(auth_header):
                 body, status = error_json('Unauthorized', 401)
                 body = body.encode('utf-8')
@@ -88,15 +88,16 @@ class SimpleWebApp:
                                 ('WWW-Authenticate', 'Bearer realm="Health"'),
                                 ('Content-Length', str(len(body)))])
                 return [body]
-            from vnc_remote_secure.services.health import get_health_status
             import json
+
+            from vnc_remote_secure.services.health import get_health_status
             body = json.dumps(get_health_status(), indent=2).encode('utf-8')
             start_response('200 OK', [('Content-Type', 'application/json'),
                                       ('Content-Length', str(len(body)))])
             return [body]
         if path == '/health/all':
-            from vnc_remote_secure.security.http_auth import check_health_auth
             from vnc_remote_secure.core.errors import error_json
+            from vnc_remote_secure.security.http_auth import check_health_auth
             if not check_health_auth(auth_header):
                 body, status = error_json('Unauthorized', 401)
                 body = body.encode('utf-8')
@@ -105,8 +106,9 @@ class SimpleWebApp:
                                 ('WWW-Authenticate', 'Bearer realm="Health"'),
                                 ('Content-Length', str(len(body)))])
                 return [body]
-            from vnc_remote_secure.monitoring.health import get_all_health
             import json
+
+            from vnc_remote_secure.monitoring.health import get_all_health
             try:
                 body = json.dumps(get_all_health(), indent=2).encode('utf-8')
                 start_response('200 OK', [('Content-Type', 'application/json'),
@@ -120,8 +122,8 @@ class SimpleWebApp:
                                [('Content-Type', 'application/json'),
                                 ('Content-Length', str(len(body)))])
                 return [body]
-        from vnc_remote_secure.security.http_auth import check_landing_auth
         from vnc_remote_secure.core.errors import error_json
+        from vnc_remote_secure.security.http_auth import check_landing_auth
         if not check_landing_auth(auth_header):
             body, status = error_json('Unauthorized', 401)
             body = body.encode('utf-8')

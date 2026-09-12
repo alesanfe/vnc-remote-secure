@@ -94,7 +94,7 @@ def restrict_user(username):
         f"Remove-LocalUserFromGroup -Member '{username}' "
         f"-Group 'Users' -ErrorAction SilentlyContinue"
     )
-    result = _run_powershell(ps_script)
+    _run_powershell(ps_script)
     # Even if group removal fails, the user was created with a random
     # password and cannot log in interactively without knowing it.
     return True

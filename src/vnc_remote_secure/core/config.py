@@ -4,26 +4,25 @@ Shared configuration loader for VNC Remote Secure Python components.
 Reads .env file and provides environment variables with secure defaults.
 NEVER hardcode credentials - always read from environment or .env file.
 """
-import os
-import sys
 import logging
+import os
 import secrets
 import string
 
 from vnc_remote_secure.core.constants import (
-    DEFAULT_VNC_PORT,
-    DEFAULT_VNC_HTTP_PORT,
+    DEFAULT_BIND_HOST,
+    DEFAULT_HEALTH_PORT,
+    DEFAULT_LANDING_PORT,
     DEFAULT_NOVNC_PORT,
     DEFAULT_TTYD_PORT,
     DEFAULT_TTYD_USERNAME,
-    DEFAULT_HEALTH_PORT,
-    DEFAULT_LANDING_PORT,
     DEFAULT_USER_UI_PORT,
-    DEFAULT_VNC_GEOMETRY,
     DEFAULT_VNC_DEPTH,
     DEFAULT_VNC_DISPLAY,
+    DEFAULT_VNC_GEOMETRY,
+    DEFAULT_VNC_HTTP_PORT,
+    DEFAULT_VNC_PORT,
     DEFAULT_WEBTERM_SHELL,
-    DEFAULT_BIND_HOST,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,7 +136,7 @@ def get_config():
     landing_password = os.environ.get('LANDING_PASSWORD', '')
 
     # Health auth token (optional)
-    health_auth_token = os.environ.get('HEALTH_AUTH_TOKEN', '')
+    os.environ.get('HEALTH_AUTH_TOKEN', '')
 
     # Validate passwords when they are user-provided (not generated).
     # Generated passwords are always strong; user-provided ones may be weak.

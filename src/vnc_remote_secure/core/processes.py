@@ -5,10 +5,8 @@ processes by PID, checking port availability, and allocating free
 ports. On Linux ``ss``/``lsof`` are used; on Windows ``netstat`` and
 ``taskkill`` are used.
 """
-import os
 import socket
 import subprocess
-import sys
 
 from vnc_remote_secure.platform.detection import is_windows
 

@@ -8,8 +8,8 @@ from flask import Blueprint, jsonify
 
 from vnc_remote_secure.core.errors import json_error
 from vnc_remote_secure.monitoring.health import get_all_health
+from vnc_remote_secure.security.http_auth import check_health_auth, require_auth
 from vnc_remote_secure.services.health import get_health_status
-from vnc_remote_secure.security.http_auth import require_auth, check_health_auth
 
 health_bp = Blueprint('health', __name__)
 logger = logging.getLogger(__name__)

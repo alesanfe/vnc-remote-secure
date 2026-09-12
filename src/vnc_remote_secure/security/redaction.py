@@ -6,11 +6,8 @@ partial fingerprint, never the full value.
 """
 import hashlib
 import os
-import re
-from typing import Optional
 
 from vnc_remote_secure.core.config import load_env_file
-
 
 # Secret variable names that should never be printed in full
 SECRET_VARS = {

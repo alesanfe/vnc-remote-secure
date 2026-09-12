@@ -13,7 +13,6 @@ access according to the specified permissions.
 import hashlib
 import hmac
 import logging
-import os
 import secrets
 import time
 from typing import Optional

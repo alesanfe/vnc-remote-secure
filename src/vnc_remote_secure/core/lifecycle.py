@@ -5,15 +5,9 @@ that orchestrate configuration loading, logging setup, directory
 creation, and graceful teardown of running services.
 """
 import logging
-import os
-import signal
-import sys
 import threading
 
 from vnc_remote_secure.core.config import get_config, load_env_file
-from vnc_remote_secure.core.logging import setup_logging
-from vnc_remote_secure.core.paths import ensure_dirs
-from vnc_remote_secure.core.processes import find_process, is_port_available
 from vnc_remote_secure.core.constants import (
     DEFAULT_HEALTH_PORT,
     DEFAULT_LANDING_PORT,
@@ -21,6 +15,9 @@ from vnc_remote_secure.core.constants import (
     DEFAULT_TTYD_PORT,
     DEFAULT_VNC_PORT,
 )
+from vnc_remote_secure.core.logging import setup_logging
+from vnc_remote_secure.core.paths import ensure_dirs
+from vnc_remote_secure.core.processes import find_process, is_port_available
 
 _logger = logging.getLogger('vnc_remote_secure.lifecycle')
 _state = {'running': False, 'config': None, 'lock': threading.Lock()}

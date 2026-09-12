@@ -6,7 +6,6 @@ locations (``/etc``, ``/var/lib``, ``/var/log``, ``/run``) are used; on
 Windows everything lives under ``%ProgramData%``.
 """
 import os
-import sys
 
 from vnc_remote_secure.platform.detection import is_windows
 

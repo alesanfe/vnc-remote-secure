@@ -85,6 +85,7 @@ DEFAULT_HEALTH_PORT = _platform_defaults['health_port']
 
 # Terminal username default (platform-aware: current user on Linux, admin on Windows)
 import getpass
+
 DEFAULT_TTYD_USERNAME = getpass.getuser() if platform.system() != 'Windows' else 'admin'
 DEFAULT_LANDING_PORT = 8000
 DEFAULT_USER_UI_PORT = 8081

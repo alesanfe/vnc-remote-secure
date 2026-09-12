@@ -8,8 +8,7 @@ import logging
 import os
 import secrets
 
-from flask import (Blueprint, jsonify, redirect, render_template,
-                   request, session, url_for)
+from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 
 from vnc_remote_secure.core.errors import json_error
 from vnc_remote_secure.core.exceptions import SecurityError
