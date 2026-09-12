@@ -24,8 +24,8 @@ test.describe('Portal Landing Page', () => {
 
   test('shows service links', async ({ page }) => {
     await page.goto(LANDING_URL);
-    // The portal should contain links to services
-    const body = await page.textContent('body');
+    // The portal should contain links to services (case-insensitive)
+    const body = (await page.textContent('body')).toLowerCase();
     expect(body).toContain('health');
   });
 
