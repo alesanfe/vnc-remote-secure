@@ -10,7 +10,7 @@ import sys
 import string
 
 import pytest
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings, assume, HealthCheck
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
@@ -177,7 +177,7 @@ class TestSanitizeInput:
     @given(st.text(min_size=0, max_size=50).filter(
         lambda x: '<' in x or '>' in x or '"' in x or "'" in x
     ))
-    @settings(max_examples=50)
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.filter_too_much])
     def test_html_chars_escaped(self, text):
         result = sanitize_input(text)
         # Raw <, >, ", ' should be replaced with HTML entities

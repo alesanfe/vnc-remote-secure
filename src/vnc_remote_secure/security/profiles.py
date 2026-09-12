@@ -5,10 +5,15 @@ independent environment variables. Each profile sets a consistent set
 of defaults that avoid contradictory configurations (e.g. SSL disabled
 but ports publicly exposed).
 
+Key principle (Zero Trust): backends NEVER bind to 0.0.0.0. Only the
+reverse proxy (nginx) may bind publicly. This prevents bypassing the
+authentication gateway by connecting directly to noVNC, terminal, or
+health ports.
+
 Profiles:
     development       — Local testing, no TLS, localhost only
-    home-lan          — Home network, self-signed TLS, LAN access
-    private-vpn        — Behind Tailscale/WireGuard, no public exposure
+    home-lan          — Home network, self-signed TLS, nginx public
+    private-vpn        — Behind Tailscale/WireGuard, nginx public
     internet-hardened  — Public internet, Let's Encrypt, MFA, strict
 """
 import os
@@ -18,11 +23,19 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+# Backends ALWAYS bind to 127.0.0.1 regardless of profile.
+# Only nginx may bind to PUBLIC_BIND_HOST (0.0.0.0 in LAN/VPN profiles).
+# This is the Zero Trust control plane: no service is reachable without
+# passing through the authenticated reverse proxy.
+BACKEND_BIND_HOST = '127.0.0.1'
+
 PROFILES = {
     'development': {
         'description': 'Local development and testing',
         'TLS_ENABLED': 'false',
         'BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': '127.0.0.1',
+        'PUBLIC_BIND_HOST': '127.0.0.1',
         'HEALTH_WEB_HOST': '127.0.0.1',
         'LANDING_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'false',
@@ -33,9 +46,11 @@ PROFILES = {
         'ALLOWED_ORIGINS': 'http://localhost:8000,http://127.0.0.1:8000',
     },
     'home-lan': {
-        'description': 'Home network with self-signed TLS',
+        'description': 'Home network with self-signed TLS via nginx',
         'TLS_ENABLED': 'true',
-        'BIND_HOST': '0.0.0.0',
+        'BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': '127.0.0.1',
+        'PUBLIC_BIND_HOST': '0.0.0.0',
         'HEALTH_WEB_HOST': '127.0.0.1',
         'LANDING_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'true',
@@ -45,9 +60,11 @@ PROFILES = {
         'AUTH_MAX_ATTEMPTS': '5',
     },
     'private-vpn': {
-        'description': 'Behind Tailscale/WireGuard, no public exposure',
+        'description': 'Behind Tailscale/WireGuard, nginx public to VPN',
         'TLS_ENABLED': 'true',
-        'BIND_HOST': '0.0.0.0',
+        'BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': '127.0.0.1',
+        'PUBLIC_BIND_HOST': '0.0.0.0',
         'HEALTH_WEB_HOST': '127.0.0.1',
         'LANDING_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'true',
@@ -60,6 +77,8 @@ PROFILES = {
         'description': 'Public internet with maximum security',
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': '127.0.0.1',
+        'PUBLIC_BIND_HOST': '0.0.0.0',
         'HEALTH_WEB_HOST': '127.0.0.1',
         'LANDING_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'true',
@@ -140,3 +159,65 @@ def validate_profile_consistency() -> list:
             'nginx enabled but TLS disabled. nginx will serve HTTP only.'
         )
     return warnings
+
+
+def get_blocking_findings() -> list:
+    """Return critical findings that BLOCK deployment.
+
+    Unlike ``validate_profile_consistency`` (warnings), these are
+    hard blockers: the system must refuse to start in internet-hardened
+    mode if any of these are present.
+
+    Returns a list of blocking finding dicts with 'code' and 'message'.
+    """
+    blockers = []
+    profile = get_profile()
+    tls = os.environ.get('TLS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+    bind = os.environ.get('BIND_HOST', '127.0.0.1')
+    mfa = os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes')
+    nginx = os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes')
+
+    # Backends must NEVER bind to 0.0.0.0 — only nginx may.
+    if bind == '0.0.0.0':
+        blockers.append({
+            'code': 'BACKEND_PUBLIC_BIND',
+            'message': (
+                'BIND_HOST is 0.0.0.0 — backends are directly reachable, '
+                'bypassing the authentication gateway. Set BIND_HOST=127.0.0.1 '
+                'and use PUBLIC_BIND_HOST for nginx.'
+            ),
+        })
+
+    # Internet-hardened requires TLS + MFA + nginx.
+    if profile == 'internet-hardened':
+        if not tls:
+            blockers.append({
+                'code': 'NO_TLS_PUBLIC',
+                'message': 'TLS is disabled in internet-hardened profile.',
+            })
+        if not mfa:
+            blockers.append({
+                'code': 'NO_MFA_PUBLIC',
+                'message': 'MFA is not required in internet-hardened profile.',
+            })
+        if not nginx:
+            blockers.append({
+                'code': 'NO_REVERSE_PROXY_PUBLIC',
+                'message': 'nginx is not enabled in internet-hardened profile. '
+                           'Backends would be directly exposed.',
+            })
+
+    # Default/weak passwords are always a blocker.
+    vnc_pass = os.environ.get('VNC_PASSWORD', '')
+    if vnc_pass in ('', 'changeme', 'admin123', 'YourStrongPassword123', 'password'):
+        blockers.append({
+            'code': 'WEAK_VNC_PASSWORD',
+            'message': 'VNC_PASSWORD is empty or uses a known default value.',
+        })
+
+    return blockers
+
+
+def is_deployment_blocked() -> bool:
+    """Return True if deployment must be blocked due to critical findings."""
+    return len(get_blocking_findings()) > 0

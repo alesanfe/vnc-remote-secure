@@ -151,7 +151,6 @@ test_optional_features_disabled_by_default() {
     setup
     # Security-relevant features should be opt-in, not opt-out
     assert_eq "false" "$FAIL2BAN_ENABLED" "fail2ban should be opt-in"
-    assert_eq "false" "$BEEF_ENABLED" "BeEF should be opt-in"
     assert_eq "false" "$DISCORD_ENABLED" "Discord webhook should be opt-in"
 }
 

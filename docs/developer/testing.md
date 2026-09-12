@@ -125,7 +125,7 @@ Security-critical behavior:
 - XSS prevention: `sanitize_input` escapes `<`, `>`, `"`, `'`
 - Config hardening: defaults block startup (insecure email rejected)
 - `KEEP_TEMP_USER=false` by default (temp user removed on exit)
-- Optional features (fail2ban, BeEF, Discord) disabled by default
+- Optional features (fail2ban, Discord) disabled by default
 - SSL enabled by default (`DISABLE_SSL=false`)
 - Command injection prevention in usernames
 - Reserved system usernames rejected

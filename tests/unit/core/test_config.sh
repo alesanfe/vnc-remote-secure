@@ -19,7 +19,7 @@ setup() {
     unset TTYD_USERNAME TTYD_PASSWD TEMP_USER TEMP_USER_PASS \
           NOVNC_PORT TTYD_PORT VNC_PORT \
           SSL_CERT SSL_KEY SSL_RENEW_DAYS \
-          BEEF_ENABLED FAIL2BAN_ENABLED MONITORING_ENABLED \
+          FAIL2BAN_ENABLED MONITORING_ENABLED \
           RECORDING_ENABLED USER_UI_ENABLED ALERTS_ENABLED DISCORD_ENABLED \
           HEALTHCHECK_ENABLED HEALTHCHECK_INTERVAL AUTO_RESTART \
           KEEP_TEMP_USER VNC_DISPLAY VNC_GEOMETRY VNC_DEPTH VNC_PASSWORD \
@@ -75,7 +75,6 @@ test_default_ssl_renew_days() {
 
 test_default_feature_flags_disabled() {
     setup
-    assert_eq "false" "$BEEF_ENABLED" "BEEF_ENABLED should default to false"
     assert_eq "false" "$FAIL2BAN_ENABLED" "FAIL2BAN_ENABLED should default to false"
     assert_eq "false" "$MONITORING_ENABLED" "MONITORING_ENABLED should default to false"
     assert_eq "false" "$RECORDING_ENABLED" "RECORDING_ENABLED should default to false"

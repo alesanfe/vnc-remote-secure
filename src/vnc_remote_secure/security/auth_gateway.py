@@ -169,11 +169,21 @@ def check_websocket_upgrade(
     origin: str,
     cookie_value: str = '',
     bearer_token: str = '',
+    resource: str = '',
+    required_permission: str = '',
 ) -> Tuple[bool, str]:
     """Validate a WebSocket upgrade request.
 
-    Enforces Origin validation AND authentication before allowing
-    the 101 Switching Protocols response.
+    Enforces Origin validation AND authentication AND authorization
+    before allowing the 101 Switching Protocols response.
+
+    Args:
+        origin: Origin header value.
+        cookie_value: Session cookie value.
+        bearer_token: Bearer token (alternative to cookie).
+        resource: The resource being accessed ('desktop', 'terminal').
+        required_permission: Permission required (e.g. 'desktop:view',
+            'terminal:use'). If empty, only authentication is checked.
 
     Returns:
         Tuple of (allowed, reason).
@@ -182,12 +192,69 @@ def check_websocket_upgrade(
     if not check_origin(origin, get_allowed_origins()):
         return False, 'Invalid origin'
 
-    # Must be authenticated
+    # If a required permission is specified, the bearer token is an
+    # ephemeral session token — validate it against the session store.
+    if required_permission and bearer_token:
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            check_permission,
+            is_session_revoked,
+            is_session_expired,
+        )
+        if is_session_revoked(bearer_token):
+            return False, 'Session revoked'
+        if is_session_expired(bearer_token):
+            return False, 'Session expired'
+        if not check_permission(bearer_token, required_permission):
+            return False, f'Permission denied: {required_permission}'
+        return True, 'OK'
+
+    # Standard authentication (cookie or session token)
     authed, _ = check_authenticated(cookie_value, bearer_token)
     if not authed:
         return False, 'Authentication required'
 
     return True, 'OK'
+
+
+def check_permission_for_action(
+    bearer_token: str,
+    permission: str,
+) -> Tuple[bool, str]:
+    """Check if a token has a specific permission for an action.
+
+    This is the per-action authorization check that must be called
+    BEFORE performing any sensitive operation (keyboard input, clipboard
+    paste, file transfer, terminal open, user management, etc.).
+
+    Returns:
+        Tuple of (allowed, reason).
+    """
+    from vnc_remote_secure.security.ephemeral_sessions import (
+        check_permission,
+        is_session_revoked,
+        is_session_expired,
+    )
+    if not bearer_token:
+        return False, 'No token provided'
+    if is_session_revoked(bearer_token):
+        return False, 'Session revoked'
+    if is_session_expired(bearer_token):
+        return False, 'Session expired'
+    if not check_permission(bearer_token, permission):
+        return False, f'Permission denied: {permission}'
+    return True, 'OK'
+
+
+def revoke_session_live(token: str) -> bool:
+    """Revoke a session and propagate to all active WebSocket connections.
+
+    This marks the token as revoked so that:
+    - New WebSocket upgrades with this token are rejected.
+    - Per-action checks on existing connections fail.
+    - The next heartbeat/check on an existing connection disconnects it.
+    """
+    from vnc_remote_secure.security.ephemeral_sessions import revoke_session
+    return revoke_session(token)
 
 
 def logout(cookie_value: str) -> dict:

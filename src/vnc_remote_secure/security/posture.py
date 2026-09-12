@@ -28,6 +28,8 @@ def calculate_posture() -> dict:
         - ``score``: 0-100
         - ``checks``: list of {name, status, detail}
         - ``summary``: short text summary
+        - ``deployment_decision``: 'allowed' or 'blocked'
+        - ``blocking_findings``: list of critical findings that block deployment
     """
     load_env_file()
     checks: List[dict] = []
@@ -167,10 +169,18 @@ def calculate_posture() -> dict:
 
     score = max(0, min(100, score))
     summary = _summarize(score)
+
+    # Blocking findings from profiles (hard blockers, not just score deductions)
+    from vnc_remote_secure.security.profiles import get_blocking_findings
+    blocking = get_blocking_findings()
+    decision = 'blocked' if blocking else 'allowed'
+
     return {
         'score': score,
         'checks': checks,
         'summary': summary,
+        'deployment_decision': decision,
+        'blocking_findings': blocking,
     }
 
 

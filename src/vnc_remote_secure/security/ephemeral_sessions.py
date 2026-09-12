@@ -252,3 +252,61 @@ def get_session_store() -> SessionStore:
     if _store is None:
         _store = SessionStore()
     return _store
+
+
+# ---------------------------------------------------------------------------
+# Convenience functions for per-action authorization and live revocation
+# ---------------------------------------------------------------------------
+
+def check_permission(signed_token: str, permission: str) -> bool:
+    """Check if a signed token's session has the given permission.
+
+    This is the per-action authorization check. It verifies:
+    - Token signature is valid
+    - Session exists and is not revoked/expired
+    - Role includes the requested permission
+    - view_only and no_terminal restrictions are enforced
+    """
+    store = get_session_store()
+    session = store.validate(signed_token)
+    if not session:
+        return False
+    return session.has_permission(permission)
+
+
+def is_session_revoked(signed_token: str) -> bool:
+    """Check if a session has been revoked (live revocation check)."""
+    payload = verify_ephemeral_token(signed_token)
+    if not payload:
+        return True  # Invalid token = treat as revoked
+    store = get_session_store()
+    session = store.get(payload['session_token'])
+    if not session:
+        return True  # Session doesn't exist = revoked
+    return session.revoked
+
+
+def is_session_expired(signed_token: str) -> bool:
+    """Check if a session has expired."""
+    payload = verify_ephemeral_token(signed_token)
+    if not payload:
+        return True
+    store = get_session_store()
+    session = store.get(payload['session_token'])
+    if not session:
+        return True
+    return time.time() >= session.expires_at
+
+
+def revoke_session(signed_token: str) -> bool:
+    """Revoke a session by its signed token.
+
+    This propagates immediately: any subsequent check_permission,
+    is_session_revoked, or check_websocket_upgrade call will reject
+    the token.
+    """
+    payload = verify_ephemeral_token(signed_token)
+    if not payload:
+        return False
+    store = get_session_store()
+    return store.revoke(payload['session_token'])

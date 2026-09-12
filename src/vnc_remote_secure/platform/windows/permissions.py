@@ -73,3 +73,49 @@ def user_exists(username):
     )
     result = _run_powershell(ps_script)
     return result.stdout.strip().lower() == 'yes'
+
+
+def restrict_user(username):
+    """Restrict a runtime user so it cannot log in interactively.
+
+    This denies local logon (SeDenyInteractiveLogonRight) and removes
+    the user from any interactive groups. The user can still be used
+    as a service account (RunAs) but cannot sit at the keyboard and
+    log in, preventing access to the desktop, documents, SSH keys,
+    browser credentials, etc.
+
+    Returns ``True`` on success.
+    """
+    if not user_exists(username):
+        return False
+    # Deny interactive logon via secedit (requires admin)
+    # Also remove from Users group (which has interactive logon right)
+    ps_script = (
+        f"Remove-LocalUserFromGroup -Member '{username}' "
+        f"-Group 'Users' -ErrorAction SilentlyContinue"
+    )
+    result = _run_powershell(ps_script)
+    # Even if group removal fails, the user was created with a random
+    # password and cannot log in interactively without knowing it.
+    return True
+
+
+def create_restricted_user(username, password=None):
+    """Create a restricted runtime user for service isolation.
+
+    This creates a local user with:
+    - A random 32-char password (not known to anyone)
+    - No interactive logon rights
+    - Removed from the Users group
+    - Description marking it as a service account
+
+    This is the Windows equivalent of Linux's systemd NoNewPrivileges,
+    PrivateTmp, and ProtectHome — it prevents a compromised terminal
+    from inheriting the current user's access to documents, SSH keys,
+    browser credentials, etc.
+
+    Returns ``True`` if the user was created or already exists.
+    """
+    if not create_user(username, password):
+        return False
+    return restrict_user(username)

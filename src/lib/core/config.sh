@@ -91,9 +91,6 @@ export SSL_CERT="${SSL_CERT:-$SSL_DIR/fullchain.pem}"
 export SSL_KEY="${SSL_KEY:-$SSL_DIR/privkey.pem}"
 export SSL_RENEW_DAYS="${SSL_RENEW_DAYS:-30}"
 
-# BeEF Configuration (OPTIONAL)
-export BEEF_ENABLED="${BEEF_ENABLED:-false}"
-export BEEF_HOOK_URL="${BEEF_HOOK_URL:-}"
 export INDEX_FILE="${INDEX_FILE:-/usr/share/novnc/index.html}"
 export VNC_FILE="${VNC_FILE:-/usr/share/novnc/vnc.html}"
 
