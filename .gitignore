@@ -28,6 +28,11 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# --- Node.js / Playwright ---
+node_modules/
+test-results/
+playwright-report/
 .coverage
 htmlcov/
 *.egg-info/

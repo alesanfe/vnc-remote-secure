@@ -101,6 +101,51 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
                 return
             status = get_health_status()
             body = json.dumps(status, indent=2).encode('utf-8')
+            # Return 503 when unhealthy, 200 when healthy/degraded
+            code = 200 if status['status'] in ('healthy', 'degraded') else 503
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == '/health/live':
+            # Liveness: process responds (always 200 if server is running)
+            body = json.dumps({'status': 'alive'}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == '/health/ready':
+            # Readiness: can fulfill requests (depends on services)
+            if not check_health_auth(self.headers.get('Authorization', '')):
+                body, _ = error_json('Unauthorized', 401)
+                self.send_response(401)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
+                self.end_headers()
+                self.wfile.write(body.encode('utf-8'))
+                return
+            status = get_health_status()
+            body = json.dumps(status, indent=2).encode('utf-8')
+            code = 200 if status['status'] in ('healthy', 'degraded') else 503
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == '/health/services':
+            # Per-service status
+            if not check_health_auth(self.headers.get('Authorization', '')):
+                body, _ = error_json('Unauthorized', 401)
+                self.send_response(401)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
+                self.end_headers()
+                self.wfile.write(body.encode('utf-8'))
+                return
+            services = check_health()
+            body = json.dumps({'services': services}, indent=2).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
