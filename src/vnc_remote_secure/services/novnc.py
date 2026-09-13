@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """Simple HTTP server to serve noVNC static files.
+
 Usage: python3 -m vnc_remote_secure.services.novnc [novnc_dir] [port]
+
+Security model:
+    This server binds to 127.0.0.1 by default and does NOT implement
+    authentication. Security is provided by the reverse proxy (nginx)
+    which sits in front and enforces authentication, MFA, and
+    authorization. Direct access to this port is prevented by the
+    localhost bind. Setting SERVE_NOVNC_HOST=0.0.0.0 bypasses this
+    protection and should only be used in development.
 """
 import http.server
 import logging

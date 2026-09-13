@@ -44,5 +44,9 @@ Windows is explicitly documented as "local/LAN support, not full parity":
 ## Risks
 - Code duplication between Linux and Windows paths
 - Windows binaries (UltraVNC) must be managed externally (not in repo)
-- Windows security model differs (no user isolation)
+- **Process-level isolation is incomplete**: The restricted runtime user
+  is created and ACLs are applied to data directories, but VNC and
+  terminal processes currently run under the current user's context, not
+  under the restricted user. Full process impersonation
+  (CreateProcessAsUser) is a planned enhancement.
 - Maintenance burden of two platforms

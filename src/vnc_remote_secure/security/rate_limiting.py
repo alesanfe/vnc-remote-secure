@@ -1,8 +1,12 @@
-"""Rate limiting for VNC Remote Secure.
+"""General IP-based rate limiting (compatibility wrapper).
 
-A simple in-memory sliding-window rate limiter keyed by client IP.
-Suitable for single-process deployments; for multi-process setups a
-shared backend (e.g. Redis) would be required.
+This module provides a simple function-based rate limiter for general
+HTTP endpoints. For authentication-specific rate limiting with lockouts,
+use :mod:`vnc_remote_secure.security.rate_limit` (the canonical module
+with the :class:`RateLimiter` class).
+
+This wrapper delegates to a lightweight in-memory store for endpoints
+that need simple per-IP throttling (e.g. user management API).
 """
 import time
 from collections import defaultdict

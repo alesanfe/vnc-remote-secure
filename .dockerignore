@@ -32,6 +32,13 @@ logs/
 .runtime/
 run/
 *.pid
+.runtime_credentials.json
+*.runtime_credentials.json
+
+# Node.js (not needed in production image)
+node_modules/
+package-lock.json
+test-results/
 
 # Python cache
 __pycache__/
@@ -42,6 +49,7 @@ __pycache__/
 .coverage
 htmlcov/
 *.egg-info/
+.hypothesis/
 
 # Virtual environments
 venv/

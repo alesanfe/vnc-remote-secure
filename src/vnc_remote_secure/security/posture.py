@@ -183,6 +183,20 @@ def calculate_posture() -> dict:
         points=5,
     )
 
+    # Persistent session secret (FLASK_SECRET_KEY)
+    flask_secret = _env_val('FLASK_SECRET_KEY', '')
+    profile = _env_val('SECURITY_PROFILE', 'development')
+    if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+        add(
+            'Persistent session secret (FLASK_SECRET_KEY)',
+            bool(flask_secret),
+            warn_msg='FLASK_SECRET_KEY not set — sessions invalidated on restart',
+            points=5,
+        )
+    else:
+        # In development, ephemeral secret is acceptable.
+        checks.append({'name': 'Persistent session secret (FLASK_SECRET_KEY)', 'status': 'ok', 'detail': 'Development profile — ephemeral secret acceptable'})
+
     score = max(0, min(100, score))
     summary = _summarize(score)
 

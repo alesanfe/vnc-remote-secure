@@ -165,7 +165,15 @@ class WindowsAdapter(PlatformAdapter):
         return [ip for ip in ips if not (ip in seen or seen.add(ip))]
 
     def start_vnc_server(self, display, geometry, depth, password):
-        """Start UltraVNC winvnc.exe. Returns subprocess.Popen."""
+        """Start UltraVNC winvnc.exe. Returns subprocess.Popen.
+
+        Note: The VNC process currently runs under the current user's
+        context, not under the restricted runtime user. Full process
+        impersonation (CreateProcessAsUser) is a planned enhancement
+        (see ADR-0007). The restricted user is created and ACLs are
+        applied to the data directory, but the VNC process itself is
+        not yet sandboxed to that user.
+        """
         exe = shutil.which('winvnc')
         if not exe:
             from vnc_remote_secure.core.exceptions import ServiceError

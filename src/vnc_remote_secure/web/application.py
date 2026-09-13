@@ -33,13 +33,43 @@ def create_app(config=None):
     try:
         from flask import Flask
     except ImportError:
+        # In non-development profiles, Flask is required. The fallback
+        # app lacks security features (no session middleware, no
+        # after_request hooks, no blueprint auth).
+        profile = os.environ.get('SECURITY_PROFILE', 'development')
+        if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+            logger.error(
+                "Flask is not installed but profile '%s' requires it. "
+                "The fallback http.server app lacks security features. "
+                "Install Flask: pip install flask",
+                profile,
+            )
+            raise RuntimeError(
+                f"Flask is required for security profile '{profile}'. "
+                f"Install it with: pip install flask"
+            )
         return _create_fallback_app(config)
 
     app = Flask(
         __name__,
         template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
     )
-    app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+
+    # Flask secret key: must be set in non-development profiles.
+    # In development, a random ephemeral key is acceptable.
+    flask_secret = os.environ.get('FLASK_SECRET_KEY', '').strip()
+    if flask_secret:
+        app.secret_key = flask_secret
+    else:
+        profile = os.environ.get('SECURITY_PROFILE', 'development')
+        if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+            logger.error(
+                "FLASK_SECRET_KEY is not set in profile '%s'. "
+                "Sessions will be invalidated on restart. "
+                "Set FLASK_SECRET_KEY in .env to a persistent random value.",
+                profile,
+            )
+        app.secret_key = secrets.token_hex(32)
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
