@@ -28,10 +28,12 @@ def _is_tls_enabled() -> bool:
     (positive logic). This function reads both so a single .env file
     works across both layers.
     """
-    if 'TLS_ENABLED' in os.environ:
-        return _env_bool('TLS_ENABLED', 'true')
-    if 'DISABLE_SSL' in os.environ:
-        return not _env_bool('DISABLE_SSL', 'false')
+    tls_val = os.environ.get('TLS_ENABLED', '').strip()
+    if tls_val:
+        return tls_val.lower() in ('true', '1', 'yes')
+    disable_val = os.environ.get('DISABLE_SSL', '').strip()
+    if disable_val:
+        return disable_val.lower() not in ('true', '1', 'yes')
     return True  # default: TLS enabled
 
 

@@ -67,3 +67,33 @@ class TestPosture:
         placeholder_check = [c for c in result['checks'] if 'placeholder' in c['name'].lower()]
         if placeholder_check:
             assert placeholder_check[0]['status'] != 'ok'
+
+    def test_disable_ssl_equivalent_to_tls_enabled_false(self, monkeypatch):
+        """DISABLE_SSL=true should produce the same score as TLS_ENABLED=false."""
+        monkeypatch.setattr('vnc_remote_secure.security.posture.load_env_file', lambda: None)
+        monkeypatch.setenv('BIND_HOST', '127.0.0.1')
+        monkeypatch.setenv('MFA_REQUIRED', 'true')
+        monkeypatch.setenv('TLS_ENABLED', '')
+        monkeypatch.setenv('DISABLE_SSL', 'true')
+        score_disable_ssl = calculate_posture()['score']
+
+        monkeypatch.setenv('DISABLE_SSL', '')
+        monkeypatch.setenv('TLS_ENABLED', 'false')
+        score_tls_false = calculate_posture()['score']
+
+        assert score_disable_ssl == score_tls_false
+
+    def test_disable_ssl_false_equivalent_to_tls_enabled_true(self, monkeypatch):
+        """DISABLE_SSL=false should produce the same score as TLS_ENABLED=true."""
+        monkeypatch.setattr('vnc_remote_secure.security.posture.load_env_file', lambda: None)
+        monkeypatch.setenv('BIND_HOST', '127.0.0.1')
+        monkeypatch.setenv('MFA_REQUIRED', 'true')
+        monkeypatch.setenv('TLS_ENABLED', '')
+        monkeypatch.setenv('DISABLE_SSL', 'false')
+        score_disable_ssl_false = calculate_posture()['score']
+
+        monkeypatch.setenv('DISABLE_SSL', '')
+        monkeypatch.setenv('TLS_ENABLED', 'true')
+        score_tls_true = calculate_posture()['score']
+
+        assert score_disable_ssl_false == score_tls_true

@@ -12,7 +12,6 @@ health ports.
 
 Profiles:
     development       — Local testing, no TLS, localhost only
-    local-only        — Localhost only, no network exposure
     trusted-lan       — Trusted LAN, self-signed TLS, nginx public
     private-overlay   — Private overlay network (VPN), nginx public
     public-hardened   — Public internet, Let's Encrypt, MFA, strict
@@ -21,6 +20,7 @@ Legacy aliases (backwards-compatible):
     home-lan          → trusted-lan
     private-vpn        → private-overlay
     internet-hardened  → public-hardened
+    local-only         → development
 """
 import logging
 import os
@@ -35,10 +35,12 @@ def _is_tls_enabled() -> bool:
     Bash uses DISABLE_SSL (negative logic); Python uses TLS_ENABLED
     (positive logic). This reads both so a single .env file works.
     """
-    if 'TLS_ENABLED' in os.environ:
-        return os.environ['TLS_ENABLED'].lower() in ('true', '1', 'yes')
-    if 'DISABLE_SSL' in os.environ:
-        return os.environ['DISABLE_SSL'].lower() not in ('true', '1', 'yes')
+    tls_val = os.environ.get('TLS_ENABLED', '').strip()
+    if tls_val:
+        return tls_val.lower() in ('true', '1', 'yes')
+    disable_val = os.environ.get('DISABLE_SSL', '').strip()
+    if disable_val:
+        return disable_val.lower() not in ('true', '1', 'yes')
     return True
 
 
@@ -50,22 +52,7 @@ BACKEND_BIND_HOST = '127.0.0.1'
 
 PROFILES = {
     'development': {
-        'description': 'Local development and testing',
-        'TLS_ENABLED': 'false',
-        'BIND_HOST': '127.0.0.1',
-        'BACKEND_BIND_HOST': '127.0.0.1',
-        'PUBLIC_BIND_HOST': '127.0.0.1',
-        'HEALTH_WEB_HOST': '127.0.0.1',
-        'LANDING_HOST': '127.0.0.1',
-        'NGINX_ENABLED': 'false',
-        'MFA_REQUIRED': 'false',
-        'SESSION_IDLE_TIMEOUT': '3600',
-        'SESSION_MAX_LIFETIME': '86400',
-        'AUTH_MAX_ATTEMPTS': '10',
-        'ALLOWED_ORIGINS': 'http://localhost:8000,http://127.0.0.1:8000',
-    },
-    'local-only': {
-        'description': 'Localhost only, no network exposure (was development)',
+        'description': 'Local development and testing (localhost only)',
         'TLS_ENABLED': 'false',
         'BIND_HOST': '127.0.0.1',
         'BACKEND_BIND_HOST': '127.0.0.1',
@@ -131,6 +118,7 @@ _PROFILE_ALIASES = {
     'home-lan': 'trusted-lan',
     'private-vpn': 'private-overlay',
     'internet-hardened': 'public-hardened',
+    'local-only': 'development',
 }
 
 

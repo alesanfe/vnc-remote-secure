@@ -9,7 +9,8 @@ support for local/LAN access. Windows does not have systemd, apt-get, tigervncse
 nginx (natively), or ttyd. A full port would require a complete rewrite.
 
 ## Decision
-Provide a separate Windows launcher (`launch.sh` for Git Bash) that uses
+Provide a separate Windows launcher (`launch.sh` for Git Bash, now
+deprecated in favour of the unified `vnc-remote` CLI) that uses
 Windows-native alternatives:
 - **UltraVNC** instead of TigerVNC (binary in `bin/ultravnc/`)
 - **Tornado web terminal** instead of ttyd (avoids ConPTY issues on Windows 11)
@@ -19,10 +20,10 @@ Windows-native alternatives:
 - **Self-signed certificates** instead of Let's Encrypt (certbot not available on Windows)
 
 Windows is explicitly documented as "local/LAN support, not full parity":
-- No systemd (processes managed by script)
+- No systemd (processes managed by script or Windows Services)
 - No fail2ban (Windows Firewall instead)
 - No Let's Encrypt (self-signed certs only)
-- No user isolation (uses current user)
+- User isolation via dedicated restricted runtime account (implemented)
 - No session recording
 
 ## Alternatives considered
@@ -35,10 +36,10 @@ Windows is explicitly documented as "local/LAN support, not full parity":
    Rejected — user explicitly requested Windows support.
 
 ## Consequences
-- Two launch paths: `src/rpi-vnc-remote.sh` (Linux) and `launch.sh` (Windows)
+- Two launch paths: `src/rpi-vnc-remote.sh` (Linux) and `vnc-remote` (unified CLI, replaces deprecated `launch.sh`)
 - Some features are Linux-only (documented in README)
-- Windows users need Git Bash + Python 3.8+ + UltraVNC binaries
-- `launch.sh` and `launch_nossl.sh` consolidated into one script with `--no-ssl` flag
+- Windows users need Git Bash + Python 3.11+ + UltraVNC binaries
+- `launch.sh` and `launch_nossl.sh` consolidated into one script with `--no-ssl` flag (now deprecated)
 
 ## Risks
 - Code duplication between Linux and Windows paths

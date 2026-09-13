@@ -31,7 +31,7 @@
 |----------|--------|------------|----------|-----|-------|
 | Debian 12+ / Ubuntu 22.04+ | Production | TigerVNC | ttyd | Let's Encrypt | Full stack |
 | Raspberry Pi OS 64-bit | Production | TigerVNC | ttyd | Let's Encrypt | Full stack |
-| Windows 10 / 11 | Supported | UltraVNC | Tornado | Self-signed | No fail2ban / user isolation |
+| Windows 10 / 11 | Supported | UltraVNC | Tornado | Self-signed | No fail2ban (uses Windows Firewall); restricted runtime user |
 | Windows Server 2022+ | Experimental | UltraVNC | Tornado | Self-signed | Less tested |
 | Any browser (client) | Supported | — | — | — | No install needed |
 
@@ -148,7 +148,7 @@ Test counts vary by platform and installed runners. Run
 - Session cookies: `HttpOnly`, `SameSite=Lax`, `Secure` (when TLS enabled)
 - Rate limiting on login attempts
 - Optional fail2ban intrusion prevention (Linux)
-- Temporary user isolation on Linux (removed on exit)
+- Temporary user isolation on Linux and Windows (removed on exit)
 
 See [`SECURITY.md`](SECURITY.md) for the full policy and
 [`THREAT_MODEL.md`](THREAT_MODEL.md) for the threat model.

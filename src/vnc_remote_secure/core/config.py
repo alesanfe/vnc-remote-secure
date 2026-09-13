@@ -40,6 +40,17 @@ def _find_project_root():
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def _is_tls_enabled_env() -> bool:
+    """Check if TLS is enabled, unifying TLS_ENABLED and DISABLE_SSL."""
+    tls_val = os.environ.get('TLS_ENABLED', '').strip()
+    if tls_val:
+        return tls_val.lower() in ('true', '1', 'yes')
+    disable_val = os.environ.get('DISABLE_SSL', '').strip()
+    if disable_val:
+        return disable_val.lower() not in ('true', '1', 'yes')
+    return True
+
+
 def load_env_file(env_path=None):
     """Load .env file into os.environ without overriding existing vars."""
     if env_path is None:
@@ -205,11 +216,7 @@ def get_config():
         'alerts_enabled': os.environ.get('ALERTS_ENABLED', 'false').lower() in ('true', '1', 'yes'),
         'audio_stream_enabled': os.environ.get('AUDIO_STREAM_ENABLED', 'false').lower() in ('true', '1', 'yes'),
         'gamepad_enabled': os.environ.get('GAMEPAD_ENABLED', 'false').lower() in ('true', '1', 'yes'),
-        'tls_enabled': (
-            os.environ.get('TLS_ENABLED', 'true').lower() in ('true', '1', 'yes')
-            if 'TLS_ENABLED' in os.environ
-            else os.environ.get('DISABLE_SSL', 'false').lower() not in ('true', '1', 'yes')
-        ),
+        'tls_enabled': _is_tls_enabled_env(),
         'keep_temp_user': os.environ.get('KEEP_TEMP_USER', 'false').lower() in ('true', '1', 'yes'),
     }
 

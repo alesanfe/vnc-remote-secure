@@ -26,12 +26,13 @@ def create_ssl_context(cert_file=None, key_file=None):
     import ssl
 
     # Allow explicit opt-out via TLS_ENABLED=false or DISABLE_SSL=true.
-    if 'TLS_ENABLED' in os.environ:
-        tls_enabled = os.environ['TLS_ENABLED'].lower()
-        if tls_enabled in ('false', '0', 'no'):
+    tls_val = os.environ.get('TLS_ENABLED', '').strip()
+    if tls_val:
+        if tls_val.lower() in ('false', '0', 'no'):
             return None
-    elif 'DISABLE_SSL' in os.environ:
-        if os.environ['DISABLE_SSL'].lower() in ('true', '1', 'yes'):
+    else:
+        disable_val = os.environ.get('DISABLE_SSL', '').strip()
+        if disable_val and disable_val.lower() in ('true', '1', 'yes'):
             return None
 
     cert = cert_file or os.environ.get('SSL_CERT', '')

@@ -16,7 +16,7 @@ Use DuckDNS (https://www.duckdns.org/) as the default dynamic DNS provider:
 - Cross-platform update scripts (Bash + Python fallback)
 
 Implemented in `scripts/utilities/duckdns_update.sh` and `scripts/utilities/duckdns_update.py`,
-integrated into both `launch.sh` (Windows) and `src/rpi-vnc-remote.sh` (Linux).
+integrated into both `vnc-remote` (unified CLI, Windows) and `src/rpi-vnc-remote.sh` (Linux).
 
 ## Alternatives considered
 1. **Cloudflare DNS API**: More features, better API.

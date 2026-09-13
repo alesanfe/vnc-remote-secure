@@ -95,7 +95,7 @@ to Linux/Raspberry Pi and Windows machines.
 
 ### Compatibility
 - **Linux/Raspberry Pi**: Raspberry Pi OS (64-bit), Ubuntu 22.04+, Debian 12+
-- **Windows**: Windows 10+ with Git Bash, Python 3.8+, UltraVNC binaries
+- **Windows**: Windows 10+ with Git Bash, Python 3.11+, UltraVNC binaries
 - **Client**: Any modern web browser (Chrome, Firefox, Safari, Edge)
 
 ## [Unreleased]
