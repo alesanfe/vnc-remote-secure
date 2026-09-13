@@ -55,11 +55,22 @@ start_ttyd() {
     log "cyan" "Starting terminal service (ttyd)..."
     install_ttyd
 
-    # Determine bind address based on nginx status
+    # Determine bind address based on nginx status and security profile.
+    # In hardened profiles, always bind to localhost even if nginx is
+    # disabled (defense in depth).
     local bind_address="0.0.0.0"
     if [[ "$NGINX_ENABLED" == "true" ]]; then
         bind_address="127.0.0.1"
         log "blue" "Binding to localhost (nginx will handle external access)"
+    fi
+    # Harden: force localhost in non-development profiles.
+    if [[ "$SECURITY_PROFILE" == "public-hardened" ]] || \
+       [[ "$SECURITY_PROFILE" == "private-overlay" ]] || \
+       [[ "$SECURITY_PROFILE" == "trusted-lan" ]]; then
+        if [[ "$bind_address" != "127.0.0.1" ]]; then
+            log "yellow" "Security profile $SECURITY_PROFILE requires localhost bind — overriding"
+            bind_address="127.0.0.1"
+        fi
     fi
 
     # Write credentials to a temp file with restricted permissions to avoid
@@ -155,11 +166,22 @@ start_novnc() {
     log "cyan" "Starting web VNC interface (noVNC)..."
     configure_novnc
 
-    # Determine bind address based on nginx status
+    # Determine bind address based on nginx status and security profile.
+    # In hardened profiles, always bind to localhost even if nginx is
+    # disabled (defense in depth).
     local bind_address="0.0.0.0"
     if [[ "$NGINX_ENABLED" == "true" ]]; then
         bind_address="127.0.0.1"
         log "blue" "Binding to localhost (nginx will handle external access)"
+    fi
+    # Harden: force localhost in non-development profiles.
+    if [[ "$SECURITY_PROFILE" == "public-hardened" ]] || \
+       [[ "$SECURITY_PROFILE" == "private-overlay" ]] || \
+       [[ "$SECURITY_PROFILE" == "trusted-lan" ]]; then
+        if [[ "$bind_address" != "127.0.0.1" ]]; then
+            log "yellow" "Security profile $SECURITY_PROFILE requires localhost bind — overriding"
+            bind_address="127.0.0.1"
+        fi
     fi
 
     if [[ "$DISABLE_SSL" == true ]] || [[ "$NGINX_ENABLED" == "true" ]]; then

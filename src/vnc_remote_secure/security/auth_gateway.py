@@ -228,6 +228,38 @@ def check_websocket_upgrade(
     return True, 'OK'
 
 
+def register_websocket_connection(
+    session_id: str,
+    close_callback,
+    resource: str = '',
+) -> str:
+    """Register a WebSocket connection for immediate revocation.
+
+    After a successful check_websocket_upgrade, the WebSocket handler
+    should call this function to register the connection. When the
+    session is revoked, the close_callback will be invoked to close
+    the WebSocket immediately.
+
+    Args:
+        session_id: The session ID (from cookie or bearer token).
+        close_callback: A callable that closes the WebSocket. Must
+            return True on success.
+        resource: The resource being accessed (e.g. 'desktop',
+            'terminal').
+
+    Returns:
+        A connection ID for later unregister.
+    """
+    from vnc_remote_secure.security.websocket_registry import register_connection
+    return register_connection(session_id, close_callback, resource)
+
+
+def unregister_websocket_connection(conn_id: str):
+    """Unregister a WebSocket connection (on normal close)."""
+    from vnc_remote_secure.security.websocket_registry import unregister_connection
+    unregister_connection(conn_id)
+
+
 def check_permission_for_action(
     bearer_token: str,
     permission: str,

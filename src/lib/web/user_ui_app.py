@@ -25,12 +25,29 @@ from flask import (Flask, flash, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+
+# Flask secret key: must be set in non-development profiles.
+# In development, a random ephemeral key is acceptable.
+import logging as _logging
+_logger = _logging.getLogger(__name__)
+flask_secret = os.environ.get('FLASK_SECRET_KEY', '').strip()
+if flask_secret:
+    app.secret_key = flask_secret
+else:
+    _profile = os.environ.get('SECURITY_PROFILE', 'development')
+    if _profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+        _logger.error(
+            "FLASK_SECRET_KEY is not set in profile '%s'. "
+            "Sessions will be invalidated on restart. "
+            "Set FLASK_SECRET_KEY in .env to a persistent random value.",
+            _profile,
+        )
+    app.secret_key = secrets.token_hex(32)
 
 # Session cookie security settings
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SAMESITE=os.environ.get('SESSION_SAMESITE', 'Lax'),
     SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true',
     PERMANENT_SESSION_LIFETIME=1800,
 )

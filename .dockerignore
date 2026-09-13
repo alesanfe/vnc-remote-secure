@@ -51,6 +51,12 @@ htmlcov/
 *.egg-info/
 .hypothesis/
 
+# Security scan reports (not needed in production image)
+bandit-report.json
+*.sarif
+trivy-report.json
+gitleaks-report.json
+
 # Virtual environments
 venv/
 .venv/

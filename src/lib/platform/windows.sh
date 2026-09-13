@@ -723,11 +723,22 @@ start_ttyd() {
 
     install_ttyd
 
-    # Determine bind address based on nginx status
+    # Determine bind address based on nginx status and security profile.
+    # In hardened profiles, always bind to localhost even if nginx is
+    # disabled (defense in depth).
     local bind_address="0.0.0.0"
     if [[ "$NGINX_ENABLED" == "true" ]]; then
         bind_address="127.0.0.1"
         log "blue" "Binding to localhost (nginx will handle external access)"
+    fi
+    # Harden: force localhost in non-development profiles.
+    if [[ "$SECURITY_PROFILE" == "public-hardened" ]] || \
+       [[ "$SECURITY_PROFILE" == "private-overlay" ]] || \
+       [[ "$SECURITY_PROFILE" == "trusted-lan" ]]; then
+        if [[ "$bind_address" != "127.0.0.1" ]]; then
+            log "yellow" "Security profile $SECURITY_PROFILE requires localhost bind — overriding"
+            bind_address="127.0.0.1"
+        fi
     fi
 
     # Write credentials to a temp file
@@ -792,9 +803,14 @@ start_novnc() {
         }
     fi
 
-    # Determine bind address
+    # Determine bind address (hardened: force localhost in non-dev profiles)
     local bind_address="0.0.0.0"
     if [[ "$NGINX_ENABLED" == "true" ]]; then
+        bind_address="127.0.0.1"
+    fi
+    if [[ "$SECURITY_PROFILE" == "public-hardened" ]] || \
+       [[ "$SECURITY_PROFILE" == "private-overlay" ]] || \
+       [[ "$SECURITY_PROFILE" == "trusted-lan" ]]; then
         bind_address="127.0.0.1"
     fi
 

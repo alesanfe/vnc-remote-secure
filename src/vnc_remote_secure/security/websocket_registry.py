@@ -182,6 +182,12 @@ def get_registry() -> WebSocketRegistry:
     return _registry
 
 
+def reset_registry():
+    """Reset the global registry (for testing only)."""
+    global _registry
+    _registry = WebSocketRegistry()
+
+
 def register_connection(session_id: str, close_callback: CloseCallback,
                          resource: Optional[str] = None) -> str:
     """Register a new WebSocket connection (convenience function)."""
