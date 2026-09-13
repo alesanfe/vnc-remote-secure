@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Config inspector with provenance**: `vnc-remote config show-effective` shows
+  the effective value of each config variable and where it came from (env, .env,
+  profile, platform-default, hardcoded-default, security-policy).
+- **Config validation**: `vnc-remote config validate` detects contradictory
+  configurations (TLS disabled in hardened profiles, MFA missing, etc.).
+- **Config diff**: `vnc-remote config diff --profile-a A --profile-b B` shows
+  differences between two profiles.
+- **Config migration**: `vnc-remote config migrate` migrates legacy config values
+  (VNC_REMOTE_PROFILE, CERT_FILE, old profile names).
+- **WebSocket connection registry** (`security/websocket_registry.py`): tracks
+  active WebSocket connections by session ID for immediate revocation.
+- **Immediate WebSocket revocation**: `revoke_session()` now closes all active
+  WebSocket connections for the session, not just preventing reconnection.
+- **Atomic single-use token consumption**: `consume_ephemeral_session()` uses
+  a lock to ensure only one concurrent client can consume a single-use token.
+- **Strong token binding**: ephemeral sessions now support resource binding
+  (desktop/terminal), instance_id, nonce, and max_uses.
+- **Local consent for support sessions** (`security/consent.py`): consent
+  state machine for remote support access requests.
+- **Step-up authentication** (`security/step_up_auth.py`): requires recent
+  authentication for sensitive actions (terminal, file transfer, admin
+  creation, TLS disable, profile change, support session creation).
+- **Real bypass tests** (`tests/security/test_real_bypass.py`): tests that
+  start real servers and verify backends cannot be reached externally.
+- **Windows isolation tests** (`tests/windows/Isolation.Tests.ps1`): Pester
+  tests verifying restricted user account, firewall rules, and file access.
+- **Profile enforcement of BACKEND_BIND_HOST**: hardened profiles now enforce
+  127.0.0.1 even if the user sets 0.0.0.0 in the environment.
+- **SameSite policy unified**: Flask and stdlib sessions both default to Lax,
+  configurable via SESSION_SAMESITE env var.
+- **Flask secret key enforcement**: non-development profiles log an error if
+  FLASK_SECRET_KEY is not set; posture check added.
+- **Fallback app fails safely**: non-development profiles raise RuntimeError
+  if Flask is not installed, instead of using insecure http.server fallback.
 - Structured audit logging with tamper-evident SHA-256 chain (`security/audit.py`)
 - TLS cipher and certificate validation (`security/tls_validation.py`)
 - HTTP security headers: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy (`security/http_headers.py`)
@@ -23,9 +57,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migration guide (`docs/migration/README.md`)
 
 ### Changed
+- **Rate limiting consolidated**: `rate_limiting.py` removed; all rate limiting
+  is now in `rate_limit.py` (canonical module with both RateLimiter class
+  and check_rate_limit function).
 - Auth gateway now writes structured audit entries for all login attempts
 - Flask app applies security headers to all responses via `after_request`
 - ROADMAP updated to reflect completed items
+
+### Fixed
+- `pyproject.toml`: removed Python 3.8/3.9/3.10 classifiers, set ruff/black
+  target to py311 (was contradicting requires-python>=3.11).
+- SameSite cookie policy: Flask and sessions.py both default to Lax
+  (was inconsistent: Flask=Lax, sessions.py=Strict).
+- ADR-0007: documented Windows process isolation limitation honestly.
 
 ## [0.2.0] - 2026-09-11
 

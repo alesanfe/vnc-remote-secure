@@ -103,3 +103,49 @@ def get_auth_limiter() -> RateLimiter:
     if _auth_limiter is None:
         _auth_limiter = RateLimiter()
     return _auth_limiter
+
+
+# ---------------------------------------------------------------------------
+# General IP-based rate limiting (for non-auth endpoints like user management)
+# ---------------------------------------------------------------------------
+# This is a simple sliding-window limiter keyed by IP. For auth-specific
+# limiting with lockouts, use RateLimiter above.
+
+_general_store: dict = defaultdict(list)
+
+DEFAULT_MAX_REQUESTS = 5
+DEFAULT_WINDOW_SECONDS = 300  # 5 minutes
+
+
+def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
+                     window_seconds=DEFAULT_WINDOW_SECONDS):
+    """Check whether ``ip`` is within the allowed request rate.
+
+    Records the current attempt and returns ``True`` if allowed,
+    ``False`` if rate-limited.
+    """
+    now = time.time()
+    cutoff = now - window_seconds
+    _general_store[ip] = [t for t in _general_store[ip] if t > cutoff]
+    if len(_general_store[ip]) >= max_requests:
+        return False
+    _general_store[ip].append(now)
+    return True
+
+
+def reset_rate_limit(ip):
+    """Clear the rate-limit history for ``ip``."""
+    _general_store.pop(ip, None)
+    return True
+
+
+def get_rate_limit_info(ip, window_seconds=DEFAULT_WINDOW_SECONDS):
+    """Return a dict with current attempt count and remaining allowance."""
+    now = time.time()
+    cutoff = now - window_seconds
+    recent = [t for t in _general_store.get(ip, []) if t > cutoff]
+    return {
+        'ip': ip,
+        'attempts': len(recent),
+        'window_seconds': window_seconds,
+    }

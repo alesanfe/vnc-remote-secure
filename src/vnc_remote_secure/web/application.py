@@ -72,7 +72,7 @@ def create_app(config=None):
         app.secret_key = secrets.token_hex(32)
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_SAMESITE=os.environ.get('SESSION_SAMESITE', 'Lax'),
         SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true',
         PERMANENT_SESSION_LIFETIME=1800,
         VNC_CONFIG=config,

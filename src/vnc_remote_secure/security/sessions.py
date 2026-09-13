@@ -117,7 +117,7 @@ def get_cookie_attributes(secure: bool = True) -> dict:
                 Set to False for local HTTP-only development.
     """
     load_env_file()
-    samesite = os.environ.get('SESSION_SAMESITE', 'Strict')
+    samesite = os.environ.get('SESSION_SAMESITE', 'Lax')
     return {
         'httponly': True,
         'secure': secure,

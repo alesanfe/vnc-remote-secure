@@ -2,7 +2,7 @@
 
 Provides login/logout and user CRUD endpoints. Authentication is backed
 by :mod:`vnc_remote_secure.security.authentication` and rate-limited via
-:mod:`vnc_remote_secure.security.rate_limiting`.
+:mod:`vnc_remote_secure.security.rate_limit`.
 """
 import logging
 import os
@@ -18,7 +18,7 @@ from vnc_remote_secure.security.authentication import (
     create_web_session,
     validate_session_token,
 )
-from vnc_remote_secure.security.rate_limiting import check_rate_limit
+from vnc_remote_secure.security.rate_limit import check_rate_limit
 
 users_bp = Blueprint('users', __name__)
 

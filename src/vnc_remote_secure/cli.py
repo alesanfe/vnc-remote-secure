@@ -476,6 +476,108 @@ def cmd_secrets(args):
     return 1
 
 
+def cmd_config(args):
+    """Configuration management (show-effective, validate, diff, migrate)."""
+    from vnc_remote_secure.core.config import load_env_file
+    from vnc_remote_secure.core.config_inspector import (
+        compute_effective_config,
+        diff_configs,
+        validate_config,
+    )
+
+    load_env_file()
+
+    if args.config_action == 'show-effective':
+        profile = getattr(args, 'profile', None)
+        effective = compute_effective_config(profile_name=profile)
+        if args.json:
+            print(json.dumps(effective, indent=2))
+        else:
+            print(f"{'Variable':<30} {'Value':<30} {'Source'}")
+            print(f"{'-' * 30} {'-' * 30} {'-' * 20}")
+            for entry in effective:
+                print(f"{entry['name']:<30} {entry['value']:<30} {entry['source']}")
+        return 0
+
+    elif args.config_action == 'validate':
+        profile = getattr(args, 'profile', None)
+        findings = validate_config(profile_name=profile)
+        if args.json:
+            print(json.dumps(findings, indent=2))
+        else:
+            if not findings:
+                print("Configuration is valid.")
+            else:
+                for f in findings:
+                    sev = f['severity'].upper()
+                    print(f"  [{sev}] {f['message']}")
+        criticals = [f for f in findings if f['severity'] == 'critical']
+        return 1 if criticals else 0
+
+    elif args.config_action == 'diff':
+        config_a = compute_effective_config(profile_name=args.profile_a)
+        config_b = compute_effective_config(profile_name=args.profile_b)
+        diffs = diff_configs(config_a, config_b)
+        if args.json:
+            print(json.dumps(diffs, indent=2))
+        else:
+            if not diffs:
+                print(f"No differences between '{args.profile_a}' and '{args.profile_b}'.")
+            else:
+                print(f"{'Variable':<30} {'A':<20} {'B':<20}")
+                print(f"{'-' * 30} {'-' * 20} {'-' * 20}")
+                for d in diffs:
+                    print(f"{d['name']:<30} {d['value_a']:<20} {d['value_b']:<20}")
+        return 0
+
+    elif args.config_action == 'migrate':
+        # Migrate legacy config values to current format.
+        migrations = [
+            ('VNC_REMOTE_PROFILE', 'SECURITY_PROFILE',
+             'VNC_REMOTE_PROFILE is deprecated, use SECURITY_PROFILE'),
+            ('CERT_FILE', 'SSL_CERT',
+             'CERT_FILE is deprecated, use SSL_CERT'),
+            ('KEY_FILE', 'SSL_KEY',
+             'KEY_FILE is deprecated, use SSL_KEY'),
+            ('home-lan', 'trusted-lan',
+             'Profile home-lan renamed to trusted-lan'),
+            ('private-vpn', 'private-overlay',
+             'Profile private-vpn renamed to private-overlay'),
+            ('internet-hardened', 'public-hardened',
+             'Profile internet-hardened renamed to public-hardened'),
+            ('local-only', 'development',
+             'Profile local-only renamed to development'),
+        ]
+        changes = []
+        env_path = os.path.join(_find_project_root(), '.env')
+        if not os.path.exists(env_path):
+            print("No .env file found.")
+            return 1
+        content = open(env_path, 'r', encoding='utf-8').read()
+        for old, new, msg in migrations:
+            if old in content:
+                changes.append({'old': old, 'new': new, 'message': msg})
+                if not args.dry_run:
+                    content = content.replace(old, new)
+        if not changes:
+            print("No migrations needed — config is already up to date.")
+            return 0
+        if args.dry_run:
+            print("Dry run — the following changes would be made:")
+            for c in changes:
+                print(f"  {c['old']} -> {c['new']}: {c['message']}")
+        else:
+            with open(env_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print("Applied migrations:")
+            for c in changes:
+                print(f"  {c['old']} -> {c['new']}: {c['message']}")
+        return 0
+
+    print(f"Unknown config action: {args.config_action}")
+    return 1
+
+
 def _parse_duration(s: str) -> int:
     """Parse a duration string like '30m', '2h', '1d' into seconds."""
     if not s:
@@ -617,6 +719,23 @@ def create_parser():
     p_scheck = p_secrets_sub.add_parser('check', help='Validate TLS config and secret file permissions')
     p_scheck.add_argument('--json', action='store_true', help='JSON output')
     p_secrets.set_defaults(func=cmd_secrets)
+
+    # Config
+    p_config = subparsers.add_parser('config', help='Configuration management')
+    p_config_sub = p_config.add_subparsers(dest='config_action')
+    p_ceff = p_config_sub.add_parser('show-effective', help='Show effective config with provenance')
+    p_ceff.add_argument('--json', action='store_true', help='JSON output')
+    p_ceff.add_argument('--profile', help='Profile to evaluate (default: from .env)')
+    p_cval = p_config_sub.add_parser('validate', help='Validate config for contradictions')
+    p_cval.add_argument('--json', action='store_true', help='JSON output')
+    p_cval.add_argument('--profile', help='Profile to validate against')
+    p_cdiff = p_config_sub.add_parser('diff', help='Diff two profiles')
+    p_cdiff.add_argument('--profile-a', required=True, help='First profile')
+    p_cdiff.add_argument('--profile-b', required=True, help='Second profile')
+    p_cdiff.add_argument('--json', action='store_true', help='JSON output')
+    p_cmig = p_config_sub.add_parser('migrate', help='Migrate config to current version format')
+    p_cmig.add_argument('--dry-run', action='store_true', help='Show changes without applying')
+    p_config.set_defaults(func=cmd_config)
 
     # Help
     p_help = subparsers.add_parser('help', help='Show this help message')

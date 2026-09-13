@@ -14,10 +14,22 @@ import hashlib
 import hmac
 import logging
 import secrets
+import threading
 import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Server instance identifier (unique per process).
+_INSTANCE_ID = None
+
+
+def _get_instance_id() -> str:
+    """Return a unique identifier for this server instance."""
+    global _INSTANCE_ID
+    if _INSTANCE_ID is None:
+        _INSTANCE_ID = f'srv_{secrets.token_hex(4)}'
+    return _INSTANCE_ID
 
 
 # Permissions
@@ -43,7 +55,18 @@ ROLES = {
 
 
 class EphemeralSession:
-    """A time-limited, optionally single-use access session."""
+    """A time-limited, optionally single-use access session.
+
+    Strong binding:
+        - resource: The specific resource this token grants access to
+          (e.g. 'desktop', 'terminal'). A token for 'desktop' cannot
+          be used to open a terminal.
+        - instance_id: The server instance that issued the token.
+          Prevents token replay across different server instances.
+        - nonce: A unique random value to prevent replay attacks.
+        - max_uses: Maximum number of times this token can be used
+          (default: unlimited; 1 for single-use).
+    """
 
     def __init__(
         self,
@@ -56,6 +79,10 @@ class EphemeralSession:
         no_terminal: bool = False,
         allowed_ip: Optional[str] = None,
         created_by: str = 'admin',
+        resource: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        nonce: Optional[str] = None,
+        max_uses: int = 0,
     ):
         self.token = token
         self.role = role
@@ -69,21 +96,46 @@ class EphemeralSession:
         self.created_at = time.time()
         self.used = False
         self.revoked = False
+        # Strong binding fields.
+        self.resource = resource  # e.g. 'desktop', 'terminal'
+        self.instance_id = instance_id or _get_instance_id()
+        self.nonce = nonce or secrets.token_hex(8)
+        self.max_uses = max_uses  # 0 = unlimited
+        self.use_count = 0
 
-    def is_valid(self, client_ip: Optional[str] = None) -> bool:
-        """Check if this session is still valid."""
+    def is_valid(self, client_ip: Optional[str] = None,
+                 resource: Optional[str] = None) -> bool:
+        """Check if this session is still valid.
+
+        Args:
+            client_ip: Client IP address (for IP restriction check).
+            resource: Requested resource (for resource binding check).
+        """
         if self.revoked:
             return False
         if self.single_use and self.used:
+            return False
+        if self.max_uses > 0 and self.use_count >= self.max_uses:
             return False
         if time.time() > self.expires_at:
             return False
         if self.allowed_ip and client_ip and client_ip != self.allowed_ip:
             return False
+        # Resource binding: if token has a resource, it must match.
+        if self.resource and resource and resource != self.resource:
+            return False
         return True
 
-    def has_permission(self, perm: str) -> bool:
-        """Check if this session grants a specific permission."""
+    def has_permission(self, perm: str, resource: Optional[str] = None) -> bool:
+        """Check if this session grants a specific permission.
+
+        Args:
+            perm: Permission to check (e.g. 'view', 'control').
+            resource: Resource being accessed (for resource binding).
+        """
+        # Resource binding: if token has a resource, it must match.
+        if self.resource and resource and resource != self.resource:
+            return False
         if self.view_only and perm in (PERM_CONTROL, PERM_CLIPBOARD, PERM_FILE_TRANSFER):
             return False
         if self.no_terminal and perm == PERM_TERMINAL:
@@ -93,6 +145,7 @@ class EphemeralSession:
     def mark_used(self):
         """Mark this session as used (for single-use sessions)."""
         self.used = True
+        self.use_count += 1
 
     def revoke(self):
         """Revoke this session immediately."""
@@ -112,6 +165,10 @@ class EphemeralSession:
             'created_at': self.created_at,
             'used': self.used,
             'revoked': self.revoked,
+            'resource': self.resource,
+            'instance_id': self.instance_id,
+            'max_uses': self.max_uses,
+            'use_count': self.use_count,
         }
 
 
@@ -170,6 +227,7 @@ class SessionStore:
     def __init__(self):
         self._sessions: dict = {}  # token -> EphemeralSession
         self._cleanup_interval = 300  # 5 min
+        self._lock = threading.Lock()
 
     def create(
         self,
@@ -180,8 +238,16 @@ class SessionStore:
         no_terminal: bool = False,
         allowed_ip: Optional[str] = None,
         created_by: str = 'admin',
+        resource: Optional[str] = None,
+        max_uses: int = 0,
     ) -> tuple:
         """Create a new ephemeral session.
+
+        Args:
+            resource: If set, the token can only access this resource
+                (e.g. 'desktop', 'terminal'). Prevents cross-resource
+                token reuse.
+            max_uses: Maximum uses (0 = unlimited, 1 = single-use).
 
         Returns:
             Tuple of (EphemeralSession, signed_token_string).
@@ -196,6 +262,8 @@ class SessionStore:
             no_terminal=no_terminal,
             allowed_ip=allowed_ip,
             created_by=created_by,
+            resource=resource,
+            max_uses=max_uses if max_uses > 0 else (1 if single_use else 0),
         )
         self._sessions[token] = session
         signed = create_ephemeral_token(session)
@@ -205,15 +273,22 @@ class SessionStore:
         """Retrieve a session by its token."""
         return self._sessions.get(token)
 
-    def validate(self, signed_token: str, client_ip: Optional[str] = None) -> Optional[EphemeralSession]:
-        """Validate a signed token and return the session if valid."""
+    def validate(self, signed_token: str, client_ip: Optional[str] = None,
+                 resource: Optional[str] = None) -> Optional[EphemeralSession]:
+        """Validate a signed token and return the session if valid.
+
+        Args:
+            signed_token: The signed token string.
+            client_ip: Client IP address (for IP restriction check).
+            resource: Requested resource (for resource binding check).
+        """
         payload = verify_ephemeral_token(signed_token)
         if not payload:
             return None
         session = self.get(payload['session_token'])
         if not session:
             return None
-        if not session.is_valid(client_ip):
+        if not session.is_valid(client_ip, resource):
             return None
         return session
 
@@ -257,7 +332,8 @@ def get_session_store() -> SessionStore:
 # Convenience functions for per-action authorization and live revocation
 # ---------------------------------------------------------------------------
 
-def check_permission(signed_token: str, permission: str) -> bool:
+def check_permission(signed_token: str, permission: str,
+                     resource: Optional[str] = None) -> bool:
     """Check if a signed token's session has the given permission.
 
     This is the per-action authorization check. It verifies:
@@ -265,12 +341,62 @@ def check_permission(signed_token: str, permission: str) -> bool:
     - Session exists and is not revoked/expired
     - Role includes the requested permission
     - view_only and no_terminal restrictions are enforced
+    - Resource binding: if token has a resource, it must match
     """
     store = get_session_store()
-    session = store.validate(signed_token)
+    session = store.validate(signed_token, resource=resource)
     if not session:
         return False
-    return session.has_permission(permission)
+    return session.has_permission(permission, resource)
+
+
+def create_ephemeral_session(
+    permissions=None,
+    role='viewer',
+    ttl_seconds=1800,
+    single_use=False,
+    view_only=False,
+    no_terminal=False,
+    allowed_ip=None,
+    created_by='admin',
+    resource=None,
+    max_uses=0,
+):
+    """Create a new ephemeral session and return its signed token.
+
+    Convenience wrapper around SessionStore.create().
+
+    Args:
+        permissions: Optional list of permission strings.
+        role: Session role (viewer, support, operator, administrator).
+        ttl_seconds: Time-to-live in seconds.
+        single_use: If True, the session can only be used once.
+        view_only: If True, restricts to view-only access.
+        no_terminal: If True, terminal access is blocked.
+        allowed_ip: Optional IP restriction.
+        created_by: Username of the creator.
+        resource: If set, token can only access this resource.
+        max_uses: Maximum uses (0 = unlimited, 1 = single-use).
+
+    Returns:
+        A signed token string, or None on failure.
+    """
+    store = get_session_store()
+    try:
+        session, signed = store.create(
+            expires_in=ttl_seconds,
+            role=role,
+            single_use=single_use,
+            view_only=view_only,
+            no_terminal=no_terminal,
+            allowed_ip=allowed_ip,
+            created_by=created_by,
+            resource=resource,
+            max_uses=max_uses,
+        )
+        return signed
+    except Exception:
+        return None
 
 
 def is_session_revoked(signed_token: str) -> bool:
@@ -302,10 +428,61 @@ def revoke_session(signed_token: str) -> bool:
 
     This propagates immediately: any subsequent check_permission,
     is_session_revoked, or check_websocket_upgrade call will reject
-    the token.
+    the token. Additionally, all active WebSocket connections for this
+    session are forcibly closed via the WebSocket registry.
     """
     payload = verify_ephemeral_token(signed_token)
     if not payload:
         return False
     store = get_session_store()
-    return store.revoke(payload['session_token'])
+    token = payload['session_token']
+    result = store.revoke(token)
+
+    # Close all active WebSocket connections for this session.
+    try:
+        from vnc_remote_secure.security.websocket_registry import revoke_session_connections
+        revoke_session_connections(token)
+    except Exception:
+        pass  # Registry not available (e.g. during tests)
+
+    return result
+
+
+def consume_ephemeral_session(signed_token: str) -> bool:
+    """Atomically consume a single-use ephemeral session.
+
+    For single-use sessions, this marks the session as used and revokes
+    it. The check-and-consume is atomic (thread-safe via a lock) so
+    that only one concurrent client can consume a single-use token.
+
+    For multi-use sessions, this is a no-op (returns True if valid).
+
+    Returns:
+        True if the token was valid and consumed (or multi-use),
+        False if the token was invalid, already consumed, or revoked.
+    """
+    payload = verify_ephemeral_token(signed_token)
+    if not payload:
+        return False
+    store = get_session_store()
+    token = payload['session_token']
+
+    with store._lock:
+        session = store.get(token)
+        if not session:
+            return False
+        if session.revoked:
+            return False
+        if time.time() >= session.expires_at:
+            return False
+        if session.single_use:
+            # Atomic check-and-consume under lock.
+            if session.revoked:
+                return False
+            session.revoke()
+            return True  # Return inside lock to prevent race.
+        else:
+            return True  # Multi-use: valid, return inside lock.
+
+    # unreachable, but kept for safety
+    return True

@@ -148,10 +148,24 @@ def apply_profile(profile: Optional[str] = None, overwrite: bool = False):
     Sets env vars from the profile. Existing env vars are preserved
     unless ``overwrite`` is True (user-configured values take priority
     over profile defaults).
+
+    Security-critical variables (BACKEND_BIND_HOST) are always enforced
+    in hardened profiles, regardless of user overrides. This prevents
+    accidental exposure of internal services.
     """
     config = get_profile_config(profile)
+    resolved = _PROFILE_ALIASES.get(profile or get_profile(), profile or get_profile())
+
+    # Security-critical variables that are always enforced in hardened profiles.
+    locked_vars = {'BACKEND_BIND_HOST': '127.0.0.1'}
+    is_hardened = resolved in ('public-hardened', 'private-overlay', 'trusted-lan')
+
     for key, value in config.items():
         if key == 'description':
+            continue
+        # Enforce locked vars in hardened profiles, even if user set them.
+        if is_hardened and key in locked_vars:
+            os.environ[key] = locked_vars[key]
             continue
         if overwrite or key not in os.environ:
             if value:

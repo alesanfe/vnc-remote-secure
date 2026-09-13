@@ -42,7 +42,7 @@ CLI común en Python (vnc-remote)
   - `core/` — config, errors, paths, sessions, validation, lifecycle
   - `platform/{linux,windows}/` — platform adapters
   - `services/` — audio, gamepad, health, landing, novnc, terminal, vnc
-  - `security/` — audit, authentication, certificates, credentials, encryption, ephemeral_sessions, file_permissions, http_auth, http_headers, mfa, posture, profiles, rate_limit, rate_limiting, redaction, sessions, tls_validation
+  - `security/` — audit, authentication, certificates, consent, credentials, encryption, ephemeral_sessions, file_permissions, http_auth, http_headers, mfa, posture, profiles, rate_limit, redaction, sessions, step_up_auth, tls_validation, websocket_registry
   - `monitoring/` — alerts, health, metrics, prometheus, status
   - `web/` — Flask application, routes, templates, static
   - `vendor/d3des.py` — VNC DES (legacy protocol compatibility)
