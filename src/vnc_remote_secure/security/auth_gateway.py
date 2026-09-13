@@ -241,7 +241,7 @@ def register_websocket_connection(
     the WebSocket immediately.
 
     Args:
-        session_id: The session ID (from cookie or bearer token).
+        session_id: The session ID (signed token or internal token).
         close_callback: A callable that closes the WebSocket. Must
             return True on success.
         resource: The resource being accessed (e.g. 'desktop',
@@ -251,7 +251,28 @@ def register_websocket_connection(
         A connection ID for later unregister.
     """
     from vnc_remote_secure.security.websocket_registry import register_connection
-    return register_connection(session_id, close_callback, resource)
+    # Resolve signed token to internal token so revoke_session
+    # (which uses the internal token) can find the connection.
+    internal_id = _resolve_session_id(session_id)
+    return register_connection(internal_id, close_callback, resource)
+
+
+def _resolve_session_id(session_id: str) -> str:
+    """Resolve a signed token to its internal session token.
+
+    If the input is already an internal token (not a signed token),
+    return it as-is.
+    """
+    try:
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            verify_ephemeral_token,
+        )
+        payload = verify_ephemeral_token(session_id)
+        if payload:
+            return payload['session_token']
+    except Exception:
+        pass
+    return session_id
 
 
 def unregister_websocket_connection(conn_id: str):
