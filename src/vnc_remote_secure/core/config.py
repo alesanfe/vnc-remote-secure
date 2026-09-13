@@ -205,7 +205,11 @@ def get_config():
         'alerts_enabled': os.environ.get('ALERTS_ENABLED', 'false').lower() in ('true', '1', 'yes'),
         'audio_stream_enabled': os.environ.get('AUDIO_STREAM_ENABLED', 'false').lower() in ('true', '1', 'yes'),
         'gamepad_enabled': os.environ.get('GAMEPAD_ENABLED', 'false').lower() in ('true', '1', 'yes'),
-        'tls_enabled': os.environ.get('TLS_ENABLED', 'true').lower() in ('true', '1', 'yes'),
+        'tls_enabled': (
+            os.environ.get('TLS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+            if 'TLS_ENABLED' in os.environ
+            else os.environ.get('DISABLE_SSL', 'false').lower() not in ('true', '1', 'yes')
+        ),
         'keep_temp_user': os.environ.get('KEEP_TEMP_USER', 'false').lower() in ('true', '1', 'yes'),
     }
 

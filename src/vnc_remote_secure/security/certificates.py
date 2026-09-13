@@ -20,15 +20,19 @@ def create_ssl_context(cert_file=None, key_file=None):
     (no cert/key configured or files missing) so callers can fall back
     to plain HTTP/WSS gracefully.
 
-    When ``TLS_ENABLED=false`` is set in the environment, TLS is
-    explicitly disabled even if cert files exist.
+    When ``TLS_ENABLED=false`` or ``DISABLE_SSL=true`` is set in the
+    environment, TLS is explicitly disabled even if cert files exist.
     """
     import ssl
 
-    # Allow explicit opt-out via TLS_ENABLED=false.
-    tls_enabled = os.environ.get('TLS_ENABLED', 'true').lower()
-    if tls_enabled in ('false', '0', 'no'):
-        return None
+    # Allow explicit opt-out via TLS_ENABLED=false or DISABLE_SSL=true.
+    if 'TLS_ENABLED' in os.environ:
+        tls_enabled = os.environ['TLS_ENABLED'].lower()
+        if tls_enabled in ('false', '0', 'no'):
+            return None
+    elif 'DISABLE_SSL' in os.environ:
+        if os.environ['DISABLE_SSL'].lower() in ('true', '1', 'yes'):
+            return None
 
     cert = cert_file or os.environ.get('SSL_CERT', '')
     key = key_file or os.environ.get('SSL_KEY', '')

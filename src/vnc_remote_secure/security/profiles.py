@@ -12,15 +12,34 @@ health ports.
 
 Profiles:
     development       — Local testing, no TLS, localhost only
-    home-lan          — Home network, self-signed TLS, nginx public
-    private-vpn        — Behind Tailscale/WireGuard, nginx public
-    internet-hardened  — Public internet, Let's Encrypt, MFA, strict
+    local-only        — Localhost only, no network exposure
+    trusted-lan       — Trusted LAN, self-signed TLS, nginx public
+    private-overlay   — Private overlay network (VPN), nginx public
+    public-hardened   — Public internet, Let's Encrypt, MFA, strict
+
+Legacy aliases (backwards-compatible):
+    home-lan          → trusted-lan
+    private-vpn        → private-overlay
+    internet-hardened  → public-hardened
 """
 import logging
 import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _is_tls_enabled() -> bool:
+    """Check if TLS is enabled, unifying TLS_ENABLED and DISABLE_SSL.
+
+    Bash uses DISABLE_SSL (negative logic); Python uses TLS_ENABLED
+    (positive logic). This reads both so a single .env file works.
+    """
+    if 'TLS_ENABLED' in os.environ:
+        return os.environ['TLS_ENABLED'].lower() in ('true', '1', 'yes')
+    if 'DISABLE_SSL' in os.environ:
+        return os.environ['DISABLE_SSL'].lower() not in ('true', '1', 'yes')
+    return True
 
 
 # Backends ALWAYS bind to 127.0.0.1 regardless of profile.
@@ -45,8 +64,23 @@ PROFILES = {
         'AUTH_MAX_ATTEMPTS': '10',
         'ALLOWED_ORIGINS': 'http://localhost:8000,http://127.0.0.1:8000',
     },
-    'home-lan': {
-        'description': 'Home network with self-signed TLS via nginx',
+    'local-only': {
+        'description': 'Localhost only, no network exposure (was development)',
+        'TLS_ENABLED': 'false',
+        'BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': '127.0.0.1',
+        'PUBLIC_BIND_HOST': '127.0.0.1',
+        'HEALTH_WEB_HOST': '127.0.0.1',
+        'LANDING_HOST': '127.0.0.1',
+        'NGINX_ENABLED': 'false',
+        'MFA_REQUIRED': 'false',
+        'SESSION_IDLE_TIMEOUT': '3600',
+        'SESSION_MAX_LIFETIME': '86400',
+        'AUTH_MAX_ATTEMPTS': '10',
+        'ALLOWED_ORIGINS': 'http://localhost:8000,http://127.0.0.1:8000',
+    },
+    'trusted-lan': {
+        'description': 'Trusted LAN with self-signed TLS via nginx (was home-lan)',
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
         'BACKEND_BIND_HOST': '127.0.0.1',
@@ -59,8 +93,8 @@ PROFILES = {
         'SESSION_MAX_LIFETIME': '28800',
         'AUTH_MAX_ATTEMPTS': '5',
     },
-    'private-vpn': {
-        'description': 'Behind Tailscale/WireGuard, nginx public to VPN',
+    'private-overlay': {
+        'description': 'Private overlay network (was private-vpn)',
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
         'BACKEND_BIND_HOST': '127.0.0.1',
@@ -73,8 +107,8 @@ PROFILES = {
         'SESSION_MAX_LIFETIME': '14400',
         'AUTH_MAX_ATTEMPTS': '5',
     },
-    'internet-hardened': {
-        'description': 'Public internet with maximum security',
+    'public-hardened': {
+        'description': 'Public internet with maximum security (was internet-hardened)',
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
         'BACKEND_BIND_HOST': '127.0.0.1',
@@ -91,6 +125,14 @@ PROFILES = {
     },
 }
 
+# Backwards-compatible aliases for renamed profiles.
+# Old name -> new name. Allows existing .env files to keep working.
+_PROFILE_ALIASES = {
+    'home-lan': 'trusted-lan',
+    'private-vpn': 'private-overlay',
+    'internet-hardened': 'public-hardened',
+}
+
 
 def get_profile() -> str:
     """Return the active security profile name."""
@@ -101,8 +143,11 @@ def get_profile_config(profile: Optional[str] = None) -> dict:
     """Return the configuration dict for a profile.
 
     Falls back to 'development' if the requested profile doesn't exist.
+    Supports backwards-compatible aliases for renamed profiles.
     """
     name = profile or get_profile()
+    # Resolve legacy profile names to their new equivalents
+    name = _PROFILE_ALIASES.get(name, name)
     if name not in PROFILES:
         logger.warning("Unknown security profile '%s', using 'development'", name)
         name = 'development'
@@ -134,8 +179,8 @@ def validate_profile_consistency() -> list:
     Returns a list of warning messages (empty if consistent).
     """
     warnings = []
-    profile = get_profile()
-    tls = os.environ.get('TLS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+    profile = _PROFILE_ALIASES.get(get_profile(), get_profile())
+    tls = _is_tls_enabled()
     bind = os.environ.get('BIND_HOST', '127.0.0.1')
     nginx = os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes')
     mfa = os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes')
@@ -145,13 +190,13 @@ def validate_profile_consistency() -> list:
             'TLS disabled but services bind to 0.0.0.0 without nginx. '
             'Internal services are exposed without encryption.'
         )
-    if not tls and profile == 'internet-hardened':
+    if not tls and profile == 'public-hardened':
         warnings.append(
-            'TLS disabled in internet-hardened profile. This is unsafe.'
+            'TLS disabled in public-hardened profile. This is unsafe.'
         )
-    if not mfa and profile == 'internet-hardened':
+    if not mfa and profile == 'public-hardened':
         warnings.append(
-            'MFA not required in internet-hardened profile. '
+            'MFA not required in public-hardened profile. '
             'Set MFA_REQUIRED=true for public exposure.'
         )
     if nginx and not tls:
@@ -171,8 +216,8 @@ def get_blocking_findings() -> list:
     Returns a list of blocking finding dicts with 'code' and 'message'.
     """
     blockers = []
-    profile = get_profile()
-    tls = os.environ.get('TLS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+    profile = _PROFILE_ALIASES.get(get_profile(), get_profile())
+    tls = _is_tls_enabled()
     bind = os.environ.get('BIND_HOST', '127.0.0.1')
     mfa = os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes')
     nginx = os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes')
@@ -188,22 +233,22 @@ def get_blocking_findings() -> list:
             ),
         })
 
-    # Internet-hardened requires TLS + MFA + nginx.
-    if profile == 'internet-hardened':
+    # public-hardened requires TLS + MFA + nginx.
+    if profile == 'public-hardened':
         if not tls:
             blockers.append({
                 'code': 'NO_TLS_PUBLIC',
-                'message': 'TLS is disabled in internet-hardened profile.',
+                'message': 'TLS is disabled in public-hardened profile.',
             })
         if not mfa:
             blockers.append({
                 'code': 'NO_MFA_PUBLIC',
-                'message': 'MFA is not required in internet-hardened profile.',
+                'message': 'MFA is not required in public-hardened profile.',
             })
         if not nginx:
             blockers.append({
                 'code': 'NO_REVERSE_PROXY_PUBLIC',
-                'message': 'nginx is not enabled in internet-hardened profile. '
+                'message': 'nginx is not enabled in public-hardened profile. '
                            'Backends would be directly exposed.',
             })
 

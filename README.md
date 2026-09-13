@@ -1,7 +1,7 @@
 # VNC Remote Secure
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Shell](https://img.shields.io/badge/Shell-Bash%20%2F%20PowerShell-blue.svg)](https://www.gnu.org/software/bash/)
 [![Windows](https://img.shields.io/badge/Windows-10%2B-blue.svg)](https://www.microsoft.com/windows)
 [![Tests](https://img.shields.io/badge/Tests-passing-brightgreen.svg)](tests/)

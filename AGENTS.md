@@ -37,7 +37,7 @@ CLI común en Python (vnc-remote)
 
 ### Source layout
 
-- **Python package**: `src/vnc_remote_secure/` (60 modules)
+- **Python package**: `src/vnc_remote_secure/` (73 modules)
   - `cli.py` — unified CLI
   - `core/` — config, paths, sessions, validation, lifecycle
   - `platform/{linux,windows}/` — platform adapters

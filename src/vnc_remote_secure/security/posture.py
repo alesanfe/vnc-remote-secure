@@ -21,6 +21,20 @@ def _env_val(name: str, default: str = '') -> str:
     return os.environ.get(name, default)
 
 
+def _is_tls_enabled() -> bool:
+    """Check if TLS is enabled, unifying TLS_ENABLED and DISABLE_SSL.
+
+    Bash uses DISABLE_SSL (negative logic); Python uses TLS_ENABLED
+    (positive logic). This function reads both so a single .env file
+    works across both layers.
+    """
+    if 'TLS_ENABLED' in os.environ:
+        return _env_bool('TLS_ENABLED', 'true')
+    if 'DISABLE_SSL' in os.environ:
+        return not _env_bool('DISABLE_SSL', 'false')
+    return True  # default: TLS enabled
+
+
 def calculate_posture() -> dict:
     """Calculate the security posture score and individual checks.
 
@@ -46,8 +60,8 @@ def calculate_posture() -> dict:
             checks.append({'name': name, 'status': 'fail', 'detail': fail_msg})
             score -= points
 
-    # TLS / HTTPS
-    tls = _env_bool('TLS_ENABLED', 'true')
+    # TLS / HTTPS (unified: reads TLS_ENABLED or DISABLE_SSL)
+    tls = _is_tls_enabled()
     add(
         'HTTPS/TLS enabled',
         tls,
@@ -119,8 +133,8 @@ def calculate_posture() -> dict:
     )
 
     # SSL certificate
-    cert = _env_val('CERT_FILE', '')
-    key = _env_val('KEY_FILE', '')
+    cert = _env_val('SSL_CERT', '')
+    key = _env_val('SSL_KEY', '')
     add(
         'SSL certificate configured',
         bool(cert and key) or not tls,

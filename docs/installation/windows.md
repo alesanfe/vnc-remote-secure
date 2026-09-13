@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Windows 10/11 (x64)
-- Python 3.8+ ([python.org](https://python.org))
+- Python 3.11+ ([python.org](https://python.org))
 - Git for Windows (includes Git Bash)
 - UltraVNC (for VNC server)
 

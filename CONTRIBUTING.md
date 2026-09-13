@@ -8,7 +8,7 @@ setup, coding standards, and pull request process.
 ### Prerequisites
 
 - Bash 4+ (Linux/macOS) or Git Bash (Windows)
-- Python 3.8+
+- Python 3.11+
 - `shellcheck` (for linting)
 - `pre-commit` (optional, recommended)
 

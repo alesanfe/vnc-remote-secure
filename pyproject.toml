@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "Secure browser-based remote access via VNC, noVNC, and web terminal"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 authors = [
     {name = "VNC Remote Secure Contributors"},
 ]

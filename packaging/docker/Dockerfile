@@ -30,11 +30,14 @@ WORKDIR /app
 # --- Copy the Python application --------------------------------------------
 COPY src/vnc_remote_secure/ /app/vnc_remote_secure/
 
-# Install the package in editable-ish flat layout (no build step required).
+# Install runtime dependencies (kept in sync with pyproject.toml).
 RUN pip install --no-cache-dir \
-        tornado>=6.0 \
+        Flask>=2.2,<4.0 \
+        tornado>=6.2 \
         websockify>=0.10.0 \
-        cryptography>=38.0.0
+        cryptography>=41.0 \
+        websockets>=12.0 \
+        werkzeug>=3.0
 
 # --- Copy systemd units (informational; systemd not used in-container) -------
 COPY native/linux/systemd/ /app/systemd/

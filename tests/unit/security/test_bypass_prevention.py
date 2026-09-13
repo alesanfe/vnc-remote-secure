@@ -90,9 +90,9 @@ class TestBlockingFindings:
         codes = [b['code'] for b in blockers]
         assert 'WEAK_VNC_PASSWORD' in codes
 
-    def test_internet_hardened_without_tls_blocked(self, monkeypatch):
-        """internet-hardened without TLS must be blocked."""
-        monkeypatch.setenv('SECURITY_PROFILE', 'internet-hardened')
+    def test_public_hardened_without_tls_blocked(self, monkeypatch):
+        """public-hardened without TLS must be blocked."""
+        monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
         monkeypatch.setenv('BIND_HOST', '127.0.0.1')
         monkeypatch.setenv('TLS_ENABLED', 'false')
         monkeypatch.setenv('MFA_REQUIRED', 'true')
@@ -102,9 +102,9 @@ class TestBlockingFindings:
         codes = [b['code'] for b in blockers]
         assert 'NO_TLS_PUBLIC' in codes
 
-    def test_internet_hardened_without_mfa_blocked(self, monkeypatch):
-        """internet-hardened without MFA must be blocked."""
-        monkeypatch.setenv('SECURITY_PROFILE', 'internet-hardened')
+    def test_public_hardened_without_mfa_blocked(self, monkeypatch):
+        """public-hardened without MFA must be blocked."""
+        monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
         monkeypatch.setenv('BIND_HOST', '127.0.0.1')
         monkeypatch.setenv('TLS_ENABLED', 'true')
         monkeypatch.setenv('MFA_REQUIRED', 'false')
@@ -114,9 +114,9 @@ class TestBlockingFindings:
         codes = [b['code'] for b in blockers]
         assert 'NO_MFA_PUBLIC' in codes
 
-    def test_internet_hardened_without_nginx_blocked(self, monkeypatch):
-        """internet-hardened without nginx must be blocked."""
-        monkeypatch.setenv('SECURITY_PROFILE', 'internet-hardened')
+    def test_public_hardened_without_nginx_blocked(self, monkeypatch):
+        """public-hardened without nginx must be blocked."""
+        monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
         monkeypatch.setenv('BIND_HOST', '127.0.0.1')
         monkeypatch.setenv('TLS_ENABLED', 'true')
         monkeypatch.setenv('MFA_REQUIRED', 'true')
@@ -134,7 +134,7 @@ class TestBlockingFindings:
         monkeypatch.setenv('BIND_HOST', '127.0.0.1')
         monkeypatch.setenv('VNC_PASSWORD', 'StrongPass123!')
         monkeypatch.setenv('SECURITY_PROFILE', 'development')
-        # Development profile doesn't have the internet-hardened requirements
+        # Development profile doesn't have the public-hardened requirements
         blockers = get_blocking_findings()
         # Should only have blockers if VNC_PASSWORD is weak
         # With strong password and localhost bind, should be clean
