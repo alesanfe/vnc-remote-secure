@@ -56,6 +56,17 @@ def create_app(config=None):
     app.register_blueprint(landing_bp)
     app.register_blueprint(users_bp)
 
+    # Apply security headers to all responses.
+    from vnc_remote_secure.security.http_headers import get_security_headers
+    from vnc_remote_secure.security.profiles import _is_tls_enabled
+
+    @app.after_request
+    def _apply_security_headers(response):
+        headers = get_security_headers(_is_tls_enabled())
+        for name, value in headers.items():
+            response.headers[name] = value
+        return response
+
     # Attach SSL context to the app config so callers (e.g. app.run())
     # can enable HTTPS consistently with other services.
     from vnc_remote_secure.security.certificates import create_ssl_context

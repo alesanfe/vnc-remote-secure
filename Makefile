@@ -477,6 +477,35 @@ git-pull: ## Pull from remote (current branch)
 	@git pull origin $$(git rev-parse --abbrev-ref HEAD)
 
 # ============================================================================
+# DEMO
+# ============================================================================
+
+demo: ## Run a self-contained demo (Docker-based, no .env needed)
+	@echo "$(BLUE)Starting VNC Remote Secure demo (Docker)...$(NC)"
+	@echo "$(BLUE)This builds and runs a container with a demo profile.$(NC)"
+	@echo "$(BLUE)Access the landing page at http://127.0.0.1:8000$(NC)"
+	@echo "$(BLUE)Health dashboard at http://127.0.0.1:8080/health$(NC)"
+	@echo "$(BLUE)Press Ctrl+C to stop.$(NC)"
+	@docker build -t vnc-remote-secure-demo -f docker/Dockerfile . || \
+		{ echo "$(RED)Docker build failed. Is Docker installed and running?$(NC)"; exit 1; }
+	@docker run --rm -it \
+		-p 8000:8000 \
+		-p 8080:8080 \
+		-p 6080:6080 \
+		-e SECURITY_PROFILE=development \
+		-e TLS_ENABLED=false \
+		-e DISABLE_SSL=true \
+		-e VNC_PASSWORD=demo1234 \
+		-e TTYD_PASSWD=demo1234 \
+		-e AUTH_SECRET=demo-secret-change-me \
+		-e FLASK_SECRET_KEY=demo-flask-key-change-me \
+		vnc-remote-secure-demo
+
+demo-clean: ## Remove the demo Docker image
+	@docker rmi vnc-remote-secure-demo 2>/dev/null || true
+	@echo "$(GREEN)Demo image removed.$(NC)"
+
+# ============================================================================
 # PHONY
 # ============================================================================
 
@@ -493,4 +522,5 @@ git-pull: ## Pull from remote (current branch)
         status docs docs-serve docs-build \
         install uninstall install-systemd systemd-start systemd-stop systemd-status systemd-enable systemd-disable \
         clean clean-all clean-docs \
-        git-status git-log git-push git-pull
+        git-status git-log git-push git-pull \
+        demo demo-clean

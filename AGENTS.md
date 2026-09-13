@@ -37,13 +37,13 @@ CLI común en Python (vnc-remote)
 
 ### Source layout
 
-- **Python package**: `src/vnc_remote_secure/` (73 modules)
+- **Python package**: `src/vnc_remote_secure/` (78 modules)
   - `cli.py` — unified CLI
-  - `core/` — config, paths, sessions, validation, lifecycle
+  - `core/` — config, errors, paths, sessions, validation, lifecycle
   - `platform/{linux,windows}/` — platform adapters
   - `services/` — audio, gamepad, health, landing, novnc, terminal, vnc
-  - `security/` — authentication, certificates, credentials, encryption
-  - `monitoring/` — alerts, health, metrics, status
+  - `security/` — audit, authentication, certificates, credentials, encryption, ephemeral_sessions, file_permissions, http_auth, http_headers, mfa, posture, profiles, rate_limit, rate_limiting, redaction, sessions, tls_validation
+  - `monitoring/` — alerts, health, metrics, prometheus, status
   - `web/` — Flask application, routes, templates, static
   - `vendor/d3des.py` — VNC DES (legacy protocol compatibility)
 - **Linux Bash**: `src/rpi-vnc-remote.sh` + `src/lib/{core,security,web,monitoring,communication,features}/`

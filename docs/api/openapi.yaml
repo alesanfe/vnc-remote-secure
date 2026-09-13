@@ -1,0 +1,373 @@
+openapi: 3.0.3
+info:
+  title: VNC Remote Secure API
+  description: |
+    REST API for VNC Remote Secure — a self-hosted remote access platform
+    with browser-based VNC, terminal, and health monitoring.
+
+    ## Authentication
+    All endpoints except `/health/live` require a valid session cookie
+    or Bearer token. MFA (TOTP) is required when `MFA_REQUIRED=true`.
+
+    ## Security
+    - Backends bind to 127.0.0.1 only
+    - Public access goes through nginx reverse proxy
+    - All responses include security headers (HSTS, CSP, X-Frame-Options)
+  version: 0.2.0
+  contact:
+    url: https://github.com/alesanfe/vnc-remote-secure/issues
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: Linux (health service)
+  - url: http://127.0.0.1:8090
+    description: Windows (health service)
+  - url: https://{domain}
+    description: Public (via nginx reverse proxy)
+    variables:
+      domain:
+        default: myremote.duckdns.org
+
+tags:
+  - name: Health
+    description: Service health and readiness checks
+  - name: Auth
+    description: Authentication and session management
+  - name: Sessions
+    description: Ephemeral remote sessions
+  - name: Metrics
+    description: Prometheus metrics export
+  - name: Audit
+    description: Audit log access
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Get overall health status
+      description: Returns the aggregate health of all services.
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      description: Returns 200 if the process is alive. No auth required.
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: alive
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      description: Returns 200 if all critical services are ready.
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      responses:
+        '200':
+          description: All services ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceHealth'
+        '503':
+          description: One or more services not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                    example: false
+
+  /health/services:
+    get:
+      tags: [Health]
+      summary: Per-service health
+      description: Returns health status for each individual service.
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      responses:
+        '200':
+          description: Per-service health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceHealth'
+
+  /health/all:
+    get:
+      tags: [Health]
+      summary: Complete health report
+      description: Returns system metrics, service health, and posture score.
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      responses:
+        '200':
+          description: Complete health report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteHealth'
+
+  /metrics:
+    get:
+      tags: [Metrics]
+      summary: Prometheus metrics
+      description: |
+        Returns metrics in Prometheus text exposition format.
+        Includes service status, active sessions, auth attempts,
+        TLS status, and posture score.
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP vnc_remote_up Service status (1=up, 0=down)
+                  # TYPE vnc_remote_up gauge
+                  vnc_remote_up 1
+
+  /audit:
+    get:
+      tags: [Audit]
+      summary: Recent audit log entries
+      description: Returns recent structured audit log entries.
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of entries to return
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+        - name: event
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /audit/verify:
+    get:
+      tags: [Audit]
+      summary: Verify audit log chain integrity
+      description: Verifies the tamper-evident hash chain of the audit log.
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      responses:
+        '200':
+          description: Chain verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intact:
+                    type: boolean
+                  message:
+                    type: string
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: vnc_session
+    bearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Permission denied or MFA required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Too many attempts
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: boolean
+          example: true
+        code:
+          type: string
+          example: ERR_AUTH_REQUIRED
+        message:
+          type: string
+          example: Authentication required
+        detail:
+          type: string
+        request_id:
+          type: string
+          format: uuid
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceHealth'
+
+    ServiceHealth:
+      type: object
+      properties:
+        name:
+          type: string
+          example: novnc
+        status:
+          type: string
+          enum: [up, down, degraded]
+        port:
+          type: integer
+        detail:
+          type: string
+
+    CompleteHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        system:
+          type: object
+          properties:
+            cpu:
+              type: string
+            memory:
+              type: string
+            disk:
+              type: string
+            uptime:
+              type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceHealth'
+        posture:
+          type: object
+          properties:
+            score:
+              type: integer
+              minimum: 0
+              maximum: 100
+            checks:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    enum: [ok, warn, fail]
+                  detail:
+                    type: string
+
+    AuditEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        event:
+          type: string
+          example: login
+        user:
+          type: string
+        ip:
+          type: string
+        result:
+          type: string
+          enum: [success, failure]
+        detail:
+          type: string
+        hash:
+          type: string
+          description: SHA-256 chain hash for tamper-evidence

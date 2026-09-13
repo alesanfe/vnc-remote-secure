@@ -446,6 +446,32 @@ def cmd_secrets(args):
         print(f"{args.secret_name}: {redact_env(args.secret_name, show_fingerprint=True)}")
         return 0
 
+    elif args.secrets_action == 'check':
+        # Validate TLS config and secret file permissions.
+        findings = []
+        try:
+            from vnc_remote_secure.security.tls_validation import validate_tls_config
+            findings.extend(validate_tls_config())
+        except Exception as e:
+            findings.append({'severity': 'warning', 'message': f'TLS validation error: {e}'})
+        try:
+            from vnc_remote_secure.security.file_permissions import validate_secret_files
+            findings.extend(validate_secret_files())
+        except Exception as e:
+            findings.append({'severity': 'warning', 'message': f'File permission check error: {e}'})
+        if args.json:
+            print(json.dumps(findings, indent=2))
+        else:
+            if not findings:
+                print("All checks passed.")
+            else:
+                for f in findings:
+                    sev = f.get('severity', 'info').upper()
+                    msg = f.get('message', '')
+                    print(f"  [{sev}] {msg}")
+        criticals = [f for f in findings if f.get('severity') == 'critical']
+        return 1 if criticals else 0
+
     print(f"Unknown secrets action: {args.secrets_action}")
     return 1
 
@@ -588,6 +614,8 @@ def create_parser():
     p_srotate.add_argument('--name', required=True, help='Secret to rotate (e.g. TTYD_PASSWD)')
     p_sredact = p_secrets_sub.add_parser('redact', help='Show redacted value of a secret')
     p_sredact.add_argument('--name', required=True, help='Secret name to redact')
+    p_scheck = p_secrets_sub.add_parser('check', help='Validate TLS config and secret file permissions')
+    p_scheck.add_argument('--json', action='store_true', help='JSON output')
     p_secrets.set_defaults(func=cmd_secrets)
 
     # Help

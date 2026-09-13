@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Structured audit logging with tamper-evident SHA-256 chain (`security/audit.py`)
+- TLS cipher and certificate validation (`security/tls_validation.py`)
+- HTTP security headers: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy (`security/http_headers.py`)
+- Secret file permissions validation (`security/file_permissions.py`)
+- Prometheus metrics export with `/metrics` endpoint (`monitoring/prometheus.py`)
+- OpenAPI 3.0 specification for health, audit, and metrics endpoints (`docs/api/openapi.yaml`)
+- `make demo` target for self-contained Docker demo
+- `vnc-remote secrets check` command for TLS and file permission validation
+- `/audit` and `/audit/verify` endpoints for audit log access
+- Centralized error handling with error code registry (`core/errors.py`)
+- Idempotency tests for config loading and profile application
+- Monitoring runbook (`docs/runbook/monitoring.md`)
+- Migration guide (`docs/migration/README.md`)
+
+### Changed
+- Auth gateway now writes structured audit entries for all login attempts
+- Flask app applies security headers to all responses via `after_request`
+- ROADMAP updated to reflect completed items
+
 ## [0.2.0] - 2026-09-11
 
 ### Added

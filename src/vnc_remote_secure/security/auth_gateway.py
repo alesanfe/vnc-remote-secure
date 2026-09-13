@@ -36,6 +36,15 @@ from vnc_remote_secure.security.sessions import (
 logger = logging.getLogger(__name__)
 
 
+def _audit(event, user, ip, result, detail):
+    """Write an audit log entry (best-effort, never raises)."""
+    try:
+        from vnc_remote_secure.security.audit import audit_log
+        audit_log(event, user=user, ip=ip, result=result, detail=detail)
+    except Exception:
+        pass
+
+
 def check_origin(origin: str, allowed_origins: list) -> bool:
     """Validate the Origin header for WebSocket/CSRF protection.
 
@@ -92,6 +101,7 @@ def attempt_login(
             limiter.get_lockout_remaining(ip_key),
             limiter.get_lockout_remaining(user_key),
         )
+        _audit('login', username, client_ip, 'failure', f'Account locked ({remaining}s remaining)')
         return False, f'Account locked. Try again in {remaining}s.', None
 
     # Verify password
@@ -100,7 +110,9 @@ def attempt_login(
         limiter.record_failure(user_key)
         remaining = limiter.remaining_attempts(ip_key)
         if remaining > 0:
+            _audit('login', username, client_ip, 'failure', f'Invalid credentials ({remaining} left)')
             return False, f'Invalid credentials. {remaining} attempts remaining.', None
+        _audit('login', username, client_ip, 'failure', 'Too many attempts, locked')
         return False, 'Too many attempts. Account locked.', None
 
     # Verify MFA if required
@@ -108,6 +120,7 @@ def attempt_login(
         totp_secret = os.environ.get('TOTP_SECRET', '')
         if not totp_code:
             limiter.record_failure(ip_key)
+            _audit('login', username, client_ip, 'failure', 'MFA code required')
             return False, 'MFA code required.', None
         if totp_secret and verify_totp(totp_secret, totp_code):
             pass  # TOTP valid
@@ -120,9 +133,11 @@ def attempt_login(
                     pass  # Recovery code valid
                 else:
                     limiter.record_failure(ip_key)
+                    _audit('login', username, client_ip, 'failure', 'Invalid MFA code')
                     return False, 'Invalid MFA code.', None
             else:
                 limiter.record_failure(ip_key)
+                _audit('login', username, client_ip, 'failure', 'Invalid MFA code')
                 return False, 'Invalid MFA code.', None
 
     # Success: clear rate limit and create session
@@ -132,6 +147,7 @@ def attempt_login(
     session = create_session_cookie(username)
     token = create_session_token(username)
     session['token'] = token
+    _audit('login', username, client_ip, 'success', 'Login successful')
     return True, 'Login successful.', session
 
 

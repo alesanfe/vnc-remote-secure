@@ -1,10 +1,11 @@
 """Health route handler for the web UI.
 
 Exposes JSON endpoints reporting service and system health.
+Also exposes Prometheus metrics and audit log access.
 """
 import logging
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, Response, jsonify, request
 
 from vnc_remote_secure.core.errors import json_error
 from vnc_remote_secure.monitoring.health import get_all_health
@@ -33,3 +34,33 @@ def health_all():
     except Exception:
         logger.exception("Health status generation failed")
         return json_error('Health status generation failed', 500)
+
+
+@health_bp.route('/metrics')
+@require_auth(check_health_auth, scheme='Bearer', realm='Metrics')
+def metrics():
+    """Return Prometheus-format metrics."""
+    from vnc_remote_secure.monitoring.prometheus import metrics_handler
+    body, status = metrics_handler()
+    return Response(body, status=status, mimetype='text/plain')
+
+
+@health_bp.route('/audit')
+@require_auth(check_health_auth, scheme='Bearer', realm='Audit')
+def audit():
+    """Return recent audit log entries."""
+    from vnc_remote_secure.security.audit import get_audit_entries
+    limit = request.args.get('limit', 100, type=int)
+    event = request.args.get('event', None)
+    limit = max(1, min(limit, 1000))
+    entries = get_audit_entries(limit=limit, event=event)
+    return jsonify(entries)
+
+
+@health_bp.route('/audit/verify')
+@require_auth(check_health_auth, scheme='Bearer', realm='Audit')
+def audit_verify():
+    """Verify audit log chain integrity."""
+    from vnc_remote_secure.security.audit import verify_chain
+    intact, message = verify_chain()
+    return jsonify({'intact': intact, 'message': message})
