@@ -40,6 +40,8 @@ class LinuxAdapter(PlatformAdapter):
 
     def remove_service(self, service_name):
         """Stop and remove a systemd service."""
+        from vnc_remote_secure.platform.linux.services import _check_unit_name
+        _check_unit_name(service_name)
         run_cmd(['systemctl', 'stop', service_name], check=False)
         run_cmd(['systemctl', 'disable', service_name], check=False)
         unit_path = f'/etc/systemd/system/{service_name}.service'
