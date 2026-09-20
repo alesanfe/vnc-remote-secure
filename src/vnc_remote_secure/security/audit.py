@@ -282,14 +282,30 @@ def audit_log(
         _chain_hash = entry['hash']
 
         # Append to log file (create parent dirs if needed).
+        line = json.dumps(entry, separators=(',', ':')) + '\n'
         try:
             path = Path(_audit_log_file())
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(entry, separators=(',', ':')) + '\n')
+                f.write(line)
             _set_secure_perms(path)
         except Exception as e:
             logger.error("Failed to write audit log: %s", e)
+
+        # Optional mirror sink: append the same line to a second,
+        # independently-controlled path (a mounted network share or
+        # WORM store) so rewriting the primary log leaves the mirror
+        # intact. ``AUDIT_MIRROR_FILE`` unset = disabled. Read at call
+        # time so a later load_env_file() still applies.
+        mirror = os.environ.get('AUDIT_MIRROR_FILE', '').strip()
+        if mirror:
+            try:
+                mpath = Path(mirror)
+                mpath.parent.mkdir(parents=True, exist_ok=True)
+                with open(mpath, 'a', encoding='utf-8') as mf:
+                    mf.write(line)
+            except Exception as e:
+                logger.error("Failed to write audit mirror: %s", e)
 
     # Also log at INFO level for console visibility.
     logger.info(

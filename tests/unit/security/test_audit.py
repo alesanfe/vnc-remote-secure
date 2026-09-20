@@ -91,3 +91,23 @@ class TestAuditLog:
         from vnc_remote_secure.security.audit import audit_log
         entry = audit_log('session_create', user='alice', extra={'ttl': 3600})
         assert entry['ttl'] == 3600
+
+    def test_mirror_file_receives_identical_line(self, audit_file, tmp_path, monkeypatch):
+        """AUDIT_MIRROR_FILE gets a byte-identical copy of each entry."""
+        from vnc_remote_secure.security.audit import audit_log
+        mirror = tmp_path / 'mirror' / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_MIRROR_FILE', str(mirror))
+        audit_log('login', user='alice', ip='127.0.0.1')
+        primary_lines = [ln for ln in audit_file.read_text().splitlines() if ln]
+        mirror_lines = [ln for ln in mirror.read_text().splitlines() if ln]
+        # Mirror has the entry but no anchor (anchor predates the env set).
+        assert primary_lines[-1] == mirror_lines[-1]
+        assert json.loads(mirror_lines[-1])['event'] == 'login'
+
+    def test_mirror_failure_does_not_break_primary(self, audit_file, monkeypatch):
+        """A broken mirror path must not break the primary audit log."""
+        from vnc_remote_secure.security.audit import audit_log
+        monkeypatch.setenv('AUDIT_MIRROR_FILE', 'Z:/nonexistent-dir-x/x.jsonl')
+        entry = audit_log('login', user='alice')
+        assert entry['event'] == 'login'
+        assert audit_file.exists()

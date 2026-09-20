@@ -85,6 +85,7 @@ vnc_remote_secure = [
     "third_party/checksums/*",
     "third_party/README.md",
     "static/xterm/*",
+    "static/landing.css",
 ]
 
 [tool.ruff]

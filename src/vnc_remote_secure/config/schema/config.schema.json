@@ -84,6 +84,10 @@
       "minimum": 1,
       "description": "Audit log rotation threshold in bytes (default 10485760)."
     },
+    "AUDIT_MIRROR_FILE": {
+      "type": "string",
+      "description": "Optional second append-only audit sink (e.g. a mounted network share or WORM store) so tampering with the primary log leaves the mirror intact."
+    },
     "AUTH_LOCKOUT_SECONDS": {
       "type": "integer",
       "minimum": 1,

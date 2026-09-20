@@ -42,7 +42,7 @@ CLI canónico en Python (vnc-remote → vnc_remote_secure.cli:main)
 ### Entry points
 
 - **Canonical CLI**: `vnc-remote` (Bash thin wrapper) → `vnc_remote_secure.cli:main` (Python)
-  - Commands: `start`, `stop`, `restart`, `status`, `doctor`, `install`, `uninstall`, `backup`, `restore`, `session`, `secrets`, `config`, `service`, `version`, `help`
+  - Commands: `start`, `stop`, `restart`, `status`, `doctor`, `install`, `uninstall`, `backup`, `restore`, `session`, `secrets`, `config`, `verify`, `service`, `version`, `help`
 - **Windows PowerShell**: `VncRemote.ps1` and `src/vnc_remote_secure/native/windows/VncRemote.psm1` (thin
   compatibility wrappers — all commands delegate to the Python CLI via
   `Invoke-PythonCli`; PowerShell verb names map to Python subcommands:

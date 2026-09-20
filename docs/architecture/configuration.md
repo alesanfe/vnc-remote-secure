@@ -632,6 +632,7 @@ Every variable accepted by .env (mirrors .env.example). Variables marked
 | AUTO_RESTART | false | Restart dead services |
 | AUDIT_LOG_FILE | <log_dir>/audit.jsonl | Hash-chained audit log |
 | AUDIT_LOG_MAX_BYTES | 10485760 | Audit rotation size |
+| AUDIT_MIRROR_FILE | empty | Optional second append-only sink (network share / WORM store); tampering with the primary log leaves the mirror intact |
 | ALERTS_ENABLED | false | Master alert gate |
 | ALERT_WEBHOOK_URL | empty | Generic JSON webhook |
 | DISCORD_ENABLED | false | Discord alert channel |

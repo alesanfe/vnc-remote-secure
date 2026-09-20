@@ -176,6 +176,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`docs/developer/release-checklist.md`**: 30-scenario E2E matrix
   (deployment, security, operational) for release validation on real
   VMs, linked from the docs index.
+- **`AUDIT_MIRROR_FILE`**: optional second append-only audit sink
+  (e.g. a mounted network share or WORM store) — each entry is written
+  to both sinks inside the file lock so rewriting the primary log
+  leaves the mirror intact. Mirror write failures degrade to a log
+  error, never breaking the primary log.
+- **Landing CSS extracted**: `landing.py`'s 148-line inline
+  `_LANDING_CSS` moved to `static/landing.css` (packaged via
+  package-data + MANIFEST) and inlined at render time through
+  `importlib.resources`.
+- **New tests**: `tests/unit/core/test_backup.py` (verify/list, plain
+  and encrypted, corrupt archives, wrong password) and audit-mirror
+  coverage in `test_audit.py`.
 - **Fixed double-encoded mojibake in `AGENTS.md` and
   `test_application.py`**: earlier edits written through a CP1252
   codepage corrupted UTF-8 sequences (`canÃ³nico`, `â€"`); both files
