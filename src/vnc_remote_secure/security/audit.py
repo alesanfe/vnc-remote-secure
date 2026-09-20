@@ -283,8 +283,8 @@ def audit_log(
 
         # Append to log file (create parent dirs if needed).
         line = json.dumps(entry, separators=(',', ':')) + '\n'
+        path = Path(_audit_log_file())
         try:
-            path = Path(_audit_log_file())
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, 'a', encoding='utf-8') as f:
                 f.write(line)
@@ -296,9 +296,12 @@ def audit_log(
         # independently-controlled path (a mounted network share or
         # WORM store) so rewriting the primary log leaves the mirror
         # intact. ``AUDIT_MIRROR_FILE`` unset = disabled. Read at call
-        # time so a later load_env_file() still applies.
+        # time so a later load_env_file() still applies. A mirror equal
+        # to the primary path is skipped — duplicating a line would
+        # break chain verification.
         mirror = os.environ.get('AUDIT_MIRROR_FILE', '').strip()
-        if mirror:
+        if mirror and os.path.abspath(mirror) != os.path.abspath(
+                str(path)):
             try:
                 mpath = Path(mirror)
                 mpath.parent.mkdir(parents=True, exist_ok=True)
