@@ -194,7 +194,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (e.g. a mounted network share or WORM store) — each entry is written
   to both sinks inside the file lock so rewriting the primary log
   leaves the mirror intact. Mirror write failures degrade to a log
-  error, never breaking the primary log.
+  error, never breaking the primary log. A mirror path equal to the
+  primary log path is skipped — duplicating a line would break chain
+  verification.
 - **Landing CSS extracted**: `landing.py`'s 148-line inline
   `_LANDING_CSS` moved to `static/landing.css` (packaged via
   package-data + MANIFEST) and inlined at render time through
