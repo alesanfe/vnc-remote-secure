@@ -421,6 +421,21 @@ function Invoke-VncRemoteConfig {
 }
 
 # ============================================================================
+# Command: Verify (audit chain / backup integrity)
+# ============================================================================
+
+function Invoke-VncRemoteVerify {
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Arguments
+    )
+
+    # Delegate to the canonical Python verifier (audit|backup).
+    Invoke-PythonCli -Subcommand 'verify' -ExtraArgs $Arguments
+}
+
+# ============================================================================
 # Command: Service (foreground service mode)
 # ============================================================================
 

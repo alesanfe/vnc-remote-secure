@@ -31,7 +31,7 @@ param(
     [ValidateSet(
         'Install', 'Start', 'Stop', 'Restart', 'Get-Status',
         'Test-Configuration', 'Doctor', 'Backup', 'Restore', 'Uninstall',
-        'Session', 'Secrets', 'Config', 'Service', 'Get-Version', 'Help'
+        'Session', 'Secrets', 'Config', 'Service', 'Get-Version', 'Verify', 'Help'
     )]
     [string]$Command = 'Help',
 
@@ -277,6 +277,7 @@ switch ($Command) {
         Invoke-PythonCli -Subcommand 'uninstall' -ExtraArgs $_flags
     }
     'Session'             { Invoke-PythonCli -Subcommand 'session' -ExtraArgs $Arguments }
+    'Verify'              { Invoke-PythonCli -Subcommand 'verify' -ExtraArgs $Arguments }
     'Secrets'             { Invoke-PythonCli -Subcommand 'secrets' -ExtraArgs $Arguments }
     'Config'              { Invoke-PythonCli -Subcommand 'config' -ExtraArgs $Arguments }
     'Service'             { Invoke-PythonCli -Subcommand 'service' -ExtraArgs $Arguments }

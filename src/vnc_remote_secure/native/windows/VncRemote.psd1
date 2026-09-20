@@ -24,6 +24,7 @@
         'Invoke-VncRemoteSession',
         'Invoke-VncRemoteSecrets',
         'Invoke-VncRemoteConfig',
+        'Invoke-VncRemoteVerify',
         'Invoke-VncRemoteService'
     )
     CmdletsToExport   = @()

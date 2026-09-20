@@ -46,7 +46,8 @@ CLI canónico en Python (vnc-remote → vnc_remote_secure.cli:main)
 - **Windows PowerShell**: `VncRemote.ps1` and `src/vnc_remote_secure/native/windows/VncRemote.psm1` (thin
   compatibility wrappers — all commands delegate to the Python CLI via
   `Invoke-PythonCli`; PowerShell verb names map to Python subcommands:
-  `Get-Status`→`status`, `Test-Configuration`→`doctor`, `Get-Version`→`version`)
+  `Get-Status`→`status`, `Test-Configuration`→`doctor`, `Get-Version`→`version`,
+  `Verify`→`verify`)
 - **Windows launcher**: `launch.sh` (deprecated thin delegator → Python CLI)
 - **Linux Bash**: `src/rpi-vnc-remote.sh` (legacy, retained for compatibility)
 
