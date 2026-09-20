@@ -906,10 +906,18 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                 return
             with open(template_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            # Minimal Jinja2 substitution for port variables.
+            # Minimal Jinja2 substitution for port variables. The env
+            # values land verbatim in the page — coerce to int so a
+            # malformed AUDIO_STREAM_PORT/GAMEPAD_PORT cannot inject
+            # markup or break the URL.
             import re
-            audio_port = os.environ.get('AUDIO_STREAM_PORT', str(DEFAULT_AUDIO_STREAM_PORT))
-            gamepad_port = os.environ.get('GAMEPAD_PORT', str(DEFAULT_GAMEPAD_PORT))
+            def _port_env(name, default):
+                try:
+                    return str(int(os.environ.get(name, default)))
+                except (TypeError, ValueError):
+                    return str(default)
+            audio_port = _port_env('AUDIO_STREAM_PORT', DEFAULT_AUDIO_STREAM_PORT)
+            gamepad_port = _port_env('GAMEPAD_PORT', DEFAULT_GAMEPAD_PORT)
             content = re.sub(r'\{\{\s*audio_port\s*\|\s*default\(\d+\)\s*\}\}', audio_port, content)
             content = re.sub(r'\{\{\s*gamepad_port\s*\|\s*default\(\d+\)\s*\}\}', gamepad_port, content)
 
