@@ -3,8 +3,10 @@
 ## Accessing the Desktop
 
 1. Open your web browser
-2. Navigate to `https://your-server:8000` (landing page)
-3. Click on the "Desktop" link
+2. Navigate to the landing portal — `https://your-server` through
+   nginx (port 443), or `http://your-server:8000` directly
+   (`LANDING_PORT`)
+3. Click on the "VNC Desktop (noVNC)" link
 4. The noVNC client will load in your browser
 
 ## Features
@@ -23,7 +25,9 @@
 ## Troubleshooting
 
 If the desktop doesn't load:
-- Check that the VNC server is running: `vnc-remote status`
-- Verify port 6080 is accessible
-- Check SSL certificate validity
-- Ensure websockify is running
+- Check that the services are running: `vnc-remote status`
+- Through nginx, only port 443 is reachable; direct noVNC access
+  uses `NOVNC_PORT` (default 6080)
+- Check SSL certificate validity (`vnc-remote doctor` → tls.certificates)
+- Ensure the loopback websockify bridge is up (`vnc-remote status` →
+  `websockify`, default port 5700)

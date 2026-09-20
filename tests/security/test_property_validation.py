@@ -6,22 +6,23 @@ Validators raise ValidationError on failure; tests verify that behavior
 is consistent and crash-free across the input space.
 """
 import os
-import sys
 import string
+import sys
 
 import pytest
-from hypothesis import given, strategies as st, settings, assume, HealthCheck
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from vnc_remote_secure.core.validation import (
-    validate_port,
+    ValidationError,
+    sanitize_input,
     validate_domain,
     validate_email,
-    validate_username,
     validate_password,
-    sanitize_input,
-    ValidationError,
+    validate_port,
+    validate_username,
 )
 
 

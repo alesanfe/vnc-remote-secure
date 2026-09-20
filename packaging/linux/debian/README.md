@@ -27,5 +27,6 @@ dpkg-buildpackage -us -uc -b
 
 ## Status
 
-**Placeholder.** No `.deb` is produced yet. Use
-[`packaging/linux/install.sh`](../install.sh) for manual installation.
+No `.deb` is produced yet. Use
+[`packaging/linux/install.sh`](../install.sh) for manual installation,
+or run `vnc-remote install` via the Python CLI.

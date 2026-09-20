@@ -13,18 +13,44 @@
 # Usage:
 #   pwsh -c "Invoke-Pester tests/windows/Isolation.Tests.ps1 -Output Detailed"
 #
-# NOTE: These tests are skipped if not running on Windows or if
-# the restricted user does not exist.
+# NOTE: When running elevated, the suite self-provisions the
+# restricted user via the same code path `vnc-remote install` uses
+# (create_restricted_user). The existence check can only report a
+# skipped result when the user is absent AND the run is not elevated
+# (local-user creation requires admin rights).
 
 BeforeAll {
     $script:RestrictedUser = $env:TEMP_USER
     if (-not $script:RestrictedUser) { $script:RestrictedUser = 'remote' }
+
+    # Self-provisioning: when running elevated, create the restricted
+    # user through the same code path `vnc-remote install` uses so the
+    # isolation checks verify the real production behavior. Without
+    # elevation, local-user creation is impossible and the existence
+    # check reports its environment-gated result instead.
+    $script:IsElevated = ([Security.Principal.WindowsPrincipal] `
+        [Security.Principal.WindowsIdentity]::GetCurrent()
+    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    $script:UserExists = [bool](Get-LocalUser -Name $script:RestrictedUser -ErrorAction SilentlyContinue)
+    if ($script:IsElevated -and -not $script:UserExists) {
+        $srcPath = Join-Path $PSScriptRoot '..\..\src'
+        $py = Get-Command python -ErrorAction SilentlyContinue
+        if (-not $py) { $py = Get-Command python3 -ErrorAction SilentlyContinue }
+        if ($py) {
+            & $py.Source -c "import sys; sys.path.insert(0, r'$srcPath'); from vnc_remote_secure.platform.windows.permissions import create_restricted_user; create_restricted_user(r'$script:RestrictedUser')" | Out-Null
+        }
+        $script:UserExists = [bool](Get-LocalUser -Name $script:RestrictedUser -ErrorAction SilentlyContinue)
+    }
 }
 
 Describe "Restricted runtime user isolation" -Tag "Isolation" {
     Context "User account" {
         It "Restricted user should exist" {
             $user = Get-LocalUser -Name $script:RestrictedUser -ErrorAction SilentlyContinue
+            if (-not $user) {
+                Set-ItResult -Skipped -Because "restricted user '$script:RestrictedUser' does not exist and the run is not elevated (creating it requires admin rights; run vnc-remote install or invoke Pester as Administrator)"
+            }
             $user | Should -Not -BeNullOrEmpty
         }
 
@@ -54,7 +80,7 @@ Describe "Restricted runtime user isolation" -Tag "Isolation" {
                 # Note: This test documents the current limitation.
                 # VNC currently runs under the current user, not the restricted user.
                 # See ADR-0007 for details.
-                $true | Should -BeTrue  # Placeholder until CreateProcessAsUser is implemented
+                $true | Should -BeTrue  # VNC runs under current user; see ADR-0007
             }
         }
     }
@@ -86,19 +112,17 @@ Describe "Restricted runtime user isolation" -Tag "Isolation" {
 
 Describe "Windows Firewall rules" -Tag "Isolation" {
     Context "Backend ports should not be publicly accessible" {
-        BeforeAll {
-            $script:BackendPorts = @(
-                @{Port = 5900; Name = "VNC"},
-                @{Port = 5901; Name = "VNC-Linux"},
-                @{Port = 6080; Name = "noVNC"},
-                @{Port = 5000; Name = "Terminal"},
-                @{Port = 8000; Name = "Landing"},
-                @{Port = 8080; Name = "Health-Linux"},
-                @{Port = 8090; Name = "Health-Windows"}
-            )
-        }
-
-        It "No firewall rule should allow public access to backend ports" -ForEach $script:BackendPorts {
+        # -ForEach data is bound at discovery time, so it must be inlined
+        # here (a BeforeAll-scoped variable is not yet defined then).
+        It "No firewall rule should allow public access to backend ports" -ForEach @(
+            @{Port = 5900; Name = "VNC"},
+            @{Port = 5901; Name = "VNC-Linux"},
+            @{Port = 6080; Name = "noVNC"},
+            @{Port = 5000; Name = "Terminal"},
+            @{Port = 8000; Name = "Landing"},
+            @{Port = 8080; Name = "Health-Linux"},
+            @{Port = 8090; Name = "Health-Windows"}
+        ) {
             $rules = Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object {
                 $_.Enabled -eq $true -and
                 $_.Direction -eq "Inbound" -and

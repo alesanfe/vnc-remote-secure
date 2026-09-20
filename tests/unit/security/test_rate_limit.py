@@ -3,8 +3,6 @@ import os
 import sys
 import time
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.security.rate_limit import RateLimiter

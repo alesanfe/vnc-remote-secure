@@ -5,7 +5,6 @@ so the tests are deterministic and do not require ffmpeg to be installed.
 """
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
@@ -112,6 +111,11 @@ def test_get_ffmpeg_capture_cmd_falls_back_to_avfoundation(monkeypatch):
 
 def test_list_audio_devices_no_ffmpeg(monkeypatch, caplog):
     """list_audio_devices logs an error when ffmpeg is missing."""
+    # Ensure capture works even if a prior test called setup_logging()
+    # (which sets propagate=False on the vnc_remote_secure logger).
+    import logging as _logging
+    _logging.getLogger('vnc_remote_secure').propagate = True
+    caplog.set_level(_logging.ERROR, logger='vnc_remote_secure.services.audio')
     monkeypatch.setattr(audio, 'find_ffmpeg', lambda: None)
     audio.list_audio_devices()
     assert any("ffmpeg not found" in r.message for r in caplog.records)

@@ -2,16 +2,13 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.security.auth_gateway import (
-    check_origin,
-    get_allowed_origins,
-    check_websocket_upgrade,
     attempt_login,
-    check_authenticated,
+    check_origin,
+    check_websocket_upgrade,
+    get_allowed_origins,
 )
 
 
@@ -79,3 +76,21 @@ class TestLogin:
         ok, msg, session = attempt_login('admin', 'StrongP@ss1', client_ip='1.2.3.4')
         assert not ok
         assert 'mfa' in msg.lower()
+
+    def test_web_session_token_validates_as_session_cookie(self):
+        """create_web_session() must store a session-type token.
+
+        Regression: it used to store a TOKEN_TYPE_BEARER value which
+        verify_session_cookie() (TOKEN_TYPE_SESSION) rejected — the web
+        login succeeded but every subsequent request bounced to /login.
+        """
+        from vnc_remote_secure.security.authentication import create_web_session
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+
+        flask_session = {}
+        token = create_web_session(flask_session, 'alice')
+        assert flask_session['token'] == token
+
+        verified = verify_session_cookie(token)
+        assert verified is not None
+        assert verified['username'] == 'alice'

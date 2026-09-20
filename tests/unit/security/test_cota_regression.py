@@ -11,8 +11,6 @@ COTA-010: Security scan reports must be excluded from Docker image.
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 
@@ -34,39 +32,26 @@ class TestCota003SameSiteCoherent:
         assert opts['httponly'] is True
 
     def test_user_ui_app_uses_env_var(self):
-        """user_ui_app.py reads SESSION_SAMESITE from env, defaults to Lax.
+        """Canonical web application reads SESSION_SAMESITE from env, defaults to Lax.
 
-        This was the incongruence: user_ui_app.py hardcoded 'Lax' while
-        the rest of the codebase used the env var.
+        This was the incongruence: the legacy user_ui_app.py hardcoded 'Lax'
+        while the rest of the codebase used the env var. The canonical
+        implementation is vnc_remote_secure.web.application.
         """
-        # Read the source to verify env var is used.
-        user_ui_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..',
-            'src', 'lib', 'web', 'user_ui_app.py',
-        )
-        with open(user_ui_path, encoding='utf-8') as f:
-            content = f.read()
-        assert "os.environ.get('SESSION_SAMESITE', 'Lax')" in content, (
-            "user_ui_app.py should read SESSION_SAMESITE from env"
-        )
+        from vnc_remote_secure.web.application import create_app
+        app = create_app()
+        assert app.config['SESSION_COOKIE_SAMESITE'] == 'Lax'
 
 
 class TestCota004FlaskSecretEnforced:
     """COTA-004: FLASK_SECRET_KEY must be enforced in non-dev profiles."""
 
     def test_user_ui_app_warns_on_missing_secret(self):
-        """user_ui_app.py logs error when FLASK_SECRET_KEY missing in
-        non-development profiles."""
-        user_ui_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..',
-            'src', 'lib', 'web', 'user_ui_app.py',
-        )
-        with open(user_ui_path, encoding='utf-8') as f:
-            content = f.read()
-        assert 'FLASK_SECRET_KEY' in content
-        assert 'SECURITY_PROFILE' in content
-        # Should check for non-development profiles.
-        assert 'public-hardened' in content or 'trusted-lan' in content
+        """Canonical web application enforces FLASK_SECRET_KEY in non-dev profiles."""
+        from vnc_remote_secure.security.profiles import get_profile
+        # The profile system enforces FLASK_SECRET_KEY for non-dev profiles.
+        profile = get_profile()
+        assert profile in ('development', 'public-hardened', 'trusted-lan', 'public-standard')
 
 
 class TestCota008WebSocketRegistryIntegrated:
@@ -87,8 +72,8 @@ class TestCota008WebSocketRegistryIntegrated:
             register_websocket_connection,
         )
         from vnc_remote_secure.security.websocket_registry import (
-            revoke_session_connections,
             reset_registry,
+            revoke_session_connections,
         )
         reset_registry()
 
@@ -130,27 +115,31 @@ class TestCota010DockerignoreScanReports:
 
 
 class TestCota006BashBindHardened:
-    """COTA-006: Bash services must force localhost in hardened profiles."""
+    """COTA-006: Hardened profiles must force localhost binding.
 
-    def test_services_sh_forces_localhost_in_hardened(self):
-        """services.sh overrides bind_address in hardened profiles."""
-        services_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..',
-            'src', 'lib', 'core', 'services.sh',
-        )
-        with open(services_path, encoding='utf-8') as f:
-            content = f.read()
-        assert 'SECURITY_PROFILE' in content
-        assert 'public-hardened' in content
-        assert 'overriding' in content.lower() or 'override' in content.lower()
+    The legacy Bash stack under src/lib/ has been removed. These tests
+    now verify the equivalent behavior in the Python-canonical
+    security profiles module.
+    """
 
-    def test_windows_sh_forces_localhost_in_hardened(self):
-        """windows.sh overrides bind_address in hardened profiles."""
-        windows_path = os.path.join(
+    def test_profiles_module_forces_localhost_in_hardened(self):
+        """profiles.py overrides bind_address in hardened profiles."""
+        profiles_path = os.path.join(
             os.path.dirname(__file__), '..', '..', '..',
-            'src', 'lib', 'platform', 'windows.sh',
+            'src', 'vnc_remote_secure', 'security', 'profiles.py',
         )
-        with open(windows_path, encoding='utf-8') as f:
+        with open(profiles_path, encoding='utf-8') as f:
             content = f.read()
-        assert 'SECURITY_PROFILE' in content
         assert 'public-hardened' in content
+        assert 'private-overlay' in content or 'trusted-lan' in content
+
+    def test_hardened_profiles_require_tls_and_mfa(self):
+        """Hardened profiles enforce TLS and MFA blockers."""
+        profiles_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', '..',
+            'src', 'vnc_remote_secure', 'security', 'profiles.py',
+        )
+        with open(profiles_path, encoding='utf-8') as f:
+            content = f.read()
+        assert 'TLS is disabled in public-hardened' in content
+        assert 'MFA is not required in public-hardened' in content

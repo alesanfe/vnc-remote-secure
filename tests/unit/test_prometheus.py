@@ -2,15 +2,13 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.monitoring.prometheus import (
     inc_counter,
-    set_gauge,
-    render_metrics,
     metrics_handler,
+    render_metrics,
+    set_gauge,
 )
 
 

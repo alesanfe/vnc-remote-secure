@@ -1,7 +1,11 @@
 # ADR 0005: Modular Bash architecture
 
 ## Status
-Accepted
+Superseded — the `src/lib/` Bash module tree has been removed; all
+business logic now lives in the canonical Python package
+(`src/vnc_remote_secure/`). `src/rpi-vnc-remote.sh` is a thin delegator
+that does not source any Bash library (see AGENTS.md — Python-canonical
+architecture).
 
 ## Context
 A single monolithic Bash script for a project of this complexity (VNC, nginx,
@@ -15,7 +19,6 @@ Organize Bash code into modular categories under `src/lib/`:
 - `web/` — nginx, Flask user UI
 - `monitoring/` — health checks, dashboard
 - `communication/` — alerts, notifications
-- `features/` — session recording
 - `platform/` — OS detection, Windows backend
 
 Each module has a single responsibility and a reduced interface. The entry

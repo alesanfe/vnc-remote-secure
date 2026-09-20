@@ -1,0 +1,59 @@
+# MANIFEST.in — include non-Python assets in source distributions.
+#
+# The Python package is the canonical runtime, but the source
+# distribution also ships compatibility wrappers, native assets, and
+# configuration templates so a clean install from sdist works without
+# a separate source checkout.
+
+# README and top-level docs
+include README.md
+include CHANGELOG.md
+include LICENSE
+include AGENTS.md
+include CONTRIBUTING.md
+include CODE_OF_CONDUCT.md
+include pyproject.toml
+
+# Environment templates (never the real .env)
+include .env.example
+
+# Bash compatibility wrapper (thin delegator to the Python CLI)
+include vnc-remote
+include launch.sh
+
+# PowerShell compatibility wrapper (Windows entry point)
+include VncRemote.ps1
+
+# Linux Bash compatibility wrapper (thin delegator to Python CLI)
+include src/rpi-vnc-remote.sh
+
+# PowerShell compatibility wrappers
+recursive-include src/vnc_remote_secure/native/windows *.ps1 *.psm1 *.psd1 *.xml
+
+# Native systemd units (Linux)
+recursive-include src/vnc_remote_secure/native/linux *
+
+# Configuration templates
+recursive-include src/vnc_remote_secure/config *.conf *.example *.yml *.env *.json
+
+# nginx reverse-proxy template
+include src/vnc_remote_secure/config/nginx.conf
+
+# Third-party manifests, licenses, checksums
+recursive-include src/vnc_remote_secure/third_party *
+
+# Web templates (also declared in pyproject.toml package-data; repeated
+# here so sdist includes them).
+recursive-include src/vnc_remote_secure/web/templates *
+
+# Packaging
+recursive-include packaging *
+
+# Tools (dependency download, verification, config migration)
+recursive-include tools *.py
+
+# Documentation
+recursive-include docs *.md
+
+# Tests (so downstream packagers can run them)
+recursive-include tests *.py *.sh *.ps1

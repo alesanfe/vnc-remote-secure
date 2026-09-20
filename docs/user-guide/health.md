@@ -6,7 +6,7 @@ The health endpoint provides real-time system status information through a
 JSON API. Two implementations coexist:
 
 - **Python (Flask)**: `src/vnc_remote_secure/web/routes/health.py` — served
-  via the Flask application in `web/application.py`.
+  via the Flask application in `src/vnc_remote_secure/web/application.py`.
 - **Python (stdlib)**: `src/vnc_remote_secure/services/health.py` — a
   zero-dependency `http.server` fallback used when Flask is not installed.
 
@@ -27,8 +27,10 @@ GET http://<host>:<HEALTH_WEB_PORT>/health/all
 
 ### Authentication
 
-- **Open access** when `HEALTH_AUTH_TOKEN` is not set (intended for
-  localhost binding).
+- **Open access** when `HEALTH_AUTH_TOKEN` is not set — **only** while
+  every health-serving bind is loopback (`HEALTH_WEB_HOST`,
+  `USER_UI_HOST` and `BIND_HOST` all resolve to localhost). If any of
+  them is public and no token is set, requests fail closed with `401`.
 - **Bearer token** required when `HEALTH_AUTH_TOKEN` is set. Send the
   `Authorization: Bearer <token>` header.
 - On failure, the server returns `401` with
@@ -51,7 +53,7 @@ Returns aggregated service status.
   "services": {
     "vnc": true,
     "novnc": true,
-    "ttyd": true,
+    "terminal": true,
     "health": true,
     "landing": true
   }
@@ -65,9 +67,40 @@ Returns aggregated service status.
 | `services_total` | int | Total number of tracked services |
 | `services` | object | Map of service name to listening boolean |
 
+Aliases: `/health_status` and `/health_status.json` return the same payload.
+
+## `/health/live` — Liveness probe
+
+Returns a minimal liveness check (always `200` when the process is running).
+
+```json
+{
+  "status": "alive"
+}
+```
+
+## `/health/ready` — Readiness probe
+
+Returns service readiness. Returns `200` with `{"status": "ready"}`
+when all enabled services are listening, or `503` with
+`{"status": "not ready"}` otherwise.
+
+## `/health/services` — Per-service status
+
+Returns detailed per-service status including PID and port information.
+
+```json
+{
+  "vnc": {"running": true, "pid": 12345, "port": 5901},
+  "terminal": {"running": true, "pid": 12346, "port": 5000}
+}
+```
+
 ## `/health/all` — Combined system + service health
 
-Returns system metrics plus the service status block above.
+Returns system metrics plus the service status block above. Metric
+format is platform-specific (Linux reports load averages and percentages;
+Windows reports CPU percentage and raw byte counts).
 
 ```json
 {
@@ -75,9 +108,9 @@ Returns system metrics plus the service status block above.
     "hostname": "pi",
     "os": "Linux 6.1.21-v8+",
     "uptime": "2h 30m",
-    "cpu": "12%",
-    "memory": "1024MB / 4096MB",
-    "disk": "N/A"
+    "cpu": "Load: 0.12",
+    "memory": "25% (1024 MB / 4096 MB)",
+    "disk": "/ 10G (5G used)"
   },
   "services": {
     "status": "healthy",
@@ -86,16 +119,31 @@ Returns system metrics plus the service status block above.
     "services": {
       "vnc": true,
       "novnc": true,
-      "ttyd": true,
+      "terminal": true,
       "health": true,
       "landing": true
     }
+  },
+  "posture": {
+    "score": 78,
+    "checks": [],
+    "summary": "Good security posture with minor gaps",
+    "deployment_decision": "allowed",
+    "blocking_findings": []
   }
 }
 ```
 
+The `posture` key carries the security-posture report (score and
+findings) documented in the monitoring runbook; it is best-effort and
+may be `{}` if posture calculation fails.
+
+> **Note:** On the standalone stdlib health server, `/health` returns
+> HTTP `503` when the aggregate status is `down`. The Flask route
+> (`/health` on the user-management UI port) always returns `200`.
+
 System metrics are collected via the platform adapter
-(`platform/linux/metrics.py` or `platform/windows/metrics.py`).
+(`src/vnc_remote_secure/platform/linux/metrics.py` or `src/vnc_remote_secure/platform/windows/metrics.py`).
 
 ## Error Responses
 

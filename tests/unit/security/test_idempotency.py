@@ -6,14 +6,12 @@ entries.
 """
 import os
 import sys
-import subprocess
-import tempfile
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.core.config import load_env_file, get_config
+from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.security.profiles import apply_profile, get_profile_config
 
 
@@ -36,6 +34,24 @@ class TestConfigIdempotency:
         # Second load should NOT override the existing value.
         load_env_file(str(env_file))
         assert os.environ.get('TEST_VAR') == 'overridden'
+
+    def test_real_env_wins_over_env_file_even_for_defaulted_keys(
+            self, monkeypatch, tmp_path):
+        """A real env var must beat .env even when the key also exists in
+        the platform defaults (regression: USER_UI_ENABLED in common.env
+        was misclassified as a default and .env could override it)."""
+        # USER_UI_ENABLED is defined in config/defaults/common.env.
+        monkeypatch.setenv('USER_UI_ENABLED', 'true')
+        env_file = tmp_path / '.env'
+        env_file.write_text('USER_UI_ENABLED=false\n')
+
+        load_env_file(str(env_file))
+        assert os.environ.get('USER_UI_ENABLED') == 'true'
+
+        # Without a real env var, .env's value applies.
+        monkeypatch.delenv('USER_UI_ENABLED')
+        load_env_file(str(env_file))
+        assert os.environ.get('USER_UI_ENABLED') == 'false'
 
     def test_apply_profile_twice_same_config(self, monkeypatch):
         """Applying a profile twice should produce the same config."""

@@ -1,39 +1,14 @@
 """Windows ACL and user management via PowerShell."""
-import os
-import subprocess
-
-from vnc_remote_secure.core.exceptions import PlatformError
+from ._powershell import run_powershell
 
 
-def _run_powershell(script):
-    """Run a PowerShell command and return the CompletedProcess."""
-    return subprocess.run(
-        ['powershell', '-NoProfile', '-Command', script],
-        capture_output=True, text=True,
-    )
+def _ps_escape(value):
+    """Escape a string for embedding in a single-quoted PowerShell string.
 
-
-def set_permissions(path, owner=None, mode=None):
-    """Set ACL permissions on ``path`` using icacls.
-
-    Args:
-        path: Filesystem path to modify.
-        owner: User or group to grant full control. ``None`` skips.
-        mode: Ignored on Windows (POSIX concept); accepted for API
-            compatibility with the Linux counterpart.
-
-    Returns:
-        ``True`` on success.
+    PowerShell single-quoted strings escape a literal single quote by
+    doubling it (``'`` -> ``''``).
     """
-    if not os.path.exists(path):
-        raise PlatformError(f"Path does not exist: {path}")
-    if owner is None:
-        return True
-    result = subprocess.run(
-        ['icacls', path, '/grant', f'{owner}:(OI)(CI)F', '/T'],
-        capture_output=True, text=True,
-    )
-    return result.returncode == 0
+    return str(value).replace("'", "''")
 
 
 def create_user(username, password=None):
@@ -43,36 +18,103 @@ def create_user(username, password=None):
     """
     if user_exists(username):
         return True
+    if password is not None and ('\n' in password or '\r' in password):
+        return False  # ReadLine() would silently truncate it
     if password is None:
         # Create with a random password; user cannot log in interactively.
         import secrets
         import string
         alphabet = string.ascii_letters + string.digits
         password = ''.join(secrets.choice(alphabet) for _ in range(32))
+    # The password travels via stdin — embedding it in the command
+    # line would expose it to any process able to read cmdlines
+    # (WMI Win32_Process, Process Explorer).
     ps_script = (
-        f"New-LocalUser -Name '{username}' "
-        f"-Password (ConvertTo-SecureString '{password}' -AsPlainText -Force) "
-        f"-Description 'VNC Remote Secure runtime user' -ErrorAction SilentlyContinue"
+        "$pw = [Console]::In.ReadLine(); "
+        f"New-LocalUser -Name '{_ps_escape(username)}' "
+        "-Password (ConvertTo-SecureString $pw -AsPlainText -Force) "
+        "-Description 'VNC Remote Secure runtime user' -ErrorAction SilentlyContinue"
     )
-    result = _run_powershell(ps_script)
+    result = run_powershell(ps_script, input_data=password + '\n')
     return result.returncode == 0
 
 
 def remove_user(username):
-    """Remove a local Windows user."""
-    ps_script = f"Remove-LocalUser -Name '{username}' -ErrorAction SilentlyContinue"
-    result = _run_powershell(ps_script)
+    """Remove a local Windows user.
+
+    Refuses reserved/builtin names here (not just in the adapter):
+    ``users.remove_runtime_user`` delegates straight to this function,
+    so guarding only the adapter would leave an unguarded deletion path.
+    """
+    from vnc_remote_secure.core.constants import (
+        RESERVED_USERNAMES,
+        WINDOWS_BUILTIN_USERNAMES,
+    )
+    if username in WINDOWS_BUILTIN_USERNAMES \
+            or username.lower() in {u.lower() for u in RESERVED_USERNAMES}:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Refusing to remove reserved/builtin user %s", username)
+        return False
+    ps_script = f"Remove-LocalUser -Name '{_ps_escape(username)}' -ErrorAction SilentlyContinue"
+    result = run_powershell(ps_script)
     return result.returncode == 0
 
 
 def user_exists(username):
     """Return ``True`` if ``username`` exists as a local user."""
     ps_script = (
-        f"if (Get-LocalUser -Name '{username}' -ErrorAction SilentlyContinue) "
+        f"if (Get-LocalUser -Name '{_ps_escape(username)}' -ErrorAction SilentlyContinue) "
         f"{{ 'yes' }} else {{ 'no' }}"
     )
-    result = _run_powershell(ps_script)
+    result = run_powershell(ps_script)
     return result.stdout.strip().lower() == 'yes'
+
+
+def list_users():
+    """Return a list of local Windows users (non-system).
+
+    Returns a list of dicts with ``username`` and ``uid`` (SID RID).
+    System accounts (Administrator, Guest, DefaultAccount, etc.) are
+    excluded.
+    """
+    ps_script = (
+        "Get-LocalUser | Select-Object Name, SID | "
+        "ConvertTo-Json -Compress"
+    )
+    result = run_powershell(ps_script)
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    import json
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        data = [data]
+    users = []
+    for u in data:
+        name = u.get('Name', '')
+        sid_obj = u.get('SID', '')
+        # SID from ConvertTo-Json can be a string or a dict with
+        # 'Identifier'/'Value'/'Sddl' keys depending on PS version.
+        sid_str = ''
+        if isinstance(sid_obj, str):
+            sid_str = sid_obj
+        elif isinstance(sid_obj, dict):
+            sid_str = (sid_obj.get('Sddl') or sid_obj.get('Value')
+                       or sid_obj.get('Identifier') or sid_obj.get('SID') or '')
+        # Extract RID from SID (last component after last dash).
+        uid = 0
+        if sid_str:
+            parts = sid_str.split('-')
+            if parts:
+                try:
+                    uid = int(parts[-1])
+                except ValueError:
+                    pass
+        users.append({'username': name, 'uid': uid, 'home': ''})
+    return users
 
 
 def restrict_user(username):
@@ -88,13 +130,13 @@ def restrict_user(username):
     """
     if not user_exists(username):
         return False
-    # Deny interactive logon via secedit (requires admin)
-    # Also remove from Users group (which has interactive logon right)
+    # Remove from the Users group (which grants interactive logon right).
+    # The correct cmdlet is Remove-LocalGroupMember (not Remove-LocalUserFromGroup).
     ps_script = (
-        f"Remove-LocalUserFromGroup -Member '{username}' "
-        f"-Group 'Users' -ErrorAction SilentlyContinue"
+        f"Remove-LocalGroupMember -Group 'Users' -Member '{_ps_escape(username)}' "
+        f"-ErrorAction SilentlyContinue"
     )
-    _run_powershell(ps_script)
+    run_powershell(ps_script)
     # Even if group removal fails, the user was created with a random
     # password and cannot log in interactively without knowing it.
     return True
@@ -119,3 +161,24 @@ def create_restricted_user(username, password=None):
     if not create_user(username, password):
         return False
     return restrict_user(username)
+
+
+def set_user_password(username, password):
+    """Set the password for a local Windows user.
+
+    Returns ``True`` on success. The password travels via stdin and is
+    read with ``ReadLine()`` — a newline would silently truncate it,
+    so reject control characters up front.
+    """
+    if '\n' in password or '\r' in password:
+        return False
+    if not user_exists(username):
+        return False
+    ps_script = (
+        "$pw = [Console]::In.ReadLine(); "
+        f"Set-LocalUser -Name '{_ps_escape(username)}' "
+        "-Password (ConvertTo-SecureString $pw -AsPlainText -Force) "
+        "-ErrorAction SilentlyContinue"
+    )
+    result = run_powershell(ps_script, input_data=password + '\n')
+    return result.returncode == 0

@@ -2,17 +2,14 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.security.redaction import (
-    redact_value,
-    redact_env,
+    SECRET_VARS,
+    get_secret_status,
     redact_dict,
     redact_text,
-    get_secret_status,
-    SECRET_VARS,
+    redact_value,
 )
 
 
@@ -69,7 +66,7 @@ class TestRedactDict:
 class TestRedactText:
     def test_redacts_known_secrets(self, monkeypatch):
         monkeypatch.setenv('VNC_PASSWORD', 'MySecretPass123')
-        text = f"Connecting with password MySecretPass123 to server"
+        text = "Connecting with password MySecretPass123 to server"
         redacted = redact_text(text)
         assert 'MySecretPass123' not in redacted
         assert '[REDACTED]' in redacted

@@ -5,22 +5,118 @@ by :mod:`vnc_remote_secure.security.authentication` and rate-limited via
 :mod:`vnc_remote_secure.security.rate_limit`.
 """
 import logging
-import os
 import secrets
 
-from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
+from flask import (
+    Blueprint,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
+from vnc_remote_secure.core.constants import RESERVED_USERNAMES
 from vnc_remote_secure.core.errors import json_error
-from vnc_remote_secure.core.exceptions import SecurityError
-from vnc_remote_secure.core.validation import sanitize_input, validate_username
+from vnc_remote_secure.core.validation import sanitize_input, validate_password, validate_username
+from vnc_remote_secure.security.auth_gateway import check_authenticated
 from vnc_remote_secure.security.authentication import (
-    authenticate,
     create_web_session,
-    validate_session_token,
 )
 from vnc_remote_secure.security.rate_limit import check_rate_limit
 
+logger = logging.getLogger(__name__)
+
+
+def _require_session():
+    """Validate the current session via the auth gateway.
+
+    Returns ``(username, response)``. When ``response`` is not ``None``
+    the caller must return it (redirect or error). When ``response`` is
+    ``None``, ``username`` is the authenticated user.
+    """
+    token = session.get('token', '')
+    bearer = request.headers.get('Authorization', '')
+    if bearer.startswith('Bearer '):
+        bearer = bearer[7:]
+    authenticated, username = check_authenticated(token, bearer)
+    if not authenticated:
+        session.clear()
+        if request.path.startswith('/api/') or request.is_json:
+            return None, json_error('Authentication required', 401)
+        return None, redirect(url_for('users.login'))
+    return username, None
+
 users_bp = Blueprint('users', __name__)
+
+
+def _set_platform_user_password(username: str, password: str) -> None:
+    """Resolve the platform-specific password setter and apply it.
+
+    This helper centralises the import-time platform branch so that the
+    HTML and JSON user-creation routes share a single implementation.
+    """
+    import platform as _platform
+
+    if _platform.system() == 'Windows':
+        from vnc_remote_secure.platform.windows.permissions import set_user_password
+    else:
+        from vnc_remote_secure.platform.linux.permissions import set_user_password
+    set_user_password(username, password)
+
+
+def _create_runtime_user(username: str, password: str) -> str | None:
+    """Create a runtime user and set its password.
+
+    Returns ``None`` on success or an error message string on failure.
+    Validates username, reserved-name, and password strength before
+    touching the system.
+    """
+    try:
+        validate_username(username)
+    except ValueError as exc:
+        return str(exc)
+    from vnc_remote_secure.core.constants import WINDOWS_BUILTIN_USERNAMES
+    if username in RESERVED_USERNAMES or username in WINDOWS_BUILTIN_USERNAMES:
+        return 'Cannot create system users'
+    try:
+        validate_password(password, 'user_password')
+    except ValueError as exc:
+        return str(exc)
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+
+        if not get_adapter().create_runtime_user(username):
+            return 'User creation failed'
+        _set_platform_user_password(username, password)
+    except Exception as exc:
+        logger.error("User creation failed: %s", exc, exc_info=True)
+        return 'User creation failed'
+    return None
+
+
+def _delete_runtime_user(username: str) -> str | None:
+    """Delete a runtime user via the platform adapter.
+
+    Returns ``None`` on success or an error message string on failure.
+    """
+    try:
+        validate_username(username)
+    except ValueError as exc:
+        return str(exc)
+    from vnc_remote_secure.core.constants import WINDOWS_BUILTIN_USERNAMES
+    if username in RESERVED_USERNAMES or username in WINDOWS_BUILTIN_USERNAMES:
+        return 'Cannot delete system users'
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+
+        if not get_adapter().remove_runtime_user(username):
+            return 'User deletion failed'
+    except Exception as exc:
+        logger.error("User deletion failed: %s", exc, exc_info=True)
+        return 'User deletion failed'
+    return None
 
 
 def _client_ip():
@@ -29,14 +125,12 @@ def _client_ip():
     Respects ``X-Forwarded-For`` only when ``TRUSTED_PROXY=true`` (i.e.
     when the operator has confirmed the app sits behind a trusted reverse
     proxy). Otherwise the direct ``remote_addr`` is used to prevent
-    spoofing.
+    spoofing. Delegates to ``http_auth.client_ip_from`` so the trusted
+    hop is the LAST XFF entry (the one nginx appended), not the
+    attacker-controlled first one.
     """
-    trusted = os.environ.get('TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
-    if trusted:
-        forwarded = request.headers.get('X-Forwarded-For', '')
-        if forwarded:
-            return forwarded.split(',')[0].strip()
-    return request.remote_addr or 'unknown'
+    from vnc_remote_secure.security.http_auth import client_ip_from
+    return client_ip_from(request.headers, request.remote_addr) or 'unknown'
 
 
 def _check_csrf():
@@ -56,7 +150,11 @@ def _check_csrf():
     )
     if not sent:
         return False
-    return secrets.compare_digest(str(sent), str(expected))
+    # compare_digest on str rejects non-ASCII — a fuzzed X-CSRF-Token
+    # would crash the request with TypeError instead of failing closed.
+    return secrets.compare_digest(
+        str(sent).encode('utf-8', 'replace'),
+        str(expected).encode('utf-8', 'replace'))
 
 
 @users_bp.route('/login', methods=['GET', 'POST'])
@@ -67,16 +165,85 @@ def login():
     rate limiting, and stores a session token on success.
     """
     if request.method == 'POST':
+        # CSRF protection: the login form must include the token rendered
+        # in the GET response. This prevents login CSRF where an attacker
+        # forces a victim to log into the attacker's account.
+        expected = session.get('csrf_token')
+        sent = request.form.get('csrf_token') or ''
+        if not expected or not secrets.compare_digest(
+                str(sent).encode('utf-8', 'replace'),
+                str(expected).encode('utf-8', 'replace')):
+            return render_template('login.html', error='Invalid request'), 400
         ip = _client_ip()
         if not check_rate_limit(ip):
             return json_error('Too many attempts. Try again later.', 429)
         username = sanitize_input(request.form.get('username', ''))
         password = request.form.get('password', '')
-        if authenticate(username, password):
-            create_web_session(session, username)
-            return redirect(url_for('users.users'))
-        return render_template('login.html', error='Invalid credentials'), 401
-    return render_template('login.html')
+        totp_code = request.form.get('totp_code', '').strip()
+        # attempt_login (auth_gateway) is the canonical login path: it
+        # enforces per-IP and per-user lockouts, MFA/TOTP when
+        # MFA_REQUIRED is set, recovery codes, audit events and auth
+        # counters — none of which authenticate() alone performs.
+        from vnc_remote_secure.security.auth_gateway import attempt_login
+        from vnc_remote_secure.security.mfa import mfa_required_for_login
+        ok, message, _data = attempt_login(
+            username, password, totp_code=totp_code, client_ip=ip)
+        if ok:
+            # Regenerate the session on privilege change: clear any
+            # pre-login keys (attacker-fixated or stale) so the
+            # authenticated session carries only fresh state.
+            session.clear()
+            token = create_web_session(session, username)
+            # Record auth time for step-up auth enforcement.
+            from vnc_remote_secure.security.step_up_auth import record_auth_time
+            record_auth_time(username)
+            resp = redirect(url_for('users.users'))
+            # Also issue the raw HMAC session token as the 'vnc_session'
+            # cookie — the non-Flask services (noVNC, terminal, audio,
+            # gamepad, landing) verify it via verify_session_cookie.
+            # Flask's own session cookie was renamed 'vnc_flask_session'
+            # to avoid colliding on the same name.
+            from flask import current_app
+
+            from vnc_remote_secure.core.constants import (
+                DEFAULT_SESSION_IDLE_TIMEOUT,
+                DEFAULT_SESSION_MAX_LIFETIME,
+            )
+            from vnc_remote_secure.security.sessions import (
+                _get_env_int,
+                get_cookie_attributes,
+            )
+            attrs = get_cookie_attributes(
+                secure=current_app.config.get(
+                    'SESSION_COOKIE_SECURE', True))
+            # Same max_age as create_session_cookie:
+            # min(idle, max_lifetime) — the idle window, not the
+            # absolute cap (PERMANENT_SESSION_LIFETIME may surface as
+            # a timedelta under Flask, so read the env ints directly).
+            max_age = min(
+                _get_env_int('SESSION_IDLE_TIMEOUT',
+                             DEFAULT_SESSION_IDLE_TIMEOUT),
+                _get_env_int('SESSION_MAX_LIFETIME',
+                             DEFAULT_SESSION_MAX_LIFETIME))
+            resp.set_cookie(
+                'vnc_session', token,
+                max_age=max_age,
+                httponly=True,
+                secure=attrs['secure'],
+                samesite=attrs['samesite'],
+                path=attrs['path'])
+            return resp
+        return render_template(
+            'login.html', error=message,
+            mfa_required=mfa_required_for_login(),
+            csrf_token=session.get('csrf_token', '')), 401
+    # Generate a CSRF token for the login form.
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(32)
+    from vnc_remote_secure.security.mfa import mfa_required_for_login
+    return render_template(
+        'login.html', csrf_token=session['csrf_token'],
+        mfa_required=mfa_required_for_login())
 
 
 @users_bp.route('/logout', methods=['POST'])
@@ -88,72 +255,246 @@ def logout():
     """
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
+    # Revoke server-side: the auth token lives in session['token']
+    # (validated via check_authenticated) — mark it in the shared
+    # backend and force-close live WebSocket connections registered
+    # under it. Without this a stolen/logged-out token stayed valid
+    # until expiry.
+    try:
+        token = session.get('token', '')
+        if token:
+            from vnc_remote_secure.security.websocket_registry import (
+                revoke_session_connections,
+            )
+            revoke_session_connections(token)
+    except Exception:  # noqa: BLE001 - logout must not fail on revoke
+        pass
     session.clear()
-    return redirect(url_for('users.login'))
+    resp = redirect(url_for('users.login'))
+    # Expire the raw HMAC session cookie too — the Flask session clear
+    # does not touch it, and a surviving token would keep WS access
+    # alive until expiry. Same for vnc_ephemeral: a share-link session
+    # cookie must also be dropped on logout or "logout" is a no-op for
+    # ephemeral users (the link itself stays valid server-side by
+    # design — revoking it is the owner's choice, not the browser's).
+    resp.set_cookie('vnc_session', '', max_age=0, httponly=True,
+                    path='/')
+    resp.set_cookie('vnc_ephemeral', '', max_age=0, httponly=True,
+                    path='/')
+    return resp
 
 
 @users_bp.route('/users')
 def users():
     """Render the user management page (requires authentication)."""
-    token = session.get('token')
-    if not token:
-        return redirect(url_for('users.login'))
+    username, err = _require_session()
+    if err is not None:
+        return err
+    # Provide the context variables the template expects.
+    from vnc_remote_secure.core.constants import RESERVED_USERNAMES
+    # Enumerate real system users via the platform adapter.
+    users_list = []
     try:
-        validate_session_token(token)
-    except SecurityError as exc:
-        logging.getLogger(__name__).warning(
-            "Invalid session token: %s", exc
-        )
-        session.clear()
-        return redirect(url_for('users.login'))
-    return render_template('users.html')
+        import pwd
+        # ``create_runtime_user`` uses ``useradd -r`` which allocates
+        # system UIDs below 1000, so we cannot rely on the >=1000
+        # heuristic. Instead we list all non-reserved users with a
+        # real shell/home (UID >= 100 excludes kernel/system accounts
+        # such as nobody/www-data which typically have UID < 100).
+        users_list = [
+            {'username': u.pw_name, 'uid': u.pw_uid, 'home': u.pw_dir}
+            for u in pwd.getpwall()
+            if u.pw_uid >= 100 and u.pw_name not in RESERVED_USERNAMES
+        ]
+    except (ImportError, AttributeError):
+        # Windows: no pwd module; show empty list.
+        pass
+    return render_template('users.html', users=users_list,
+                           csrf_token=session.get('csrf_token', ''),
+                           RESERVED_USERNAMES=RESERVED_USERNAMES)
+
+
+@users_bp.route('/create_user', methods=['POST'])
+def create_user():
+    """Create a system user via the platform adapter."""
+    actor, err = _require_session()
+    if err is not None:
+        return err
+    # Step-up auth: creating users is a sensitive action.
+    from vnc_remote_secure.security.step_up_auth import require_step_up
+    step_up_err = require_step_up(actor, 'create_admin')
+    if step_up_err:
+        return json_error(step_up_err, 403)
+    if not _check_csrf():
+        return json_error('Invalid or missing CSRF token', 403)
+    username = sanitize_input(request.form.get('username', ''))
+    password = request.form.get('password', '')
+    err = _create_runtime_user(username, password)
+    _audit_user_action('user_create', actor, username, ok=err is None)
+    if err is not None:
+        return json_error(err, 400 if err != 'User creation failed' else 500)
+    return redirect(url_for('users.users'))
+
+
+@users_bp.route('/delete_user/<username>', methods=['POST'])
+def delete_user(username):
+    """Delete a system user via the platform adapter."""
+    actor, err = _require_session()
+    if err is not None:
+        return err
+    # Step-up auth: deleting users is a sensitive action.
+    from vnc_remote_secure.security.step_up_auth import require_step_up
+    step_up_err = require_step_up(actor, 'delete_admin')
+    if step_up_err:
+        return json_error(step_up_err, 403)
+    if not _check_csrf():
+        return json_error('Invalid or missing CSRF token', 403)
+    username = sanitize_input(username)
+    try:
+        validate_username(username)
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+    import getpass
+
+    from vnc_remote_secure.core.constants import RESERVED_USERNAMES, WINDOWS_BUILTIN_USERNAMES
+    if (username in RESERVED_USERNAMES
+            or username in WINDOWS_BUILTIN_USERNAMES
+            or username == getpass.getuser()):
+        return json_error('Cannot delete system users', 400)
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+        deleted = get_adapter().remove_runtime_user(username)
+    except Exception as exc:
+        logger.error("User deletion failed: %s", exc, exc_info=True)
+        deleted = False
+    _audit_user_action('user_delete', actor, username, ok=bool(deleted))
+    if not deleted:
+        return json_error('User deletion failed', 500)
+    return redirect(url_for('users.users'))
+
+
+def _audit_user_action(event, actor, target, ok=True):
+    """Emit an audit event for an admin user-management action."""
+    try:
+        from vnc_remote_secure.security.audit import audit_log
+        audit_log(event, user=actor or 'unknown',
+                  ip=_client_ip(),
+                  result='success' if ok else 'failure',
+                  detail=f'target={target}')
+    except Exception:  # noqa: BLE001 - audit must not break the action
+        pass
+
+
+def _api_users_get():
+    """Handle GET /api/users — list non-system users."""
+    from vnc_remote_secure.core.constants import RESERVED_USERNAMES
+    users_list = []
+    try:
+        import pwd
+        users_list = [
+            {'username': u.pw_name, 'uid': u.pw_uid, 'home': u.pw_dir}
+            for u in pwd.getpwall()
+            if u.pw_uid >= 100 and u.pw_name not in RESERVED_USERNAMES
+        ]
+    except (ImportError, AttributeError):
+        # Windows: use the platform adapter.
+        try:
+            from vnc_remote_secure.core.constants import (
+                RESERVED_USERNAMES,
+                WINDOWS_BUILTIN_USERNAMES,
+            )
+            from vnc_remote_secure.platform.windows.permissions import list_users
+            all_users = list_users()
+            users_list = [
+                u for u in all_users
+                if u['username'] not in RESERVED_USERNAMES
+                and u['username'] not in WINDOWS_BUILTIN_USERNAMES
+            ]
+        except (ImportError, OSError):
+            logger.debug("Failed to list Windows users", exc_info=True)
+    return jsonify({'users': users_list})
+
+
+def _api_users_post(request, session):
+    """Handle POST /api/users — create a user via the platform adapter."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return json_error('Request body must be a JSON object', 400)
+    username = sanitize_input(data.get('username', ''))
+    password = data.get('password', '')
+    err = _create_runtime_user(username, password)
+    if err is not None:
+        return json_error(err, 400 if err != 'User creation failed' else 500)
+    return jsonify({'status': 'created', 'username': username})
+
+
+def _api_users_delete(request, session, username):
+    """Handle DELETE /api/users — remove a user via the platform adapter."""
+    try:
+        validate_username(username)
+    except ValueError as exc:
+        return json_error(str(exc), 400)
+    import getpass
+
+    from vnc_remote_secure.core.constants import RESERVED_USERNAMES, WINDOWS_BUILTIN_USERNAMES
+    if (username in RESERVED_USERNAMES
+            or username in WINDOWS_BUILTIN_USERNAMES
+            or username == getpass.getuser()):
+        return json_error('Cannot delete system users', 400)
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+        if not get_adapter().remove_runtime_user(username):
+            return json_error('User deletion failed', 500)
+    except Exception as exc:
+        logger.error("User deletion failed: %s", exc, exc_info=True)
+        return json_error('User deletion failed', 500)
+    return jsonify({'status': 'deleted', 'username': username})
 
 
 @users_bp.route('/api/users', methods=['GET', 'POST', 'DELETE'])
 def api_users():
     """JSON API for user management (requires authentication).
 
-    State-changing methods (POST, DELETE) require a valid CSRF token.
-    The endpoints are currently stubs that return 501 Not Implemented
-    for write operations until platform user management is wired in.
+    GET returns the list of non-system users. POST creates a user via
+    the platform adapter. DELETE removes a user via the platform adapter.
+    State-changing methods require a valid CSRF token.
     """
-    token = session.get('token')
-    if not token:
-        return json_error('Not authenticated', 401)
-    try:
-        validate_session_token(token)
-    except SecurityError as exc:
-        return json_error(str(exc), 401)
+    _user, err = _require_session()
+    if err is not None:
+        return err
 
     if request.method == 'GET':
-        # Return a placeholder list; real user enumeration is platform-specific.
-        return jsonify({'users': []})
+        return _api_users_get()
 
     # POST and DELETE are state-changing: require CSRF protection.
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
 
+    # Step-up auth: user management is sensitive (same as the HTML
+    # routes /create_user and /delete_user).
+    from vnc_remote_secure.security.step_up_auth import require_step_up
+
     if request.method == 'POST':
+        step_up_err = require_step_up(_user, 'create_admin')
+        if step_up_err:
+            return json_error(step_up_err, 403)
         data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return json_error('Request body must be a JSON object', 400)
-        username = sanitize_input(data.get('username', ''))
-        try:
-            validate_username(username)
-        except ValueError as exc:
-            return json_error(str(exc), 400)
-        # Not yet implemented: delegate to platform user management.
-        return json_error('User creation not implemented in this build', 501)
+        username = sanitize_input((data or {}).get('username', '')) \
+            if isinstance(data, dict) else ''
+        result = _api_users_post(request, session)
+        status_ok = result[1] < 400 if isinstance(result, tuple) else True
+        _audit_user_action('user_create', _user, username, ok=status_ok)
+        return result
 
     if request.method == 'DELETE':
+        step_up_err = require_step_up(_user, 'delete_admin')
+        if step_up_err:
+            return json_error(step_up_err, 403)
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return json_error('Request body must be a JSON object', 400)
         username = sanitize_input(data.get('username', ''))
-        try:
-            validate_username(username)
-        except ValueError as exc:
-            return json_error(str(exc), 400)
-        return json_error('User deletion not implemented in this build', 501)
-
-    return json_error('Method not allowed', 405)
+        result = _api_users_delete(request, session, username)
+        status_ok = result[1] < 400 if isinstance(result, tuple) else True
+        _audit_user_action('user_delete', _user, username, ok=status_ok)
+        return result

@@ -12,18 +12,22 @@ This is not production-grade: services should survive script termination,
 restart on failure, and start on boot.
 
 ## Decision
-Provide systemd service units (`systemd/*.service`) for each component:
-- `vnc-remote-vnc.service` — TigerVNC server
-- `vnc-remote-novnc.service` — websockify/noVNC proxy
-- `vnc-remote-ttyd.service` — web terminal
-- `vnc-remote-health.service` — health monitoring
+Provide a unified systemd service unit (`src/vnc_remote_secure/native/linux/systemd/vnc-remote.service`)
+that runs the Python service manager, which supervises all components
+(VNC, noVNC, ttyd, health, landing) as child processes with PID tracking
+and graceful restart.
 
-Each unit includes:
+The unit includes:
 - `Restart=on-failure` with `RestartSec`
 - Security hardening (`NoNewPrivileges`, `ProtectSystem=strict`, etc.)
 - `User=` with non-privileged service user
-- `EnvironmentFile=` from protected secrets directory
-- Explicit dependencies (`Requires=`, `After=`)
+- `ReadWritePaths=` for runtime data, logs, and PID files
+- `CapabilityBoundingSet=` limited to `CAP_NET_BIND_SERVICE`
+- `After=network-online.target`
+
+Per-service split units (`vnc-remote-vnc.service`, etc.) may be added in
+the future for finer-grained control; until then, the unified unit is the
+canonical production entry point.
 
 The Bash script remains for development/testing; systemd is for production.
 

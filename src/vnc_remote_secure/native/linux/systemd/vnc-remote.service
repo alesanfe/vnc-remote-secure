@@ -1,0 +1,45 @@
+[Unit]
+Description=VNC Remote Secure - unified service manager
+Documentation=https://github.com/alesanfe/vnc-remote-secure
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# '-' prefix: the file is optional — a missing config.env must not
+# prevent the unit from starting (defaults apply instead of a
+# cryptic systemd load failure).
+EnvironmentFile=-/etc/vnc-remote-secure/config.env
+# The unit runs as the non-root 'vnc-remote' system user, so
+# core/paths.py would resolve XDG locations under $HOME — which does
+# not exist for a --no-create-home service account. Point XDG at the
+# FHS directories the installer creates so data/log/run/config land
+# in /var/{lib,log}/vnc-remote-secure, /run/vnc-remote-secure and
+# /etc/vnc-remote-secure (matching ReadWritePaths below).
+Environment=XDG_CONFIG_HOME=/etc
+Environment=XDG_DATA_HOME=/var/lib
+Environment=XDG_STATE_HOME=/var/log
+Environment=XDG_RUNTIME_DIR=/run
+# The service user's passwd home is /var/lib/vnc-remote-secure (set by
+# install.sh). HOME must point there too — ProtectHome=true makes
+# /home unreachable, and vncserver needs a writable ~/.vnc.
+Environment=HOME=/var/lib/vnc-remote-secure
+WorkingDirectory=/opt/vnc-remote-secure
+ExecStart=/usr/local/bin/vnc-remote service --run
+ExecStop=/usr/local/bin/vnc-remote stop
+Restart=on-failure
+RestartSec=5
+# Run as the dedicated service user (created by packaging/linux/install.sh).
+User=vnc-remote
+Group=vnc-remote
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vnc-remote-secure /var/log/vnc-remote-secure /run/vnc-remote-secure
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

@@ -34,6 +34,10 @@ run/
 *.pid
 .runtime_credentials.json
 *.runtime_credentials.json
+generated_credentials.env
+auth_secret.key
+*.session
+*.bak
 
 # Node.js (not needed in production image)
 node_modules/
@@ -71,12 +75,12 @@ artifacts/
 bin/
 novnc/
 
-# Third-party
-third_party/
+# Third-party cache only (manifests/licenses/checksums ship with the package)
+src/vnc_remote_secure/third_party/cache/
 
-# Tests (not needed in production image)
-tests/
-tests/fixtures/
+# NOTE: tests/ is intentionally NOT ignored — the Dockerfile `test` stage
+# COPYs it for the compose integration runner. The `base` (production)
+# stage never copies it, so it stays out of the production image.
 
 # Documentation (not needed in production image)
 docs/

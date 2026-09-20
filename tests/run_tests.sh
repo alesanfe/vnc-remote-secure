@@ -10,10 +10,11 @@
 #   integration/  → Level 3: multi-module interaction tests
 #   e2e/          → Level 5: entry-point and full-flow tests
 #   security/     → Level 7: password policy, sanitization, hardening
+#   powershell/   → PowerShell module tests (Pester)
+#   windows/      → Windows wrapper tests (Pester)
 #
 # Supports multiple test formats:
 #   test_*.sh     → Bash tests (run with bash)
-#   *.bats        → Bats tests (run with bats)
 #   test_*.py     → Python tests (run with pytest)
 #   *.Tests.ps1   → PowerShell tests (run with pwsh -c Invoke-Pester)
 #
@@ -35,7 +36,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Pyramid levels in execution order (fastest first)
-LEVELS=(static unit integration e2e security)
+LEVELS=(static unit integration e2e security powershell windows)
 
 total_passed=0
 total_failed=0
@@ -53,7 +54,8 @@ show_help() {
     echo "  -h, --help           Show this help message"
     echo "  -l, --list           List available tests"
     echo "  level_prefix         Run tests for a specific level:"
-    echo "                       static, unit, integration, e2e, security"
+    echo "                       static, unit, integration, e2e, security,"
+    echo "                       powershell, windows"
     echo ""
     echo "Pyramid levels (run in order):"
     echo "  static/      Level 0: lint, syntax, CRLF, shellcheck"
@@ -61,10 +63,11 @@ show_help() {
     echo "  integration/  Level 3: multi-module interaction"
     echo "  e2e/         Level 5: entry-point and full-flow"
     echo "  security/    Level 7: password policy, sanitization"
+    echo "  powershell/  PowerShell module tests (Pester)"
+    echo "  windows/     Windows wrapper tests (Pester)"
     echo ""
     echo "Supported test formats:"
     echo "  test_*.sh    Bash tests"
-    echo "  *.bats       Bats tests"
     echo "  test_*.py    Python tests (pytest)"
     echo "  *.Tests.ps1  PowerShell tests (Pester)"
     echo ""
@@ -92,12 +95,6 @@ list_tests() {
                 echo -e "  ${GREEN}$rel${NC}"
                 count=$((count + 1))
             done < <(find "$level_dir" -name "test_*.sh" -type f 2>/dev/null | sort)
-            # Bats tests
-            while IFS= read -r test_file; do
-                local rel="${test_file#"$SCRIPT_DIR"/}"
-                echo -e "  ${GREEN}$rel${NC}"
-                count=$((count + 1))
-            done < <(find "$level_dir" -name "*.bats" -type f 2>/dev/null | sort)
             # Python tests
             while IFS= read -r test_file; do
                 local rel="${test_file#"$SCRIPT_DIR"/}"
@@ -136,13 +133,6 @@ discover_tests() {
                 echo "$f"
             fi
         done < <(find "$level_dir" -name "test_*.sh" -type f 2>/dev/null | sort)
-        # Bats tests (*.bats)
-        while IFS= read -r f; do
-            local rel="${f#"$SCRIPT_DIR"/}"
-            if [[ -z "$filter" ]] || [[ "$rel" == "$filter"* ]]; then
-                echo "$f"
-            fi
-        done < <(find "$level_dir" -name "*.bats" -type f 2>/dev/null | sort)
         # Python tests (test_*.py)
         while IFS= read -r f; do
             local rel="${f#"$SCRIPT_DIR"/}"
@@ -167,13 +157,6 @@ run_test_file() {
 
     if [[ "$ext" == "sh" ]]; then
         bash "$test_path"
-    elif [[ "$ext" == "bats" ]]; then
-        if command -v bats &>/dev/null; then
-            bats "$test_path"
-        else
-            echo -e "${YELLOW}[SKIP] bats not installed, skipping $test_path${NC}"
-            return 0
-        fi
     elif [[ "$ext" == "py" ]]; then
         # Try pytest, then python3 -m pytest, then Windows Python (python.exe
         # or py.exe) for WSL environments where Linux Python may not have
@@ -185,16 +168,20 @@ run_test_file() {
             python3 -m pytest "$test_path" -q
         elif command -v python.exe &>/dev/null; then
             local win_path="$test_path"
+            local win_pythonpath="src"
             if command -v wslpath &>/dev/null; then
                 win_path=$(wslpath -w "$test_path")
+                win_pythonpath=$(wslpath -w "$PWD/src")
             fi
-            PYTHONPATH=src python.exe -m pytest "$win_path" -q
+            PYTHONPATH="$win_pythonpath" python.exe -m pytest "$win_path" -q
         elif command -v py.exe &>/dev/null; then
             local win_path="$test_path"
+            local win_pythonpath="src"
             if command -v wslpath &>/dev/null; then
                 win_path=$(wslpath -w "$test_path")
+                win_pythonpath=$(wslpath -w "$PWD/src")
             fi
-            PYTHONPATH=src py.exe -3 -m pytest "$win_path" -q
+            PYTHONPATH="$win_pythonpath" py.exe -3 -m pytest "$win_path" -q
         else
             echo -e "${YELLOW}[SKIP] pytest not installed, skipping $test_path${NC}"
             return 0

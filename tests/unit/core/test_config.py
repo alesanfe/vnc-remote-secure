@@ -1,11 +1,46 @@
 """Unit tests for core.config module."""
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.core.config import get_config, generate_random_password
+from vnc_remote_secure.core.config import _safe_int, generate_random_password, get_config
+
+
+def test_safe_int_returns_default_when_unset(monkeypatch):
+    """_safe_int returns the default when the env var is unset."""
+    monkeypatch.delenv('TEST_INT_VAR', raising=False)
+    assert _safe_int('TEST_INT_VAR', 42) == 42
+
+
+def test_safe_int_returns_default_when_empty(monkeypatch):
+    """_safe_int returns the default when the env var is empty."""
+    monkeypatch.setenv('TEST_INT_VAR', '')
+    assert _safe_int('TEST_INT_VAR', 42) == 42
+
+
+def test_safe_int_returns_value_when_valid(monkeypatch):
+    """_safe_int returns the parsed value when it is a valid integer."""
+    monkeypatch.setenv('TEST_INT_VAR', '100')
+    assert _safe_int('TEST_INT_VAR', 42) == 100
+
+
+def test_safe_int_returns_default_when_invalid(monkeypatch):
+    """_safe_int returns the default when the value is not an integer."""
+    monkeypatch.setenv('TEST_INT_VAR', 'abc')
+    assert _safe_int('TEST_INT_VAR', 42) == 42
+
+
+def test_safe_int_enforces_minimum(monkeypatch):
+    """_safe_int returns the default when the value is below the minimum."""
+    monkeypatch.setenv('TEST_INT_VAR', '0')
+    assert _safe_int('TEST_INT_VAR', 42, minimum=1) == 42
+
+
+def test_safe_int_enforces_maximum(monkeypatch):
+    """_safe_int returns the default when the value is above the maximum."""
+    monkeypatch.setenv('TEST_INT_VAR', '99999')
+    assert _safe_int('TEST_INT_VAR', 42, maximum=65535) == 42
 
 
 def test_get_config_returns_dict():

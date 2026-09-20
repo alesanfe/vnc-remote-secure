@@ -4,6 +4,14 @@ Tracks active WebSocket connections by session ID so that when a
 session is revoked, all its active connections can be closed
 immediately — not just prevented from reconnecting.
 
+Close callbacks are inherently process-local (Python callables), so
+the registry cannot directly close connections in another process.
+However, revocation is propagated via the shared-state backend: when
+a session is revoked, its token is added to a shared ``revoked``
+namespace. Other processes check this namespace before allowing new
+WebSocket upgrades, ensuring revocation takes effect cluster-wide
+even if the in-memory close callbacks cannot reach another process.
+
 Usage:
     from vnc_remote_secure.security.websocket_registry import (
         register_connection,
@@ -12,7 +20,11 @@ Usage:
     )
 
     # When a WebSocket connection is established:
-    conn_id = register_connection(session_id, websocket)
+    conn_id = register_connection(session_id, websocket.close)
+    if conn_id is None:
+        # Session revoked between validation and registration —
+        # close the socket, do not keep serving it.
+        websocket.close()
 
     # When the connection closes normally:
     unregister_connection(conn_id)
@@ -21,11 +33,26 @@ Usage:
     closed = revoke_session_connections(session_id)
     # closed = number of connections that were forcibly closed
 """
+import hashlib
 import logging
+import os
 import threading
 from typing import Callable, Dict, List, Optional, Set
 
+from vnc_remote_secure.core.constants import DEFAULT_SESSION_MAX_LIFETIME
+from vnc_remote_secure.security.shared_state import get_backend
+
 logger = logging.getLogger(__name__)
+
+
+def _redact(session_id: str) -> str:
+    """Return a short hash of a session ID for safe logging."""
+    if not session_id:
+        return '<empty>'
+    return hashlib.sha256(session_id.encode()).hexdigest()[:12]
+
+# Shared-state namespace for cross-process revocation propagation.
+_NS_REVOKED = 'websocket_revoked_sessions'
 
 # Type for a close callback. The callback should close the WebSocket
 # connection. This abstraction allows the registry to work with
@@ -73,9 +100,19 @@ class WebSocketRegistry:
             resource: Optional resource name (e.g. 'desktop', 'terminal').
 
         Returns:
-            A unique connection ID for later unregister.
+            A unique connection ID for later unregister, or ``None`` if
+            the session was revoked between validation and registration
+            (TOCTOU guard).
         """
         with self._lock:
+            # TOCTOU guard: reject if the session was revoked between the
+            # auth-gateway validation and this registration call.
+            if is_revoked_shared(session_id):
+                logger.debug(
+                    'Refused WebSocket registration for revoked session %s',
+                    _redact(session_id),
+                )
+                return None
             self._next_id += 1
             conn_id = f'ws_{self._next_id}'
             entry = _ConnectionEntry(conn_id, session_id, close_callback, resource)
@@ -85,7 +122,7 @@ class WebSocketRegistry:
             self._by_session[session_id].add(conn_id)
             logger.debug(
                 'Registered WebSocket connection %s for session %s (resource=%s)',
-                conn_id, session_id, resource,
+                conn_id, _redact(session_id), resource,
             )
             return conn_id
 
@@ -108,38 +145,54 @@ class WebSocketRegistry:
     def revoke_session(self, session_id: str) -> int:
         """Force-close all WebSocket connections for a session.
 
+        Also marks the session as revoked in the shared-state backend
+        so that other processes reject new WebSocket upgrades for this
+        session even if they do not have the connection in their
+        local registry.
+
         Args:
             session_id: The session to revoke connections for.
 
         Returns:
             Number of connections that were closed.
         """
-        closed = 0
+        # Propagate revocation to other processes via shared state.
+        # The marker must outlive the session it kills: with an
+        # operator-set SESSION_MAX_LIFETIME above the 24h floor, a
+        # shorter marker would let the revoked token re-authenticate
+        # after the marker expired.
+        try:
+            max_lifetime = int(os.environ.get(
+                'SESSION_MAX_LIFETIME',
+                str(DEFAULT_SESSION_MAX_LIFETIME)))
+        except (ValueError, TypeError):
+            max_lifetime = DEFAULT_SESSION_MAX_LIFETIME
+        get_backend().set_ttl(
+            _NS_REVOKED, session_id, True, max(86400, max_lifetime))
+        # Snapshot and detach under the lock, then invoke the close
+        # callbacks AFTER releasing it — a callback that touches the
+        # registry (e.g. calls unregister from the socket's close
+        # handler) would deadlock on the non-reentrant lock.
         with self._lock:
             conn_ids = list(self._by_session.get(session_id, set()))
-            if not conn_ids:
-                return 0
-            for conn_id in conn_ids:
-                entry = self._connections.pop(conn_id, None)
-                if entry is None:
-                    continue
-                try:
-                    result = entry.close_callback()
-                    if result:
-                        closed += 1
-                    else:
-                        closed += 1  # Count as closed even if callback returned False
-                except Exception as e:
-                    logger.warning(
-                        'Error closing WebSocket connection %s: %s',
-                        conn_id, e,
-                    )
-                    closed += 1  # Count as closed even on error
-            # Clean up the session entry.
+            entries = [self._connections.pop(cid, None) for cid in conn_ids]
             self._by_session.pop(session_id, None)
+        closed = 0
+        for conn_id, entry in zip(conn_ids, entries):
+            if entry is None:
+                continue
+            try:
+                entry.close_callback()
+                closed += 1
+            except Exception as e:
+                logger.warning(
+                    'Error closing WebSocket connection %s: %s',
+                    conn_id, e,
+                )
+                closed += 1  # Count as closed even on error
         logger.info(
             'Revoked %d WebSocket connection(s) for session %s',
-            closed, session_id,
+            closed, _redact(session_id),
         )
         return closed
 
@@ -202,3 +255,19 @@ def unregister_connection(conn_id: str):
 def revoke_session_connections(session_id: str) -> int:
     """Force-close all WebSocket connections for a session."""
     return get_registry().revoke_session(session_id)
+
+
+def is_revoked_shared(session_id: str) -> bool:
+    """Check whether a session has been revoked in another process.
+
+    This consults the shared-state backend so that revocations issued
+    by a different process (e.g. the CLI) are visible to long-running
+    service processes. Close callbacks remain process-local, but this
+    check prevents new WebSocket upgrades for revoked sessions.
+    """
+    return bool(get_backend().get(_NS_REVOKED, session_id))
+
+
+def clear_revoked_shared(session_id: str):
+    """Remove a session from the shared revocation set (for testing)."""
+    get_backend().delete(_NS_REVOKED, session_id)

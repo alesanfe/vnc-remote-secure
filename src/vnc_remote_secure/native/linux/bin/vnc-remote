@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# vnc-remote - Native Linux launcher for VNC Remote Secure
+# This is a thin wrapper that delegates to the Python CLI.
+set -euo pipefail
+
+# Find the Python package
+# (bin/ is at src/vnc_remote_secure/native/linux/bin/ — five levels below root)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../../.." && pwd)"
+SRC_DIR="$PROJECT_ROOT/src"
+
+# Prefer installed package, fall back to source.
+# Resolve the candidate's path first: if `vnc-remote` on PATH resolves
+# to this very script (e.g. native/linux/bin was added to PATH), exec'ing
+# it would recurse forever — in that case fall through to PYTHONPATH.
+_resolved="$(command -v vnc-remote 2>/dev/null || true)"
+if [ -n "$_resolved" ] && [ "$(cd "$(dirname "$_resolved")" && pwd)/$(basename "$_resolved")" != "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" ]; then
+    exec vnc-remote "$@"
+elif [ -d "$SRC_DIR/vnc_remote_secure" ]; then
+    export PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}"
+    exec python3 -m vnc_remote_secure.cli "$@"
+else
+    echo "ERROR: vnc-remote not found. Install with: pip install -e ." >&2
+    exit 1
+fi

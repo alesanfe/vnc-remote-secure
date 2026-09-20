@@ -33,10 +33,6 @@
 # Makefile uses tabs
 Makefile text eol=lf
 
-# Dockerfiles
-Dockerfile text eol=lf
-Dockerfile.* text eol=lf
-
 # Systemd units
 *.service text eol=lf
 

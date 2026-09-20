@@ -1,7 +1,6 @@
 """Security test: verify no secrets are exposed in the repository."""
 import os
 import subprocess
-import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 

@@ -1,98 +1,35 @@
 #!/usr/bin/env python3
-"""Generate self-signed SSL certificate for the VNC remote app."""
-import subprocess
-import sys
+"""Generate a self-signed SSL certificate — thin delegator.
+
+DEPRECATED: retained for convenience only. The canonical implementation
+is ``vnc_remote_secure.security.certificates.generate_self_signed`` and
+certificates are created automatically by ``vnc-remote install``
+(Let's Encrypt when DUCK_DOMAIN+EMAIL are set, self-signed otherwise).
+"""
 import os
-import datetime
-import ipaddress
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from vnc_remote_secure.core.paths import get_ssl_dir
+from vnc_remote_secure.security.certificates import generate_self_signed
 
 
-def generate_cert(cert_path, key_path):
-    """Generate self-signed cert using Python cryptography library."""
-    try:
-        from cryptography import x509
-        from cryptography.x509.oid import NameOID
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-    except ImportError:
-        print("cryptography library not installed. Installing...")
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', 'cryptography'],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            print(f"ERROR: Failed to install cryptography: {result.stderr}",
-                  file=sys.stderr)
-            sys.exit(1)
-        # Re-import after install (no recursion)
-        from cryptography import x509
-        from cryptography.x509.oid import NameOID
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-
-    key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-    )
-
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
-    ])
-
-    # Use timezone-aware datetime (utcnow is deprecated)
-    now = datetime.datetime.now(datetime.timezone.utc)
-
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=365))
-        .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName("localhost"),
-                x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-            ]),
-            critical=False,
-        )
-        .sign(key, hashes.SHA256())
-    )
-
-    # Write cert
-    with open(cert_path, "wb") as f:
-        f.write(cert.public_bytes(serialization.Encoding.PEM))
-
-    # Write key with restrictive permissions
-    with open(key_path, "wb") as f:
-        f.write(key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        ))
-
-    # Set restrictive permissions on private key
-    try:
-        os.chmod(key_path, 0o600)
-    except (OSError, NotImplementedError):
-        pass  # Windows may not support chmod
-
-    print(f"Certificate generated: {cert_path}")
-    print(f"Private key generated: {key_path}")
-
-
-if __name__ == '__main__':
-    project_dir = os.path.dirname(os.path.abspath(__file__))
-    ssl_dir = os.path.join(project_dir, 'data', 'ssl')
+def main():
+    ssl_dir = get_ssl_dir()
     os.makedirs(ssl_dir, exist_ok=True)
-
     cert = os.path.join(ssl_dir, 'fullchain.pem')
     key = os.path.join(ssl_dir, 'privkey.pem')
 
-    # Remove old certs
-    for f in [cert, key]:
-        if os.path.exists(f):
-            os.remove(f)
+    if os.path.exists(cert) and os.path.exists(key):
+        print(f"Certificates already exist: {cert}")
+        return 0
 
-    generate_cert(cert, key)
+    generate_self_signed(cert, key)
+    print(f"Certificate generated: {cert}")
+    print(f"Private key generated: {key}")
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -1,33 +1,23 @@
 """POSIX permission and user management for Linux."""
-import os
-import shutil
+import logging
 import subprocess
 
-from vnc_remote_secure.core.exceptions import PlatformError
 
+def _valid_username(username):
+    """Return True if ``username`` is safe to pass to useradd/userdel.
 
-def set_permissions(path, owner=None, mode=None):
-    """Set ownership and/or mode on ``path``.
-
-    Args:
-        path: Filesystem path to modify.
-        owner: ``user`` or ``user:group`` string. ``None`` skips chown.
-        mode: Octal mode integer (e.g. ``0o640``). ``None`` skips chmod.
-
-    Returns:
-        ``True`` on success.
+    The username lands as a positional argument — a value starting with
+    ``-`` would be parsed as a flag (e.g. ``userdel -r -f``), so the
+    adapter validates instead of trusting callers to have done so.
     """
-    if not os.path.exists(path):
-        raise PlatformError(f"Path does not exist: {path}")
-    if mode is not None:
-        os.chmod(path, mode)
-    if owner:
-        if ':' in owner:
-            user, group = owner.split(':', 1)
-            shutil.chown(path, user, group)
-        else:
-            shutil.chown(path, owner)
-    return True
+    from vnc_remote_secure.core.validation import validate_username
+    try:
+        validate_username(username)
+        return True
+    except (ValueError, TypeError):
+        logging.getLogger(__name__).warning(
+            "Refusing invalid username %r", username)
+        return False
 
 
 def create_user(username, system=True, shell='/usr/sbin/nologin'):
@@ -35,20 +25,55 @@ def create_user(username, system=True, shell='/usr/sbin/nologin'):
 
     Returns ``True`` if the user was created or already exists.
     """
+    if not _valid_username(username):
+        return False
     if user_exists(username):
         return True
     cmd = ['useradd']
     if system:
         cmd.append('-r')
-    cmd.extend(['-s', shell, username])
+    cmd.extend(['-s', shell, '--', username])
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.returncode == 0
 
 
 def remove_user(username):
-    """Remove a Linux user and its home directory."""
+    """Remove a Linux user and its home directory.
+
+    Refuses reserved/builtin names: the caller (TEMP_USER env) could
+    otherwise pass e.g. ``root`` and ``userdel -r`` would attempt to
+    delete a system account.
+    """
+    if not _valid_username(username):
+        return False
+    from vnc_remote_secure.core.constants import RESERVED_USERNAMES
+    if username in RESERVED_USERNAMES:
+        logging.getLogger(__name__).warning(
+            "Refusing to remove reserved user %s", username)
+        return False
     result = subprocess.run(
-        ['userdel', '-r', username],
+        ['userdel', '-r', '--', username],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
+def set_user_password(username, password):
+    """Set a user's login password via ``chpasswd``.
+
+    Returns ``True`` on success. ``chpasswd`` consumes ``user:pass``
+    lines, so credentials containing ``:`` or a newline would inject
+    or corrupt records — reject them rather than mangle /etc/shadow.
+    """
+    if not _valid_username(username):
+        return False
+    if ':' in username or '\n' in username or '\r' in username:
+        return False
+    if '\n' in password or '\r' in password:
+        return False
+    result = subprocess.run(
+        ['chpasswd'],
+        input=f'{username}:{password}\n',
         capture_output=True, text=True,
     )
     return result.returncode == 0

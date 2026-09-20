@@ -9,60 +9,62 @@ Security: Credentials are NOT displayed on the page. The landing page
 shows service status and URLs only. Users must check the launcher output
 or .env file for credentials.
 """
+import html
 import http.server
 import json
 import logging
 import os
 import platform
-import re
-import socket
 import socketserver
-import subprocess
-import sys
 
 from vnc_remote_secure.core.errors import error_json, log_exception
-from vnc_remote_secure.security.http_auth import check_landing_auth
+from vnc_remote_secure.platform.detection import is_windows
+from vnc_remote_secure.security.http_auth import (
+    check_landing_auth,
+    client_ip_from,
+)
 
 logger = logging.getLogger(__name__)
 
 # Load configuration from .env file (never hardcode credentials)
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.core.constants import (
-    DEFAULT_BIND_HOST,
-    DEFAULT_HEALTH_PORT,
-    DEFAULT_LANDING_PORT,
-    DEFAULT_NOVNC_PORT,
-    DEFAULT_TTYD_PORT,
-    DEFAULT_VNC_HTTP_PORT,
-    DEFAULT_VNC_PORT,
+    DEFAULT_AUDIO_STREAM_PORT,
+    DEFAULT_GAMEPAD_PORT,
+    DEFAULT_NGINX_HTTPS_PORT,
+    DEFAULT_NOVNC_WS_PORT,
 )
 
 load_env_file()
 
-PORT = int(os.environ.get('LANDING_PORT', str(DEFAULT_LANDING_PORT)))
-HOST = os.environ.get('LANDING_HOST', DEFAULT_BIND_HOST)
-CERT_FILE = os.environ.get('SSL_CERT', '')
-KEY_FILE = os.environ.get('SSL_KEY', '')
-
-VNC_PORT = int(os.environ.get('VNC_PORT', str(DEFAULT_VNC_PORT)))
-NOVNC_PORT = int(os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)))
-TTYD_PORT = int(os.environ.get('TTYD_PORT', str(DEFAULT_TTYD_PORT)))
-HEALTH_PORT = int(os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT)))
-VNC_HTTP_PORT = int(os.environ.get('VNC_HTTP_PORT', str(DEFAULT_VNC_HTTP_PORT)))
-
-# Optional auth for the landing page itself (set LANDING_PASSWORD to enable)
-LANDING_PASSWORD = os.environ.get('LANDING_PASSWORD', '')
+def _config():
+    """Lazy config accessor — reads get_config() on each call so .env changes take effect."""
+    from vnc_remote_secure.core.config import get_config
+    return get_config()
 
 
-def check_port(port):
-    """Check if a port is listening."""
+def _samesite():
+    """Whitelisted SameSite cookie value (shared whitelist in config)."""
+    from vnc_remote_secure.core.config import resolve_samesite
+    return resolve_samesite()
+
+
+def check_port(port, host='127.0.0.1'):
+    """Check if a port is listening on ``host``.
+
+    Each service binds its own ``<SVC>_HOST`` — probing everything on
+    loopback reports a service bound to a LAN IP as down. The doctor
+    probes per-service hosts; the status JSON must agree. A wildcard
+    bind (``0.0.0.0``/``::``) covers loopback too, and connecting to
+    the wildcard address itself is unreliable on Windows.
+    """
+    if host in ('0.0.0.0', '::', ''):
+        host = '127.0.0.1'
+    # Delegate to the shared probe — it selects AF_INET6 for IPv6
+    # literal hosts, which a hardcoded AF_INET socket cannot reach.
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(2)
-        result = s.connect_ex(('localhost', port))
-        s.close()
-        return result == 0
+        from vnc_remote_secure.core.processes import is_port_available
+        return not is_port_available(port, host=host)
     except Exception as e:
         logger.debug("Port check failed: %s", e)
         return False
@@ -84,8 +86,9 @@ def get_lan_ips():
 def get_system_metrics():
     """Get quick system metrics for the landing page.
 
-    Delegates CPU/memory/disk/uptime collection to the platform adapter
-    (``platform/{linux,windows}/metrics.py``) and adds hostname/os on top.
+    Delegates CPU/memory/disk/uptime collection and OS display name
+    detection to the platform adapter
+    (``platform/{linux,windows}/metrics.py``) and adds hostname on top.
     """
     metrics = {
         'cpu': 'N/A', 'memory': 'N/A', 'disk': 'N/A',
@@ -93,69 +96,90 @@ def get_system_metrics():
         'os': f'{platform.system()} {platform.release()}',
     }
 
-    # Delegate core metrics to the platform adapter
+    # Delegate core metrics and OS display name to the platform adapter.
     try:
-        if platform.system() == 'Windows':
-            from vnc_remote_secure.platform.windows.metrics import get_system_metrics as _get
+        if is_windows():
+            from vnc_remote_secure.platform.windows.metrics import (
+                get_os_display_name as _os_name,
+            )
+            from vnc_remote_secure.platform.windows.metrics import (
+                get_system_metrics as _get,
+            )
         else:
-            from vnc_remote_secure.platform.linux.metrics import get_system_metrics as _get
+            from vnc_remote_secure.platform.linux.metrics import (
+                get_os_display_name as _os_name,
+            )
+            from vnc_remote_secure.platform.linux.metrics import (
+                get_system_metrics as _get,
+            )
         platform_metrics = _get()
         metrics.update(platform_metrics)
+        # Override the os field with the platform-specific display name
+        # (e.g. 'Windows 11' instead of 'Windows 10' on Win11).
+        os_name = _os_name()
+        if os_name:
+            metrics['os'] = os_name
     except Exception as e:
         logger.debug("Platform metrics collection failed: %s", e)
-
-    # Detect Windows 11 properly (platform.release() returns "10" on Win11)
-    if platform.system() == 'Windows':
-        try:
-            result = subprocess.run(
-                ['wmic', 'os', 'get', 'Caption', '/value'],
-                capture_output=True, text=True, timeout=5, check=False
-            )
-            caption_match = re.search(r'Caption=(.+)', result.stdout)
-            if caption_match:
-                caption = caption_match.group(1).strip()
-                if 'Windows 11' in caption:
-                    metrics['os'] = 'Windows 11'
-                elif 'Windows 10' in caption:
-                    metrics['os'] = 'Windows 10'
-                else:
-                    metrics['os'] = caption
-        except Exception as e:
-            logger.debug("Windows OS caption detection failed: %s", e)
 
     return metrics
 
 
-def generate_landing_page():
-    """Generate the landing page HTML."""
-    lan_ips = get_lan_ips()
-    # Use create_ssl_context() as the single source of truth so that
-    # links match the actual protocol the servers will use. This
-    # requires both CERT_FILE and KEY_FILE to exist and TLS_ENABLED
-    # to not be explicitly disabled.
-    from vnc_remote_secure.security.certificates import create_ssl_context
-    use_ssl = create_ssl_context(CERT_FILE, KEY_FILE) is not None
-    protocol = 'https' if use_ssl else 'http'
-    metrics = get_system_metrics()
+def _get_service_descriptions():
+    """Return platform-aware service descriptions.
 
+    Returns a tuple (desktop_desc, terminal_desc, vnc_http_name, vnc_http_desc).
+    """
     # Platform-aware descriptions
-    is_windows = platform.system() == 'Windows'
+    is_windows_flag = is_windows()
     desktop_desc = (
         'Escritorio Windows completo en el navegador. Controla el ratón y teclado desde cualquier dispositivo.'
-        if is_windows else
+        if is_windows_flag else
         'Escritorio remoto completo en el navegador. Controla el ratón y teclado desde cualquier dispositivo.'
     )
     terminal_desc = (
         'Terminal de comandos (cmd.exe) en el navegador. Ejecuta comandos de Windows remotamente.'
-        if is_windows else
+        if is_windows_flag else
         'Terminal del sistema en el navegador. Ejecuta comandos de Linux remotamente.'
     )
-    vnc_http_name = 'UltraVNC HTTP Viewer' if is_windows else 'VNC HTTP Viewer'
+    vnc_http_name = 'UltraVNC HTTP Viewer' if is_windows_flag else 'VNC HTTP Viewer'
     vnc_http_desc = (
         'Visor VNC Java legacy de UltraVNC. Alternativa al noVNC moderno.'
-        if is_windows else
+        if is_windows_flag else
         'Visor VNC HTTP legacy. Alternativa al noVNC moderno.'
     )
+    return desktop_desc, terminal_desc, vnc_http_name, vnc_http_desc
+
+
+def _build_service_list(protocol, external_base=None):
+    """Build the list of service descriptor dicts.
+
+    ``external_base`` is the public nginx base URL
+    (``https://<forwarded-host>``) when the request arrived through the
+    reverse proxy — backend ports are loopback-only, so the direct
+    ``127.0.0.1:<port>`` links only work for clients on the server
+    itself. Through nginx the services are reachable at well-known
+    paths instead.
+    """
+    desktop_desc, terminal_desc, vnc_http_name, vnc_http_desc = _get_service_descriptions()
+
+    if external_base:
+        novnc_url = f'{external_base}/vnc/vnc.html'
+        terminal_url = f'{external_base}/terminal/'
+        # nginx restricts /health to loopback (allow 127.0.0.1; deny all)
+        # — remote clients would always get 403, so do not render a
+        # public link for the health card through the proxy.
+        health_url = ''
+        health_all_url = ''
+        audio_url = f'{external_base}/audio_receiver.html'
+        gamepad_url = f'{external_base}/gamepad.html'
+    else:
+        novnc_url = f'{protocol}://127.0.0.1:{_config()["novnc_port"]}/vnc.html'
+        terminal_url = f'{protocol}://127.0.0.1:{_config()["ttyd_port"]}/'
+        health_url = f'{protocol}://127.0.0.1:{_config()["health_port"]}/health'
+        health_all_url = f'{protocol}://127.0.0.1:{_config()["health_port"]}/health/all'
+        audio_url = f'{protocol}://127.0.0.1:{_config()["landing_port"]}/audio_receiver.html'
+        gamepad_url = f'{protocol}://127.0.0.1:{_config()["landing_port"]}/gamepad.html'
 
     # All services with detailed info
     services = [
@@ -164,9 +188,11 @@ def generate_landing_page():
             'desc': desktop_desc,
             'features': ['Mouse y teclado completos', 'Portapapeles', 'Multi-monitor', 'Escalado automático'],
             'icon': '🖥️',
-            'url': f'{protocol}://localhost:{NOVNC_PORT}/vnc.html',
-            'port': NOVNC_PORT,
-            'running': check_port(NOVNC_PORT),
+            'url': novnc_url,
+            'port': _config()['novnc_port'],
+            'running': check_port(
+                _config()['novnc_port'],
+                _config().get('novnc_host', '127.0.0.1')),
             'color': '#4caf50',
             'category': 'remote-desktop',
         },
@@ -175,41 +201,80 @@ def generate_landing_page():
             'desc': terminal_desc,
             'features': ['Historial de comandos', 'Tab completion', 'Ctrl+C interrupt', 'Colores ANSI'],
             'icon': '⌨️',
-            'url': f'{protocol}://localhost:{TTYD_PORT}/',
-            'port': TTYD_PORT,
-            'running': check_port(TTYD_PORT),
+            'url': terminal_url,
+            'port': _config()['ttyd_port'],
+            'running': check_port(
+                _config()['ttyd_port'],
+                _config().get('ttyd_host', '127.0.0.1')),
             'color': '#2196f3',
             'category': 'terminal',
         },
-        {
-            'name': 'Health Dashboard',
-            'desc': 'Panel de monitorización con estado de servicios, CPU, memoria, disco y red.',
-            'features': ['Estado por servicio', 'CPU/RAM/Disco', 'API JSON', 'Auto-refresh 30s'],
-            'icon': '📊',
-            'url': f'{protocol}://localhost:{HEALTH_PORT}/health',
-            'url2': f'{protocol}://localhost:{HEALTH_PORT}/health/all',
-            'url2_label': 'System + Services',
-            'port': HEALTH_PORT,
-            'running': check_port(HEALTH_PORT),
-            'color': '#ff9800',
-            'category': 'monitoring',
-        },
-        {
+    ]
+    # UltraVNC's built-in HTTP dir is Windows-only — on Linux nothing
+    # ever listens on vnc_http_port, so the card would permanently show
+    # a spurious "down" state (same reasoning as the status JSON).
+    if is_windows():
+        services.append({
             'name': vnc_http_name,
             'desc': vnc_http_desc,
             'features': ['Java applet', 'Conexión directa', 'Legacy support'],
             'icon': '🔌',
-            'url': f'http://localhost:{VNC_HTTP_PORT}/',
-            'port': VNC_HTTP_PORT,
-            'running': check_port(VNC_HTTP_PORT),
+            'url': f'http://127.0.0.1:{_config()["vnc_http_port"]}/',
+            'port': _config()['vnc_http_port'],
+            'running': check_port(_config()['vnc_http_port']),
             'color': '#9c27b0',
             'category': 'remote-desktop',
-        },
-    ]
+        })
+    # Optional features get a card only when enabled.
+    if _config().get('health_web_enabled', True):
+        services.append({
+            'name': 'Health Dashboard',
+            'desc': 'Panel de monitorización con estado de servicios, CPU, memoria, disco y red.',
+            'features': ['Estado por servicio', 'CPU/RAM/Disco', 'API JSON', 'Auto-refresh 30s'],
+            'icon': '📊',
+            'url': health_url,
+            'url2': health_all_url,
+            'url2_label': 'System + Services',
+            'port': _config()['health_port'],
+            'running': check_port(
+                _config()['health_port'],
+                _config().get('health_host', '127.0.0.1')),
+            'color': '#ff9800',
+            'category': 'monitoring',
+        })
+    if _config().get('audio_stream_enabled'):
+        services.append({
+            'name': 'Audio Stream',
+            'desc': 'Audio del servidor en el navegador (WebSocket).',
+            'features': ['Streaming en vivo', 'Sin plugins', 'Loopback seguro'],
+            'icon': '🔊',
+            'url': audio_url,
+            'port': _config()['audio_stream_port'],
+            'running': check_port(
+                _config()['audio_stream_port'],
+                _config().get('audio_stream_host', '127.0.0.1')),
+            'color': '#00bcd4',
+            'category': 'remote-desktop',
+        })
+    if _config().get('gamepad_enabled'):
+        services.append({
+            'name': 'Gamepad Forwarding',
+            'desc': 'Reenvía el gamepad del cliente al servidor (WebSocket).',
+            'features': ['HTML5 Gamepad API', 'Baja latencia', 'Sin drivers extra'],
+            'icon': '🎮',
+            'url': gamepad_url,
+            'port': _config()['gamepad_port'],
+            'running': check_port(
+                _config()['gamepad_port'],
+                _config().get('gamepad_host', '127.0.0.1')),
+            'color': '#8bc34a',
+            'category': 'remote-desktop',
+        })
+    return services
 
-    # Direct VNC connection (not a web service, but useful info)
-    vnc_rfb_running = check_port(VNC_PORT)
 
+def _build_service_cards_html(services):
+    """Build the HTML for the service cards."""
     # Build service cards
     cards_html = ''
     for svc in services:
@@ -238,12 +303,39 @@ def generate_landing_page():
             </div>
             <div class="service-action">
                 <span class="status-badge" style="background:{status_color}">{status_text}</span>
-                <a href="{svc['url']}" target="_blank" class="btn {disabled}">Abrir</a>
+                {f'<a href="{svc["url"]}" target="_blank" class="btn {disabled}">Abrir</a>' if svc.get('url') else ''}
                 {extra_link}
             </div>
         </div>"""
+    return cards_html
 
+
+def _build_vnc_direct_html(lan_ips, vnc_rfb_running):
+    """Build the direct VNC (RFB) connection info card."""
     # Direct VNC connection info card
+    # The address must reflect the server's real bind: with nginx
+    # enabled the adapter passes ``-localhost yes`` to the RFB server,
+    # so a LAN IP in this card points at a port that is not reachable —
+    # show loopback + a tunnel hint instead (same condition as
+    # platform/linux/adapter.py's start_vnc_server).
+    # The displayed port must be the EFFECTIVE one: on Linux TigerVNC
+    # binds 5900+display regardless of an explicit VNC_PORT (same
+    # derivation as the probe in generate_landing_page).
+    vnc_port = _config()['vnc_port']
+    if not is_windows():
+        try:
+            from vnc_remote_secure.services.vnc import _vnc_port
+            vnc_port = _vnc_port(_config().get('vnc_display', ':1'))
+        except Exception:  # noqa: BLE001 - fall back to config port
+            pass
+    if _config().get('nginx_enabled'):
+        vnc_addr = f'127.0.0.1:{vnc_port}'
+        vnc_note = ('<span class="cred-note">Solo loopback — acceda por '
+                    'túnel SSH o noVNC</span>')
+    else:
+        vnc_addr = (f'{html.escape(lan_ips[0]) if lan_ips else "127.0.0.1"}'
+                    f':{vnc_port}')
+        vnc_note = ''
     vnc_direct_status = 'ONLINE' if vnc_rfb_running else 'OFFLINE'
     vnc_direct_color = '#4caf50' if vnc_rfb_running else '#f44336'
     vnc_direct_opacity = '1' if vnc_rfb_running else '0.5'
@@ -258,82 +350,120 @@ def generate_landing_page():
                 <span class="feature-tag">VNC Auth</span>
                 <span class="feature-tag">Sin navegador</span>
             </div>
-            <span class="service-port">Port {VNC_PORT}</span>
+            <span class="service-port">Port {vnc_port}</span>
         </div>
         <div class="service-action">
             <span class="status-badge" style="background:{vnc_direct_color}">{vnc_direct_status}</span>
             <div class="connection-info">
-                <code>{lan_ips[0] if lan_ips else 'localhost'}:{VNC_PORT}</code>
+                <code>{vnc_addr}</code>
+                {vnc_note}
             </div>
         </div>
     </div>"""
+    return vnc_direct_html
 
+
+def _build_metrics_html(metrics):
+    """Build the system metrics bar HTML."""
     # System metrics bar
     metrics_html = f"""
     <div class="metrics-bar">
         <div class="metric-item">
             <span class="metric-icon">💻</span>
             <span class="metric-label">Host</span>
-            <span class="metric-value">{metrics['hostname']}</span>
+            <span class="metric-value">{html.escape(metrics['hostname'])}</span>
         </div>
         <div class="metric-item">
             <span class="metric-icon">🖥️</span>
             <span class="metric-label">OS</span>
-            <span class="metric-value">{metrics['os']}</span>
+            <span class="metric-value">{html.escape(metrics['os'])}</span>
         </div>
         <div class="metric-item">
             <span class="metric-icon">⏱️</span>
             <span class="metric-label">Uptime</span>
-            <span class="metric-value">{metrics['uptime']}</span>
+            <span class="metric-value">{html.escape(metrics['uptime'])}</span>
         </div>
         <div class="metric-item">
             <span class="metric-icon">📊</span>
             <span class="metric-label">CPU</span>
-            <span class="metric-value">{metrics['cpu']}</span>
+            <span class="metric-value">{html.escape(metrics['cpu'])}</span>
         </div>
         <div class="metric-item">
             <span class="metric-icon">💾</span>
             <span class="metric-label">RAM</span>
-            <span class="metric-value">{metrics['memory']}</span>
+            <span class="metric-value">{html.escape(metrics['memory'])}</span>
         </div>
         <div class="metric-item">
             <span class="metric-icon">💿</span>
             <span class="metric-label">Disco</span>
-            <span class="metric-value">{metrics['disk']}</span>
+            <span class="metric-value">{html.escape(metrics['disk'])}</span>
         </div>
     </div>"""
+    return metrics_html
 
-    # Build LAN access section
+
+def _build_lan_html(lan_ips, protocol, external_base=None):
+    """Build the LAN access section HTML.
+
+    When the deployment runs behind nginx (``external_base`` is set),
+    the raw backend ports are loopback-only — LAN clients must use the
+    public nginx paths on the HTTPS port instead, or every link here
+    is dead. Without nginx the direct per-service ports apply.
+    """
     lan_html = ''
-    if lan_ips:
-        lan_html = '<div class="lan-section"><h2>🌐 Acceso Remoto (LAN)</h2><p class="section-desc">Conecta desde otro dispositivo en la misma red:</p>'
-        for ip in lan_ips:
+    if not lan_ips:
+        return lan_html
+    nginx = external_base is not None
+    https_port = _config().get('nginx_https_port', DEFAULT_NGINX_HTTPS_PORT)
+    lan_html = '<div class="lan-section"><h2>🌐 Acceso Remoto (LAN)</h2><p class="section-desc">Conecta desde otro dispositivo en la misma red:</p>'
+    for ip in lan_ips:
+        ip_escaped = html.escape(ip)
+        if nginx:
+            # https://<ip>[:<port>]/path — the default HTTPS port keeps a
+            # bare host; a non-default NGINX_HTTPS_PORT must be explicit.
+            port_suffix = '' if int(https_port) == DEFAULT_NGINX_HTTPS_PORT \
+                else f':{https_port}'
             lan_html += f"""
             <div class="ip-card">
-                <div class="ip-address">{ip}</div>
+                <div class="ip-address">{ip_escaped}</div>
                 <div class="ip-links">
-                    <a href="{protocol}://{ip}:{NOVNC_PORT}/vnc.html">🖥️ VNC Desktop</a>
-                    <a href="{protocol}://{ip}:{TTYD_PORT}/">⌨️ Terminal</a>
-                    <a href="{protocol}://{ip}:{HEALTH_PORT}/health">📊 Health</a>
-                    <a href="{protocol}://{ip}:{HEALTH_PORT}/health/all">📋 Health (all)</a>
-                    <a href="{protocol}://{ip}:{PORT}">🏠 Portal</a>
+                    <a href="https://{ip_escaped}{port_suffix}/vnc/vnc.html">🖥️ VNC Desktop</a>
+                    <a href="https://{ip_escaped}{port_suffix}/terminal/">⌨️ Web Terminal</a>
+                    <a href="https://{ip_escaped}{port_suffix}/">🏠 Portal</a>
                 </div>
             </div>"""
-        lan_html += '</div>'
+        else:
+            lan_html += f"""
+            <div class="ip-card">
+                <div class="ip-address">{ip_escaped}</div>
+                <div class="ip-links">
+                    <a href="{protocol}://{ip_escaped}:{_config()["novnc_port"]}/vnc.html">🖥️ VNC Desktop</a>
+                    <a href="{protocol}://{ip_escaped}:{_config()["ttyd_port"]}/">⌨️ Web Terminal</a>
+                    <a href="{protocol}://{ip_escaped}:{_config()["health_port"]}/health">📊 Health</a>
+                    <a href="{protocol}://{ip_escaped}:{_config()["health_port"]}/health/all">📋 Health (all)</a>
+                    <a href="{protocol}://{ip_escaped}:{_config()["landing_port"]}">🏠 Portal</a>
+                </div>
+            </div>"""
+    lan_html += '</div>'
+    return lan_html
 
+
+def _build_credentials_html():
+    """Build the credentials section HTML."""
     # Credentials section - NOT showing actual passwords for security
     # Users must check the launcher output or .env file
     creds_html = """
     <div class="credentials">
         <h2>🔐 Credenciales de Acceso</h2>
         <p class="section-desc">Por seguridad, las credenciales no se muestran en esta página.
-        Revise la salida del launcher o el archivo <code>.env</code>.</p>
+        Revise el archivo <code>.env</code>, o <code>generated_credentials.env</code>
+        en el directorio de ejecución si fueron autogeneradas.</p>
         <div class="cred-grid">
             <div class="cred-item">
                 <span class="cred-icon">🖥️</span>
                 <div class="cred-content">
                     <span class="cred-label">VNC Desktop (noVNC y RFB)</span>
-                    <span class="cred-value">Password: <code>••••••••</code> (ver launcher)</span>
+                    <span class="cred-value">Password: <code>••••••••</code> (ver .env o generated_credentials.env)</span>
                     <span class="cred-note">VNC usa los primeros 8 caracteres del password</span>
                 </div>
             </div>
@@ -341,12 +471,16 @@ def generate_landing_page():
                 <span class="cred-icon">⌨️</span>
                 <div class="cred-content">
                     <span class="cred-label">Web Terminal</span>
-                    <span class="cred-value">Usuario y password: ver launcher o <code>.env</code></span>
+                    <span class="cred-value">Usuario y password: ver <code>.env</code> o <code>generated_credentials.env</code></span>
                 </div>
             </div>
         </div>
     </div>"""
+    return creds_html
 
+
+def _build_features_section(use_ssl, is_windows):
+    """Build the 'What you can do' features section HTML."""
     # What you can do section
     ssl_feature = ""
     if use_ssl:
@@ -364,6 +498,20 @@ def generate_landing_page():
                 <p>Los servicios se ejecutan sin SSL (modo local). No expongas los puertos a Internet sin HTTPS.</p>
             </div>"""
 
+    # Platform-aware wording: on Linux the desktop is TigerVNC/X11 and
+    # the terminal runs the configured shell, not cmd.exe.
+    os_label = 'Windows' if is_windows else 'Linux'
+    shell_label = 'cmd.exe' if is_windows else 'el shell del sistema'
+    # Effective RFB port: TigerVNC binds 5900+display regardless of an
+    # explicit VNC_PORT (same derivation as _build_vnc_direct_html).
+    vnc_port = _config()['vnc_port']
+    if not is_windows:
+        try:
+            from vnc_remote_secure.services.vnc import _vnc_port
+            vnc_port = _vnc_port(_config().get('vnc_display', ':1'))
+        except Exception:  # noqa: BLE001 - fall back to config port
+            pass
+
     features_section = f"""
     <div class="features-section">
         <h2>✨ ¿Qué puedes hacer?</h2>
@@ -371,12 +519,12 @@ def generate_landing_page():
             <div class="feature-card">
                 <span class="feature-icon">🖥️</span>
                 <h3>Control remoto del escritorio</h3>
-                <p>Accede al escritorio Windows completo desde cualquier navegador. Mueve el ratón, escribe con el teclado, abre aplicaciones.</p>
+                <p>Accede al escritorio {os_label} completo desde cualquier navegador. Mueve el ratón, escribe con el teclado, abre aplicaciones.</p>
             </div>
             <div class="feature-card">
                 <span class="feature-icon">⌨️</span>
                 <h3>Terminal remoto</h3>
-                <p>Ejecuta comandos de Windows (cmd.exe) desde el navegador. Historial, tab completion y colores ANSI.</p>
+                <p>Ejecuta comandos de {os_label} ({shell_label}) desde el navegador. Historial, tab completion y colores ANSI.</p>
             </div>
             <div class="feature-card">
                 <span class="feature-icon">📊</span>
@@ -386,7 +534,7 @@ def generate_landing_page():
             <div class="feature-card">
                 <span class="feature-icon">📡</span>
                 <h3>VNC nativo</h3>
-                <p>Conecta con apps VNC externas (TigerVNC, RealVNC) directamente al puerto {VNC_PORT} sin navegador.</p>
+                <p>Conecta con apps VNC externas (TigerVNC, RealVNC) directamente al puerto {vnc_port} sin navegador.</p>
             </div>
             {ssl_feature}
             <div class="feature-card">
@@ -396,21 +544,31 @@ def generate_landing_page():
             </div>
         </div>
     </div>"""
+    return features_section
 
-    # Firewall note (platform-aware, uses configured ports)
-    firewall_ports = ','.join(str(p) for p in [TTYD_PORT, NOVNC_PORT, HEALTH_PORT, VNC_PORT, VNC_HTTP_PORT, PORT])
+
+def _build_firewall_html(is_windows, use_ssl):
+    """Build the firewall notice HTML and the SSL self-signed note.
+
+    Returns a tuple (firewall_html, ssl_note).
+    """
+    # Firewall note (platform-aware). Only the public entry point needs
+    # a rule: backend services bind to 127.0.0.1 and are reached through
+    # this portal (or nginx). Opening their ports would bypass the
+    # auth-gateway model.
     firewall_html = ''
+    public_port = _config()['landing_port']
     if is_windows:
         firewall_html = f"""
         <div class="notice">
-            <strong>⚠️ Firewall de Windows:</strong> Para acceso remoto, ejecuta como administrador:
-            <code>New-NetFirewallRule -DisplayName "VNC Remote" -Direction Inbound -LocalPort {firewall_ports} -Protocol TCP -Action Allow</code>
+            <strong>⚠️ Firewall de Windows:</strong> Solo el portal necesita acceso externo (los backends van por loopback):
+            <code>New-NetFirewallRule -DisplayName "VncRemoteSecure-Portal" -Direction Inbound -LocalPort {public_port} -Protocol TCP -Action Allow</code>
         </div>"""
     else:
         firewall_html = f"""
         <div class="notice">
-            <strong>⚠️ Firewall de Linux:</strong> Para acceso remoto, abre los puertos necesarios:
-            <code>sudo ufw allow {firewall_ports}/tcp</code>
+            <strong>⚠️ Firewall de Linux:</strong> Solo el portal necesita acceso externo (los backends van por loopback):
+            <code>sudo ufw allow {public_port}/tcp</code>
         </div>"""
 
     ssl_note = ''
@@ -420,7 +578,159 @@ def generate_landing_page():
             <strong>🔒 SSL Self-signed:</strong> El navegador mostrará una advertencia de seguridad.
             Click en "Advanced" → "Proceed" para aceptar el certificado en cada servicio HTTPS.
         </div>"""
+    return firewall_html, ssl_note
 
+
+_LANDING_CSS = """    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #e0e0e0; font-family: 'Segoe UI', Arial, sans-serif;
+            min-height: 100vh; padding: 20px;
+        }
+        .header { text-align: center; padding: 30px 0; }
+        .header h1 {
+            font-size: 36px; color: #fff; margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(100, 181, 246, 0.5);
+        }
+        .header p { color: #aaa; font-size: 16px; }
+        .metrics-bar {
+            max-width: 900px; margin: 20px auto;
+            display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+            background: rgba(255,255,255,0.05); border-radius: 12px; padding: 15px;
+        }
+        .metric-item {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 8px 16px; min-width: 100px;
+        }
+        .metric-icon { font-size: 20px; margin-bottom: 4px; }
+        .metric-label { font-size: 11px; color: #888; text-transform: uppercase; }
+        .metric-value { font-size: 14px; color: #64b5f6; font-family: monospace; margin-top: 2px; }
+        .section-title {
+            max-width: 900px; margin: 30px auto 15px;
+            color: #fff; font-size: 22px;
+        }
+        .section-desc { color: #aaa; font-size: 14px; margin-bottom: 15px; }
+        .services {
+            max-width: 900px; margin: 15px auto;
+            display: grid; gap: 15px;
+        }
+        .service-card {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px; padding: 20px; display: flex;
+            align-items: center; gap: 20px; transition: all 0.3s;
+        }
+        .service-card:hover {
+            background: rgba(255,255,255,0.08); border-color: rgba(100,181,246,0.3);
+            transform: translateX(5px);
+        }
+        .service-card.info-card { border-color: rgba(156,39,176,0.3); }
+        .service-icon { font-size: 40px; flex-shrink: 0; }
+        .service-info { flex: 1; }
+        .service-info h3 { color: #fff; font-size: 18px; margin-bottom: 5px; }
+        .service-info p { color: #aaa; font-size: 14px; margin-bottom: 8px; }
+        .features { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+        .feature-tag {
+            font-size: 11px; color: #90caf9; background: rgba(33,150,243,0.1);
+            padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(33,150,243,0.2);
+        }
+        .service-port {
+            font-size: 12px; color: #666; background: rgba(255,255,255,0.05);
+            padding: 2px 8px; border-radius: 4px;
+        }
+        .service-action { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; flex-shrink: 0; }
+        .status-badge {
+            font-size: 11px; font-weight: bold; padding: 3px 10px;
+            border-radius: 12px; color: #fff;
+        }
+        .btn {
+            display: inline-block; padding: 8px 24px; background: #2196f3;
+            color: #fff; text-decoration: none; border-radius: 6px;
+            font-size: 14px; font-weight: 600; transition: background 0.3s;
+        }
+        .btn:hover { background: #1976d2; }
+        .btn.disabled { background: #555; pointer-events: none; opacity: 0.5; }
+        .btn-sm {
+            display: inline-block; padding: 4px 12px; background: #607d8b;
+            color: #fff; text-decoration: none; border-radius: 4px;
+            font-size: 12px; transition: background 0.3s;
+        }
+        .btn-sm:hover { background: #455a64; }
+        .btn-sm.disabled { background: #555; pointer-events: none; opacity: 0.5; }
+        .connection-info { margin-top: 5px; }
+        .connection-info code {
+            background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 4px;
+            color: #64b5f6; font-size: 13px;
+        }
+        .features-section {
+            max-width: 900px; margin: 30px auto;
+        }
+        .features-section h2 { color: #fff; margin-bottom: 15px; font-size: 22px; }
+        .feature-cards {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;
+        }
+        .feature-card {
+            background: rgba(255,255,255,0.03); border-radius: 10px; padding: 20px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .feature-card .feature-icon { font-size: 30px; margin-bottom: 10px; display: block; }
+        .feature-card h3 { color: #fff; font-size: 16px; margin-bottom: 8px; }
+        .feature-card p { color: #aaa; font-size: 13px; line-height: 1.5; }
+        .lan-section {
+            max-width: 900px; margin: 30px auto;
+            background: rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;
+        }
+        .lan-section h2 { color: #fff; margin-bottom: 5px; font-size: 20px; }
+        .ip-card {
+            background: rgba(255,255,255,0.03); border-radius: 8px;
+            padding: 15px; margin-bottom: 10px;
+        }
+        .ip-address {
+            font-size: 18px; color: #64b5f6; font-family: monospace; margin-bottom: 8px;
+        }
+        .ip-links { display: flex; gap: 10px; flex-wrap: wrap; }
+        .ip-links a {
+            color: #90caf9; text-decoration: none; font-size: 14px;
+            padding: 6px 14px; background: rgba(33,150,243,0.1); border-radius: 6px;
+            transition: background 0.3s;
+        }
+        .ip-links a:hover { background: rgba(33,150,243,0.2); }
+        .credentials {
+            max-width: 900px; margin: 30px auto;
+            background: rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;
+        }
+        .credentials h2 { color: #fff; margin-bottom: 15px; font-size: 20px; }
+        .cred-grid { display: grid; gap: 15px; }
+        .cred-item {
+            background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px;
+            display: flex; gap: 15px; align-items: flex-start;
+        }
+        .cred-icon { font-size: 24px; }
+        .cred-content { flex: 1; }
+        .cred-label { display: block; color: #aaa; font-size: 12px; text-transform: uppercase; margin-bottom: 5px; }
+        .cred-value { display: block; color: #e0e0e0; font-size: 14px; }
+        .cred-value code { background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 4px; color: #64b5f6; }
+        .cred-note { display: block; color: #888; font-size: 12px; margin-top: 4px; }
+        .cred-note code { background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 3px; color: #ffb74d; }
+        .notice {
+            max-width: 900px; margin: 15px auto; padding: 15px;
+            background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.3);
+            border-radius: 8px; color: #ffb74d; font-size: 14px;
+        }
+        .notice code {
+            display: block; margin-top: 8px; padding: 8px;
+            background: rgba(0,0,0,0.3); border-radius: 4px;
+            font-size: 12px; color: #ccc; word-break: break-all;
+        }
+        .footer {
+            text-align: center; margin-top: 40px; padding: 20px; color: #666; font-size: 12px;
+        }
+        .footer a { color: #64b5f6; text-decoration: none; }
+    </style>"""
+
+
+def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, ssl_note, firewall_html, metrics):
+    """Assemble the final landing page HTML from its section components."""
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -428,152 +738,7 @@ def generate_landing_page():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="30">
     <title>VNC Remote Secure - Portal</title>
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-            color: #e0e0e0; font-family: 'Segoe UI', Arial, sans-serif;
-            min-height: 100vh; padding: 20px;
-        }}
-        .header {{ text-align: center; padding: 30px 0; }}
-        .header h1 {{
-            font-size: 36px; color: #fff; margin-bottom: 10px;
-            text-shadow: 0 0 20px rgba(100, 181, 246, 0.5);
-        }}
-        .header p {{ color: #aaa; font-size: 16px; }}
-        .metrics-bar {{
-            max-width: 900px; margin: 20px auto;
-            display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
-            background: rgba(255,255,255,0.05); border-radius: 12px; padding: 15px;
-        }}
-        .metric-item {{
-            display: flex; flex-direction: column; align-items: center;
-            padding: 8px 16px; min-width: 100px;
-        }}
-        .metric-icon {{ font-size: 20px; margin-bottom: 4px; }}
-        .metric-label {{ font-size: 11px; color: #888; text-transform: uppercase; }}
-        .metric-value {{ font-size: 14px; color: #64b5f6; font-family: monospace; margin-top: 2px; }}
-        .section-title {{
-            max-width: 900px; margin: 30px auto 15px;
-            color: #fff; font-size: 22px;
-        }}
-        .section-desc {{ color: #aaa; font-size: 14px; margin-bottom: 15px; }}
-        .services {{
-            max-width: 900px; margin: 15px auto;
-            display: grid; gap: 15px;
-        }}
-        .service-card {{
-            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px; padding: 20px; display: flex;
-            align-items: center; gap: 20px; transition: all 0.3s;
-        }}
-        .service-card:hover {{
-            background: rgba(255,255,255,0.08); border-color: rgba(100,181,246,0.3);
-            transform: translateX(5px);
-        }}
-        .service-card.info-card {{ border-color: rgba(156,39,176,0.3); }}
-        .service-icon {{ font-size: 40px; flex-shrink: 0; }}
-        .service-info {{ flex: 1; }}
-        .service-info h3 {{ color: #fff; font-size: 18px; margin-bottom: 5px; }}
-        .service-info p {{ color: #aaa; font-size: 14px; margin-bottom: 8px; }}
-        .features {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }}
-        .feature-tag {{
-            font-size: 11px; color: #90caf9; background: rgba(33,150,243,0.1);
-            padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(33,150,243,0.2);
-        }}
-        .service-port {{
-            font-size: 12px; color: #666; background: rgba(255,255,255,0.05);
-            padding: 2px 8px; border-radius: 4px;
-        }}
-        .service-action {{ display: flex; flex-direction: column; gap: 8px; align-items: flex-end; flex-shrink: 0; }}
-        .status-badge {{
-            font-size: 11px; font-weight: bold; padding: 3px 10px;
-            border-radius: 12px; color: #fff;
-        }}
-        .btn {{
-            display: inline-block; padding: 8px 24px; background: #2196f3;
-            color: #fff; text-decoration: none; border-radius: 6px;
-            font-size: 14px; font-weight: 600; transition: background 0.3s;
-        }}
-        .btn:hover {{ background: #1976d2; }}
-        .btn.disabled {{ background: #555; pointer-events: none; opacity: 0.5; }}
-        .btn-sm {{
-            display: inline-block; padding: 4px 12px; background: #607d8b;
-            color: #fff; text-decoration: none; border-radius: 4px;
-            font-size: 12px; transition: background 0.3s;
-        }}
-        .btn-sm:hover {{ background: #455a64; }}
-        .btn-sm.disabled {{ background: #555; pointer-events: none; opacity: 0.5; }}
-        .connection-info {{ margin-top: 5px; }}
-        .connection-info code {{
-            background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 4px;
-            color: #64b5f6; font-size: 13px;
-        }}
-        .features-section {{
-            max-width: 900px; margin: 30px auto;
-        }}
-        .features-section h2 {{ color: #fff; margin-bottom: 15px; font-size: 22px; }}
-        .feature-cards {{
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;
-        }}
-        .feature-card {{
-            background: rgba(255,255,255,0.03); border-radius: 10px; padding: 20px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }}
-        .feature-card .feature-icon {{ font-size: 30px; margin-bottom: 10px; display: block; }}
-        .feature-card h3 {{ color: #fff; font-size: 16px; margin-bottom: 8px; }}
-        .feature-card p {{ color: #aaa; font-size: 13px; line-height: 1.5; }}
-        .lan-section {{
-            max-width: 900px; margin: 30px auto;
-            background: rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;
-        }}
-        .lan-section h2 {{ color: #fff; margin-bottom: 5px; font-size: 20px; }}
-        .ip-card {{
-            background: rgba(255,255,255,0.03); border-radius: 8px;
-            padding: 15px; margin-bottom: 10px;
-        }}
-        .ip-address {{
-            font-size: 18px; color: #64b5f6; font-family: monospace; margin-bottom: 8px;
-        }}
-        .ip-links {{ display: flex; gap: 10px; flex-wrap: wrap; }}
-        .ip-links a {{
-            color: #90caf9; text-decoration: none; font-size: 14px;
-            padding: 6px 14px; background: rgba(33,150,243,0.1); border-radius: 6px;
-            transition: background 0.3s;
-        }}
-        .ip-links a:hover {{ background: rgba(33,150,243,0.2); }}
-        .credentials {{
-            max-width: 900px; margin: 30px auto;
-            background: rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;
-        }}
-        .credentials h2 {{ color: #fff; margin-bottom: 15px; font-size: 20px; }}
-        .cred-grid {{ display: grid; gap: 15px; }}
-        .cred-item {{
-            background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px;
-            display: flex; gap: 15px; align-items: flex-start;
-        }}
-        .cred-icon {{ font-size: 24px; }}
-        .cred-content {{ flex: 1; }}
-        .cred-label {{ display: block; color: #aaa; font-size: 12px; text-transform: uppercase; margin-bottom: 5px; }}
-        .cred-value {{ display: block; color: #e0e0e0; font-size: 14px; }}
-        .cred-value code {{ background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 4px; color: #64b5f6; }}
-        .cred-note {{ display: block; color: #888; font-size: 12px; margin-top: 4px; }}
-        .cred-note code {{ background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 3px; color: #ffb74d; }}
-        .notice {{
-            max-width: 900px; margin: 15px auto; padding: 15px;
-            background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.3);
-            border-radius: 8px; color: #ffb74d; font-size: 14px;
-        }}
-        .notice code {{
-            display: block; margin-top: 8px; padding: 8px;
-            background: rgba(0,0,0,0.3); border-radius: 4px;
-            font-size: 12px; color: #ccc; word-break: break-all;
-        }}
-        .footer {{
-            text-align: center; margin-top: 40px; padding: 20px; color: #666; font-size: 12px;
-        }}
-        .footer a {{ color: #64b5f6; text-decoration: none; }}
-    </style>
+{_LANDING_CSS}
 </head>
 <body>
     <div class="header">
@@ -599,16 +764,173 @@ def generate_landing_page():
     {firewall_html}
 
     <div class="footer">
-        VNC Remote Secure | {metrics['hostname']} | {metrics['os']} | Uptime: {metrics['uptime']}
+        VNC Remote Secure | {html.escape(metrics['hostname'])} | {html.escape(metrics['os'])} | Uptime: {html.escape(metrics['uptime'])}
     </div>
 </body>
 </html>"""
 
 
+def generate_landing_page(forwarded_host=None, forwarded_proto=None):
+    """Generate the landing page HTML."""
+    lan_ips = get_lan_ips()
+    # Use create_ssl_context() as the single source of truth so that
+    # links match the actual protocol the servers will use. This
+    # requires both SSL_CERT and SSL_KEY to exist and TLS_ENABLED
+    # to not be explicitly disabled.
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    use_ssl = create_ssl_context(_config()['ssl_cert'], _config()['ssl_key']) is not None
+    protocol = 'https' if use_ssl else 'http'
+    metrics = get_system_metrics()
+    is_windows_flag = is_windows()
+    # Behind nginx the loopback-only backend ports are unreachable for
+    # remote clients — the portal must link the public nginx paths.
+    # The forwarded host/proto land inside href attributes in the
+    # rendered page: reject anything outside a strict hostname set or
+    # a crafted X-Forwarded-Host becomes reflected XSS (the header is
+    # still attacker-influenced through nginx's $host).
+    import re as _re
+    external_base = None
+    if forwarded_host:
+        proto = (forwarded_proto or 'https').split(',')[0].strip()
+        host = forwarded_host.split(',')[0].strip()
+        if _re.fullmatch(r'[A-Za-z0-9.\-:\[\]]{1,253}', host) \
+                and proto in ('http', 'https'):
+            external_base = f'{proto}://{host}'
+    services = _build_service_list(protocol, external_base)
+    cards_html = _build_service_cards_html(services)
+    # TigerVNC binds 5900+display on Linux regardless of an explicit
+    # VNC_PORT — probe the same derivation services/vnc._vnc_port and
+    # _start_websockify use or the "VNC direct" card lies when
+    # VNC_DISPLAY is not :1. On Windows UltraVNC uses VNC_PORT directly.
+    vnc_probe_port = _config()['vnc_port']
+    if not is_windows_flag:
+        try:
+            from vnc_remote_secure.services.vnc import _vnc_port
+            vnc_probe_port = _vnc_port(_config().get('vnc_display', ':1'))
+        except Exception:  # noqa: BLE001 - fall back to config port
+            pass
+    vnc_rfb_running = check_port(vnc_probe_port)
+    vnc_direct_html = _build_vnc_direct_html(lan_ips, vnc_rfb_running)
+    metrics_html = _build_metrics_html(metrics)
+    # NGINX_ENABLED alone (not just a forwarded request) decides the
+    # LAN link shape: an operator browsing the portal directly on
+    # LANDING_PORT has no X-Forwarded-Host, yet the backend ports are
+    # still loopback-only and unreachable for LAN clients.
+    lan_html = _build_lan_html(
+        lan_ips, protocol,
+        external_base if (external_base or _config().get('nginx_enabled'))
+        else None)
+    creds_html = _build_credentials_html()
+    features_section = _build_features_section(use_ssl, is_windows_flag)
+    firewall_html, ssl_note = _build_firewall_html(is_windows_flag, use_ssl)
+    return _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, ssl_note, firewall_html, metrics)
+
+
 class LandingHandler(http.server.SimpleHTTPRequestHandler):
+
+    def end_headers(self):
+        from vnc_remote_secure.security.http_headers import send_security_headers
+        send_security_headers(self)
+        super().end_headers()
+
+    def _ephemeral_cookie(self) -> str:
+        """Extract the ``vnc_ephemeral`` cookie value, if present."""
+        cookie = self.headers.get('Cookie', '')
+        for part in cookie.split(';'):
+            part = part.strip()
+            if part.startswith('vnc_ephemeral='):
+                return part.split('=', 1)[1].strip()
+        return ''
+
+    def _valid_ephemeral_cookie(self) -> bool:
+        """True when the client holds an activated ephemeral session."""
+        internal = self._ephemeral_cookie()
+        if not internal:
+            return False
+        from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
+        # Portal access requires any valid permission; 'view' is the
+        # base permission every role grants.
+        client_ip = client_ip_from(
+            self.headers,
+            self.client_address[0] if self.client_address else None)
+        return check_session_permission(
+            internal, 'view', client_ip=client_ip)
+
+    def _handle_session_exchange(self) -> bool:
+        """Handle ``GET /?session=<signed_token>`` share links.
+
+        Activates the ephemeral session once, issues the
+        ``vnc_ephemeral`` cookie holding the internal session token and
+        redirects to the portal without the token in the URL (avoids
+        leaking it via Referer/history). Returns True when the request
+        was fully handled.
+        """
+        from urllib.parse import parse_qs, urlparse
+        query = parse_qs(urlparse(self.path).query)
+        signed = (query.get('session') or [''])[0]
+        if not signed:
+            return False
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+        # Forwarded-aware like check_session_permission: behind a
+        # trusted proxy the peer is 127.0.0.1, so an allowed_ip-bound
+        # session could never activate if we bound the raw peer.
+        client_ip = client_ip_from(
+            self.headers,
+            self.client_address[0] if self.client_address else None)
+        internal = activate_ephemeral_session(signed, client_ip=client_ip)
+        if not internal:
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json(
+                'Session link is invalid, expired, or already used', 403)
+            self.wfile.write(body.encode())
+            return True
+        # Mark the cookie Secure when the response travels over TLS —
+        # either behind a trusted nginx (X-Forwarded-Proto) or via
+        # direct TLS on this service (the accepted socket is an
+        # SSLSocket). X-Forwarded-Proto is honoured only under
+        # TRUSTED_PROXY — a direct client claiming https would get a
+        # Secure cookie the browser never returns over plain HTTP.
+        import ssl as _ssl
+        trusted = os.environ.get(
+            'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+        is_tls = ((trusted and
+                   self.headers.get('X-Forwarded-Proto', '') == 'https')
+                  or isinstance(self.connection, _ssl.SSLSocket))
+        secure = ' Secure;' if is_tls else ''
+        # The value lands verbatim inside Set-Cookie — a crafted
+        # SESSION_SAMESITE containing ';' or CRLF would inject extra
+        # cookie attributes / split the response. Whitelist it.
+        samesite = _samesite()
+        self.send_response(302)
+        self.send_header('Location', '/')
+        self.send_header(
+            'Set-Cookie',
+            f'vnc_ephemeral={internal};{secure} HttpOnly; Path=/; '
+            f'SameSite={samesite}')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        return True
+
     def do_GET(self):
-        # Check auth if LANDING_PASSWORD is set (uses shared helper)
-        if not check_landing_auth(self.headers.get('Authorization', '')):
+        # Ephemeral share links exchange the signed token for a cookie
+        # before any auth check (the link itself is the credential).
+        if self._handle_session_exchange():
+            return
+        # An activated ephemeral session grants portal access without
+        # the landing Basic-auth credentials.
+        ephemeral_ok = self._valid_ephemeral_cookie()
+        # Landing Basic-auth (fail-closed: an empty LANDING_PASSWORD
+        # denies access — the startup blocker refuses to run in that
+        # state anyway). client_ip feeds the shared auth rate limiter
+        # so Basic-auth brute force is locked out like the
+        # gateway-protected paths.
+        if not ephemeral_ok and not check_landing_auth(
+                self.headers.get('Authorization', ''),
+                client_ip=client_ip_from(
+                    self.headers,
+                    self.client_address[0] if self.client_address else None)):
             self.send_response(401)
             self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
             self.send_header('Content-Type', 'application/json')
@@ -616,13 +938,17 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             body, _ = error_json('Unauthorized', 401)
             self.wfile.write(body.encode())
             return
-        if self.path == '/' or self.path == '/index.html':
+        # Strip the query string for routing: /status.json?ts=… must
+        # resolve like the bare path (the Flask blueprint and nginx
+        # both match path-only).
+        path = self.path.split('?', 1)[0]
+        if path == '/' or path == '/index.html':
             self._serve_landing()
-        elif self.path == '/status.json':
+        elif path == '/status.json':
             self._serve_status_json()
-        elif self.path == '/audio_receiver.html':
+        elif path == '/audio_receiver.html':
             self._serve_template('audio_receiver.html')
-        elif self.path == '/gamepad.html':
+        elif path == '/gamepad.html':
             self._serve_template('gamepad.html')
         else:
             self.send_response(404)
@@ -631,11 +957,63 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             body, _ = error_json('Not found', 404)
             self.wfile.write(body.encode())
 
+    def _session_refresh_header(self):
+        """Return a ``Set-Cookie`` value refreshing the session cookie.
+
+        Re-issues ``vnc_session`` with an updated ``last_seen`` claim so
+        SESSION_IDLE_TIMEOUT measures real inactivity. Returns ``None``
+        when there is no session cookie or no refresh is due.
+        """
+        try:
+            raw = ''
+            for part in (self.headers.get('Cookie', '') or '').split(';'):
+                part = part.strip()
+                if part.startswith('vnc_session='):
+                    raw = part.split('=', 1)[1].strip()
+                    break
+            if not raw:
+                return None
+            from vnc_remote_secure.security.sessions import (
+                refresh_session_cookie,
+            )
+            new_value = refresh_session_cookie(raw)
+            if not new_value:
+                return None
+            import ssl as _ssl
+            # Same TLS detection as _handle_session_exchange: behind a
+            # trusted proxy the backend socket is plain HTTP, so
+            # X-Forwarded-Proto decides whether the refreshed cookie
+            # keeps the Secure flag (a missing flag would downgrade
+            # the attribute on re-issue).
+            trusted = os.environ.get(
+                'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+            is_tls = ((trusted and
+                       self.headers.get('X-Forwarded-Proto', '') == 'https')
+                      or isinstance(self.connection, _ssl.SSLSocket))
+            secure = ' Secure;' if is_tls else ''
+            return (f'vnc_session={new_value};{secure} HttpOnly; Path=/; '
+                    f'SameSite={_samesite()}')
+        except Exception:  # noqa: BLE001 - refresh is best-effort
+            return None
+
     def _serve_landing(self):
         try:
-            content = generate_landing_page()
+            # Honour X-Forwarded-* only behind a configured trusted
+            # proxy — a direct client can spoof these headers and the
+            # portal would render links pointing at the attacker's
+            # host. Same TRUSTED_PROXY gate as client_ip_from().
+            trusted = os.environ.get(
+                'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+            content = generate_landing_page(
+                forwarded_host=(
+                    self.headers.get('X-Forwarded-Host') if trusted else None),
+                forwarded_proto=(
+                    self.headers.get('X-Forwarded-Proto') if trusted else None))
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
+            refresh = self._session_refresh_header()
+            if refresh:
+                self.send_header('Set-Cookie', refresh)
             self.end_headers()
             self.wfile.write(content.encode('utf-8'))
         except Exception as e:
@@ -647,7 +1025,12 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body.encode())
 
     def _serve_template(self, template_name):
-        """Serve an HTML template from the web templates directory."""
+        """Serve an HTML template from the web templates directory.
+
+        Performs minimal Jinja2-style substitution for port variables so
+        the audio/gamepad pages honor configured ports instead of
+        hardcoded values.
+        """
         try:
             template_path = os.path.join(os.path.dirname(__file__), '..', 'web', 'templates', template_name)
             if not os.path.isfile(template_path):
@@ -657,6 +1040,49 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                 return
             with open(template_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+            # Minimal Jinja2 substitution for port variables.
+            import re
+            audio_port = os.environ.get('AUDIO_STREAM_PORT', str(DEFAULT_AUDIO_STREAM_PORT))
+            gamepad_port = os.environ.get('GAMEPAD_PORT', str(DEFAULT_GAMEPAD_PORT))
+            content = re.sub(r'\{\{\s*audio_port\s*\|\s*default\(\d+\)\s*\}\}', audio_port, content)
+            content = re.sub(r'\{\{\s*gamepad_port\s*\|\s*default\(\d+\)\s*\}\}', gamepad_port, content)
+
+            # WebSocket URLs: behind a trusted nginx the raw service
+            # ports are loopback-only, so the pages must connect through
+            # the proxied paths (/audio/, /gamepad/). Direct access uses
+            # the browser-facing host with the configured port. The
+            # ws/wss scheme follows the page's transport (X-Forwarded-
+            # Proto for proxied, SSLSocket for direct TLS) so browsers
+            # never get a mixed-content ws:// from an https:// page.
+            trusted = os.environ.get(
+                'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+            fhost = self.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
+            fproto = self.headers.get('X-Forwarded-Proto', '').split(',')[0].strip()
+            # The Host values land verbatim inside a JS string literal in
+            # the rendered page — a crafted Host/X-Forwarded-Host header
+            # containing quotes or markup would be reflected XSS on an
+            # authenticated endpoint. Constrain to a strict hostname
+            # character set and fall back to loopback on anything else.
+            def _safe_host(raw):
+                if re.fullmatch(r'[A-Za-z0-9.\-:\[\]]{1,253}', raw or ''):
+                    return raw
+                return '127.0.0.1'
+            fhost = _safe_host(fhost)
+            if trusted and fhost != '127.0.0.1' and self.headers.get(
+                    'X-Forwarded-Host'):
+                ws_scheme = 'wss' if fproto == 'https' else 'ws'
+                audio_ws_url = f'{ws_scheme}://{fhost}/audio/'
+                gamepad_ws_url = f'{ws_scheme}://{fhost}/gamepad/'
+            else:
+                import ssl as _ssl
+                ws_scheme = ('wss' if isinstance(self.connection, _ssl.SSLSocket)
+                             else 'ws')
+                host = _safe_host(
+                    self.headers.get('Host', '127.0.0.1').split(':')[0].strip())
+                audio_ws_url = f'{ws_scheme}://{host}:{audio_port}/'
+                gamepad_ws_url = f'{ws_scheme}://{host}:{gamepad_port}/'
+            content = content.replace('{{ audio_ws_url }}', audio_ws_url)
+            content = content.replace('{{ gamepad_ws_url }}', gamepad_ws_url)
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
@@ -671,15 +1097,39 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
     def _serve_status_json(self):
         try:
+            # On Linux TigerVNC binds 5900+N regardless of an explicit
+            # VNC_PORT — probe the real RFB port (same derivation as
+            # services/vnc._vnc_port and _start_websockify).
+            vnc_port = _config()['vnc_port']
+            if os.name != 'nt':
+                try:
+                    from vnc_remote_secure.services.vnc import _vnc_port
+                    vnc_port = _vnc_port(
+                        _config().get('vnc_display', ':1'))
+                except Exception:  # noqa: BLE001 - fall back to config
+                    pass
+            cfg = _config()
             data = {
                 'services': {
-                    'vnc_desktop_novnc': check_port(NOVNC_PORT),
-                    'web_terminal': check_port(TTYD_PORT),
-                    'health_dashboard': check_port(HEALTH_PORT),
-                    'ultravnc_http': check_port(VNC_HTTP_PORT),
-                    'vnc_rfb_direct': check_port(VNC_PORT),
+                    'vnc_desktop_novnc': check_port(
+                        cfg['novnc_port'], cfg.get('novnc_host', '127.0.0.1')),
+                    # websockify always binds loopback (_start_websockify
+                    # forces 127.0.0.1 regardless of BIND_HOST).
+                    'vnc_ws_bridge': check_port(
+                        cfg.get('novnc_ws_port', DEFAULT_NOVNC_WS_PORT)),
+                    'terminal': check_port(
+                        cfg['ttyd_port'], cfg.get('ttyd_host', '127.0.0.1')),
+                    'health_dashboard': check_port(
+                        cfg['health_port'], cfg.get('health_host', '127.0.0.1')),
+                    'vnc_rfb_direct': check_port(vnc_port),
                     'landing_page': True,
-                },
+                } | (
+                    # UltraVNC's built-in HTTP dir is Windows-only —
+                    # on Linux nothing ever listens there and the card
+                    # would permanently show a spurious "down" state.
+                    {'ultravnc_http': check_port(cfg['vnc_http_port'])}
+                    if os.name == 'nt' else {}
+                ),
                 'lan_ips': get_lan_ips(),
                 'system': get_system_metrics(),
                 # Credentials are NOT exposed in JSON for security
@@ -703,16 +1153,19 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     from vnc_remote_secure.security.certificates import create_ssl_context
-    ssl_options = create_ssl_context(CERT_FILE, KEY_FILE)
+    ssl_options = create_ssl_context(_config()['ssl_cert'], _config()['ssl_key'])
 
     socketserver.ThreadingTCPServer.allow_reuse_address = True
-    server = socketserver.ThreadingTCPServer((HOST, PORT), LandingHandler)
+    # Daemon threads: a hung client connection must not block
+    # service shutdown (the health server sets the same flag).
+    socketserver.ThreadingTCPServer.daemon_threads = True
+    server = socketserver.ThreadingTCPServer((_config()['landing_host'], _config()['landing_port']), LandingHandler)
 
     if ssl_options:
         server.socket = ssl_options.wrap_socket(server.socket, server_side=True)
 
-    logger.info("Landing portal running on %s:%s", HOST, PORT)
-    logger.info("URL: %s://localhost:%s", 'https' if ssl_options else 'http', PORT)
+    logger.info("Landing portal running on %s:%s", _config()['landing_host'], _config()['landing_port'])
+    logger.info("URL: %s://127.0.0.1:%s", 'https' if ssl_options else 'http', _config()['landing_port'])
 
     try:
         server.serve_forever()

@@ -11,32 +11,20 @@ ACLs, UFW, or Windows Firewall.
 class PlatformAdapter:
     """Abstract base class for platform-specific operations."""
 
-    def install_service(self, service_definition):
-        """Install a system service."""
-        raise NotImplementedError
-
     def remove_service(self, service_name):
         """Remove a system service."""
         raise NotImplementedError
 
-    def start_service(self, service_name):
-        """Start a system service."""
-        raise NotImplementedError
-
-    def stop_service(self, service_name):
-        """Stop a system service."""
-        raise NotImplementedError
-
-    def service_status(self, service_name):
-        """Get service status. Returns dict with 'running', 'enabled'."""
-        raise NotImplementedError
-
-    def configure_firewall(self, port, protocol='tcp', direction='inbound', action='allow'):
-        """Configure a firewall rule."""
-        raise NotImplementedError
-
     def remove_firewall_rule(self, rule_name):
         """Remove a firewall rule."""
+        raise NotImplementedError
+
+    def install_firewall_rule(self, port, protocol='tcp', rule_name=None):
+        """Install a firewall rule allowing ``port``/``protocol``.
+
+        Concrete adapters should create a named rule so ``remove_firewall_rule``
+        can delete it deterministically. Returns ``True`` on success.
+        """
         raise NotImplementedError
 
     def create_runtime_user(self, username):
@@ -45,10 +33,6 @@ class PlatformAdapter:
 
     def remove_runtime_user(self, username):
         """Remove a runtime user."""
-        raise NotImplementedError
-
-    def configure_permissions(self, path, owner, mode=None):
-        """Set permissions on a path."""
         raise NotImplementedError
 
     def get_platform_info(self):
@@ -68,10 +52,6 @@ class PlatformAdapter:
         raises :class:`ServiceError` if the server binary is missing or fails
         to start.
         """
-        raise NotImplementedError
-
-    def stop_vnc_process(self, pid):
-        """Stop a VNC process by PID."""
         raise NotImplementedError
 
     def get_audio_capture_cmd(self, ffmpeg, device, bitrate):

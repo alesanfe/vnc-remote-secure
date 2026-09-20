@@ -111,5 +111,5 @@ def generate_request_id() -> str:
     return str(uuid.uuid4())
 
 
-# Backward-compatible alias (deprecated; use error_json_response in new code).
+# Flask-compatible alias for the JSON error envelope.
 json_error = error_json_response

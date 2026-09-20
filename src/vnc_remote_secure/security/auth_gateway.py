@@ -16,6 +16,7 @@ import os
 from typing import Optional, Tuple
 
 from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.exceptions import SecurityError
 from vnc_remote_secure.security.authentication import (
     authenticate,
     create_session_token,
@@ -29,7 +30,6 @@ from vnc_remote_secure.security.mfa import (
 from vnc_remote_secure.security.rate_limit import get_auth_limiter
 from vnc_remote_secure.security.sessions import (
     create_session_cookie,
-    invalidate_session_cookie,
     verify_session_cookie,
 )
 
@@ -41,41 +41,141 @@ def _audit(event, user, ip, result, detail):
     try:
         from vnc_remote_secure.security.audit import audit_log
         audit_log(event, user=user, ip=ip, result=result, detail=detail)
-    except Exception:
+    except (ImportError, OSError):
         pass
+
+
+def _inc_auth_counter(result: str):
+    """Increment the ``vnc_remote_auth_attempts_total`` counter (best-effort)."""
+    try:
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_auth_attempts_total', labels=result)
+    except (ImportError, KeyError):
+        pass
+
+
+# Shared-state namespace for consumed recovery-code hashes. Unlike the
+# RECOVERY_CODES_HASHES env var (which requires a writable .env to
+# shrink), this record is durable on every deployment.
+_NS_USED_RECOVERY = 'mfa_used_recovery_codes'
+
+
+def _claim_recovery_code(code_hash: str) -> bool:
+    """Atomically claim a recovery-code hash (single-use, 30-day TTL).
+
+    Returns ``True`` when this caller consumed the code. Returns
+    ``False`` when the hash was already claimed — check-then-set would
+    race across service processes, so the claim is a single atomic
+    ``INSERT OR IGNORE`` against the shared-state backend.
+
+    On backend failure the claim reports success so the legacy
+    check-then-mark behaviour (and the .env hash removal) remains the
+    best-effort fallback rather than locking users out.
+    """
+    if not code_hash:
+        return False
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        return bool(get_backend().set_if_absent(
+            _NS_USED_RECOVERY, code_hash, True, 30 * 86400))
+    except Exception:  # noqa: BLE001 - best-effort; .env removal is the fallback
+        logger.warning("Could not record recovery-code consumption")
+        return True
 
 
 def check_origin(origin: str, allowed_origins: list) -> bool:
     """Validate the Origin header for WebSocket/CSRF protection.
 
     Rejects empty/null origins and any origin not in the allowlist.
+    Origins whose host is listed in ``ALLOWED_LAN_IPS`` are accepted
+    regardless of scheme/port — previously only the terminal applied
+    this exception, so LAN clients got 403 on noVNC/audio/gamepad.
     """
     if not origin or origin == 'null':
         return False
-    return origin in allowed_origins
+    if origin in allowed_origins:
+        return True
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(origin).hostname or ''
+        lan_ips = [ip.strip() for ip in
+                   os.environ.get('ALLOWED_LAN_IPS', '').split(',')
+                   if ip.strip()]
+        return bool(host and host in lan_ips)
+    except Exception:
+        return False
 
 
 def get_allowed_origins() -> list:
     """Return the list of allowed origins from configuration."""
     load_env_file()
+    from vnc_remote_secure.core.constants import (
+        DEFAULT_HEALTH_PORT,
+        DEFAULT_LANDING_PORT,
+        DEFAULT_NGINX_HTTPS_PORT,
+        DEFAULT_NOVNC_PORT,
+        DEFAULT_TTYD_PORT,
+        DEFAULT_USER_UI_PORT,
+    )
+    default_https = str(DEFAULT_NGINX_HTTPS_PORT)
     origins = []
     # Explicit configured origins
     configured = os.environ.get('ALLOWED_ORIGINS', '')
     if configured:
         origins.extend(o.strip() for o in configured.split(',') if o.strip())
-    # Auto-generate from DUCK_DOMAIN and LAN
-    duck = os.environ.get('DUCK_DOMAIN', '')
+    # Auto-generate from DUCK_DOMAIN and LAN. Bare 'mysub' becomes
+    # 'mysub.duckdns.org' — the origin a browser actually sends.
+    try:
+        from vnc_remote_secure.core.config import normalize_duck_domain
+        duck = normalize_duck_domain(os.environ.get('DUCK_DOMAIN', ''))
+    except ImportError:
+        duck = os.environ.get('DUCK_DOMAIN', '').strip()
     if duck:
         origins.append(f'https://{duck}')
-    https_port = os.environ.get('NGINX_HTTPS_PORT', '443')
-    if duck and https_port != '443':
+    https_port = os.environ.get('NGINX_HTTPS_PORT', default_https)
+    if duck and https_port != default_https:
         origins.append(f'https://{duck}:{https_port}')
-    # Localhost for development
-    origins.append('http://localhost:8000')
-    origins.append('http://127.0.0.1:8000')
-    https_port_val = os.environ.get('NGINX_HTTPS_PORT', '443')
-    origins.append(f'https://localhost:{https_port_val}')
-    origins.append(f'https://127.0.0.1:{https_port_val}')
+    # Localhost for development (use configured ports, not hardcoded).
+    # Every browser-facing local service port must be an allowed origin
+    # so direct (non-nginx) access works: the noVNC page on NOVNC_PORT
+    # upgrades to /websockify with Origin http://127.0.0.1:<NOVNC_PORT>.
+    local_ports = {
+        os.environ.get('LANDING_PORT', str(DEFAULT_LANDING_PORT)),
+        os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)),
+        os.environ.get('TTYD_PORT', str(DEFAULT_TTYD_PORT)),
+        os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT)),
+        os.environ.get('USER_UI_PORT', str(DEFAULT_USER_UI_PORT)),
+    }
+    for port in sorted(local_ports):
+        for host in ('localhost', '127.0.0.1'):
+            # Both schemes: direct service access is plain HTTP when
+            # no certs exist and HTTPS when they do.
+            origins.append(f'http://{host}:{port}')
+            origins.append(f'https://{host}:{port}')
+    origins.append(f'https://localhost:{https_port}')
+    origins.append(f'https://127.0.0.1:{https_port}')
+    # LAN addresses of this host: on LAN-facing deployments
+    # (trusted-lan/private-overlay) remote clients reach nginx via a
+    # LAN IP — their Origin is https://<lan-ip>, which must be allowed
+    # or every WebSocket upgrade gets rejected even though the
+    # deployment is intentionally LAN-facing.
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+        # On Windows (no nginx) the landing portal itself is the public
+        # entry — a plain-HTTP LAN deployment produces Origin
+        # http://<lan-ip>:<LANDING_PORT>, which must be allowed or
+        # every WebSocket upgrade is rejected there.
+        landing_port = os.environ.get(
+            'LANDING_PORT', str(DEFAULT_LANDING_PORT))
+        for ip in get_adapter().get_lan_ips():
+            origins.append(f'https://{ip}')
+            if https_port != default_https:
+                origins.append(f'https://{ip}:{https_port}')
+            origins.append(f'http://{ip}:{landing_port}')
+            origins.append(f'https://{ip}:{landing_port}')
+    except Exception:  # noqa: BLE001 - best-effort LAN discovery
+        logger.debug("LAN IP discovery failed for allowed origins",
+                     exc_info=True)
     return list(dict.fromkeys(origins))  # dedupe preserving order
 
 
@@ -102,6 +202,7 @@ def attempt_login(
             limiter.get_lockout_remaining(user_key),
         )
         _audit('login', username, client_ip, 'failure', f'Account locked ({remaining}s remaining)')
+        _inc_auth_counter('locked')
         return False, f'Account locked. Try again in {remaining}s.', None
 
     # Verify password
@@ -111,8 +212,10 @@ def attempt_login(
         remaining = limiter.remaining_attempts(ip_key)
         if remaining > 0:
             _audit('login', username, client_ip, 'failure', f'Invalid credentials ({remaining} left)')
+            _inc_auth_counter('failure')
             return False, f'Invalid credentials. {remaining} attempts remaining.', None
         _audit('login', username, client_ip, 'failure', 'Too many attempts, locked')
+        _inc_auth_counter('locked')
         return False, 'Too many attempts. Account locked.', None
 
     # Verify MFA if required
@@ -121,23 +224,57 @@ def attempt_login(
         if not totp_code:
             limiter.record_failure(ip_key)
             _audit('login', username, client_ip, 'failure', 'MFA code required')
+            _inc_auth_counter('mfa_required')
             return False, 'MFA code required.', None
         if totp_secret and verify_totp(totp_secret, totp_code):
             pass  # TOTP valid
         else:
-            # Try recovery codes
+            # Try recovery codes — SINGLE USE: a successfully matched
+            # hash is marked consumed in the shared-state backend (which
+            # survives restarts and unwritable .env deployments) and also
+            # removed from RECOVERY_CODES_HASHES in .env when possible.
             stored = os.environ.get('RECOVERY_CODES_HASHES', '')
             if stored:
                 hashes = [h.strip() for h in stored.split(',') if h.strip()]
+                from vnc_remote_secure.security.mfa import hash_recovery_code
+                candidate_hash = hash_recovery_code(totp_code) if totp_code else ''
                 if verify_recovery_code(totp_code, hashes):
-                    pass  # Recovery code valid
+                    # Single-use claim is atomic: a concurrent login
+                    # presenting the same code loses the race and is
+                    # rejected even across service processes. The
+                    # shared-state record is durable when .env cannot
+                    # be rewritten (e.g. systemd unit without write
+                    # access to /opt).
+                    if not _claim_recovery_code(candidate_hash):
+                        limiter.record_failure(ip_key)
+                        limiter.record_failure(user_key)
+                        _audit('login', username, client_ip, 'failure',
+                               'Recovery code already used')
+                        _inc_auth_counter('mfa_failure')
+                        return False, 'Invalid MFA code.', None
+                    used = candidate_hash
+                    remaining = [h for h in hashes if h != used]
+                    try:
+                        from vnc_remote_secure.core.config import set_env_persistent
+                        set_env_persistent(
+                            'RECOVERY_CODES_HASHES', ','.join(remaining))
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Could not persist recovery-code removal; "
+                            "shared-state single-use record still enforced")
+                    _audit('login', username, client_ip, 'success',
+                           'Recovery code consumed')
                 else:
                     limiter.record_failure(ip_key)
+                    limiter.record_failure(user_key)
                     _audit('login', username, client_ip, 'failure', 'Invalid MFA code')
+                    _inc_auth_counter('mfa_failure')
                     return False, 'Invalid MFA code.', None
             else:
                 limiter.record_failure(ip_key)
+                limiter.record_failure(user_key)
                 _audit('login', username, client_ip, 'failure', 'Invalid MFA code')
+                _inc_auth_counter('mfa_failure')
                 return False, 'Invalid MFA code.', None
 
     # Success: clear rate limit and create session
@@ -148,6 +285,13 @@ def attempt_login(
     token = create_session_token(username)
     session['token'] = token
     _audit('login', username, client_ip, 'success', 'Login successful')
+    _inc_auth_counter('success')
+    # Record auth time for step-up auth (sensitive actions require recent login).
+    try:
+        from vnc_remote_secure.security.step_up_auth import record_auth_time
+        record_auth_time(username)
+    except (ImportError, OSError):
+        logger.debug("Failed to record auth time", exc_info=True)
     return True, 'Login successful.', session
 
 
@@ -160,19 +304,27 @@ def check_authenticated(
     Returns:
         Tuple of (authenticated, username).
     """
+    # Revoked sessions (logout, admin revoke) must not authenticate —
+    # the shared-state marker survives across processes.
+    from vnc_remote_secure.security.websocket_registry import is_revoked_shared
+
     # Try session cookie first
     if cookie_value:
+        if is_revoked_shared(cookie_value):
+            return False, None
         session = verify_session_cookie(cookie_value)
         if session:
             return True, session['username']
 
     # Fall back to bearer token
     if bearer_token:
+        if is_revoked_shared(bearer_token):
+            return False, None
         try:
             username = validate_session_token(bearer_token)
             return True, username
-        except Exception:
-            pass
+        except (SecurityError, ValueError):
+            logger.debug("Bearer token validation failed", exc_info=True)
 
     return False, None
 
@@ -183,6 +335,7 @@ def check_websocket_upgrade(
     bearer_token: str = '',
     resource: str = '',
     required_permission: str = '',
+    client_ip: str = '',
 ) -> Tuple[bool, str]:
     """Validate a WebSocket upgrade request.
 
@@ -195,14 +348,34 @@ def check_websocket_upgrade(
         bearer_token: Bearer token (alternative to cookie).
         resource: The resource being accessed ('desktop', 'terminal').
         required_permission: Permission required (e.g. 'desktop:view',
-            'terminal:use'). If empty, only authentication is checked.
+            'terminal:use'). Applies to ephemeral bearer tokens only —
+            a full operator session (cookie or session bearer) is not
+            permission-bound and passes on authentication alone.
 
     Returns:
         Tuple of (allowed, reason).
     """
+    limiter = get_auth_limiter()
+
+    # A locked IP is rejected before any other check — otherwise a
+    # brute-force lockout would not actually block subsequent valid
+    # upgrades from the same address.
+    if client_ip and (
+            limiter.is_locked(f'ws:{client_ip}')
+            or limiter.is_locked(client_ip)):
+        return False, 'Rate limited'
+
+    def _reject(reason: str) -> Tuple[bool, str]:
+        # Count rejected upgrades against the same limiter as auth
+        # attempts — otherwise the WebSocket endpoint becomes a
+        # lockout-free credential oracle.
+        if client_ip:
+            limiter.record_failure(f'ws:{client_ip}')
+        return False, reason
+
     # Origin must be valid
     if not check_origin(origin, get_allowed_origins()):
-        return False, 'Invalid origin'
+        return _reject('Invalid origin')
 
     # If a required permission is specified, the bearer token is an
     # ephemeral session token — validate it against the session store.
@@ -212,18 +385,30 @@ def check_websocket_upgrade(
             is_session_expired,
             is_session_revoked,
         )
-        if is_session_revoked(bearer_token):
-            return False, 'Session revoked'
-        if is_session_expired(bearer_token):
-            return False, 'Session expired'
-        if not check_permission(bearer_token, required_permission):
-            return False, f'Permission denied: {required_permission}'
-        return True, 'OK'
+        from vnc_remote_secure.security.token_signing import (
+            TOKEN_TYPE_EPHEMERAL,
+            verify_token,
+        )
+        # A bearer that is NOT an ephemeral token (e.g. a regular
+        # session bearer token) must fall through to standard auth —
+        # otherwise valid operator tokens are rejected whenever a
+        # required_permission is configured (noVNC applies the same
+        # ephemeral-then-standard order).
+        if verify_token(TOKEN_TYPE_EPHEMERAL, bearer_token):
+            if is_session_revoked(bearer_token):
+                return _reject('Session revoked')
+            if is_session_expired(bearer_token):
+                return _reject('Session expired')
+            if not check_permission(
+                    bearer_token, required_permission, resource=resource,
+                    client_ip=client_ip or None):
+                return _reject(f'Permission denied: {required_permission}')
+            return True, 'OK'
 
     # Standard authentication (cookie or session token)
     authed, _ = check_authenticated(cookie_value, bearer_token)
     if not authed:
-        return False, 'Authentication required'
+        return _reject('Authentication required')
 
     return True, 'OK'
 
@@ -270,8 +455,8 @@ def _resolve_session_id(session_id: str) -> str:
         payload = verify_ephemeral_token(session_id)
         if payload:
             return payload['session_token']
-    except Exception:
-        pass
+    except (ImportError, ValueError):
+        logger.debug("Failed to resolve ephemeral session token", exc_info=True)
     return session_id
 
 
@@ -284,6 +469,7 @@ def unregister_websocket_connection(conn_id: str):
 def check_permission_for_action(
     bearer_token: str,
     permission: str,
+    client_ip: str = '',
 ) -> Tuple[bool, str]:
     """Check if a token has a specific permission for an action.
 
@@ -305,7 +491,8 @@ def check_permission_for_action(
         return False, 'Session revoked'
     if is_session_expired(bearer_token):
         return False, 'Session expired'
-    if not check_permission(bearer_token, permission):
+    if not check_permission(
+            bearer_token, permission, client_ip=client_ip or None):
         return False, f'Permission denied: {permission}'
     return True, 'OK'
 
@@ -322,6 +509,3 @@ def revoke_session_live(token: str) -> bool:
     return revoke_session(token)
 
 
-def logout(cookie_value: str) -> dict:
-    """Invalidate a session and return cookie attributes to clear it."""
-    return invalidate_session_cookie()

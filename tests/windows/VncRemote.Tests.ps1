@@ -19,7 +19,7 @@
 BeforeAll {
     $script:ProjectDir = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
     $script:CliScript = Join-Path $script:ProjectDir 'VncRemote.ps1'
-    $script:FirewallScript = Join-Path $script:ProjectDir 'scripts\Manage-Firewall.ps1'
+    $script:FirewallScript = Join-Path $script:ProjectDir 'src\vnc_remote_secure\native\windows\Firewall.ps1'
 
     # Helper: run CLI and capture output
     function Invoke-Cli {
@@ -35,15 +35,15 @@ Describe 'VncRemote CLI' {
             $script:CliScript | Should -Exist
         }
 
-        It 'Manage-Firewall.ps1 exists' {
+        It 'Firewall.ps1 exists' {
             $script:FirewallScript | Should -Exist
         }
     }
 
     Context 'Get-Version' {
-        It 'Returns version 0.1.0' {
+        It 'Returns version 0.2.0' {
             $output = Invoke-Cli -CliArgs 'Get-Version'
-            $output | Should -Match '0\.1\.0'
+            $output | Should -Match '0\.2\.0'
         }
 
         It 'Shows platform as Windows' {
@@ -80,7 +80,7 @@ Describe 'VncRemote CLI' {
         It 'Install -WhatIf does not execute' {
             $output = Invoke-Cli -CliArgs 'Install', '-WhatIf'
             $output | Should -Match 'DRY RUN'
-            $output | Should -Match 'Simulating'
+            $output | Should -Match 'Would perform'
         }
 
         It 'Install -DryRun does not execute' {
@@ -113,37 +113,37 @@ Describe 'VncRemote CLI' {
     Context 'Test-Configuration (doctor)' {
         It 'Runs without throwing' {
             $output = Invoke-Cli -CliArgs 'Test-Configuration'
-            $output | Should -Match 'doctor'
+            $output | Should -Match 'Summary'
         }
 
-        It 'Checks operating system' {
+        It 'Checks configuration' {
             $output = Invoke-Cli -CliArgs 'Test-Configuration'
-            $output | Should -Match 'Operating system'
+            $output | Should -Match 'config\.'
         }
 
-        It 'Checks PowerShell version' {
+        It 'Checks secrets' {
             $output = Invoke-Cli -CliArgs 'Test-Configuration'
-            $output | Should -Match 'PowerShell'
-        }
-
-        It 'Checks for Git Bash' {
-            $output = Invoke-Cli -CliArgs 'Test-Configuration'
-            $output | Should -Match 'Git Bash'
+            $output | Should -Match 'secrets\.'
         }
 
         It 'Checks for Python' {
             $output = Invoke-Cli -CliArgs 'Test-Configuration'
-            $output | Should -Match 'Python'
+            $output | Should -Match 'deps\.python'
         }
 
-        It 'Checks .env file' {
+        It 'Checks TLS certificates' {
             $output = Invoke-Cli -CliArgs 'Test-Configuration'
-            $output | Should -Match '\.env'
+            $output | Should -Match 'tls\.'
+        }
+
+        It 'Checks ports' {
+            $output = Invoke-Cli -CliArgs 'Test-Configuration'
+            $output | Should -Match 'ports\.'
         }
 
         It 'Checks Windows Firewall' {
             $output = Invoke-Cli -CliArgs 'Test-Configuration'
-            $output | Should -Match 'Firewall'
+            $output | Should -Match 'firewall'
         }
 
         It 'Returns JSON when -Json specified' {
@@ -155,9 +155,9 @@ Describe 'VncRemote CLI' {
     }
 }
 
-Describe 'Manage-Firewall.ps1' {
+Describe 'Firewall.ps1' {
     Context 'Script existence' {
-        It 'Manage-Firewall.ps1 exists' {
+        It 'Firewall.ps1 exists' {
             $script:FirewallScript | Should -Exist
         }
     }

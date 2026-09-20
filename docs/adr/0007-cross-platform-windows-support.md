@@ -6,13 +6,15 @@ Accepted
 ## Context
 The project was originally Linux/Raspberry Pi only. The user requested Windows
 support for local/LAN access. Windows does not have systemd, apt-get, tigervncserver,
-nginx (natively), or ttyd. A full port would require a complete rewrite.
+nginx (natively), or a native ttyd build. A full port would require a complete rewrite.
 
 ## Decision
 Provide a separate Windows launcher (`launch.sh` for Git Bash, now
 deprecated in favour of the unified `vnc-remote` CLI) that uses
 Windows-native alternatives:
-- **UltraVNC** instead of TigerVNC (binary in `bin/ultravnc/`)
+- **UltraVNC** instead of TigerVNC (auto-provisioned by the Windows
+  installer when not already installed; externally-installed copies and
+  the `ULTRAVNC_PATH` env var are still honoured)
 - **Tornado web terminal** instead of ttyd (avoids ConPTY issues on Windows 11)
 - **websockify** (Python, cross-platform) for noVNC proxy
 - **Python health server** with Windows-native metrics (wmic, systeminfo)
@@ -39,14 +41,22 @@ Windows is explicitly documented as "local/LAN support, not full parity":
 - Two launch paths: `src/rpi-vnc-remote.sh` (Linux) and `vnc-remote` (unified CLI, replaces deprecated `launch.sh`)
 - Some features are Linux-only (documented in README)
 - Windows users need Git Bash + Python 3.11+ + UltraVNC binaries
-- `launch.sh` and `launch_nossl.sh` consolidated into one script with `--no-ssl` flag (now deprecated)
+- `launch.sh` and the removed `launch_nossl.sh` are consolidated into the unified `vnc-remote` CLI with `--no-ssl` flag (`launch.sh` itself is deprecated)
 
 ## Risks
 - Code duplication between Linux and Windows paths
-- Windows binaries (UltraVNC) must be managed externally (not in repo)
+- Windows binaries (UltraVNC) are auto-provisioned by the installer from
+  the official release; the `ULTRAVNC_URL` env var can override the
+  download source. Externally-installed copies and `ULTRAVNC_PATH` are
+  still honoured as fallbacks.
 - **Process-level isolation is incomplete**: The restricted runtime user
   is created and ACLs are applied to data directories, but VNC and
   terminal processes currently run under the current user's context, not
   under the restricted user. Full process impersonation
   (CreateProcessAsUser) is a planned enhancement.
+- **Service runs as LocalSystem**: `sc.exe create` does not pass an
+  `obj=` logon account, so `VncRemoteSecure` runs under the default
+  LocalSystem context — more privilege than required. A virtual service
+  account (`NT SERVICE\VncRemoteSecure`) plus ACL grants on
+  `%ProgramData%\VncRemoteSecure` is the planned hardening.
 - Maintenance burden of two platforms

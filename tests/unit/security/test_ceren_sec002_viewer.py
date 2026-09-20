@@ -26,7 +26,6 @@ from vnc_remote_secure.security.ephemeral_sessions import (
     PERM_FILE_TRANSFER,
     PERM_TERMINAL,
     PERM_VIEW,
-    ROLES,
     SessionStore,
 )
 

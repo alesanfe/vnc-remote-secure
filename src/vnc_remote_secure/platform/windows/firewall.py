@@ -1,13 +1,7 @@
 """Windows Firewall management via PowerShell NetFirewall cmdlets."""
-import subprocess
+from vnc_remote_secure.platform.windows.permissions import _ps_escape
 
-
-def _run_powershell(script):
-    """Run a PowerShell command and return the CompletedProcess."""
-    return subprocess.run(
-        ['powershell', '-NoProfile', '-Command', script],
-        capture_output=True, text=True,
-    )
+from ._powershell import run_powershell
 
 
 def configure_firewall(port, protocol='tcp'):
@@ -15,21 +9,26 @@ def configure_firewall(port, protocol='tcp'):
 
     Returns ``True`` on success.
     """
-    rule_name = f'VncRemoteSecure-{port}-{protocol}'
+    port = int(port)
+    protocol = 'TCP' if str(protocol).lower() == 'tcp' else 'UDP'
+    rule_name = _ps_escape(f'VncRemoteSecure-{port}-{protocol.lower()}')
     ps_script = (
         f"New-NetFirewallRule -DisplayName '{rule_name}' "
-        f"-Direction Inbound -Protocol {protocol.upper()} "
+        f"-Direction Inbound -Protocol {protocol} "
         f"-LocalPort {port} -Action Allow -Profile Private,Domain "
         f"-ErrorAction SilentlyContinue"
     )
-    result = _run_powershell(ps_script)
+    result = run_powershell(ps_script)
     return result.returncode == 0
 
 
 def remove_firewall_rule(name):
     """Remove a Windows Firewall rule by display name (supports wildcards)."""
-    ps_script = f"Remove-NetFirewallRule -DisplayName '{name}*' -ErrorAction SilentlyContinue"
-    result = _run_powershell(ps_script)
+    ps_script = (
+        f"Remove-NetFirewallRule -DisplayName '{_ps_escape(name)}*' "
+        "-ErrorAction SilentlyContinue"
+    )
+    result = run_powershell(ps_script)
     return result.returncode == 0
 
 
@@ -39,7 +38,7 @@ def list_firewall_rules():
         "Get-NetFirewallRule -DisplayName 'VncRemoteSecure*' "
         "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty DisplayName"
     )
-    result = _run_powershell(ps_script)
+    result = run_powershell(ps_script)
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]

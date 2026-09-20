@@ -2,24 +2,24 @@
 # when a pull request modifies files in their areas
 
 # Global - all files
-* @alex0
+* @alesanfe
 
 # Python package
-/src/vnc_remote_secure/ @alex0
+/src/vnc_remote_secure/ @alesanfe
 
-# Bash modules
-/src/lib/ @alex0
+# Bash compatibility wrapper
+/src/rpi-vnc-remote.sh @alesanfe
 
 # PowerShell / Windows
-/native/windows/ @alex0
-/VncRemote.ps1 @alex0
+/src/vnc_remote_secure/native/windows/ @alesanfe
+/VncRemote.ps1 @alesanfe
 
 # CI/CD
-/.github/workflows/ @alex0
+/.github/workflows/ @alesanfe
 
 # Security
-/SECURITY.md @alex0
-/.github/ISSUE_TEMPLATE/security_report.md @alex0
+/SECURITY.md @alesanfe
+/.github/ISSUE_TEMPLATE/security_report.yml @alesanfe
 
 # Documentation
-/docs/ @alex0
+/docs/ @alesanfe

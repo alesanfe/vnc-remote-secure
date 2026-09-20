@@ -3,9 +3,12 @@
 Provides a cookie-based session store with HttpOnly, Secure, SameSite
 attributes, CSRF protection, and idle/max lifetime enforcement. Designed
 to be used by the Flask web application and the health/landing services.
+
+Token signing is delegated to ``security.token_signing`` so that
+persistent session cookies and ephemeral access tokens share a single
+signing mechanism while remaining type-separated (a cookie cannot be
+replayed as an ephemeral token).
 """
-import hashlib
-import hmac
 import logging
 import os
 import secrets
@@ -13,20 +16,25 @@ import time
 from typing import Optional
 
 from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.security.token_signing import (
+    TOKEN_TYPE_SESSION,
+    sign_token,
+    verify_token,
+)
 
 logger = logging.getLogger(__name__)
 
-# Defaults (configurable via env)
-DEFAULT_IDLE_TIMEOUT = 900      # 15 minutes
-DEFAULT_MAX_LIFETIME = 28800    # 8 hours
+# Defaults (configurable via env) — canonical values live in
+# core.constants so every consumer resolves the same fallback.
+from vnc_remote_secure.core.constants import (
+    DEFAULT_SESSION_IDLE_TIMEOUT,
+    DEFAULT_SESSION_MAX_LIFETIME,
+)
+
+DEFAULT_IDLE_TIMEOUT = DEFAULT_SESSION_IDLE_TIMEOUT
+DEFAULT_MAX_LIFETIME = DEFAULT_SESSION_MAX_LIFETIME
 DEFAULT_COOKIE_NAME = 'vnc_session'
 CSRF_HEADER = 'X-CSRF-Token'
-
-
-def _get_session_secret() -> bytes:
-    """Return the session signing secret."""
-    from vnc_remote_secure.security.authentication import _get_secret
-    return _get_secret()
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -54,10 +62,12 @@ def create_session_cookie(
     max_lt = max_lifetime or _get_env_int('SESSION_MAX_LIFETIME', DEFAULT_MAX_LIFETIME)
     csrf = csrf_token or secrets.token_hex(32)
     now = int(time.time())
-    payload = f"{username}:{now}:{now + max_lt}"
-    secret = _get_session_secret()
-    sig = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()
-    cookie_value = f"{payload}.{sig}"
+    # Payload v2: username:created:last_seen:expires. ``last_seen`` is
+    # refreshed by refresh_session_cookie() on each authenticated
+    # request, making SESSION_IDLE_TIMEOUT a true sliding window while
+    # ``expires`` remains the absolute cap.
+    payload = f"{username}:{now}:{now}:{now + max_lt}"
+    cookie_value = sign_token(TOKEN_TYPE_SESSION, payload)
     return {
         'value': cookie_value,
         'csrf_token': csrf,
@@ -72,41 +82,64 @@ def verify_session_cookie(cookie_value: str) -> Optional[dict]:
         dict with ``username``, ``created``, ``expires`` if valid.
         ``None`` if invalid or expired.
     """
-    if not cookie_value or '.' not in cookie_value:
-        return None
-    payload, sig = cookie_value.rsplit('.', 1)
-    secret = _get_session_secret()
-    expected_sig = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, expected_sig):
+    payload = verify_token(TOKEN_TYPE_SESSION, cookie_value)
+    if payload is None:
         return None
     parts = payload.split(':')
-    if len(parts) != 3:
+    # v2: username:created:last_seen:expires. Legacy v1
+    # (username:created:expires) is accepted with last_seen=created.
+    if len(parts) == 4:
+        username, created_str, last_seen_str, expires_str = parts
+    elif len(parts) == 3:
+        username, created_str, expires_str = parts
+        last_seen_str = created_str
+    else:
         return None
-    username, created_str, expires_str = parts
     try:
         created = int(created_str)
+        last_seen = int(last_seen_str)
         expires = int(expires_str)
     except ValueError:
         return None
     now = time.time()
     if now > expires:
         return None
-    _get_env_int('SESSION_IDLE_TIMEOUT', DEFAULT_IDLE_TIMEOUT)
-    # Idle timeout is enforced by the cookie max-age; if the client
-    # sends an old cookie, the browser would have expired it. But if
-    # the client tampers with max-age, we still check absolute expiry.
+    # Enforce idle timeout server-side against ``last_seen`` — a
+    # sliding window refreshed on each authenticated request. The
+    # cookie ``max_age`` is a client-side hint; a client that tampers
+    # with it cannot extend the session past the signed values.
+    idle = _get_env_int('SESSION_IDLE_TIMEOUT', DEFAULT_IDLE_TIMEOUT)
+    if now - last_seen > idle:
+        return None
     return {
         'username': username,
         'created': created,
+        'last_seen': last_seen,
         'expires': expires,
     }
 
 
-def verify_csrf_token(provided_token: str, expected_token: str) -> bool:
-    """Verify a CSRF token (constant-time comparison)."""
-    if not provided_token or not expected_token:
-        return False
-    return hmac.compare_digest(provided_token, expected_token)
+def refresh_session_cookie(cookie_value: str,
+                           refresh_grace: int = 60) -> Optional[str]:
+    """Return a re-signed cookie with an updated ``last_seen``.
+
+    Callers that can emit ``Set-Cookie`` should attach the returned
+    value to authenticated responses so SESSION_IDLE_TIMEOUT measures
+    inactivity, not age since login. ``refresh_grace`` avoids re-signing
+    on every request — the cookie is only refreshed when ``last_seen``
+    is older than the grace period.
+
+    Returns ``None`` when the cookie is invalid/expired.
+    """
+    session = verify_session_cookie(cookie_value)
+    if session is None:
+        return None
+    now = time.time()
+    if now - session.get('last_seen', session['created']) < refresh_grace:
+        return None  # still fresh — no need to re-issue
+    payload = (f"{session['username']}:{session['created']}:"
+               f"{int(now)}:{session['expires']}")
+    return sign_token(TOKEN_TYPE_SESSION, payload)
 
 
 def get_cookie_attributes(secure: bool = True) -> dict:
@@ -117,7 +150,11 @@ def get_cookie_attributes(secure: bool = True) -> dict:
                 Set to False for local HTTP-only development.
     """
     load_env_file()
-    samesite = os.environ.get('SESSION_SAMESITE', 'Lax')
+    # Whitelist: the value lands verbatim in the Set-Cookie header —
+    # a crafted SESSION_SAMESITE containing ';' or CRLF would inject
+    # extra attributes or split the response.
+    from vnc_remote_secure.core.config import resolve_samesite
+    samesite = resolve_samesite()
     return {
         'httponly': True,
         'secure': secure,

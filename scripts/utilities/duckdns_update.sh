@@ -2,13 +2,18 @@
 # ============================================================================
 # Duck DNS Update Script
 # ============================================================================
+# DEPRECATED legacy fallback — the canonical implementation is the
+# Python script scripts/utilities/duckdns_update.py (used by
+# `make duckdns-update` / `duckdns-daemon` / `duckdns-check`).
+# This Bash version is retained for environments without Python.
+#
 # Updates the IP address for a Duck DNS domain.
 # Works on both Linux and Windows (Git Bash / MSYS2).
 #
 # Usage:
-#   ./scripts/duckdns_update.sh          # One-shot update
-#   ./scripts/duckdns_update.sh --daemon # Continuous update (every N minutes)
-#   ./scripts/duckdns_update.sh --check  # Check current DNS resolution
+#   ./scripts/utilities/duckdns_update.sh          # One-shot update
+#   ./scripts/utilities/duckdns_update.sh --daemon # Continuous update (every N minutes)
+#   ./scripts/utilities/duckdns_update.sh --check  # Check current DNS resolution
 #
 # Required environment variables (from .env):
 #   DUCK_DOMAIN      - Duck DNS subdomain (e.g. "alesanfe" for alesanfe.duckdns.org)
@@ -29,7 +34,7 @@ NC='\033[0m'
 
 # Get project directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Load .env if it exists
 if [[ -f "$PROJECT_DIR/.env" ]]; then
@@ -73,11 +78,25 @@ update_ip() {
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
     if command -v curl &>/dev/null; then
-        response=$(curl -sS --max-time 30 \
-            "${DUCKDNS_API}?domains=${DUCK_DOMAIN}&token=${DUCKDNS_TOKEN}&ip=" 2>&1)
+        # The token must not appear in the process argv — it would be
+        # visible to any local user via /proc/<pid>/cmdline (ps). Read
+        # the full URL from a stdin config file instead.
+        response=$(curl -sS --max-time 30 --config - <<EOF 2>&1
+url = "${DUCKDNS_API}?domains=${DUCK_DOMAIN}&token=${DUCKDNS_TOKEN}&ip="
+EOF
+)
     elif command -v wget &>/dev/null; then
-        response=$(wget -qO- --timeout=30 \
-            "${DUCKDNS_API}?domains=${DUCK_DOMAIN}&token=${DUCKDNS_TOKEN}&ip=" 2>&1)
+        # wget has no stdin-config equivalent; fall back to the Python
+        # path below, which keeps the token out of the process table.
+        response=$(python3 -c "
+import urllib.request
+url = '${DUCKDNS_API}?domains=${DUCK_DOMAIN}&token=${DUCKDNS_TOKEN}&ip='
+try:
+    with urllib.request.urlopen(url, timeout=30) as r:
+        print(r.read().decode().strip())
+except Exception as e:
+    print(f'ERROR: {e}')
+" 2>&1)
     else
         # Fallback to Python (available on both platforms)
         response=$(python3 -c "

@@ -1,18 +1,34 @@
 """Unit tests for security.credentials module."""
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.security.credentials import generate_password, validate_password_strength
+from vnc_remote_secure.security.credentials import verify_password
 
-def test_generate_password_default_length():
-    pwd = generate_password()
-    assert len(pwd) == 16
 
-def test_validate_password_strength_strong():
-    assert validate_password_strength("Str0ng!Pass") is True
+def test_verify_password_werkzeug_hash():
+    """verify_password accepts werkzeug-style hashes."""
+    try:
+        from werkzeug.security import generate_password_hash
+    except ImportError:
+        return
+    h = generate_password_hash("Str0ng!Pass")
+    assert verify_password("Str0ng!Pass", h) is True
+    assert verify_password("wrong", h) is False
 
-def test_validate_password_strength_weak():
-    assert validate_password_strength("weak") is False
+
+def test_verify_password_pbkdf2_hash():
+    """verify_password accepts pbkdf2:iterations$salt$hash format."""
+    import hashlib
+    salt = "somesalt"
+    iterations = 260000
+    dk = hashlib.pbkdf2_hmac('sha256', b"Str0ng!Pass", salt.encode('utf-8'), iterations)
+    h = f"pbkdf2:{iterations}${salt}${dk.hex()}"
+    assert verify_password("Str0ng!Pass", h) is True
+    assert verify_password("wrong", h) is False
+
+
+def test_verify_password_empty_hash():
+    """verify_password returns False for empty hash."""
+    assert verify_password("anything", "") is False

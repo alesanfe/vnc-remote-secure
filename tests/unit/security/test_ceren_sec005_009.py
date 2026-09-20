@@ -6,7 +6,6 @@ TEST-SEC-007: Spoofed proxy headers don't grant authentication.
 TEST-SEC-008: Public-hardened blocks startup without TLS/MFA/proxy/secret.
 TEST-SEC-009: Secrets don't appear in logs, diagnostics, or error responses.
 """
-import io
 import logging
 import os
 import sys
@@ -210,6 +209,7 @@ class TestSpoofedProxyHeaders:
         Si la API no las acepta, no pueden ser usadas para bypass.
         """
         import inspect
+
         from vnc_remote_secure.security.auth_gateway import check_authenticated
         sig = inspect.signature(check_authenticated)
         param_names = list(sig.parameters.keys())

@@ -4,12 +4,10 @@
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Shell](https://img.shields.io/badge/Shell-Bash%20%2F%20PowerShell-blue.svg)](https://www.gnu.org/software/bash/)
 [![Windows](https://img.shields.io/badge/Windows-10%2B-blue.svg)](https://www.microsoft.com/windows)
-[![Tests](https://img.shields.io/badge/Tests-passing-brightgreen.svg)](tests/)
+[![Tests](https://github.com/alesanfe/vnc-remote-secure/actions/workflows/ci.yml/badge.svg)](https://github.com/alesanfe/vnc-remote-secure/actions/workflows/ci.yml)
 
 > Self-hosted, browser-based remote access with VNC, web terminal, health
 > monitoring, and TLS security. Cross-platform: Linux and Windows.
-
-[Portal screenshot]
 
 ---
 
@@ -22,15 +20,15 @@
 - **Landing portal** — Single page linking to all running services
 - **Audio streaming** — Server audio forwarded to the client browser (optional)
 - **Gamepad forwarding** — Client gamepad input injected on the server (optional)
-- **User isolation** — Temporary user sessions on Linux, cleaned up on exit
+- **User isolation** — Temporary user on Linux (removed on exit); restricted runtime user on Windows (see ADR-0007)
 - **Dynamic DNS** — Built-in Duck DNS updater for changing IPs
 
 ## Platform Compatibility
 
-| Platform | Status | VNC Server | Terminal | TLS | Notes |
+| Platform | Status | VNC Server | Web Terminal | TLS | Notes |
 |----------|--------|------------|----------|-----|-------|
-| Debian 12+ / Ubuntu 22.04+ | Production | TigerVNC | ttyd | Let's Encrypt | Full stack |
-| Raspberry Pi OS 64-bit | Production | TigerVNC | ttyd | Let's Encrypt | Full stack |
+| Debian 12+ / Ubuntu 22.04+ | Production | TigerVNC | Tornado | Let's Encrypt | Full stack |
+| Raspberry Pi OS 64-bit | Production | TigerVNC | Tornado | Let's Encrypt | Full stack |
 | Windows 10 / 11 | Supported | UltraVNC | Tornado | Self-signed | No fail2ban (uses Windows Firewall); restricted runtime user |
 | Windows Server 2022+ | Experimental | UltraVNC | Tornado | Self-signed | Less tested |
 | Any browser (client) | Supported | — | — | — | No install needed |
@@ -43,11 +41,18 @@
                  | (Python, unified) |
                  +---------+---------+
                            |
-            +--------------+--------------+
-            |                             |
+                  +--------v--------+
+                  | Service Manager |
+                  |  (Python core)  |
+                  | lock + PID track |
+                  +----+----+-------+
+                       |    |
+            +----------+    +----------+
+            |                         |
   +---------v---------+         +---------v---------+
   |  Linux adapter    |         |  Windows adapter   |
-  |  Bash + systemd   |         |  PowerShell + ACL  |
+  | (Python + systemd)|         | (Python + services)|
+  | Bash = thin wrap  |         | PowerShell = thin  |
   +---------+---------+         +---------+---------+
             |                             |
             +--------------+--------------+
@@ -58,13 +63,17 @@
                   +----+----+-------+
                        |    |
             +----------+    +----------+
-            | noVNC proxy |   | web terminal |
+            | noVNC proxy |   | Web Terminal |
             +------+-----+   +------+------+
                    |                |
             +------v------+  +------v------+
             | VNC server  |  | health dash |
             +-------------+  +-------------+
 ```
+
+The Python CLI/service manager is canonical on every platform. Bash
+(`src/rpi-vnc-remote.sh`) and PowerShell (`VncRemote.ps1`) are thin
+compatibility wrappers that delegate to the Python CLI.
 
 Platform-specific logic lives in `src/vnc_remote_secure/platform/{linux,windows}/`.
 Common business logic in `services/`, `security/`, `monitoring/`, and `web/`
@@ -88,8 +97,9 @@ cd vnc-remote-secure
 make setup-env ; make setup-deps ; make win-run
 ```
 
-> Windows requires UltraVNC binaries in `bin/ultravnc/`. See
-> `third_party/manifests/ultravnc.json` for download details.
+> Windows auto-provisions UltraVNC on first `vnc-remote install` if not
+> already present. Set `ULTRAVNC_PATH` to use a manually-installed copy,
+> or `ULTRAVNC_URL` to override the download source.
 
 After starting, the launcher prints all access URLs. The client only needs
 a web browser — open the portal URL printed on screen.
@@ -105,7 +115,8 @@ Run `make setup-env` to copy the template, then edit it.
 | `TTYD_USERNAME` | OS default | Web terminal username |
 | `TTYD_PASSWD` | (generated) | Web terminal password |
 | `VNC_PORT` | 5900 / 5901 | VNC server port (Win / Linux) |
-| `NOVNC_PORT` | 6080 | noVNC / websockify port |
+| `NOVNC_PORT` | 6080 | noVNC web + authenticated WS proxy port |
+| `NOVNC_WS_PORT` | 5700 | Internal websockify bridge (loopback only) |
 | `TTYD_PORT` | 5000 | Web terminal port |
 | `HEALTH_WEB_PORT` | 8080 / 8090 | Health dashboard port (Linux / Win) |
 | `LANDING_PORT` | 8000 | Landing page port |
@@ -148,20 +159,20 @@ Test counts vary by platform and installed runners. Run
 - Session cookies: `HttpOnly`, `SameSite=Lax`, `Secure` (when TLS enabled)
 - Rate limiting on login attempts
 - Optional fail2ban intrusion prevention (Linux)
-- Temporary user isolation on Linux and Windows (removed on exit)
+- User isolation: temporary user on Linux (removed on exit); restricted runtime user on Windows (process-level isolation, see ADR-0007)
 
 See [`SECURITY.md`](SECURITY.md) for the full policy and
-[`THREAT_MODEL.md`](THREAT_MODEL.md) for the threat model.
+[`THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the threat model.
 
 ## Roadmap
 
 | Version | Focus |
 |---------|-------|
 | 0.3.0 | Stabilize Windows adapter, unified config migration |
-| 0.4.0 | Docker packaging and container deployment |
+| 0.4.0 | Docker packaging and container deployment (pending) |
 | 0.5.0 | Multi-user sessions and role-based access |
-| 0.6.0 | Prometheus / Grafana monitoring stack |
-| 0.7.0 | Session recording and audit log replay |
+| 0.6.0 | Prometheus monitoring stack (Grafana optional) |
+| 0.7.0 | Audit log replay and tamper-evident chain verification |
 | 0.8.0 | Mobile-friendly client UI |
 | 0.9.0 | Hardening pass and external security audit |
 | 1.0.0 | Stable API, full docs, production readiness |

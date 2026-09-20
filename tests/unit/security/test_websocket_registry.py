@@ -2,7 +2,6 @@
 import os
 import sys
 import threading
-import time
 
 import pytest
 
@@ -10,11 +9,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 
 from vnc_remote_secure.security.websocket_registry import (
     WebSocketRegistry,
+    clear_revoked_shared,
     get_registry,
     register_connection,
     revoke_session_connections,
-    unregister_connection,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_revoked_state():
+    """Clear shared revocation state before each test so tests are isolated."""
+    for sid in ('ses_1', 'ses_2', 'ses_a', 'ses_b'):
+        clear_revoked_shared(sid)
+    yield
+    for sid in ('ses_1', 'ses_2', 'ses_a', 'ses_b'):
+        clear_revoked_shared(sid)
 
 
 class TestWebSocketRegistry:
@@ -92,6 +101,24 @@ class TestWebSocketRegistry:
         assert len(info) == 1
         assert info[0]['session_id'] == 'ses_1'
         assert info[0]['resource'] == 'desktop'
+
+    def test_register_rejects_revoked_session(self):
+        """register() returns None when the session is already revoked."""
+        # Use the shared backend directly.
+        from vnc_remote_secure.security.shared_state import get_backend
+
+        # Mark 'ses_1' as revoked in the shared backend before registering.
+        from vnc_remote_secure.security.websocket_registry import (
+            is_revoked_shared,
+        )
+        backend = get_backend()
+        backend.set('websocket_revoked_sessions', 'ses_1', True)
+        assert is_revoked_shared('ses_1') is True
+        reg = WebSocketRegistry()
+        result = reg.register('ses_1', lambda: True)
+        assert result is None
+        # Clean up.
+        backend.delete('websocket_revoked_sessions', 'ses_1')
 
     def test_thread_safety(self):
         """The registry is thread-safe under concurrent access."""
@@ -175,7 +202,7 @@ class TestImmediateRevocationFlow:
             return True
 
         # Simulate: connection established.
-        conn_id = register_connection('ses_123', close_cb, 'desktop')
+        register_connection('ses_123', close_cb, 'desktop')
         reg = get_registry()
         assert reg.get_active_count('ses_123') == 1
 

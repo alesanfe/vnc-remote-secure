@@ -63,13 +63,23 @@ def get_service_health(name=None):
 
 
 def get_all_health():
-    """Return a combined system + service health snapshot.
+    """Return a combined system + service + posture health snapshot.
 
     The ``services`` key contains the aggregated status dict produced
     by :func:`get_health_status` (with ``status``, ``services_up``,
-    ``services_total`` and per-service booleans).
+    ``services_total`` and per-service booleans). The ``posture`` key
+    carries the security-posture report documented in the monitoring
+    runbook; posture calculation is best-effort so a posture failure
+    never breaks the health endpoint.
     """
+    posture = {}
+    try:
+        from vnc_remote_secure.security.posture import calculate_posture
+        posture = calculate_posture()
+    except Exception:  # noqa: BLE001 - posture is informational
+        logger.debug("Posture calculation failed", exc_info=True)
     return {
         'system': get_system_health(),
         'services': get_health_status(),
+        'posture': posture,
     }

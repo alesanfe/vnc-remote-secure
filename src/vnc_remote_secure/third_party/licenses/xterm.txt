@@ -1,0 +1,4 @@
+License text for xterm.js (MIT)
+
+Download the full license from the project homepage.
+See third_party/manifests/xterm.json for the project URL.

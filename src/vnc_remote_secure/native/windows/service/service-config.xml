@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VNC Remote Secure - Windows Service Configuration
+
+  This file defines the configuration for the Windows Service wrapper
+  that manages VNC Remote Secure as a background service.
+
+  The service is installed via sc.exe or New-Service and runs the
+  Python CLI in service mode.
+-->
+<service>
+  <name>VncRemoteSecure</name>
+  <displayName>VNC Remote Secure</displayName>
+  <description>Secure browser-based remote access via VNC and web terminal.</description>
+  <!--
+    service-run.py is written by the installer into
+    %ProgramData%\VncRemoteSecure\ and puts the copied package
+    (%ProgramData%\VncRemoteSecure\src) on sys.path, so no pip install
+    or PYTHONPATH is required.
+  -->
+  <executable>python</executable>
+  <arguments>"%ProgramData%\VncRemoteSecure\service-run.py" start --foreground</arguments>
+  <workingDirectory>%ProgramData%\VncRemoteSecure</workingDirectory>
+  <logPath>%ProgramData%\VncRemoteSecure\logs</logPath>
+  <startType>Automatic</startType>
+  <errorControl>Normal</errorControl>
+  <serviceDependencies>
+    <dependency>Tcpip</dependency>
+    <dependency>Dnscache</dependency>
+  </serviceDependencies>
+  <environment>
+    <variable name="PYTHONUNBUFFERED" value="1" />
+  </environment>
+  <recoveryActions>
+    <action type="Restart" delay="5000" />
+    <action type="Restart" delay="10000" />
+    <action type="Restart" delay="30000" />
+  </recoveryActions>
+</service>

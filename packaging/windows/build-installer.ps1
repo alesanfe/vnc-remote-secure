@@ -25,7 +25,7 @@
     Show what the script would do without executing any commands.
 
 .NOTES
-    Requires: Python 3.8+, the `build` package, and the WiX Toolset v3+.
+    Requires: Python 3.11+, the `build` package, and the WiX Toolset v3+.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -46,8 +46,11 @@ function Write-Fail([string]$msg) { Write-Host "[build-installer][ERROR] $msg" -
 # --- 1. Check required tools -------------------------------------------------
 Write-Step 'Checking required tools...'
 
+# Resolve the interpreter the same way the runtime scripts do:
+# python first, then python3, then a clear error.
 $python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) { Write-Fail 'Python not found on PATH. Install Python 3.8+.' }
+if (-not $python) { $python = Get-Command python3 -ErrorAction SilentlyContinue }
+if (-not $python) { Write-Fail 'Python not found on PATH. Install Python 3.11+.' }
 Write-Step "  Python: $($python.Source)"
 
 $candle = $null
@@ -85,7 +88,7 @@ Write-Step "Building Python package (python -m build) in $repoRoot"
 if ($PSCmdlet.ShouldProcess($repoRoot, 'python -m build')) {
     Push-Location $repoRoot
     try {
-        & python -m build
+        & $python.Source -m build
         if ($LASTEXITCODE -ne 0) { Write-Fail "python -m build failed (exit $LASTEXITCODE)." }
     }
     finally { Pop-Location }
@@ -96,7 +99,16 @@ $OutputDir = (Resolve-Path (New-Item -ItemType Directory -Force -Path $OutputDir
 Write-Step "Output directory: $OutputDir"
 
 # --- 4. Create WiX installer skeleton ---------------------------------------
-$wxsSkeleton = @'
+# Read the version from the Python package (single source of truth: pyproject.toml).
+$env:PYTHONPATH = "$repoRoot\src;$env:PYTHONPATH"
+$pkgVersion = & $python.Source -c "from vnc_remote_secure import __version__; print(__version__)" 2>$null
+if (-not $pkgVersion -or ($pkgVersion -notmatch '^\d+\.\d+\.\d+')) {
+    Write-Fail "Cannot determine package version from Python. Is the package installed?"
+}
+$pkgVersion = $pkgVersion.Trim()
+Write-Step "Package version: $pkgVersion"
+
+$wxsSkeleton = @"
 <?xml version='1.0' encoding='UTF-8'?>
 <!--
   WiX source skeleton for VNC Remote Secure.
@@ -105,7 +117,7 @@ $wxsSkeleton = @'
 -->
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
   <Product Id='*' Name='VNC Remote Secure' Language='1033'
-           Version='0.2.0' Manufacturer='VNC Remote Secure Contributors'
+           Version='$pkgVersion' Manufacturer='VNC Remote Secure Contributors'
            UpgradeCode='PUT-GUID-HERE'>
     <Package Description='VNC Remote Secure MSI installer'
              Manufacturer='VNC Remote Secure Contributors'
@@ -116,7 +128,7 @@ $wxsSkeleton = @'
       <Directory Id='ProgramFiles64Folder' Name='PFiles'>
         <Directory Id='INSTALLDIR' Name='vnc-remote-secure'>
           <Component Id='MainFiles' Guid='PUT-GUID-HERE'>
-            <!-- TODO: list built artifacts from dist\ -->
+            <!-- Built artifacts from dist\ are listed here during packaging -->
             <CreateFolder />
           </Component>
         </Directory>
@@ -128,7 +140,7 @@ $wxsSkeleton = @'
     </Feature>
   </Product>
 </Wix>
-'@
+"@
 
 $wxsPath = Join-Path $OutputDir 'vnc-remote-secure.wxs'
 Write-Step "Writing WiX skeleton: $wxsPath"
@@ -159,4 +171,10 @@ Write-Step ' Build complete.'
 Write-Step '============================================================'
 Write-Step "  Artifacts : $OutputDir"
 Write-Step "  MSI       : $msiPath"
+Write-Step ''
+Write-Warning 'The generated MSI is a SKELETON: it contains no payload'
+Write-Warning 'files (the WiX source only declares an empty component).'
+Write-Warning 'Populate the Component with the packaged artifacts (service'
+Write-Warning 'files, native/ tree, config defaults) and replace PUT-GUID-HERE'
+Write-Warning 'before producing a distributable installer.'
 Write-Step ''

@@ -8,22 +8,20 @@ than the module's top-level code.
 import base64
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
+from vnc_remote_secure.core.constants import (
+    DEFAULT_BIND_HOST,
+    DEFAULT_CMD_TIMEOUT,
+    DEFAULT_MAX_OUTPUT,
+    DEFAULT_TTYD_PORT,
+    DEFAULT_TTYD_USERNAME,
+)
 from vnc_remote_secure.security.http_auth import (
     check_basic_auth,
     check_terminal_auth,
 )
-from vnc_remote_secure.core.constants import (
-    DEFAULT_TTYD_PORT,
-    DEFAULT_TTYD_USERNAME,
-    DEFAULT_BIND_HOST,
-    DEFAULT_CMD_TIMEOUT,
-    DEFAULT_MAX_OUTPUT,
-)
-
 
 # ---------------------------------------------------------------------------
 # Constants used by terminal.py

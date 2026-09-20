@@ -9,12 +9,42 @@
  *
  * Requires:
  *   - Landing server running on http://127.0.0.1:8000
- *   - Health server running on http://127.0.0.1:8090
+ *   - Health server running on http://127.0.0.1:8080 (Linux) or :8090 (Windows)
+ *
+ * Authentication (matching what the services enforce):
+ *   - LANDING_USER / LANDING_PASSWORD — HTTP Basic credentials for the
+ *     portal. LANDING_PASSWORD is a required startup blocker, so a real
+ *     deployment always challenges; pass the same value here.
+ *   - HEALTH_AUTH_TOKEN — bearer token for /health* endpoints when the
+ *     server has one configured.
  */
 const { test, expect } = require('@playwright/test');
 
 const LANDING_URL = process.env.LANDING_URL || 'http://127.0.0.1:8000';
-const HEALTH_URL = process.env.HEALTH_URL || 'http://127.0.0.1:8090';
+const HEALTH_URL = process.env.HEALTH_URL || 'http://127.0.0.1:8080';
+const LANDING_USER = process.env.LANDING_USER || 'admin';
+const LANDING_PASSWORD = process.env.LANDING_PASSWORD || '';
+const HEALTH_AUTH_TOKEN = process.env.HEALTH_AUTH_TOKEN || '';
+
+// Bearer header for the health service when HEALTH_AUTH_TOKEN is set.
+const healthAuthHeader = HEALTH_AUTH_TOKEN
+  ? `Bearer ${HEALTH_AUTH_TOKEN}`
+  : '';
+
+// Playwright context options carrying the landing's basic-auth
+// credentials for page.goto() calls.
+const landingContextOptions = LANDING_PASSWORD
+  ? { httpCredentials: { username: LANDING_USER, password: LANDING_PASSWORD } }
+  : {};
+
+test.use(landingContextOptions);
+
+// Helper: GET a health endpoint with the auth token when configured.
+function healthGet(request, path) {
+  return request.get(`${HEALTH_URL}${path}`, {
+    headers: healthAuthHeader ? { Authorization: healthAuthHeader } : {},
+  });
+}
 
 test.describe('Portal Landing Page', () => {
   test('displays the portal title', async ({ page }) => {
@@ -47,7 +77,7 @@ test.describe('Portal Landing Page', () => {
 
 test.describe('Health Endpoint', () => {
   test('responds with JSON status', async ({ request }) => {
-    const response = await request.get(`${HEALTH_URL}/health`);
+    const response = await healthGet(request, '/health');
     expect(response.ok()).toBeTruthy();
     const data = await response.json();
     expect(data).toHaveProperty('status');
@@ -57,7 +87,7 @@ test.describe('Health Endpoint', () => {
   });
 
   test('/health/all returns system info', async ({ request }) => {
-    const response = await request.get(`${HEALTH_URL}/health/all`);
+    const response = await healthGet(request, '/health/all');
     expect(response.ok()).toBeTruthy();
     const data = await response.json();
     expect(data).toHaveProperty('system');
@@ -66,7 +96,7 @@ test.describe('Health Endpoint', () => {
   });
 
   test('legacy /health_status still works', async ({ request }) => {
-    const response = await request.get(`${HEALTH_URL}/health_status`);
+    const response = await healthGet(request, '/health_status');
     expect(response.ok()).toBeTruthy();
     const data = await response.json();
     expect(data).toHaveProperty('status');

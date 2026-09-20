@@ -14,25 +14,29 @@ Dates are indicative and may change based on priorities and feedback.
 
 ## v0.1.0 — Foundation
 
-- ✅ Modular Bash architecture (`src/lib/` with 7 categories)
+- ✅ Modular Bash architecture (`src/lib/` with 6 categories)
 - ✅ noVNC desktop access via browser
-- ✅ Web terminal (ttyd on Linux, Tornado on Windows)
+- ✅ Web terminal (Tornado + xterm.js on both platforms; ttyd remains
+  an optional alternative binary)
 - ✅ SSL/TLS with self-signed or Let's Encrypt certificates
 - ✅ Duck DNS dynamic DNS integration (cross-platform)
 - ✅ Health monitoring dashboard
 - ✅ Landing page portal
 - ✅ Temporary user isolation (Linux and Windows)
 - ✅ Rate limiting and Fail2ban support
-- ✅ Session recording (optional)
+- ~~⚠️ Session recording~~ — removed: no recording service exists;
+  `RECORDING_ENABLED` was dropped entirely (F-033)
 - ✅ Backup and restore scripts
-- ✅ Docker integration testing
-- ✅ Test pyramid (293 Python + 39 Bash suites + 23 Pester cases + 11 Playwright)
-- ✅ CI/CD pipeline (lint, test, build, multi-arch Docker)
+- ✅ Docker packaging (`packaging/docker/Dockerfile` +
+  `compose.integration.yml` for CI)
+- ✅ Test pyramid (Python unit/integration/e2e/security + Pester +
+  Playwright; the legacy Bats suites were removed with the Bash stack)
+- ✅ CI/CD pipeline (lint, test, build, multi-arch)
 - ✅ Pre-commit hooks (shellcheck, shfmt, ruff, black, yamllint)
 - ✅ Professional documentation (README, CONTRIBUTING, SECURITY, CHANGELOG)
 - ✅ Windows local/LAN support (UltraVNC + Python stack)
-- ✅ Bluetooth audio streaming (server → client)
-- ✅ Bluetooth gamepad forwarding (client → server)
+- ✅ Audio streaming over WebSocket (server → client, ffmpeg capture)
+- ✅ Gamepad forwarding over WebSocket (client → server, HTML5 Gamepad API)
 - ✅ Systemd service units with hardening
 - ✅ Full uninstaller (reversible installation)
 - ✅ CLI tool (`vnc-remote` command)
@@ -62,23 +66,29 @@ Dates are indicative and may change based on priorities and feedback.
 
 ## v0.3.0 — Reliability
 
-- 📋 Idempotency tests (run setup twice, verify no duplication)
-- ✅ Bats testing framework for Bash unit tests
+- ✅ Idempotency tests (run setup twice, verify no duplication)
+- ✅ ~~Bats testing framework for Bash unit tests~~ — superseded: the
+  Bash stack was removed; tests are now pytest + Pester
 - 📋 CI matrix: Debian 12, Ubuntu 22.04/24.04, Raspberry Pi OS
 - 📋 Automated backup verification
 - 📋 Automated restore testing
 - ✅ Centralized error handling with structured output
 - 📋 Service health check integration with systemd
+- ✅ Per-service watchdog with auto-restart + alerting
+  (`service_manager.watchdog_tick`, `HEALTHCHECK_INTERVAL`,
+  `AUTO_RESTART`)
 
 ## v0.4.0 — Features
 
 - ✅ Installation profiles (`SECURITY_PROFILE=development|trusted-lan|private-overlay|public-hardened`)
-- ✅ Session management with TTL (`session create --ttl 2h`, `session revoke`)
+- ✅ Session management with TTL (`session create --expires 2h`, `session revoke`)
 - 📋 Admin dashboard (authenticated, full system status)
 - ✅ Prometheus metrics export
-- 📋 Alert integration (email, webhook on cert expiry / service failure)
+- ✅ Alert integration (`monitoring/alerts.py`: Discord webhook,
+  generic JSON webhook, SMTP email — on start failure / watchdog events)
 - 📋 DNS provider abstraction (DuckDNS, Cloudflare, manual, self-signed)
-- ✅ `make demo` target (Docker-based, self-contained demo)
+- ⏳ `make demo` target (Docker-based; `packaging/docker/` now provided,
+  demo target still pending)
 - ✅ API documentation (OpenAPI) for health endpoints
 
 ## v0.5.0 — Distribution

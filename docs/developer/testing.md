@@ -1,47 +1,43 @@
 # Testing Guide
 
-This project uses a **testing pyramid** strategy with 5 levels, from cheapest
-to most expensive. Tests are organized by level under `tests/`.
+This project uses a **testing pyramid** strategy with multiple levels, from
+cheapest to most expensive. Tests are organized by level under `tests/` and
+span four runners: Bash, Python (`pytest`), PowerShell (Pester), and
+Playwright (browser).
 
-## Pyramid Structure
-
-```
-                    security/  (18 tests)     ← Level 7
-                        e2e/  (15 tests)     ← Level 5
-                integration/  (6 tests)      ← Level 3
-                      unit/  (63 tests)      ← Level 1
-                   static/  (14 tests)       ← Level 0
-```
-
-**Total: 8 suites, 116 tests.**
+Run `bash tests/run_tests.sh -l` to see the exact count for your environment;
+test counts vary by platform and installed runners.
 
 ## Directory Layout
 
 ```
 tests/
-├── lib/
-│   └── test_framework.sh      # Shared assertions and helpers
-├── static/
-│   └── test_lint.sh            # Level 0: bash -n, shellcheck, CRLF, shebang
+├── static/             # Level 0: bash -n, shellcheck, CRLF, shebang
 ├── unit/
-│   └── core/
-│       ├── test_config.sh     # Level 1: config defaults and env overrides
-│       ├── test_logging.sh    # Level 1: log functions and levels
-│       ├── test_utils.sh      # Level 1: validate_config, password strength
-│       └── test_validation.sh # Level 1: password, port, domain, email, username
-├── integration/
-│   └── test_module_loading.sh # Level 3: 18-module load chain, validate_config
+│   ├── core/           # Python unit tests (config, logging, utils, validation)
+│   ├── services/       # Python unit tests (audio, gamepad, landing, novnc, vnc)
+│   ├── security/       # Python security tests (auth, credentials, sessions)
+│   └── web/            # Python web route tests
+├── integration/        # Level 3: multi-module interaction (common, linux, windows)
 ├── e2e/
-│   └── test_script_load.sh    # Level 5: main() structure, cleanup, commands
-├── security/
-│   └── test_security.sh       # Level 7: password policy, XSS, injection
-└── run_tests.sh               # Runner with auto-discovery by level
+│   ├── linux/          # Linux end-to-end scenarios
+│   ├── windows/        # Windows end-to-end scenarios
+│   └── browser/        # Playwright browser tests
+├── security/          # Level 7: password, sanitization, hardening
+├── powershell/        # Pester tests for the Windows PowerShell module
+├── windows/           # Pester tests for the Windows wrapper (VncRemote.ps1)
+├── fixtures/          # Static test data (certificates)
+└── run_tests.sh       # Runner with auto-discovery by level
 ```
+
+The legacy Bash/Bats test framework (`tests/lib/`, `tests/shell/`) has been
+removed along with the legacy Bash stack; Python (`pytest`) is the canonical
+test runner.
 
 ## Running Tests
 
 ```bash
-# Run the full pyramid (all levels in order)
+# Run the full Bash pyramid (all levels in order)
 bash tests/run_tests.sh
 make test-all
 
@@ -59,22 +55,38 @@ make test-integration
 make test-e2e
 make test-security
 
+# Python tests
+pytest tests/unit tests/security
+
+# PowerShell tests (Windows)
+pwsh -c "Invoke-Pester tests/powershell -Output Detailed"
+
 # List available tests
 bash tests/run_tests.sh -l
 make test-list
 ```
 
+## Supported Test Formats
+
+| Format | Runner | Description |
+|--------|--------|-------------|
+| `test_*.sh` | `bash` | Bash test scripts |
+| `test_*.py` | `pytest` | Python unit/integration tests |
+| `*.Tests.ps1` | `pwsh` / `powershell` | Pester tests for PowerShell |
+
+`run_tests.sh` auto-discovers the formats above. Tests for unavailable runners
+(e.g., `pwsh` on Linux) are skipped with a warning.
+
+Playwright browser tests (`tests/e2e/browser/*.spec.js`) are run
+separately via `npx playwright test` (see `.github/workflows/integration.yml`).
+
 ## Test Framework
 
-The framework (`tests/lib/test_framework.sh`) provides:
-
-- **Assertions**: `assert_eq`, `assert_ne`, `assert_success`, `assert_failure`,
-  `assert_contains`, `assert_not_empty`, `assert_function_exists`
-- **Suite helpers**: `begin_suite`, `run_test`, `end_suite`
-- **Module loading**: `source_module`, `source_module_safe` (resets `set +e`)
-
-The framework intentionally does NOT enable `set -e`, so tests can assert
-expected non-zero return codes without terminating the test process.
+The Bash test framework (`tests/lib/test_framework.sh`) has been
+removed along with the legacy Bash stack. The canonical test suite is
+now Python-based (`pytest`). Bash tests for the thin wrapper
+(`src/rpi-vnc-remote.sh`) are no longer maintained; the wrapper is
+verified via the Python CLI tests.
 
 ## What Each Level Tests
 
@@ -90,43 +102,38 @@ Catches errors before execution:
 
 ### Level 1 — Unit (`tests/unit/`)
 
-Isolated function tests:
-- Config defaults and environment variable overrides
-- Password validation (length, complexity, weak pattern rejection)
-- Port, domain, email, and username validation
-- `sanitize_input` HTML escaping
-- Logging function output and delegation
-- `validate_config` with secure and insecure values
+Isolated function tests (Python/pytest):
+- Core: config loading, paths, backup/restore, service manager
+- Security: auth gateway, credentials, sessions, ephemeral sessions,
+  rate limiting, MFA, file permissions, shared state, token signing
+- Services: start/stop helpers, landing page generation, noVNC auth,
+  terminal auth, health endpoints
+- Web: Flask application, routes, user management
 
 ### Level 3 — Integration (`tests/integration/`)
 
 Multi-module interaction:
-- All 18 modules source without error (in load order)
-- Core chain (config → logging → validation → error_handling → utils) works together
-- `validate_config` end-to-end with secure values (passes) and defaults (fails)
-- Security modules source correctly after core
-- Duplicate function definition detection
+- Python module loading and cross-module interaction
+- Config loading end-to-end (defaults → platform env → .env)
+- Platform detection and adapter selection (linux/windows/common)
+- Profile application and consistency
 
 ### Level 5 — E2E (`tests/e2e/`)
 
 Entry-point and full-flow:
-- `main()` function exists and has cleanup trap
-- Script sources all 18 modules
-- `help` command exits without hanging
-- No-args execution does not hang (timeout-protected)
-- Cleanup references `userdel`, `tigervncserver`, `novnc_proxy`, `ttyd`
-- Main calls `validate_config`, `install_dependencies`, `setup_ssl`,
-  `create_temp_user`, `start_vnc_server`, `start_novnc`, `start_ttyd`
+- CLI commands (`python -m vnc_remote_secure version`, doctor, status)
+- Help output and argument parsing
+- Linux and Windows platform-specific flows
+- Browser tests via Playwright (landing page, portal, auth)
 
 ### Level 7 — Security (`tests/security/`)
 
 Security-critical behavior:
+- Auth integration (login → cookie → session → revocation)
 - Password policy: rejects empty, weak patterns, short, and non-complex
-- XSS prevention: `sanitize_input` escapes `<`, `>`, `"`, `'`
-- Config hardening: defaults block startup (insecure email rejected)
+- Config hardening: insecure defaults rejected by validate_config
 - `KEEP_TEMP_USER=false` by default (temp user removed on exit)
 - Optional features (fail2ban, Discord) disabled by default
-- SSL enabled by default (`DISABLE_SSL=false`)
 - Command injection prevention in usernames
 - Reserved system usernames rejected
 - Directory traversal prevention in paths
@@ -144,8 +151,7 @@ don't run integration; etc. This gives the fastest feedback on errors.
 
 ## Adding New Tests
 
-1. Create a `test_*.sh` file in the appropriate level directory
-2. Source the framework: `source "$TEST_DIR/../lib/test_framework.sh"`
-3. Use `begin_suite` / `end_suite` and `run_test` helpers
-4. For unit tests, use `source_module_safe` to load modules
-5. The runner auto-discovers `test_*.sh` files — no registration needed
+1. Create a test file in the appropriate level directory using the
+   `test_*.py` format (Python/pytest is the canonical test framework).
+2. For PowerShell module tests, use `*.Tests.ps1` (Pester).
+3. The runner auto-discovers test files — no registration needed.

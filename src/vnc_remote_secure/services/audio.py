@@ -66,7 +66,7 @@ def list_audio_devices():
         logger.error("  Windows: choco install ffmpeg  or  download from https://ffmpeg.org/")
         return
 
-    print("Available audio capture devices:\n")
+    logger.info("Available audio capture devices:\n")
 
     try:
         from vnc_remote_secure.platform.base import get_adapter
@@ -74,7 +74,7 @@ def list_audio_devices():
     except Exception as e:
         logger.error("Error listing devices: %s", e)
 
-    print("\nSet AUDIO_DEVICE=<name> in .env to use a specific device.")
+    logger.info("\nSet AUDIO_DEVICE=<name> in .env to use a specific device.")
 
 
 def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
@@ -126,10 +126,21 @@ class AudioStreamServer:
             return False
 
         try:
+            # ffmpeg is an external binary that needs none of our
+            # credentials — strip secret env vars like the service
+            # manager does for websockify.
+            child_env = None
+            try:
+                from vnc_remote_secure.security.redaction import SECRET_VARS
+                child_env = {k: v for k, v in os.environ.items()
+                             if k not in SECRET_VARS}
+            except Exception:  # noqa: BLE001 - env filtering best-effort
+                child_env = None
             self.ffmpeg_process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                env=child_env,
             )
             logger.info("ffmpeg started (PID: %s)", self.ffmpeg_process.pid)
             return True
@@ -172,8 +183,101 @@ class AudioStreamServer:
                         disconnected.add(ws)
                 self.clients -= disconnected
 
-    async def handle_client(self, websocket, path=None):
-        """Handle a new WebSocket client connection."""
+    async def handle_client(self, websocket, _path=None):
+        """Handle a new WebSocket client connection.
+
+        Authentication is enforced via the central auth gateway before
+        any audio data is sent. This prevents unauthorized clients from
+        capturing the server's audio output.
+        """
+        # Validate auth via the central gateway.
+        from vnc_remote_secure.security.auth_gateway import (
+            check_websocket_upgrade,
+            register_websocket_connection,
+            unregister_websocket_connection,
+        )
+        # websockets>=13 exposes the handshake on connection.request;
+        # the deprecated legacy protocol used request_headers and very
+        # old versions connection.handler.request.
+        headers = {}
+        try:
+            headers = websocket.request.headers
+        except (AttributeError, OSError):
+            pass
+        if not headers:
+            try:
+                headers = websocket.request_headers
+            except (AttributeError, OSError):
+                pass
+        if not headers:
+            try:
+                headers = websocket.handler.request.headers
+            except (AttributeError, OSError):
+                headers = {}
+        origin = headers.get('Origin', '') if hasattr(headers, 'get') else ''
+        cookie = headers.get('Cookie', '') if hasattr(headers, 'get') else ''
+        cookie_value = ''
+        eph = ''
+        if cookie:
+            for part in cookie.split(';'):
+                part = part.strip()
+                if part.startswith('vnc_session='):
+                    cookie_value = part.split('=', 1)[1].strip()
+                elif part.startswith('vnc_ephemeral='):
+                    eph = part.split('=', 1)[1].strip()
+        bearer = ''
+        auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
+        if auth and auth.lower().startswith('bearer '):
+            bearer = auth[7:].strip()
+        if eph and not bearer and not cookie_value:
+            # Activated ephemeral session via the share-link cookie.
+            from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
+            from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
+            from vnc_remote_secure.security.http_auth import client_ip_from
+            from vnc_remote_secure.security.rate_limit import get_auth_limiter
+            peer_ip = client_ip_from(
+                headers,
+                websocket.remote_address[0]
+                if websocket.remote_address else None)
+            if not check_origin(origin, get_allowed_origins()):
+                logger.warning("Audio WebSocket rejected: invalid origin")
+                get_auth_limiter().record_failure(f'ws:{peer_ip}')
+                await websocket.close(code=1008, reason='Invalid origin')
+                return
+            if not check_session_permission(
+                    eph, 'desktop:view', resource='audio',
+                    client_ip=peer_ip):
+                logger.warning("Audio WebSocket rejected: unauthorized")
+                get_auth_limiter().record_failure(f'ws:{peer_ip}')
+                await websocket.close(code=1008, reason='Unauthorized')
+                return
+            token = eph
+        else:
+            from vnc_remote_secure.security.http_auth import client_ip_from
+            allowed, reason = check_websocket_upgrade(
+                origin=origin,
+                cookie_value=cookie_value,
+                bearer_token=bearer,
+                resource='audio',
+                required_permission='desktop:view',
+                client_ip=client_ip_from(
+                    headers,
+                    websocket.remote_address[0]
+                    if websocket.remote_address else None),
+            )
+            if not allowed:
+                logger.warning("Audio WebSocket rejected: %s", reason)
+                await websocket.close(code=1008, reason=reason)
+                return
+            token = bearer or cookie_value
+        conn_id = register_websocket_connection(token, websocket.close, resource='audio')
+        if conn_id is None:
+            # Session revoked between validation and registration
+            # (TOCTOU guard in the registry) — the socket must not
+            # stay open for a revoked session.
+            await websocket.close(code=1008, reason='Session revoked')
+            return
+
         self.clients.add(websocket)
         client_ip = websocket.remote_address[0] if websocket.remote_address else "unknown"
         logger.info("Client connected: %s (total: %s)", client_ip, len(self.clients))
@@ -184,6 +288,15 @@ class AudioStreamServer:
                 if not await self.start_ffmpeg():
                     await websocket.close(code=1011, reason="Audio capture failed")
                     self.clients.discard(websocket)
+                    # Unregister like the finally block below — this
+                    # early return happens before the try/finally, so
+                    # without it the registry keeps a stale entry whose
+                    # close callback points at a dead websocket.
+                    try:
+                        unregister_websocket_connection(conn_id)
+                    except (KeyError, ImportError):
+                        logger.debug("Failed to unregister audio connection",
+                                     exc_info=True)
                     return
 
         try:
@@ -207,6 +320,11 @@ class AudioStreamServer:
         finally:
             self.clients.discard(websocket)
             logger.info("Client disconnected (total: %s)", len(self.clients))
+            # Unregister from the revocation registry.
+            try:
+                unregister_websocket_connection(conn_id)
+            except (KeyError, ImportError):
+                logger.debug("Failed to unregister audio connection", exc_info=True)
 
             # Stop ffmpeg if no clients
             if not self.clients:
@@ -244,6 +362,8 @@ class AudioStreamServer:
 
 
 def main():
+    from vnc_remote_secure.core.config import load_env_file
+    load_env_file()
     parser = argparse.ArgumentParser(description="Audio Stream Server")
     parser.add_argument("--port", type=int, default=None, help="WebSocket port")
     parser.add_argument("--host", type=str, default=None, help="Bind address")
@@ -256,8 +376,12 @@ def main():
         list_audio_devices()
         return
 
-    # Load from environment
-    host = args.host or os.environ.get("AUDIO_STREAM_HOST", DEFAULT_HOST)
+    # Load from environment — same resolution chain as
+    # config._env_host: AUDIO_STREAM_HOST → BIND_HOST → loopback.
+    host = (args.host
+            or os.environ.get("AUDIO_STREAM_HOST", '').strip()
+            or os.environ.get('BIND_HOST', '').strip()
+            or DEFAULT_HOST)
     port = args.port or int(os.environ.get("AUDIO_STREAM_PORT", DEFAULT_PORT))
     device = args.device or os.environ.get("AUDIO_DEVICE", "")
     bitrate = args.bitrate or int(os.environ.get("AUDIO_BITRATE", DEFAULT_BITRATE))
@@ -267,7 +391,7 @@ def main():
     try:
         asyncio.run(server.run())
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        logger.info("Shutting down...")
         asyncio.run(server.stop_ffmpeg())
 
 

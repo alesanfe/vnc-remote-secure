@@ -15,9 +15,10 @@ UI handles authentication and session management.
 
 The architecture is package-based: a common Python core
 (`src/vnc_remote_secure/`) delegates platform-specific operations to
-adapters under `platform/{linux,windows}/`. On Linux, TigerVNC, ttyd, nginx,
-and systemd are used; on Windows, UltraVNC, ttyd, and Windows Services are
-used. The client requires only a web browser.
+adapters under `platform/{linux,windows}/`. On Linux, TigerVNC, a
+Tornado-based web terminal, nginx, and systemd are used; on Windows,
+UltraVNC, the same Tornado web terminal, and Windows Services are used.
+The client requires only a web browser.
 
 The intended deployment topology places nginx as the sole public entry point
 (TLS on port 443), with all internal services bound to `127.0.0.1`. Access
@@ -29,7 +30,7 @@ recommended for higher-security deployments.
 | Asset | Description | Impact if Compromised |
 |-------|-------------|----------------------|
 | VNC password | Authentication credential for desktop access | Full remote desktop control |
-| Terminal credentials | Basic-auth credentials for the web terminal | Remote code execution on the host |
+| Web Terminal credentials | Basic-auth credentials for the Web Terminal | Remote code execution on the host |
 | UI user password | Credential for the Flask user-management UI | Unauthorized service administration |
 | SSL/TLS private keys | Private keys for the server certificate | Man-in-the-middle, traffic decryption |
 | DuckDNS token | Dynamic DNS API token | DNS hijacking, domain takeover |
@@ -43,7 +44,7 @@ recommended for higher-security deployments.
 
 ### Spoofing
 
-- **Credential theft.** An attacker who obtains the VNC password, terminal
+- **Credential theft.** An attacker who obtains the VNC password, Web Terminal
   credentials, or UI password can impersonate a legitimate user. The VNC
   protocol uses legacy DES authentication with an 8-character password
   limit, which materially reduces the effective key space.
@@ -56,7 +57,7 @@ recommended for higher-security deployments.
 - **Session tampering.** Modification of session cookies or CSRF tokens
   could allow an attacker to inject or elevate a session. Session integrity
   relies on cookie flags and signed tokens.
-- **Terminal injection.** The web terminal forwards input to a shell. Lack
+- **Web Terminal injection.** The Web Terminal forwards input to a shell. Lack
   of input validation or command filtering could allow injection of commands
   beyond the intended scope, leading to host tampering.
 - **Configuration tampering.** Modification of `.env`, systemd units, or
@@ -64,13 +65,12 @@ recommended for higher-security deployments.
 
 ### Repudiation
 
-- **Lack of audit logs.** The current implementation does not produce
-  structured, tamper-evident audit logs with session identifiers and
-  timestamps. An attacker (or legitimate user) can plausibly deny having
-  performed an action because no authoritative record exists.
-- **No authenticated action trail.** Login attempts, terminal commands, and
-  VNC session start/stop events are not consistently correlated to a user
-  identity, weakening accountability.
+- **Audit logging (implemented).** Structured, tamper-evident audit logs
+  with session identifiers and timestamps are produced by
+  `security/audit.py`. Login attempts, terminal commands, and VNC session
+  lifecycle events are correlated to a user identity via the central
+  authentication gateway. The audit log uses a SHA-256 chain hash for
+  tamper detection (see `verify_chain()`).
 
 ### Information Disclosure
 
@@ -99,7 +99,7 @@ recommended for higher-security deployments.
 
 ### Elevation of Privilege
 
-- **Escalation via terminal.** The web terminal grants shell access. A
+- **Escalation via Web Terminal.** The Web Terminal grants shell access. A
   misconfiguration or an overly permissive temporary user could allow
   escalation to root or another system user.
 - **Temporary user misuse.** If `KEEP_TEMP_USER=true` is set or the
@@ -122,32 +122,38 @@ recommended for higher-security deployments.
 | Credential handling | No hardcoded credentials; secrets from `.env` or generated at runtime; secrets passed via environment, not command-line args; `.env` gitignored |
 | CI/CD | Gitleaks secret scanning; Trivy container/filesystem scanning; ShellCheck; pre-commit hooks preventing secret commits |
 
+## Implemented Controls (v0.2.0)
+
+The following controls, previously planned, are now implemented:
+
+- **Centralized authentication.** A unified authentication gateway with MFA/TOTP
+  support shared across VNC, terminal, and UI (`security/auth_gateway.py`).
+- **Multi-factor authentication (MFA).** TOTP-based second factor for terminal
+  and UI access (`security/step_up_auth.py`).
+- **Rate limiting.** Configurable rate limits on login attempts and WebSocket
+  connection establishment (`security/rate_limit.py`).
+- **Bind to localhost by default.** Internal services default to `127.0.0.1`
+  binding; security profiles enforce this in hardened modes
+  (`security/profiles.py`).
+- **WebSocket origin validation.** Strict allow-list-based origin validation
+  on WebSocket endpoints with rejection of missing or unexpected `Origin`
+  headers (`services/terminal.py`).
+- **Structured audit logging.** Tamper-evident JSON logs with session IDs, user
+  identities, timestamps, and action records (`security/audit.py`).
+- **Session expiration.** TTL-based session revocation and idle timeouts
+  (`security/ephemeral_sessions.py`).
+- **Content-Security-Policy.** CSP headers for the web UI to mitigate
+  injection and data exfiltration (`security/http_headers.py`).
+
 ## Planned Controls
 
 These controls are recommended but not yet implemented:
 
-- **Centralized authentication.** A single identity and session store shared
-  across VNC, terminal, and UI to reduce credential sprawl and enable
-  consistent revocation.
-- **Multi-factor authentication (MFA).** A second factor for terminal and UI
-  access to mitigate credential theft.
-- **Rate limiting.** Explicit, configurable rate limits on login attempts
-  and WebSocket connection establishment, beyond the current login attempt
-  counter.
-- **Bind to localhost by default.** Enforce `127.0.0.1` binding for all
-  internal services by default, requiring explicit opt-in for any other
-  address.
-- **WebSocket origin validation.** Strict allow-list-based origin
-  validation on every WebSocket endpoint, with rejection of missing or
-  unexpected `Origin` headers.
-- **Structured audit logging.** Tamper-evident JSON logs with session IDs,
-  user identities, timestamps, and action records for logins, terminal
-  commands, and session lifecycle events.
-- **Session expiration.** TTL-based session revocation and idle timeouts.
-- **Content-Security-Policy.** CSP headers for the web UI to mitigate
-  injection and data exfiltration.
 - **Certificate pinning.** For self-signed deployments to reduce the impact
   of a compromised CA.
+- **Full Windows process isolation.** The restricted runtime user is created
+  and ACLs are applied, but VNC and terminal processes do not yet run under
+  the restricted user's context (CreateProcessAsUser is planned; see ADR-0007).
 
 ## Security Assumptions
 
@@ -187,7 +193,7 @@ classified as Low, Medium, High, or Critical.
 | WebSocket connection exhaustion (DoS) | Medium | Medium | Medium | Connection limits (planned), bind localhost |
 | Privilege escalation via terminal | Low | Critical | High | Temp user isolation, systemd hardening, least privilege |
 | Temporary user persistence / misuse | Low | Critical | High | `KEEP_TEMP_USER=false`, cleanup on exit |
-| Lack of audit logs (repudiation) | High | Medium | High | Structured audit logging (planned) |
+| Lack of audit logs (repudiation) | High | Medium | High | Structured audit logging (implemented, `security/audit.py`) |
 | Configuration tampering | Low | Critical | High | File permissions, `doctor` validation |
 | DNS hijacking (DuckDNS token theft) | Low | High | Medium | Token in gitignored `.env`, Gitleaks |
 | TLS misconfiguration | Medium | Medium | Medium | Self-signed with 600 perms, Let's Encrypt option |

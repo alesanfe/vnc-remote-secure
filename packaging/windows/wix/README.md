@@ -29,4 +29,7 @@ skeleton with the production definitions.
 
 ## Status
 
-**Placeholder.** No production `.wxs` files exist yet.
+No production `.wxs` files exist yet. The orchestrating script
+[`packaging/windows/build-installer.ps1`](../build-installer.ps1) emits a
+skeleton `.wxs` into `dist\` with the correct version from `pyproject.toml`.
+The files listed above will replace that skeleton with production definitions.

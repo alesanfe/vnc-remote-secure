@@ -3,8 +3,6 @@ import os
 import ssl
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.security.tls_validation import (

@@ -27,8 +27,15 @@ AUDIO_STREAM_ENABLED=true
 
 ## Platform Support
 
-- **Linux**: captures via ALSA (`arecord`)
-- **Windows**: captures via DirectShow/WASAPI (`dshow`)
+- **Linux**: PulseAudio (`ffmpeg -f pulse`) is used whenever a source
+  can be resolved — `AUDIO_DEVICE` when set, otherwise the PulseAudio
+  default source via `pactl get-default-source`. Only when no device
+  is configured **and** PulseAudio is unavailable does capture fall
+  back to the ALSA default device (`ffmpeg -f alsa`)
+- **Windows**: captures via DirectShow/WASAPI (`ffmpeg -f dshow`);
+  `AUDIO_DEVICE` overrides the default DirectShow input name, e.g.
+  `AUDIO_DEVICE=audio=<device-name>` as listed by
+  `ffmpeg -list_devices true -f dshow -i dummy`
 
 ## Limitations
 

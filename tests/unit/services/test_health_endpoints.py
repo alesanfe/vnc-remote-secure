@@ -14,7 +14,7 @@ from vnc_remote_secure.services import health
 @pytest.fixture
 def health_server(monkeypatch):
     """Start a health server on an ephemeral port."""
-    monkeypatch.setattr(health, 'is_port_available', lambda port: True)
+    monkeypatch.setattr(health, 'is_port_available', lambda port, host=None: True)
     server = health.start_health_server(port=0, host='127.0.0.1')
     yield server
     server.shutdown()
@@ -48,7 +48,7 @@ def test_health_ready_returns_503_when_down(health_server):
 
 
 def test_health_services_returns_dict(health_server):
-    """Services endpoint returns per-service status."""
+    """Services endpoint returns per-service status with PID and port."""
     port = health_server.server_address[1]
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
     conn.request('GET', '/health/services')
@@ -57,10 +57,54 @@ def test_health_services_returns_dict(health_server):
     conn.close()
     assert resp.status == 200
     data = json.loads(body)
-    assert 'services' in data
-    assert isinstance(data['services'], dict)
-    assert 'vnc' in data['services']
-    assert 'novnc' in data['services']
+    # status_all() returns a flat dict of service_name -> {pid, running, port}
+    assert isinstance(data, dict)
+    assert 'vnc' in data
+    assert 'novnc' in data
+    # Each entry must include the documented fields.
+    for svc_name, svc_status in data.items():
+        assert 'running' in svc_status, f"{svc_name} missing 'running'"
+        assert 'pid' in svc_status, f"{svc_name} missing 'pid'"
+
+
+def test_health_accepts_query_string(health_server):
+    """GET /health?x=1 resolves like /health — not a 404.
+
+    nginx forwards the request URI verbatim and cache-busting probes
+    append query params; the stdlib handler must match the path the
+    way Flask routes do (path-only).
+    """
+    port = health_server.server_address[1]
+    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+    conn.request('GET', '/health?cachebust=1')
+    resp = conn.getresponse()
+    body = resp.read().decode()
+    conn.close()
+    data = json.loads(body)
+    # Never a routing-level 404 — either 200 (up/degraded) or 503 (down).
+    assert resp.status in (200, 503)
+    assert 'status' in data
+
+
+def test_health_ready_503_when_degraded(health_server, monkeypatch):
+    """Readiness is stricter than /health: degraded => 503.
+
+    A 'degraded' aggregate means an enabled service is down — the
+    deployment cannot serve all traffic, matching the Flask
+    blueprint's all-services-listening requirement.
+    """
+    monkeypatch.setattr(
+        health, 'get_health_status',
+        lambda: {'status': 'degraded', 'services': {'vnc': True,
+                                                    'novnc': False},
+                 'services_up': 1, 'services_total': 2})
+    port = health_server.server_address[1]
+    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+    conn.request('GET', '/health/ready')
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    assert resp.status == 503
 
 
 def test_health_returns_503_when_down(health_server):

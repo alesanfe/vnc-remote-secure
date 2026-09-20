@@ -3,14 +3,11 @@ import os
 import sys
 import time
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.security.step_up_auth import (
     SENSITIVE_ACTIONS,
     StepUpAuthManager,
-    needs_step_up,
     record_auth_time,
     require_step_up,
 )
@@ -79,7 +76,6 @@ class TestRequireStepUp:
 
     def test_non_sensitive_action_allowed(self):
         """Non-sensitive actions don't require step-up."""
-        mgr = StepUpAuthManager()
         # 'view' is not in SENSITIVE_ACTIONS
         result = require_step_up('user', 'view')
         assert result is None
@@ -106,22 +102,27 @@ class TestRequireStepUp:
 
 
 class TestSensitiveActionsList:
-    """Verify the list of sensitive actions is correct."""
+    """Verify the list of sensitive actions is correct.
+
+    The set intentionally contains ONLY actions with a runtime
+    enforcement point (a require_step_up call site). CLI-only
+    operations (rotate_secrets, modify_firewall, disable_tls,
+    change_profile, view_audit_log, session creation) have no web
+    session to step up against — the operator already holds a local
+    shell — and ``file_transfer`` has no implementation.
+    """
 
     def test_terminal_is_sensitive(self):
         assert 'open_terminal' in SENSITIVE_ACTIONS
 
-    def test_file_transfer_is_sensitive(self):
-        assert 'file_transfer' in SENSITIVE_ACTIONS
-
     def test_create_admin_is_sensitive(self):
         assert 'create_admin' in SENSITIVE_ACTIONS
 
-    def test_disable_tls_is_sensitive(self):
-        assert 'disable_tls' in SENSITIVE_ACTIONS
+    def test_delete_admin_is_sensitive(self):
+        assert 'delete_admin' in SENSITIVE_ACTIONS
 
-    def test_change_profile_is_sensitive(self):
-        assert 'change_profile' in SENSITIVE_ACTIONS
-
-    def test_create_support_session_is_sensitive(self):
-        assert 'create_support_session' in SENSITIVE_ACTIONS
+    def test_no_unenforced_actions_listed(self):
+        """Every declared action must have a call site — the set must
+        not drift back into a declaration-only list."""
+        assert SENSITIVE_ACTIONS == {
+            'open_terminal', 'create_admin', 'delete_admin'}

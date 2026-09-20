@@ -1,0 +1,17 @@
+{
+  "name": "UltraVNC",
+  "version": "1.4.3.6",
+  "platform": "windows",
+  "architecture": "x86_64",
+  "description": "VNC server for Windows",
+  "homepage": "https://uvnc.com/",
+  "repository": "https://github.com/ultravnc/ultravnc",
+  "license": "GPL-3.0",
+  "license_file": "../licenses/ultravnc.txt",
+  "managed_by": "manual",
+  "download_url": "https://uvnc.com/component/jdownloads/send/70-ultravnc/120-ultravnc-1436-x64.html",
+  "filename": "winvnc.exe",
+  "target_path": "bin/ultravnc/x64/winvnc.exe",
+  "sha256": "29379afd1ca5439c82931d623fda335174dc416e5b013591457fa1f7bbe564db",
+  "notes": "Download the UltraVNC 1.4.3.6 x64 package from the URL, extract winvnc.exe, and place it at bin/ultravnc/x64/winvnc.exe. Manual download required (URL is an HTML page)."
+}

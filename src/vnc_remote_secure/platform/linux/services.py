@@ -30,44 +30,6 @@ def install_service(name, unit_file, unit_content=None):
     return result.returncode == 0
 
 
-def start_service(name):
-    """Start a systemd service."""
-    result = subprocess.run(
-        ['systemctl', 'start', name],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise ServiceError(f"Failed to start {name}: {result.stderr.strip()}")
-    return True
-
-
-def stop_service(name):
-    """Stop a systemd service."""
-    result = subprocess.run(
-        ['systemctl', 'stop', name],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise ServiceError(f"Failed to stop {name}: {result.stderr.strip()}")
-    return True
-
-
-def service_status(name):
-    """Return a dict with ``running`` and ``enabled`` keys."""
-    active = subprocess.run(
-        ['systemctl', 'is-active', name],
-        capture_output=True, text=True,
-    )
-    enabled = subprocess.run(
-        ['systemctl', 'is-enabled', name],
-        capture_output=True, text=True,
-    )
-    return {
-        'running': active.stdout.strip() == 'active',
-        'enabled': enabled.stdout.strip() == 'enabled',
-    }
-
-
 def remove_service(name):
     """Stop, disable, and remove a systemd service unit file."""
     subprocess.run(['systemctl', 'stop', name], capture_output=True)

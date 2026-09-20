@@ -2,7 +2,6 @@
 import json
 import os
 import sys
-import tempfile
 
 import pytest
 
@@ -14,9 +13,10 @@ def audit_file(tmp_path, monkeypatch):
     """Use a temporary audit log file."""
     audit_path = tmp_path / 'audit.jsonl'
     monkeypatch.setenv('AUDIT_LOG_FILE', str(audit_path))
-    # Reset the chain hash cache.
+    # Reset the chain hash cache and startup flag.
     from vnc_remote_secure.security import audit
     audit._chain_hash = ''
+    audit._startup_verified = False
     audit._AUDIT_LOG_FILE = str(audit_path)
     return audit_path
 
@@ -31,11 +31,13 @@ class TestAuditLog:
         assert entry['result'] == 'success'
         assert 'hash' in entry
         assert 'timestamp' in entry
-        # File should contain one JSON line.
+        # File should contain anchor + one JSON line.
         content = audit_file.read_text()
         lines = content.strip().split('\n')
-        assert len(lines) == 1
-        parsed = json.loads(lines[0])
+        assert len(lines) == 2  # anchor + login
+        anchor = json.loads(lines[0])
+        assert anchor['event'] == 'anchor'
+        parsed = json.loads(lines[1])
         assert parsed['event'] == 'login'
 
     def test_chain_hash_links_entries(self, audit_file):
@@ -57,11 +59,11 @@ class TestAuditLog:
         from vnc_remote_secure.security.audit import audit_log, verify_chain
         audit_log('login', user='alice')
         audit_log('logout', user='alice')
-        # Tamper with the second line.
+        # Tamper with the third line (anchor + login + logout).
         lines = audit_file.read_text().strip().split('\n')
-        entry = json.loads(lines[1])
+        entry = json.loads(lines[2])
         entry['user'] = 'mallory'
-        lines[1] = json.dumps(entry)
+        lines[2] = json.dumps(entry)
         audit_file.write_text('\n'.join(lines) + '\n')
         intact, msg = verify_chain()
         assert intact is False
@@ -73,7 +75,8 @@ class TestAuditLog:
         audit_log('login', user='bob')
         audit_log('logout', user='alice')
         all_entries = get_audit_entries(limit=10)
-        assert len(all_entries) == 3
+        # anchor + 3 entries = 4 total.
+        assert len(all_entries) == 4
         # Newest first.
         assert all_entries[0]['event'] == 'logout'
         login_entries = get_audit_entries(limit=10, event='login')

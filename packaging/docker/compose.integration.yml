@@ -14,24 +14,26 @@ services:
   # Extend the main service with test-friendly settings.
   vnc-remote:
     environment:
-      VNC_REMOTE_ENV: integration
-      VNC_REMOTE_LOG_LEVEL: DEBUG
+      SECURITY_PROFILE: development
+      LOG_LEVEL: DEBUG
     # In integration mode expose auxiliary ports for direct probing.
     ports:
       - "443:443"
       - "6080:6080"
       - "5000:5000"
-      - "8090:8090"
+      - "8080:8080"   # health (Linux default; 8090 is the Windows port)
       - "8000:8000"
 
   # One-shot test runner. Only starts under the `test` profile.
+  # Uses the Dockerfile's `test` stage which bundles pytest + tests/.
   test-runner:
     profiles:
       - test
     build:
       context: ../..
       dockerfile: packaging/docker/Dockerfile
-    image: vnc-remote-secure:latest
+      target: test
+    image: vnc-remote-secure:test
     container_name: vnc-remote-test-runner
     depends_on:
       vnc-remote:
@@ -39,10 +41,7 @@ services:
     env_file:
       - ../../.env
     environment:
-      VNC_REMOTE_TARGET_HOST: vnc-remote
-      VNC_REMOTE_ENV: integration
-    entrypoint: ["python", "-m", "pytest"]
-    command: ["-q", "tests/integration/"]
+      SECURITY_PROFILE: development
     volumes:
       - vncrs-data:/var/lib/vnc-remote-secure:ro
 

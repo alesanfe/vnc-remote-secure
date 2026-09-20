@@ -65,9 +65,10 @@ public disclosure.
 
 The following are considered in scope for vulnerability reports:
 
-- Source code in the `src/`, `native/`, `scripts/`, `tools/`, and `bin/`
-  directories of this repository.
-- Configuration templates and examples in `config/` and `.env.example`.
+- Source code in the `src/` (including `src/vnc_remote_secure/native/`),
+  `scripts/`, and `tools/` directories of this repository.
+- Configuration templates and examples in `src/vnc_remote_secure/config/`
+  and `.env.example`.
 - The Flask web application, VNC/noVNC integration, web terminal, and health
   dashboard components shipped by this project.
 - Default deployment scripts (`launch.sh`, `vnc-remote`, `VncRemote.ps1`)

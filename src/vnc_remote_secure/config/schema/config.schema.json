@@ -1,0 +1,555 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VNC Remote Secure configuration",
+  "description": "Intentionally partial schema covering the most commonly validated runtime variables. additionalProperties is true; see .env.example for the full list.",
+  "type": "object",
+  "properties": {
+    "ALERTS_ENABLED": {
+      "type": "boolean",
+      "description": "Whether alert notifications are enabled."
+    },
+    "ALERT_EMAIL_FROM": {
+      "type": "string",
+      "description": "Sender address for alert emails."
+    },
+    "ALERT_EMAIL_TO": {
+      "type": "string",
+      "description": "Recipient address for alert emails."
+    },
+    "ALERT_SMTP_PASS": {
+      "type": "string",
+      "description": "SMTP password for alert emails."
+    },
+    "ALERT_SMTP_SERVER": {
+      "type": "string",
+      "description": "SMTP server host for alert emails."
+    },
+    "ALERT_SMTP_TLS": {
+      "type": "boolean",
+      "description": "Attempt STARTTLS for alert emails (protects the message body, not only credentials)."
+    },
+    "ALERT_SMTP_USER": {
+      "type": "string",
+      "description": "SMTP username for alert emails."
+    },
+    "ALERT_WEBHOOK_URL": {
+      "type": "string",
+      "description": "Webhook URL for alert notifications."
+    },
+    "ALLOWED_LAN_IPS": {
+      "type": "string",
+      "description": "Comma-separated list of LAN IPs allowed to access the services."
+    },
+    "ALLOWED_ORIGINS": {
+      "type": "string",
+      "description": "Comma-separated list of allowed CORS origins."
+    },
+    "AUDIO_BACKEND_PROTOCOL": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "description": "Protocol nginx uses to reach the audio backend (auto-detected when unset)."
+    },
+    "AUDIO_BITRATE": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Audio stream bitrate in kbps."
+    },
+    "AUDIO_DEVICE": {
+      "type": "string",
+      "description": "Audio device to capture from."
+    },
+    "AUDIO_STREAM_ENABLED": {
+      "type": "boolean",
+      "description": "Whether audio forwarding is enabled."
+    },
+    "AUDIO_STREAM_HOST": {
+      "type": "string",
+      "description": "Bind address for the audio stream server."
+    },
+    "AUDIO_STREAM_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the audio stream server listens on."
+    },
+    "AUDIT_LOG_FILE": {
+      "type": "string",
+      "description": "Path to the audit log file (consumed by security/audit.py). Defaults to the platform log dir."
+    },
+    "AUDIT_LOG_MAX_BYTES": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Audit log rotation threshold in bytes (default 10485760)."
+    },
+    "AUTH_LOCKOUT_SECONDS": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Lockout duration in seconds after too many attempts.",
+      "default": 900
+    },
+    "AUTH_MAX_ATTEMPTS": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum authentication attempts before lockout.",
+      "default": 5
+    },
+    "AUTH_SECRET": {
+      "type": "string",
+      "description": "Secret key for JWT/token signing."
+    },
+    "AUTH_WINDOW_SECONDS": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Sliding window for attempt counting."
+    },
+    "AUTO_RESTART": {
+      "type": "boolean",
+      "description": "Whether services are automatically restarted on failure."
+    },
+    "BACKEND_BIND_HOST": {
+      "type": "string",
+      "description": "Bind address for internal backend services."
+    },
+    "BACKUP_PASSWORD": {
+      "type": "string",
+      "description": "When set, backups are Fernet-encrypted (.enc.tar.gz) and restore decrypts automatically."
+    },
+    "BIND_HOST": {
+      "type": "string",
+      "description": "Default bind address for public-facing services."
+    },
+    "CSP_POLICY": {
+      "type": "string",
+      "description": "Content-Security-Policy header value."
+    },
+    "DISABLE_SSL": {
+      "type": "boolean",
+      "description": "Disable SSL flag (set automatically by the script)."
+    },
+    "DISCORD_ENABLED": {
+      "type": "boolean",
+      "description": "Whether Discord webhook notifications are enabled."
+    },
+    "DISCORD_WEBHOOK_URL": {
+      "type": "string",
+      "description": "Discord webhook URL for notifications."
+    },
+    "DUCKDNS_TOKEN": {
+      "type": "string",
+      "description": "DuckDNS API token."
+    },
+    "DUCKDNS_UPDATE_INTERVAL": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 5,
+      "description": "DuckDNS update interval in minutes."
+    },
+    "DUCK_DOMAIN": {
+      "type": "string",
+      "description": "DuckDNS domain used for dynamic DNS."
+    },
+    "EMAIL": {
+      "type": "string",
+      "description": "Email address used for certificate registration."
+    },
+    "FAIL2BAN_BANTIME": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Fail2ban ban duration in seconds."
+    },
+    "FAIL2BAN_ENABLED": {
+      "type": "boolean",
+      "description": "Whether fail2ban intrusion prevention is enabled (Linux)."
+    },
+    "FAIL2BAN_FINDTIME": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Fail2ban find-time window in seconds."
+    },
+    "FAIL2BAN_MAX_RETRY": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum failures before fail2ban bans an IP."
+    },
+    "FLASK_SECRET_KEY": {
+      "type": "string",
+      "description": "Secret key for Flask session signing."
+    },
+    "GAMEPAD_BACKEND_PROTOCOL": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "description": "Protocol nginx uses to reach the gamepad backend (auto-detected when unset)."
+    },
+    "GAMEPAD_ENABLED": {
+      "type": "boolean",
+      "description": "Whether gamepad forwarding is enabled."
+    },
+    "GAMEPAD_HOST": {
+      "type": "string",
+      "description": "Bind address for the gamepad server."
+    },
+    "GAMEPAD_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the gamepad server listens on."
+    },
+    "HEALTHCHECK_ENABLED": {
+      "type": "boolean",
+      "description": "Whether the periodic health check and auto-restart loop is enabled (Bash stack only)."
+    },
+    "HEALTHCHECK_INTERVAL": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Interval in seconds between health checks."
+    },
+    "HEALTH_AUTH_TOKEN": {
+      "type": "string",
+      "description": "Bearer token for health endpoints. Empty is allowed only on loopback binds; any non-loopback bind (USER_UI_HOST/HEALTH_WEB_HOST/BIND_HOST) fails closed without it."
+    },
+    "HEALTH_BACKEND_PROTOCOL": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "description": "Protocol used to reach backend services for health checks."
+    },
+    "HEALTH_WEB_ENABLED": {
+      "type": "boolean",
+      "description": "Whether the health web server is enabled."
+    },
+    "HEALTH_WEB_HOST": {
+      "type": "string",
+      "description": "Bind address for the health web server."
+    },
+    "HEALTH_WEB_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the health check web server listens on."
+    },
+    "HSTS_HEADER": {
+      "type": "string",
+      "description": "Strict-Transport-Security header value."
+    },
+    "KEEP_TEMP_USER": {
+      "type": "boolean",
+      "description": "Whether to keep the temporary user after the session ends."
+    },
+    "LANDING_BACKEND_PROTOCOL": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "description": "Protocol nginx uses to reach the landing backend (auto-detected when unset)."
+    },
+    "LANDING_HOST": {
+      "type": "string",
+      "description": "Bind address for the landing page server."
+    },
+    "LANDING_PASSWORD": {
+      "type": "string",
+      "description": "Basic-auth password for the landing page. When empty a strong random value is generated and persisted to generated_credentials.env (the portal is fail-closed)."
+    },
+    "LANDING_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the landing page server listens on."
+    },
+    "LOG_DIR": {
+      "type": "string",
+      "description": "Directory for log files."
+    },
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": [
+        "DEBUG",
+        "INFO",
+        "WARN",
+        "WARNING",
+        "ERROR",
+        "FATAL",
+        "CRITICAL"
+      ],
+      "description": "Logging level for the Bash stack only; the Python runtime manages its own logging."
+    },
+    "MFA_REQUIRED": {
+      "type": "boolean",
+      "description": "Whether MFA (TOTP) is required for user login."
+    },
+    "NGINX_ENABLED": {
+      "type": "boolean",
+      "description": "Whether nginx reverse proxy is enabled."
+    },
+    "NGINX_HTTPS_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port nginx listens on for HTTPS."
+    },
+    "NGINX_HTTP_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port nginx listens on for HTTP."
+    },
+    "NOVNC_BACKEND_PROTOCOL": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "description": "Protocol nginx uses to reach the noVNC backend (auto-detected when unset)."
+    },
+    "NOVNC_DIR": {
+      "type": "string",
+      "description": "Directory containing the noVNC web assets (default <project>/novnc)."
+    },
+    "NOVNC_HOST": {
+      "type": "string",
+      "description": "Legacy alias for SERVE_NOVNC_HOST."
+    },
+    "NOVNC_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the noVNC web client listens on."
+    },
+    "NOVNC_WS_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Loopback-only websockify bridge port (WebSocket->RFB). Proxied by the noVNC server after auth."
+    },
+    "PUBLIC_BIND_HOST": {
+      "type": "string",
+      "description": "Public-facing bind address set by hardened profiles (overrides BIND_HOST for exposed services)."
+    },
+    "PYTHON": {
+      "type": "string",
+      "description": "Python interpreter name/path used when registering the Windows service (optional tooling override)."
+    },
+    "RECOVERY_CODES_HASHES": {
+      "type": "string",
+      "description": "JSON array of hashed recovery codes."
+    },
+    "SECURITY_PROFILE": {
+      "type": "string",
+      "enum": [
+        "development",
+        "trusted-lan",
+        "private-overlay",
+        "public-hardened",
+        "home-lan",
+        "private-vpn",
+        "internet-hardened",
+        "local-only"
+      ],
+      "description": "Security profile controlling bind addresses and hardening. Canonical names are development, trusted-lan, private-overlay, public-hardened; the others are legacy aliases accepted by `vnc-remote config migrate`."
+    },
+    "SERVE_NOVNC_HOST": {
+      "type": "string",
+      "description": "Bind address for the noVNC proxy (canonical; NOVNC_HOST is a legacy fallback)."
+    },
+    "SESSION_COOKIE_NAME": {
+      "type": "string",
+      "description": "Flask session cookie name."
+    },
+    "SESSION_COOKIE_SECURE": {
+      "type": "boolean",
+      "description": "Whether the session cookie requires HTTPS."
+    },
+    "SESSION_IDLE_TIMEOUT": {
+      "type": "integer",
+      "minimum": 60,
+      "default": 1800,
+      "description": "Session idle timeout in seconds (used by package UI and legacy Bash UI)."
+    },
+    "SESSION_MAX_LIFETIME": {
+      "type": "integer",
+      "minimum": 300,
+      "default": 28800,
+      "description": "Maximum session lifetime in seconds."
+    },
+    "SESSION_SAMESITE": {
+      "type": "string",
+      "enum": [
+        "Strict",
+        "Lax",
+        "None"
+      ],
+      "description": "SameSite attribute for the session cookie.",
+      "default": "Lax"
+    },
+    "SHARED_STATE_BACKEND": {
+      "type": "string",
+      "enum": [
+        "memory",
+        "sqlite"
+      ],
+      "default": "sqlite",
+      "description": "Backend for cross-process shared state (rate limits, revocation markers, audit chain). 'sqlite' is the platform default (set via config/defaults/common.env) and enables cross-process sharing on a single host; 'memory' is process-local and intended for explicit single-process/test usage."
+    },
+    "SHARED_STATE_DB_PATH": {
+      "type": "string",
+      "description": "Filesystem path for the SQLite shared-state database when SHARED_STATE_BACKEND=sqlite. Defaults to <run_dir>/shared_state.db."
+    },
+    "SSL_CERT": {
+      "type": "string",
+      "description": "Path to the SSL certificate file."
+    },
+    "SSL_CIPHERS": {
+      "type": "string",
+      "description": "Colon-separated TLS cipher suite list."
+    },
+    "SSL_KEY": {
+      "type": "string",
+      "description": "Path to the SSL private key file."
+    },
+    "TEMP_USER": {
+      "type": "string",
+      "description": "Name of the temporary runtime user."
+    },
+    "TEMP_USER_PASS": {
+      "type": "string",
+      "description": "Password for the temporary runtime user."
+    },
+    "TLS_ENABLED": {
+      "type": "boolean",
+      "description": "Enable TLS for the current session."
+    },
+    "TOTP_SECRET": {
+      "type": "string",
+      "description": "Base32 TOTP secret for MFA."
+    },
+    "TRUSTED_PROXY": {
+      "type": "string",
+      "enum": [
+        "true",
+        "false",
+        "1",
+        "0",
+        "yes",
+        "no"
+      ],
+      "description": "Whether to trust X-Forwarded-* headers from a reverse proxy."
+    },
+    "TTYD_BACKEND_PROTOCOL": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "description": "Protocol nginx uses to reach the terminal backend (auto-detected when unset)."
+    },
+    "TTYD_HOST": {
+      "type": "string",
+      "description": "Bind address for the web terminal (ttyd on Linux, Tornado on Windows)."
+    },
+    "TTYD_PASSWD": {
+      "type": "string",
+      "description": "Password for the web terminal (ttyd on Linux, Tornado on Windows). If not set, a random one is generated at startup (see .env.example)."
+    },
+    "TTYD_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the web terminal listens on (ttyd on Linux, Tornado on Windows)."
+    },
+    "TTYD_USERNAME": {
+      "type": "string",
+      "description": "Username for the web terminal (ttyd on Linux, Tornado on Windows). Leave empty to use the OS default (see .env.example)."
+    },
+    "ULTRAVNC_PATH": {
+      "type": "string",
+      "description": "Path to the UltraVNC winvnc.exe binary (Windows only). Leave unset to auto-detect from common install locations."
+    },
+    "ULTRAVNC_URL": {
+      "type": "string",
+      "description": "Override URL for the UltraVNC portable archive downloaded by 'vnc-remote install' on Windows. Leave unset to use the official default."
+    },
+    "USER_UI_ENABLED": {
+      "type": "boolean",
+      "description": "Whether the user management UI is enabled."
+    },
+    "USER_UI_HOST": {
+      "type": "string",
+      "description": "Bind address for the user management UI."
+    },
+    "USER_UI_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the user management UI."
+    },
+    "USER_UI_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the user management UI listens on."
+    },
+    "USER_UI_USERNAME": {
+      "type": "string",
+      "description": "Username for the user management UI (default: TTYD_USERNAME if set, else the current user on Linux or admin on Windows)."
+    },
+    "VERBOSE": {
+      "type": "boolean",
+      "description": "Enable verbose/diagnostic output."
+    },
+    "VNC_DEPTH": {
+      "type": "integer",
+      "enum": [
+        8,
+        16,
+        24,
+        32
+      ],
+      "description": "VNC color depth."
+    },
+    "VNC_DISPLAY": {
+      "type": "string",
+      "pattern": "^:\\d+$",
+      "description": "VNC display number (e.g. :1)."
+    },
+    "VNC_GEOMETRY": {
+      "type": "string",
+      "pattern": "^\\d+x\\d+$",
+      "description": "VNC desktop geometry as WIDTHxHEIGHT."
+    },
+    "VNC_HTTP_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the VNC HTTP server listens on (UltraVNC)."
+    },
+    "VNC_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the VNC server."
+    },
+    "VNC_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port the VNC server listens on."
+    },
+    "VNC_REMOTE_PROFILE": {
+      "type": "string",
+      "description": "Legacy alias for SECURITY_PROFILE (accepted by config migration)."
+    },
+    "WEBTERM_SHELL": {
+      "type": "string",
+      "description": "Shell executable used by the web terminal."
+    }
+  },
+  "required": [],
+  "additionalProperties": true
+}

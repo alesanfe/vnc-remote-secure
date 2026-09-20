@@ -1,5 +1,11 @@
 # Raspberry Pi VNC Remote Setup
 
+> **ARCHIVED** — this is the original project README, kept for
+> historical reference. It describes the legacy Bash/Raspberry-Pi
+> architecture and links to a `doc/` tree that no longer exists;
+> the current documentation lives in [`../`](../) and the current
+> README is [`../../README.md`](../../README.md).
+
 🚀 **Secure remote access to Raspberry Pi via browser using noVNC (desktop) and ttyd (terminal) with optional SSL/TLS support.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -11,12 +17,12 @@
 **📚 Complete documentation available in the [`doc/`](doc/) directory:**
 
 - **[🚀 Quick Start](doc/installation/quick-start.md)** - Get started in 5 minutes
-- **[📋 Installation Guide](doc/installation/detailed-setup.md)** - Complete setup instructions  
-- **⚙️ Configuration](doc/installation/configuration.md)** - All configuration options
+- **[📋 Installation Guide](doc/installation/detailed-setup.md)** - Complete setup instructions
+- **[⚙️ Configuration](doc/installation/configuration.md)** - All configuration options
 - **[👤 User Guide](doc/user-guide/)** - How to use the system
-- **🔒 Security Guide](doc/user-guide/security.md)** - Security best practices
-- **🧪 Testing Guide](doc/developer/testing.md)** - Run and write tests
-- **🏗️ Architecture](doc/developer/architecture.md)** - System design
+- **[🔒 Security Guide](doc/user-guide/security.md)** - Security best practices
+- **[🧪 Testing Guide](doc/developer/testing.md)** - Run and write tests
+- **[🏗️ Architecture](doc/developer/architecture.md)** - System design
 - **[📖 Reference](doc/reference/)** - Complete reference documentation
 
 ## 🎯 Quick Start
@@ -41,13 +47,13 @@ export TTYD_PASSWD=your_secure_password
 
 ### 🖥️ Core Features
 - **Web-based Desktop Access** - Full desktop GUI via noVNC
-- **Web-based Terminal** - Command-line access via ttyd  
+- **Web-based Terminal** - Command-line access via ttyd
 - **SSL/TLS Support** - Automatic Let's Encrypt certificates
 - **Multi-architecture** - Raspberry Pi 3/4/5, Ubuntu, Debian
 - **User Isolation** - Dedicated temporary user for sessions
 - **Auto Cleanup** - Removes users and processes on exit
 
-### 🔒 Security Features  
+### 🔒 Security Features
 - **Input Sanitization** - Prevents command injection
 - **Fail2ban Integration** - Protection against brute force attacks
 - **Port Knocking** - Additional security layer (optional)
@@ -65,7 +71,7 @@ export TTYD_PASSWD=your_secure_password
 
 ### System Requirements
 - **OS**: Raspberry Pi OS (Bullseye+), Ubuntu 20.04+, Debian 11+
-- **Architecture**: armhf, arm64, or amd64  
+- **Architecture**: armhf, arm64, or amd64
 - **RAM**: 1GB+ (2GB+ recommended for desktop)
 - **Storage**: 8GB+ free space
 - **Network**: Internet connection for SSL certificates
@@ -292,7 +298,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🆘 Support
 
 - **📚 [Documentation](doc/)** - Complete guides and reference
-- **[FAQ](doc/reference/faq.md)** - Frequently asked questions  
+- **[FAQ](doc/reference/faq.md)** - Frequently asked questions
 - **[Issues](https://github.com/alesanfe/vnc-remote-secure/issues)** - Report bugs and request features
 - **[Discussions](https://github.com/alesanfe/vnc-remote-secure/discussions)** - Community discussions
 
@@ -365,7 +371,7 @@ chmod +x src/rpi-vnc-remote.sh
 TTYD_PASSWD=mypassword ./src/rpi-vnc-remote.sh
 ```
 
-**Access**: 
+**Access**:
 - Desktop: `http://your-raspberry-pi-ip:6080`
 - Terminal: `http://your-raspberry-pi-ip:5000`
 
@@ -1174,10 +1180,10 @@ To add a new test:
    run_test() {
        local test_name="$1"
        local test_command="$2"
-       
+
        test_count=$((test_count + 1))
        echo -n "Test $test_count: $test_name... "
-       
+
        if eval "$test_command" > /dev/null 2>&1; then
            echo -e "${GREEN}PASS${NC}"
            pass_count=$((pass_count + 1))
@@ -1645,7 +1651,7 @@ ttyd is a simple command-line tool for sharing terminal over the web.
 
 Download .arm version of ttyd binary from the following command
 ```
-wget https://github.com/tsl0922/ttyd/releases/download/1.6.3/ttyd.armhf 
+wget https://github.com/tsl0922/ttyd/releases/download/1.6.3/ttyd.armhf
 ```
 
 Copy the binary to /usr/local/bin/ttyd
@@ -1690,7 +1696,7 @@ cp /usr/share/novnc/vnc.html /usr/share/novnc/index.html
 
 Packages for the latest Xfce desktop environment and the TightVNC package available from the official Ubuntu repository. Both Xfce and TightVNC are known for being lightweight and fast, which will help ensure that the VNC connection will be smooth and stable even on slower internet connections.
 ```
-sudo apt install xfce4 xfce4-goodies 
+sudo apt install xfce4 xfce4-goodies
 ```
 
 #### Starting vncserver

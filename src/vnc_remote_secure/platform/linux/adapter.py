@@ -37,17 +37,6 @@ class LinuxAdapter(PlatformAdapter):
             'default_webterm_shell': '/bin/bash',
         }
 
-    def install_service(self, service_definition):
-        """Install a systemd unit file and reload daemon."""
-        unit_path = service_definition.get('unit_path')
-        unit_content = service_definition.get('unit_content')
-        if unit_path and unit_content:
-            with open(unit_path, 'w') as f:
-                f.write(unit_content)
-            subprocess.run(['systemctl', 'daemon-reload'], check=False)
-            return True
-        return False
-
     def remove_service(self, service_name):
         """Stop and remove a systemd service."""
         subprocess.run(['systemctl', 'stop', service_name], check=False)
@@ -58,75 +47,67 @@ class LinuxAdapter(PlatformAdapter):
             subprocess.run(['systemctl', 'daemon-reload'], check=False)
         return True
 
-    def start_service(self, service_name):
-        """Start a systemd service."""
-        result = subprocess.run(['systemctl', 'start', service_name])
-        return result.returncode == 0
-
-    def stop_service(self, service_name):
-        """Stop a systemd service."""
-        result = subprocess.run(['systemctl', 'stop', service_name])
-        return result.returncode == 0
-
-    def service_status(self, service_name):
-        """Get systemd service status."""
-        result = subprocess.run(
-            ['systemctl', 'is-active', service_name],
-            capture_output=True, text=True
-        )
-        running = result.stdout.strip() == 'active'
-        result2 = subprocess.run(
-            ['systemctl', 'is-enabled', service_name],
-            capture_output=True, text=True
-        )
-        enabled = result2.stdout.strip() == 'enabled'
-        return {'running': running, 'enabled': enabled}
-
-    def configure_firewall(self, port, protocol='tcp', direction='inbound', action='allow'):
-        """Configure UFW firewall rule."""
-        if direction != 'inbound':
-            return False
-        ufw_action = 'allow' if action == 'allow' else 'deny'
-        result = subprocess.run(
-            ['ufw', ufw_action, f'{port}/{protocol}'],
-            capture_output=True
-        )
-        return result.returncode == 0
-
     def remove_firewall_rule(self, rule_name):
-        """Remove a UFW rule."""
+        """Remove UFW rules carrying the ``rule_name`` comment.
+
+        ``ufw delete`` does not accept a rule name — it needs the
+        full rule spec or a number. Rules installed by
+        ``install_firewall_rule`` are tagged with a comment, so the
+        matching rules are located via ``ufw status numbered`` and
+        deleted highest-first (numbers shift on each delete).
+        """
+        status = subprocess.run(
+            ['ufw', 'status', 'numbered'],
+            capture_output=True, text=True,
+        )
+        if status.returncode != 0:
+            return False
+        import re
+        nums = [
+            int(m.group(1)) for m in re.finditer(
+                r'\[\s*(\d+)\].*' + re.escape(rule_name), status.stdout)
+        ]
+        ok = True
+        for n in sorted(nums, reverse=True):
+            res = subprocess.run(
+                ['ufw', '--force', 'delete', str(n)],
+                capture_output=True,
+            )
+            ok = ok and res.returncode == 0
+        return ok
+
+    def install_firewall_rule(self, port, protocol='tcp', rule_name=None):
+        """Allow ``port``/``protocol`` through UFW.
+
+        The rule is tagged with ``comment 'vnc-remote'`` (or
+        ``rule_name``) so ``remove_firewall_rule`` can find and
+        delete it deterministically — bare ``ufw delete <name>`` is
+        not valid UFW syntax. Returns ``True`` on success.
+        """
+        comment = rule_name or 'vnc-remote'
         result = subprocess.run(
-            ['ufw', 'delete', rule_name],
+            ['ufw', 'allow', f'{port}/{protocol}', 'comment', comment],
             capture_output=True
         )
         return result.returncode == 0
 
     def create_runtime_user(self, username):
-        """Create a Linux user."""
-        result = subprocess.run(
-            ['useradd', '-r', '-s', '/usr/sbin/nologin', username],
-            capture_output=True
+        """Create a Linux user.
+
+        Delegates to ``platform.linux.users`` so the idempotent
+        semantics (already-existing user -> True) live in one place.
+        """
+        from vnc_remote_secure.platform.linux.users import (
+            create_runtime_user as _create,
         )
-        return result.returncode == 0
+        return _create(username)
 
     def remove_runtime_user(self, username):
         """Remove a Linux user."""
-        result = subprocess.run(
-            ['userdel', '-r', username],
-            capture_output=True
+        from vnc_remote_secure.platform.linux.users import (
+            remove_runtime_user as _remove,
         )
-        return result.returncode == 0
-
-    def configure_permissions(self, path, owner, mode=None):
-        """Set POSIX permissions on a path."""
-        if mode is not None:
-            os.chmod(path, mode)
-        if ':' in owner:
-            user, group = owner.split(':')
-            shutil.chown(path, user, group)
-        else:
-            shutil.chown(path, owner)
-        return True
+        return _remove(username)
 
     # ---- Service-specific platform operations ----
 
@@ -153,11 +134,12 @@ class LinuxAdapter(PlatformAdapter):
             for line in result.stdout.split('\n'):
                 if 'inet ' in line and '127.0.0.1' not in line:
                     parts = line.strip().split()
-                    for part in parts:
-                        if part.startswith('inet') and '/' in part:
-                            ip = part.split('/')[0].replace('inet', '').strip()
-                            if ip and not ip.startswith('127.') and ip not in ips:
-                                ips.append(ip)
+                    # 'ip addr' lines look like: "inet 10.0.0.5/24 brd ..."
+                    # The address token is the token immediately after 'inet'.
+                    if len(parts) >= 2 and parts[0] == 'inet':
+                        ip = parts[1].split('/')[0]
+                        if ip and not ip.startswith('127.') and ip not in ips:
+                            ips.append(ip)
         except Exception as e:
             logger.debug("LAN IP detection via 'ip addr' failed: %s", e)
         # Filter virtual adapter ranges
@@ -169,19 +151,78 @@ class LinuxAdapter(PlatformAdapter):
         return [ip for ip in ips if not (ip in seen or seen.add(ip))]
 
     def start_vnc_server(self, display, geometry, depth, password):
-        """Start TigerVNC/vncserver. Returns subprocess.Popen."""
+        """Start TigerVNC/vncserver. Returns subprocess.Popen.
+
+        The VNC password is written to a protected file (0o600) and
+        passed via ``-PasswordFile`` rather than on the command line,
+        to avoid exposing it in ``/proc/<pid>/cmdline``.
+        """
         exe = shutil.which('tigervncserver') or shutil.which('vncserver')
         if not exe:
             from vnc_remote_secure.core.exceptions import ServiceError
             raise ServiceError("VNC server binary not found on PATH")
         cmd = [exe, display, '-geometry', geometry, '-depth', str(depth)]
+        # ADR-0002: when nginx is the single entry point the RFB port
+        # must not listen on all interfaces — direct RFB is only
+        # reachable through the loopback websockify bridge. Without
+        # nginx (development/direct-access mode) the port stays open
+        # for native VNC clients. UFW is only a secondary control: it
+        # may not even be installed.
+        try:
+            from vnc_remote_secure.core.config import get_config
+            if get_config().get('nginx_enabled'):
+                cmd.extend(['-localhost', 'yes'])
+        except Exception:  # noqa: BLE001 - config lookup is best-effort
+            pass
         if password:
-            cmd.extend(['-password', password])
-        return subprocess.Popen(cmd)
+            passwd_file = self._write_vnc_password_file(password)
+            cmd.extend(['-PasswordFile', passwd_file])
+        # The RFB server is an external binary that needs none of our
+        # credentials — strip secret env vars like the service manager
+        # does for websockify (password travels via -PasswordFile).
+        child_env = None
+        try:
+            from vnc_remote_secure.security.redaction import SECRET_VARS
+            child_env = {k: v for k, v in os.environ.items()
+                         if k not in SECRET_VARS}
+        except Exception:  # noqa: BLE001 - env filtering is best-effort
+            child_env = None
+        return subprocess.Popen(cmd, env=child_env)
 
-    def stop_vnc_process(self, pid):
-        """Stop a VNC process by PID using kill."""
-        subprocess.run(['kill', '-TERM', str(pid)], capture_output=True)
+    @staticmethod
+    def _write_vnc_password_file(password):
+        """Write a VNC password to a protected file (0o600).
+
+        TigerVNC expects the password file in the ``vncpasswd``
+        format: the 8-byte-padded password DES-encrypted under the
+        fixed VNC key (not the password as its own key). We use the
+        bundled ``d3des`` implementation to produce the same format.
+
+        The file lives under the canonical run directory (cleaned by
+        uninstall) rather than a fresh ``/tmp`` mkstemp on every
+        start — the previous behaviour accumulated credential files
+        that were never deleted.
+        """
+        import os
+        import tempfile
+
+        from vnc_remote_secure.vendor.d3des import encrypt_vnc_password
+        # The file must contain the classic vncpasswd obfuscation:
+        # the padded password DES-encrypted under the fixed VNC key.
+        encrypted = encrypt_vnc_password(password)
+        try:
+            from vnc_remote_secure.core.paths import get_run_dir
+            base = get_run_dir()
+        except Exception:  # noqa: BLE001
+            base = tempfile.gettempdir()
+        os.makedirs(base, exist_ok=True)
+        path = os.path.join(base, 'vnc_passwd.pwd')
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, encrypted)
+        finally:
+            os.close(fd)
+        return path
 
     def get_audio_capture_cmd(self, ffmpeg, device, bitrate):
         """Return ffmpeg input args for PulseAudio/ALSA capture."""

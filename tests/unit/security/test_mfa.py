@@ -3,19 +3,17 @@ import os
 import sys
 import time
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.security.mfa import (
+    generate_recovery_codes,
     generate_totp_secret,
     generate_totp_uri,
-    verify_totp,
-    generate_recovery_codes,
     hash_recovery_code,
-    verify_recovery_code,
     is_mfa_enabled,
     mfa_required_for_login,
+    verify_recovery_code,
+    verify_totp,
 )
 
 
@@ -42,7 +40,7 @@ class TestTOTPVerification:
     def test_valid_code_accepted(self):
         secret = generate_totp_secret()
         # Generate a valid TOTP code
-        from vnc_remote_secure.security.mfa import _hotp, TOTP_INTERVAL
+        from vnc_remote_secure.security.mfa import TOTP_INTERVAL, _hotp
         step = int(time.time()) // TOTP_INTERVAL
         code = f"{_hotp(secret.encode() if isinstance(secret, bytes) else __import__('base64').b32decode(secret + '=' * ((8 - len(secret) % 8) % 8)), step):06d}"
         assert verify_totp(secret, code)
@@ -64,15 +62,56 @@ class TestTOTPVerification:
         secret = generate_totp_secret()
         assert not verify_totp(secret, '')
 
+    def test_non_ascii_digits_rejected_without_crash(self):
+        """Unicode digits pass str.isdigit() but must fail closed —
+        str-form hmac.compare_digest raises TypeError on non-ASCII."""
+        secret = generate_totp_secret()
+        # Arabic-Indic and full-width digits: isdigit()==True, not ASCII
+        assert not verify_totp(secret, '١٢٣٤٥٦')
+        assert not verify_totp(secret, '１２３４５６')
+        assert not verify_totp(secret, None)
+        assert not verify_totp(secret, 123456)  # non-str input
+
     def test_window_allows_drift(self):
         secret = generate_totp_secret()
-        from vnc_remote_secure.security.mfa import _hotp, TOTP_INTERVAL, _base32_decode
+        from vnc_remote_secure.security.mfa import (
+            TOTP_INTERVAL,
+            _base32_decode,
+            _hotp,
+            _record_step,
+        )
         key = _base32_decode(secret)
         now = int(time.time())
         step = now // TOTP_INTERVAL
+        # Reset anti-replay state so earlier tests' consumed counters
+        # (same process, shared backend) do not mask the drift check.
+        _record_step(step - 3)
         # Previous step should be accepted (within window)
         code = f"{_hotp(key, step - 1):06d}"
         assert verify_totp(secret, code, timestamp=now)
+
+    def test_totp_replay_rejected(self):
+        """A code at an already-consumed counter is rejected — a captured
+        TOTP cannot be replayed inside its validity window."""
+        secret = generate_totp_secret()
+        from vnc_remote_secure.security.mfa import (
+            TOTP_INTERVAL,
+            _base32_decode,
+            _hotp,
+            _record_step,
+        )
+        key = _base32_decode(secret)
+        now = int(time.time())
+        step = now // TOTP_INTERVAL
+        _record_step(step - 3)  # clean slate
+        code = f"{_hotp(key, step):06d}"
+        assert verify_totp(secret, code, timestamp=now)
+        # Same code, same step: replay must fail.
+        assert not verify_totp(secret, code, timestamp=now)
+        # An older (drift-window) code after the newer one was consumed
+        # also fails — counters may only move forward.
+        old = f"{_hotp(key, step - 1):06d}"
+        assert not verify_totp(secret, old, timestamp=now)
 
 
 class TestRecoveryCodes:
@@ -80,11 +119,12 @@ class TestRecoveryCodes:
         codes = generate_recovery_codes(8)
         assert len(codes) == 8
 
-    def test_format_is_XXXX_XXXX(self):
+    def test_format_is_XXXX_XXXX_XXXX(self):
         codes = generate_recovery_codes(4)
         for c in codes:
-            assert len(c) == 9  # XXXX-XXXX
+            assert len(c) == 14  # XXXX-XXXX-XXXX
             assert c[4] == '-'
+            assert c[9] == '-'
 
     def test_hash_is_sha256(self):
         h = hash_recovery_code('ABCD-1234')

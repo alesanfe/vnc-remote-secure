@@ -43,8 +43,11 @@ you were only using it for Python-side logic.
 |----------|----------|
 | `CERT_FILE` | `SSL_CERT` |
 | `KEY_FILE` | `SSL_KEY` |
+| `NOVNC_HOST` | `SERVE_NOVNC_HOST` (deprecated fallback, still honoured) |
 
 **Action**: Update your `.env` to use `SSL_CERT` and `SSL_KEY`.
+`NOVNC_HOST` keeps working as a fallback when `SERVE_NOVNC_HOST` is
+unset, but `vnc-remote config migrate` renames it.
 
 ### Python version requirement
 
@@ -54,9 +57,9 @@ Python 3.8+ is no longer supported. The minimum is now **Python 3.11+**.
 
 ### VNC_REMOTE_PROFILE deprecation
 
-`VNC_REMOTE_PROFILE` was never consumed by the runtime. It is now
-explicitly marked as reserved for future use. Use `SECURITY_PROFILE`
-for security profile selection.
+`VNC_REMOTE_PROFILE` is deprecated. It is still honoured as a fallback
+when `SECURITY_PROFILE` is unset (see `security.profiles.get_profile`),
+but new configurations should set `SECURITY_PROFILE` only.
 
 **Action**: Replace `VNC_REMOTE_PROFILE` with `SECURITY_PROFILE` in
 your `.env` and config examples.
@@ -76,30 +79,33 @@ limiting, and per-action authorization.
 **Action**: Set `AUTH_SECRET`, `FLASK_SECRET_KEY`, and optionally
 `TOTP_SECRET` and `MFA_REQUIRED=true` in your `.env`.
 
----
-
-## v0.2.0 → v0.3.0 (planned)
-
 ### Audit logging
 
 Structured JSON audit logging is now available. The audit log is
 tamper-evident (SHA-256 chain hash).
 
 **Action**: Set `AUDIT_LOG_FILE` in your `.env` if you want a custom
-path. Default is `logs/audit.jsonl`.
+path. Default is `audit.jsonl` inside the platform log directory
+(`/var/log/vnc-remote-secure` as root, the XDG state dir for non-root
+Linux, `%ProgramData%\VncRemoteSecure\logs` on Windows).
 
 ### Prometheus metrics
 
-A `/metrics` endpoint is now available in Prometheus text format.
+A `/metrics` endpoint is now available in Prometheus text format,
+served by the health service on `HEALTH_WEB_PORT` (8080 on Linux,
+8090 on Windows) and by the Flask UI on `USER_UI_PORT` (8081) when
+`USER_UI_ENABLED=true`.
 
-**Action**: Add a scrape config to your Prometheus:
+**Action**: Add a scrape config to your Prometheus (adjust the port to
+your health service):
 
 ```yaml
 scrape_configs:
   - job_name: 'vnc-remote-secure'
     static_configs:
-      - targets: ['localhost:8080']
+      - targets: ['127.0.0.1:8080']
     metrics_path: '/metrics'
+    bearer_token: '<HEALTH_AUTH_TOKEN>'   # when HEALTH_AUTH_TOKEN is set
 ```
 
 ### HTTP security headers
@@ -115,6 +121,14 @@ The TLS configuration is now validated at startup. Weak ciphers and
 protocols (SSLv2, SSLv3, TLSv1.0, TLSv1.1, RC4, 3DES) are rejected.
 
 **Action**: If you have `SSL_CIPHERS` set, remove weak ciphers.
+
+---
+
+## v0.2.0 → v0.3.0 (planned)
+
+See [ROADMAP.md](../../ROADMAP.md) for the detailed v0.3.0 plan
+(idempotency tests, CI matrix expansion, automated backup/restore
+verification, systemd health integration).
 
 ---
 

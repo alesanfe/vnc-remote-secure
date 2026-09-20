@@ -1,0 +1,16 @@
+{
+  "name": "ttyd",
+  "version": "1.7.7",
+  "platform": "linux",
+  "architecture": "x86_64",
+  "description": "Lightweight web-based terminal (Linux binary, optional). The canonical terminal is the built-in Python Tornado server on both platforms; ttyd is available as an optional alternative.",
+  "homepage": "https://github.com/tsl0922/ttyd",
+  "repository": "https://github.com/tsl0922/ttyd",
+  "license": "MIT",
+  "license_file": "../licenses/ttyd.txt",
+  "managed_by": "download",
+  "download_url": "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64",
+  "filename": "ttyd",
+  "sha256": "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55",
+  "notes": "Linux-only binary. The Python/Tornado terminal server (src/vnc_remote_secure/services/terminal.py) is the canonical terminal on both platforms; this manifest supports optional ttyd installs (e.g. `make ttyd-install`)."
+}

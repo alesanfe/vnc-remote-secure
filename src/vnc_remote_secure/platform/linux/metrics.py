@@ -5,6 +5,24 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 
+def get_os_display_name():
+    """Return a human-readable OS name for Linux.
+
+    Reads the ``PRETTY_NAME`` field from ``/etc/os-release`` if available.
+    Returns ``None`` if the file is missing or cannot be parsed.
+    """
+    try:
+        with open('/etc/os-release', 'r') as f:
+            for line in f:
+                if line.startswith('PRETTY_NAME='):
+                    return line.split('=', 1)[1].strip().strip('"')
+    except FileNotFoundError:
+        pass  # Not a Linux distribution with os-release; expected on minimal images.
+    except (OSError, ValueError) as e:
+        logger.warning("Linux os-release detection failed: %s", e, exc_info=True)
+    return None
+
+
 def get_system_metrics():
     """Return Linux system metrics (CPU load, memory, disk, uptime).
 
@@ -24,8 +42,10 @@ def get_system_metrics():
     try:
         with open('/proc/loadavg', 'r') as f:
             metrics['cpu'] = f"Load: {f.readline().split()[0]}"
-    except Exception as e:
-        logger.debug("Linux loadavg detection failed: %s", e)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as e:
+        logger.warning("Linux loadavg detection failed: %s", e, exc_info=True)
 
     try:
         # Sample /proc/stat twice to compute idle delta -> usage %
@@ -47,8 +67,10 @@ def get_system_metrics():
         if total_delta > 0:
             usage = (1 - idle_delta / total_delta) * 100
             metrics['cpu_percent'] = f"{usage:.0f}%"
-    except Exception as e:
-        logger.debug("Linux CPU percent detection failed: %s", e)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, ZeroDivisionError) as e:
+        logger.warning("Linux CPU percent detection failed: %s", e, exc_info=True)
 
     # Memory usage (with percentage)
     try:
@@ -63,8 +85,10 @@ def get_system_metrics():
                 pct = (used / total) * 100 if total > 0 else 0
                 metrics['memory'] = f"{pct:.0f}% ({used} MB / {total} MB)"
                 break
-    except Exception as e:
-        logger.debug("Linux memory detection failed: %s", e)
+    except FileNotFoundError:
+        pass  # `free` not installed on minimal containers.
+    except (subprocess.SubprocessError, ValueError, IndexError) as e:
+        logger.warning("Linux memory detection failed: %s", e, exc_info=True)
 
     # Disk usage for root partition
     try:
@@ -75,9 +99,11 @@ def get_system_metrics():
         if len(lines) > 1:
             parts = lines[1].split()
             if len(parts) > 4:
-                metrics['disk'] = f"/ {parts[4]} ({parts[3]} used)"
-    except Exception as e:
-        logger.debug("Linux disk detection failed: %s", e)
+                metrics['disk'] = f"/ {parts[1]} ({parts[2]} used, {parts[4]} full)"
+    except FileNotFoundError:
+        pass
+    except (subprocess.SubprocessError, IndexError) as e:
+        logger.warning("Linux disk detection failed: %s", e, exc_info=True)
 
     # Uptime
     try:
@@ -86,7 +112,9 @@ def get_system_metrics():
             hours = int(uptime_seconds // 3600)
             minutes = int((uptime_seconds % 3600) // 60)
             metrics['uptime'] = f"{hours}h {minutes}m"
-    except Exception as e:
-        logger.debug("Linux uptime detection failed: %s", e)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as e:
+        logger.warning("Linux uptime detection failed: %s", e, exc_info=True)
 
     return metrics

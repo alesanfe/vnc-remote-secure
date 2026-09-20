@@ -13,10 +13,14 @@ Use DuckDNS (https://www.duckdns.org/) as the default dynamic DNS provider:
 - Free, no registration required beyond a DuckDNS account
 - Simple API: `https://www.duckdns.org/update?domains=SUBDOMAIN&token=TOKEN&ip=`
 - Supports both IPv4 and IPv6
-- Cross-platform update scripts (Bash + Python fallback)
+- Cross-platform update scripts (Python canonical + Bash fallback)
 
-Implemented in `scripts/utilities/duckdns_update.sh` and `scripts/utilities/duckdns_update.py`,
-integrated into both `vnc-remote` (unified CLI, Windows) and `src/rpi-vnc-remote.sh` (Linux).
+Implemented in `scripts/utilities/duckdns_update.py` (canonical,
+cross-platform) and `scripts/utilities/duckdns_update.sh` (legacy Bash
+fallback). The `make duckdns-*` targets invoke the Python script. The
+unified Python CLI and Windows PowerShell wrapper do not invoke DuckDNS
+directly; updates run via the Make targets or a cron/Task Scheduler
+entry set up by the operator.
 
 ## Alternatives considered
 1. **Cloudflare DNS API**: More features, better API.

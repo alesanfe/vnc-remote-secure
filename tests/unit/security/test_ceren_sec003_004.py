@@ -19,14 +19,12 @@ CONTRATO SEC-004:
 import os
 import sys
 import threading
-import time
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 import vnc_remote_secure.security.ephemeral_sessions as mod
-import vnc_remote_secure.security.websocket_registry as wsr_mod
 from vnc_remote_secure.security.ephemeral_sessions import (
     SessionStore,
     consume_ephemeral_session,
@@ -34,9 +32,7 @@ from vnc_remote_secure.security.ephemeral_sessions import (
     revoke_session,
 )
 from vnc_remote_secure.security.websocket_registry import (
-    register_connection,
     reset_registry,
-    revoke_session_connections,
 )
 
 
@@ -200,7 +196,7 @@ class TestRevocationClosesWebSockets:
         from vnc_remote_secure.security.auth_gateway import (
             register_websocket_connection,
         )
-        conn_id = register_websocket_connection(signed, close_cb, 'desktop')
+        register_websocket_connection(signed, close_cb, 'desktop')
 
         # Revoke the session
         revoke_session(signed)

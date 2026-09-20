@@ -29,9 +29,13 @@ TLS_SECURITY_HEADERS = {
 }
 
 # CSP policy (configurable via CSP_POLICY env var).
+# Note: 'unsafe-inline' is retained for script-src because the templates
+# use inline event handlers; 'unsafe-eval' is removed to prevent eval().
+# connect-src is restricted to 'self' and the same-origin WebSocket
+# schemes (wss/ws) which are required for the noVNC/terminal connections.
 DEFAULT_CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+    "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; "
     "connect-src 'self' wss: ws:; "
@@ -40,6 +44,18 @@ DEFAULT_CSP = (
     "base-uri 'self'; "
     "frame-ancestors 'none'"
 )
+
+
+def _safe_header_value(value: str, fallback: str) -> str:
+    """Return ``value`` unless it contains CR/LF (header injection).
+
+    Operator-supplied env values land verbatim in response headers; a
+    malformed value must fall back to the safe default rather than
+    break or poison the response.
+    """
+    if value and '\r' not in value and '\n' not in value:
+        return value
+    return fallback
 
 
 def get_security_headers(tls_enabled: bool = True) -> Dict:
@@ -53,9 +69,12 @@ def get_security_headers(tls_enabled: bool = True) -> Dict:
     """
     headers = dict(DEFAULT_SECURITY_HEADERS)
 
-    # Content-Security-Policy (allow override via env).
+    # Content-Security-Policy (allow override via env). CR/LF is
+    # rejected the same way SESSION_SAMESITE is validated: the
+    # http.server fallback does not escape header values, so a raw
+    # env-supplied policy could inject extra response headers.
     csp = os.environ.get('CSP_POLICY', DEFAULT_CSP)
-    headers['Content-Security-Policy'] = csp
+    headers['Content-Security-Policy'] = _safe_header_value(csp, DEFAULT_CSP)
 
     # HSTS only when TLS is enabled (never send HSTS over HTTP).
     if tls_enabled:
@@ -63,53 +82,34 @@ def get_security_headers(tls_enabled: bool = True) -> Dict:
             'HSTS_HEADER',
             TLS_SECURITY_HEADERS['Strict-Transport-Security'],
         )
-        headers['Strict-Transport-Security'] = hsts
+        headers['Strict-Transport-Security'] = _safe_header_value(
+            hsts, TLS_SECURITY_HEADERS['Strict-Transport-Security'])
 
     return headers
 
 
-def apply_security_headers(response, tls_enabled: bool = True):
-    """Apply security headers to an HTTP response object.
+def send_security_headers(handler, tls_enabled=None) -> None:
+    """Emit all security headers on a ``BaseHTTPRequestHandler``.
 
-    Works with both Flask response objects and http.server responses.
+    Call inside an ``end_headers()`` override so every response —
+    including error responses — carries the headers::
+
+        def end_headers(self):
+            send_security_headers(self)
+            super().end_headers()
 
     Args:
-        response: The response object to modify.
-        tls_enabled: Whether TLS is active.
+        handler: The request handler (must have ``send_header``).
+        tls_enabled: Whether this response is served over TLS (adds
+            HSTS). When ``None`` (default) it is auto-detected from
+            the accepted connection: services wrapping their listen
+            socket with an SSLContext produce ``ssl.SSLSocket``
+            children, so plain-HTTP services keep emitting no HSTS
+            while TLS services do — with no per-service plumbing.
     """
-    headers = get_security_headers(tls_enabled)
-
-    # Flask response objects have a ``headers`` dict-like interface.
-    if hasattr(response, 'headers'):
-        if hasattr(response.headers, '__setitem__'):
-            # Flask/Werkzeug response.
-            for name, value in headers.items():
-                response.headers[name] = value
-        elif hasattr(response.headers, 'update'):
-            # http.server BaseHTTPRequestHandler (end_headers path).
-            for name, value in headers.items():
-                response.headers.update({name: value})
-
-    return response
-
-
-def security_headers_handler(handler_class):
-    """Decorator that adds security headers to an http.server handler.
-
-    Usage:
-        @security_headers_handler
-        class MyHandler(http.server.BaseHTTPRequestHandler):
-            ...
-    """
-    original_end_headers = handler_class.end_headers
-
-    def end_headers(self):
-        from vnc_remote_secure.security.profiles import _is_tls_enabled
-        tls = _is_tls_enabled()
-        headers = get_security_headers(tls)
-        for name, value in headers.items():
-            self.send_header(name, value)
-        original_end_headers(self)
-
-    handler_class.end_headers = end_headers
-    return handler_class
+    if tls_enabled is None:
+        import ssl
+        tls_enabled = isinstance(
+            getattr(handler, 'connection', None), ssl.SSLSocket)
+    for name, value in get_security_headers(tls_enabled).items():
+        handler.send_header(name, value)

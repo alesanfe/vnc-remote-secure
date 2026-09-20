@@ -103,21 +103,22 @@ test(unit): add password strength edge case tests
 
 ### Writing tests
 
-Tests use the framework in `tests/lib/test_framework.sh`:
+The canonical test framework is Python `pytest`:
 
-```bash
-#!/bin/bash
-source "$(dirname "$0")/../lib/test_framework.sh"
+```python
+"""Tests for my feature."""
+import pytest
 
-test_my_feature() {
-    setup
-    assert_success my_function
-    assert_eq "expected" "actual"
-}
+from vnc_remote_secure.my_module import my_function
 
-run_test "my feature works" test_my_feature
-end_suite
+
+class TestMyFeature:
+    def test_my_feature_works(self):
+        assert my_function() == "expected"
 ```
+
+Place test files under `tests/unit/`, `tests/integration/`, or
+`tests/e2e/` depending on scope. The runner auto-discovers them.
 
 ## Pull Request Process
 

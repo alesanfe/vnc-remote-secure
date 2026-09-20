@@ -6,12 +6,13 @@ deterministic and do not require UltraVNC/TigerVNC to be installed.
 """
 import os
 import sys
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.services import vnc
 from vnc_remote_secure.core.exceptions import ServiceError
+from vnc_remote_secure.services import vnc
 
 
 class _FakeLinuxAdapter:
@@ -72,7 +73,6 @@ def test_start_vnc_linux_returns_popen(monkeypatch):
     """On Linux, start_vnc returns the Popen instance when the binary exists."""
     _patch_adapter(monkeypatch, _FakeLinuxAdapter())
     monkeypatch.setattr(vnc, 'is_port_available', lambda port: True)
-    monkeypatch.setattr(vnc, 'create_session', lambda *a, **k: None)
     import shutil
     monkeypatch.setattr(shutil, 'which', lambda name: '/usr/bin/tigervncserver')
 
@@ -107,7 +107,6 @@ def test_start_vnc_windows_returns_pid(monkeypatch):
     """On Windows, start_vnc returns the PID when winvnc is found."""
     _patch_adapter(monkeypatch, _FakeWindowsAdapter())
     monkeypatch.setattr(vnc, 'is_port_available', lambda port: True)
-    monkeypatch.setattr(vnc, 'create_session', lambda *a, **k: None)
     import shutil
     monkeypatch.setattr(shutil, 'which', lambda name: 'C:/ultravnc/winvnc.exe')
 
@@ -144,72 +143,3 @@ def test_start_vnc_port_in_use_raises(monkeypatch):
     monkeypatch.setattr(vnc, 'is_port_available', lambda port: False)
     with pytest.raises(ServiceError, match="already running"):
         vnc.start_vnc(display=':1', password='secret')
-
-
-# ---------------------------------------------------------------------------
-# stop_vnc
-# ---------------------------------------------------------------------------
-
-def test_stop_vnc_returns_true_when_no_process(monkeypatch):
-    """stop_vnc returns True when no process is found on the port."""
-    monkeypatch.setattr(vnc, 'find_process', lambda port: None)
-    monkeypatch.setattr(vnc, 'destroy_session', lambda display: None)
-    assert vnc.stop_vnc(display=':1') is True
-
-
-def test_stop_vnc_kills_process_on_linux(monkeypatch):
-    """stop_vnc kills the process and returns True on Linux."""
-    _patch_adapter(monkeypatch, _FakeLinuxAdapter())
-    monkeypatch.setattr(vnc, 'find_process', lambda port: 4321)
-    monkeypatch.setattr(vnc, 'destroy_session', lambda display: None)
-
-    called = {}
-    def _fake_run(cmd, **k):
-        called['cmd'] = cmd
-        return None
-    import subprocess
-    monkeypatch.setattr(subprocess, 'run', _fake_run)
-
-    assert vnc.stop_vnc(display=':1') is True
-    assert 'kill' in called['cmd']
-
-
-def test_stop_vnc_kills_process_on_windows(monkeypatch):
-    """stop_vnc uses taskkill on Windows."""
-    _patch_adapter(monkeypatch, _FakeWindowsAdapter())
-    monkeypatch.setattr(vnc, 'find_process', lambda port: 4321)
-    monkeypatch.setattr(vnc, 'destroy_session', lambda display: None)
-
-    called = {}
-    def _fake_run(cmd, **k):
-        called['cmd'] = cmd
-        return None
-    import subprocess
-    monkeypatch.setattr(subprocess, 'run', _fake_run)
-
-    assert vnc.stop_vnc(display=':1') is True
-    assert 'taskkill' in called['cmd']
-
-
-# ---------------------------------------------------------------------------
-# vnc_status
-# ---------------------------------------------------------------------------
-
-def test_vnc_status_not_running(monkeypatch):
-    """vnc_status reports running=False when the port is available."""
-    monkeypatch.setattr(vnc, 'is_port_available', lambda port: True)
-    monkeypatch.setattr(vnc, 'find_process', lambda port: None)
-    status = vnc.vnc_status(display=':1')
-    assert status['display'] == ':1'
-    assert status['port'] == vnc.DEFAULT_VNC_PORT + 1
-    assert status['running'] is False
-    assert status['pid'] is None
-
-
-def test_vnc_status_running(monkeypatch):
-    """vnc_status reports running=True when the port is taken."""
-    monkeypatch.setattr(vnc, 'is_port_available', lambda port: False)
-    monkeypatch.setattr(vnc, 'find_process', lambda port: 4321)
-    status = vnc.vnc_status(display=':1')
-    assert status['running'] is True
-    assert status['pid'] == 4321

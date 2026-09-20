@@ -8,10 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 
 import vnc_remote_secure.security.ephemeral_sessions as mod
 from vnc_remote_secure.security.ephemeral_sessions import (
-    EphemeralSession,
     SessionStore,
     check_permission,
-    create_ephemeral_session,
 )
 
 

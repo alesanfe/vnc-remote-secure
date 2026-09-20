@@ -14,7 +14,7 @@ insecure:
 Separate secrets from general configuration:
 - `.env` file contains all configuration including secrets (gitignored, never committed)
 - `.env.example` contains only fictitious values and documentation
-- systemd units read secrets from `EnvironmentFile=/etc/vnc-remote/secrets/vnc.env` (permissions 600)
+- systemd units read configuration from `EnvironmentFile=/etc/vnc-remote-secure/config.env` (permissions 600)
 - ttyd reads credentials from a file (`--credential-file`) instead of command-line args
 - VNC password is written to `~/.vnc/passwd` with permissions 600
 - DuckDNS token is read from `.env` at runtime, never logged

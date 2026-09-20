@@ -55,9 +55,6 @@ help: ## Show this help message
 	@echo "$(BLUE)Quality:$(NC)"
 	@grep -hE '^(lint|format|check)[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-22s$(NC) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "$(BLUE)Docker:$(NC)"
-	@grep -hE '^docker-[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-22s$(NC) %s\n", $$1, $$2}'
-	@echo ""
 	@echo "$(BLUE)Services:$(NC)"
 	@grep -hE '^(vnc|ttyd|novnc|nginx|services|ssl|user|deps|status|stop|cleanup|duckdns)[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-22s$(NC) %s\n", $$1, $$2}'
 	@echo ""
@@ -95,8 +92,17 @@ setup-deps: ## Install Python dependencies
 setup-novnc: ## Clone noVNC (if not present)
 	@if [[ ! -d novnc ]]; then \
 		echo "$(BLUE)Cloning noVNC...$(NC)"; \
-		git clone --depth 1 https://github.com/novnc/noVNC.git novnc; \
-		echo "$(GREEN)✓ noVNC cloned$(NC)"; \
+		git clone --depth 1 --branch v1.4.0 https://github.com/novnc/noVNC.git novnc; \
+		PINNED=$$(python3 -c "import json;print(json.load(open('src/vnc_remote_secure/third_party/manifests/novnc.json'))['pinned_commit_sha'])" 2>/dev/null || \
+			python -c "import json;print(json.load(open('src/vnc_remote_secure/third_party/manifests/novnc.json'))['pinned_commit_sha'])" 2>/dev/null || true); \
+		if [[ -n "$$PINNED" ]]; then \
+			HEAD=$$(git -C novnc rev-parse HEAD); \
+			if [[ "$$HEAD" != "$$PINNED" ]]; then \
+				echo "$(RED)✗ noVNC HEAD $$HEAD != pinned $$PINNED - tag may have been re-pointed$(NC)"; \
+				rm -rf novnc; exit 1; \
+			fi; \
+		fi; \
+		echo "$(GREEN)✓ noVNC cloned (HEAD verified against pinned_commit_sha)$(NC)"; \
 	else \
 		echo "$(YELLOW)noVNC already present$(NC)"; \
 	fi
@@ -112,16 +118,16 @@ run: ## Run on Linux/RPi (requires .env with credentials)
 	@echo "$(BLUE)Starting VNC Remote Secure (Linux)...$(NC)"
 	@if [[ ! -f .env ]]; then echo "$(RED)Error: .env not found. Run 'make setup-env' first.$(NC)"; exit 1; fi
 	@if [[ -z "$(TTYD_PASSWD)" ]]; then echo "$(YELLOW)Warning: TTYD_PASSWD not set in .env$(NC)"; fi
-	@bash src/rpi-vnc-remote.sh
+	@./vnc-remote start --no-ssl
 
 run-ssl: ## Run on Linux/RPi with SSL (requires DUCK_DOMAIN and EMAIL)
 	@echo "$(BLUE)Starting VNC Remote Secure (Linux + SSL)...$(NC)"
 	@if [[ -z "$(DUCK_DOMAIN)" ]]; then echo "$(RED)Error: DUCK_DOMAIN not set in .env$(NC)"; exit 1; fi
 	@if [[ -z "$(EMAIL)" ]]; then echo "$(RED)Error: EMAIL not set in .env$(NC)"; exit 1; fi
-	@bash src/rpi-vnc-remote.sh
+	@./vnc-remote start
 
 stop: ## Stop all services (Linux)
-	@bash src/rpi-vnc-remote.sh stop
+	@./vnc-remote stop
 
 # ============================================================================
 # RUN (Windows)
@@ -139,7 +145,7 @@ win-stop: ## Stop all Windows services
 	@./vnc-remote stop
 
 win-verify: ## Verify all Windows services are responding
-	@python3 -m vnc_remote_secure.cli doctor
+	@python -m vnc_remote_secure.cli doctor 2>/dev/null || python3 -m vnc_remote_secure.cli doctor
 
 # ============================================================================
 # TESTING
@@ -184,25 +190,19 @@ test-fast: test-static test-unit test-integration test-security ## Run fast test
 lint: ## Run shellcheck on all shell scripts (non-fatal)
 	@echo "$(BLUE)Running shellcheck...$(NC)"
 	@shellcheck -x src/rpi-vnc-remote.sh || true
-	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh || true
-	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh || true
-	@shellcheck -x src/lib/platform/*.sh || true
-	@shellcheck -x scripts/development/*.sh scripts/maintenance/*.sh scripts/release/*.sh || true
+	@shellcheck -x scripts/development/*.sh scripts/maintenance/*.sh scripts/release/*.sh scripts/utilities/*.sh || true
 	@shellcheck -x launch.sh vnc-remote || true
 	@shellcheck -x tests/run_tests.sh || true
-	@find tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x || true
+	@find tests/static tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x || true
 	@echo "$(GREEN)✓ Linting complete$(NC)"
 
 lint-strict: ## Run shellcheck and fail on any warning
 	@echo "$(BLUE)Running shellcheck (strict)...$(NC)"
 	@shellcheck -x src/rpi-vnc-remote.sh
-	@shellcheck -x src/lib/core/*.sh src/lib/security/*.sh src/lib/web/*.sh
-	@shellcheck -x src/lib/monitoring/*.sh src/lib/communication/*.sh src/lib/features/*.sh
-	@shellcheck -x src/lib/platform/*.sh
-	@shellcheck -x scripts/development/*.sh scripts/maintenance/*.sh scripts/release/*.sh
+	@shellcheck -x scripts/development/*.sh scripts/maintenance/*.sh scripts/release/*.sh scripts/utilities/*.sh
 	@shellcheck -x launch.sh vnc-remote
 	@shellcheck -x tests/run_tests.sh
-	@find tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x
+	@find tests/static tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x
 	@echo "$(GREEN)✓ Linting complete (no warnings)$(NC)"
 
 lint-python: ## Run Python linters (ruff, black if available)
@@ -213,10 +213,9 @@ lint-python: ## Run Python linters (ruff, black if available)
 	else echo "$(YELLOW)black not installed, skipping$(NC)"; fi
 	@echo "$(GREEN)✓ Python linting complete$(NC)"
 
-format: ## Format Python code with black (if available)
-	@echo "$(BLUE)Formatting Python code...$(NC)"
-	@if command -v black &>/dev/null; then black src/vnc_remote_secure/ tools/ scripts/utilities/; \
-	else echo "$(YELLOW)black not installed. Install with: pip install black$(NC)"; fi
+format: ## Format Python and shell code (delegates to scripts/development/format.sh)
+	@echo "$(BLUE)Formatting code...$(NC)"
+	@bash scripts/development/format.sh
 	@echo "$(GREEN)✓ Formatting complete$(NC)"
 
 check: lint lint-python test-fast ## Run all quality checks (lint + fast tests)
@@ -225,65 +224,27 @@ check: lint lint-python test-fast ## Run all quality checks (lint + fast tests)
 # ============================================================================
 # DOCKER
 # ============================================================================
-
-docker-build: ## Build Docker image
-	@echo "$(BLUE)Building Docker image...$(NC)"
-	@cd packaging/docker && docker build -t vnc-remote-secure-test -f Dockerfile ../..
-
-docker-test: docker-build ## Run tests in Docker
-	@echo "$(BLUE)Running tests in Docker...$(NC)"
-	@cd packaging/docker && docker compose run test
-
-docker-compose-up: ## Start Docker Compose integration services
-	@echo "$(BLUE)Starting Docker Compose services...$(NC)"
-	@docker compose -f packaging/docker/compose.integration.yml up -d
-
-docker-compose-down: ## Stop Docker Compose integration services
-	@echo "$(BLUE)Stopping Docker Compose services...$(NC)"
-	@docker compose -f packaging/docker/compose.integration.yml down
-
-docker-clean: ## Remove Docker images and containers
-	@echo "$(YELLOW)Cleaning Docker resources...$(NC)"
-	@docker rmi vnc-remote-secure-test 2>/dev/null || true
-	@cd packaging/docker && docker compose down -v 2>/dev/null || true
-	@docker compose -f packaging/docker/compose.integration.yml down -v 2>/dev/null || true
-	@echo "$(GREEN)✓ Docker clean complete$(NC)"
+# Container packaging lives in packaging/docker/ (Dockerfile, compose.yml,
+# compose.integration.yml). Build and run with:
+#   docker compose -f packaging/docker/compose.yml --env-file .env up -d
+# Integration tests run under the `test` Compose profile:
+#   docker compose -f packaging/docker/compose.yml \
+#       -f packaging/docker/compose.integration.yml --profile test \
+#       run --rm test-runner
+# The docker-* / demo make targets are intentionally omitted; use
+# `docker compose` directly.
 
 # ============================================================================
-# SERVICES (Linux/RPi)
+# SERVICES (Linux/RPi) — canonical via vnc-remote CLI
 # ============================================================================
 
-vnc-start: ## Start VNC server
-	@echo "$(BLUE)Starting VNC server...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/logging.sh && source lib/core/utils.sh && source lib/core/services.sh && start_vnc_server
-
-vnc-stop: ## Stop VNC server
-	@echo "$(BLUE)Stopping VNC server...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && kill_vnc_server
-
-ttyd-start: ## Start ttyd
-	@echo "$(BLUE)Starting ttyd...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/logging.sh && source lib/core/utils.sh && source lib/core/services.sh && start_ttyd
-
-ttyd-stop: ## Stop ttyd
-	@echo "$(BLUE)Stopping ttyd...$(NC)"
-	@pkill -f ttyd || echo "$(YELLOW)No ttyd process found$(NC)"
-
-novnc-start: ## Start noVNC
-	@echo "$(BLUE)Starting noVNC...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/logging.sh && source lib/core/utils.sh && source lib/core/services.sh && start_novnc
-
-services-start: ## Start all services (VNC, ttyd, noVNC)
-	@echo "$(BLUE)Starting all services...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/logging.sh && source lib/core/utils.sh && source lib/core/services.sh && start_vnc_server && start_ttyd && start_novnc
-
-services-stop: ## Stop all services
-	@echo "$(BLUE)Stopping all services...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && cleanup_processes
+# Per-service legacy targets removed: use `vnc-remote start` / `vnc-remote stop`
+# which delegate to the Python service manager. The Bash stack remains
+# available via `src/rpi-vnc-remote.sh` for internal use.
 
 cleanup: ## Run cleanup (remove services and temp user)
 	@echo "$(BLUE)Running cleanup...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && cleanup_processes
+	@./vnc-remote stop
 
 # ============================================================================
 # SSL / USER / DEPS (Linux/RPi)
@@ -293,91 +254,86 @@ ssl-setup: ## Setup SSL certificates (requires DUCK_DOMAIN and EMAIL)
 	@if [[ -z "$(DUCK_DOMAIN)" ]]; then echo "$(RED)Error: DUCK_DOMAIN not set$(NC)"; exit 1; fi
 	@if [[ -z "$(EMAIL)" ]]; then echo "$(RED)Error: EMAIL not set$(NC)"; exit 1; fi
 	@echo "$(BLUE)Setting up SSL certificates...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/ssl.sh && setup_ssl
+	@./vnc-remote install
 
-ssl-renew: ## Renew SSL certificates
+ssl-renew: ## Renew SSL certificates via certbot (requires root)
 	@echo "$(BLUE)Renewing SSL certificates...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/ssl.sh && setup_ssl
+	@sudo certbot renew --deploy-hook "systemctl reload nginx 2>/dev/null || true" || \
+		{ echo "$(RED)certbot renew failed — is certbot configured?$(NC)"; exit 1; }
 
 ssl-check: ## Check SSL certificate expiry
 	@echo "$(BLUE)Checking SSL certificate expiry...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/ssl.sh && check_ssl_expiry
+	@./vnc-remote doctor
 
 # ============================================================================
 # DUCK DNS
 # ============================================================================
 
-duckdns-update: ## Update Duck DNS IP (one-shot)
+duckdns-update: ## Update Duck DNS IP (one-shot, Python — canonical)
 	@echo "$(BLUE)Updating Duck DNS...$(NC)"
-	@bash scripts/utilities/duckdns_update.sh
+	@python3 scripts/utilities/duckdns_update.py
 
 duckdns-daemon: ## Start Duck DNS update daemon (runs until Ctrl+C)
 	@echo "$(BLUE)Starting Duck DNS daemon...$(NC)"
-	@bash scripts/utilities/duckdns_update.sh --daemon
+	@python3 scripts/utilities/duckdns_update.py --daemon
 
 duckdns-check: ## Check Duck DNS resolution
 	@echo "$(BLUE)Checking Duck DNS...$(NC)"
-	@bash scripts/utilities/duckdns_update.sh --check
+	@python3 scripts/utilities/duckdns_update.py --check
 
-duckdns-update-py: ## Update Duck DNS IP via Python (cross-platform fallback)
-	@python3 scripts/utilities/duckdns_update.py
+duckdns-update-sh: ## Update Duck DNS IP via Bash (legacy fallback)
+	@bash scripts/utilities/duckdns_update.sh
 
-user-create: ## Create temporary user
-	@echo "$(BLUE)Creating temporary user...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/security/user.sh && create_temp_user
+user-create: ## DEPRECATED alias — temp user is created by install
+	@echo "$(YELLOW)DEPRECATED: the runtime user is created by 'install'$(NC)"
+	@./vnc-remote install
 
-user-remove: ## Remove temporary user
-	@echo "$(BLUE)Removing temporary user...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/core/cleanup_utils.sh && remove_temp_user
+user-remove: ## DEPRECATED alias — runtime user removal is part of uninstall
+	@echo "$(YELLOW)DEPRECATED: the runtime user is removed by 'uninstall'$(NC)"
+	@./vnc-remote uninstall
 
-deps-install: ## Install system dependencies (Linux)
-	@echo "$(BLUE)Installing system dependencies...$(NC)"
-	@cd src && source lib/core/utils.sh && install_dependencies
+deps-install: ## DEPRECATED alias — system deps are installed by install
+	@echo "$(YELLOW)DEPRECATED: system dependencies are installed by 'install'$(NC)"
+	@./vnc-remote install
 
-ttyd-install: ## Install ttyd binary
-	@echo "$(BLUE)Installing ttyd...$(NC)"
-	@cd src && source lib/core/utils.sh && install_ttyd
+ttyd-install: ## Download optional ttyd binary (canonical terminal is the built-in Python Tornado server)
+	@echo "$(BLUE)Downloading optional ttyd binary...$(NC)"
+	@python tools/download_dependencies.py || python3 tools/download_dependencies.py
 
-nginx-install: ## Install nginx
+nginx-install: ## Install nginx (delegates to vnc-remote install)
 	@echo "$(BLUE)Installing nginx...$(NC)"
-	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && install_nginx
+	@./vnc-remote install
 
-nginx-configure: ## Configure nginx reverse proxy
+nginx-configure: ## Configure nginx (delegates to vnc-remote install)
 	@echo "$(BLUE)Configuring nginx...$(NC)"
-	@cd src && source lib/core/config.sh && source lib/core/utils.sh && source lib/web/nginx.sh && configure_nginx
+	@./vnc-remote install
 
-nginx-start: ## Start nginx
+nginx-start: ## Start all services incl. nginx (delegates to vnc-remote start)
 	@echo "$(BLUE)Starting nginx...$(NC)"
-	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && start_nginx
+	@./vnc-remote start
 
-nginx-stop: ## Stop nginx
+nginx-stop: ## Stop all services incl. nginx (delegates to vnc-remote stop)
 	@echo "$(BLUE)Stopping nginx...$(NC)"
-	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && stop_nginx
+	@./vnc-remote stop
 
-nginx-restart: ## Restart nginx
+nginx-restart: ## Restart all services (delegates to vnc-remote restart)
 	@echo "$(BLUE)Restarting nginx...$(NC)"
-	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && restart_nginx
+	@./vnc-remote restart
 
-nginx-reload: ## Reload nginx configuration
+nginx-reload: ## Reload nginx config (systemctl reload nginx)
 	@echo "$(BLUE)Reloading nginx...$(NC)"
-	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && reload_nginx
+	@sudo systemctl reload nginx
 
-nginx-status: ## Show nginx status
+nginx-status: ## Show service status (delegates to vnc-remote status)
 	@echo "$(BLUE)Checking nginx status...$(NC)"
-	@cd src && source lib/core/utils.sh && source lib/web/nginx.sh && nginx_status
+	@./vnc-remote status
 
 # ============================================================================
 # STATUS
 # ============================================================================
 
-status: ## Show status of services
-	@echo "$(BLUE)Checking service status...$(NC)"
-	@echo "VNC Server:"
-	@pgrep -f Xtigervnc >/dev/null 2>&1 && echo "  $(GREEN)Running$(NC)" || echo "  $(RED)Stopped$(NC)"
-	@echo "ttyd:"
-	@pgrep -f ttyd >/dev/null 2>&1 && echo "  $(GREEN)Running$(NC)" || echo "  $(RED)Stopped$(NC)"
-	@echo "noVNC:"
-	@pgrep -f novnc_proxy >/dev/null 2>&1 && echo "  $(GREEN)Running$(NC)" || echo "  $(RED)Stopped$(NC)"
+status: ## Show status of services via the canonical CLI
+	@./vnc-remote status
 
 # ============================================================================
 # DOCS
@@ -392,53 +348,42 @@ docs: ## Show documentation index
 	@echo "Developer:       docs/developer/"
 	@echo "ADRs:            docs/adr/"
 
-docs-serve: ## Serve documentation locally (requires mkdocs)
-	@echo "$(BLUE)Serving documentation locally...$(NC)"
-	@if command -v mkdocs &>/dev/null; then mkdocs serve; \
-	else echo "$(YELLOW)mkdocs not installed. Install with: pip install mkdocs$(NC)"; fi
-
-docs-build: ## Build documentation (requires mkdocs)
-	@echo "$(BLUE)Building documentation...$(NC)"
-	@if command -v mkdocs &>/dev/null; then mkdocs build; \
-	else echo "$(YELLOW)mkdocs not installed. Install with: pip install mkdocs$(NC)"; fi
+# docs-serve / docs-build targets removed: mkdocs.yml is not present in the
+# repo and mkdocs is not a project dependency. Restore these targets when
+# mkdocs configuration is added.
 
 # ============================================================================
 # INSTALL / UNINSTALL (system-wide, Linux)
 # ============================================================================
 
-install: ## Install vnc-remote CLI to /usr/local/bin (Linux, system-wide)
-	@echo "$(YELLOW)Installing vnc-remote CLI to /usr/local...$(NC)"
-	@sudo mkdir -p /usr/local/share/rpi-vnc-remote
-	@sudo cp -r src/ /usr/local/share/rpi-vnc-remote/src/
-	@sudo cp -r scripts/ /usr/local/share/rpi-vnc-remote/scripts/ 2>/dev/null || true
-	@sudo cp vnc-remote /usr/local/bin/vnc-remote
-	@sudo chmod +x /usr/local/bin/vnc-remote
-	@sudo sed -i 's|PROJECT_DIR=.*|PROJECT_DIR="/usr/local/share/rpi-vnc-remote"|' /usr/local/bin/vnc-remote
+install: ## Install system-wide via the canonical packaging installer (Linux)
+	@echo "$(YELLOW)Running installer via vnc-remote...$(NC)"
+	@./vnc-remote install
 	@echo "$(GREEN)✓ Installation complete$(NC)"
 	@echo "$(BLUE)  Use: vnc-remote install / start / stop / status / doctor / uninstall$(NC)"
 
 uninstall: ## Uninstall: stop services, remove systemd units, nginx, certs, temp user
 	@echo "$(YELLOW)Uninstalling VNC Remote Secure...$(NC)"
-	@sudo bash scripts/maintenance/uninstall.sh
+	@./vnc-remote uninstall
 
 install-systemd: ## Install systemd service units (requires sudo, Linux only)
 	@echo "$(BLUE)Installing systemd service units...$(NC)"
-	@sudo bash scripts/maintenance/install_systemd.sh
+	@./vnc-remote install
 
-systemd-start: ## Start all systemd services
-	@sudo systemctl start vnc-remote-vnc vnc-remote-novnc vnc-remote-ttyd vnc-remote-health
+systemd-start: ## Start the unified vnc-remote service
+	@sudo systemctl start vnc-remote
 
-systemd-stop: ## Stop all systemd services
-	@sudo systemctl stop vnc-remote-vnc vnc-remote-novnc vnc-remote-ttyd vnc-remote-health
+systemd-stop: ## Stop the unified vnc-remote service
+	@sudo systemctl stop vnc-remote
 
-systemd-status: ## Show status of all systemd services
-	@sudo systemctl status vnc-remote-vnc vnc-remote-novnc vnc-remote-ttyd vnc-remote-health --no-pager
+systemd-status: ## Show status of the vnc-remote service
+	@sudo systemctl status vnc-remote --no-pager
 
-systemd-enable: ## Enable services to start on boot
-	@sudo systemctl enable vnc-remote-vnc vnc-remote-novnc vnc-remote-ttyd vnc-remote-health
+systemd-enable: ## Enable the service to start on boot
+	@sudo systemctl enable vnc-remote
 
-systemd-disable: ## Disable services from starting on boot
-	@sudo systemctl disable vnc-remote-vnc vnc-remote-novnc vnc-remote-ttyd vnc-remote-health
+systemd-disable: ## Disable the service from starting on boot
+	@sudo systemctl disable vnc-remote
 
 # ============================================================================
 # MAINTENANCE / CLEANUP
@@ -446,13 +391,13 @@ systemd-disable: ## Disable services from starting on boot
 
 clean: ## Clean temporary files
 	@echo "$(YELLOW)Cleaning temporary files...$(NC)"
-	@rm -f /tmp/.ttyd-cred.* /tmp/.ttyd-launch.* 2>/dev/null || true
+	@rm -f data/tmp/.terminal-cred.* data/tmp/.terminal-launch.* 2>/dev/null || true
 	@rm -f *.log 2>/dev/null || true
 	@rm -f landing_*.log 2>/dev/null || true
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	@echo "$(GREEN)✓ Clean complete$(NC)"
 
-clean-all: clean clean-docs docker-clean ## Clean everything (temp + docs + docker)
+clean-all: clean clean-docs ## Clean everything (temp + docs)
 	@echo "$(YELLOW)Full clean complete$(NC)"
 
 clean-docs: ## Clean generated documentation
@@ -480,30 +425,8 @@ git-pull: ## Pull from remote (current branch)
 # DEMO
 # ============================================================================
 
-demo: ## Run a self-contained demo (Docker-based, no .env needed)
-	@echo "$(BLUE)Starting VNC Remote Secure demo (Docker)...$(NC)"
-	@echo "$(BLUE)This builds and runs a container with a demo profile.$(NC)"
-	@echo "$(BLUE)Access the landing page at http://127.0.0.1:8000$(NC)"
-	@echo "$(BLUE)Health dashboard at http://127.0.0.1:8080/health$(NC)"
-	@echo "$(BLUE)Press Ctrl+C to stop.$(NC)"
-	@docker build -t vnc-remote-secure-demo -f docker/Dockerfile . || \
-		{ echo "$(RED)Docker build failed. Is Docker installed and running?$(NC)"; exit 1; }
-	@docker run --rm -it \
-		-p 8000:8000 \
-		-p 8080:8080 \
-		-p 6080:6080 \
-		-e SECURITY_PROFILE=development \
-		-e TLS_ENABLED=false \
-		-e DISABLE_SSL=true \
-		-e VNC_PASSWORD=demo1234 \
-		-e TTYD_PASSWD=demo1234 \
-		-e AUTH_SECRET=demo-secret-change-me \
-		-e FLASK_SECRET_KEY=demo-flask-key-change-me \
-		vnc-remote-secure-demo
-
-demo-clean: ## Remove the demo Docker image
-	@docker rmi vnc-remote-secure-demo 2>/dev/null || true
-	@echo "$(GREEN)Demo image removed.$(NC)"
+# Demo target intentionally omitted: a containerized deployment is available
+# via packaging/docker/compose.yml (see the DOCKER section above).
 
 # ============================================================================
 # PHONY
@@ -514,13 +437,11 @@ demo-clean: ## Remove the demo Docker image
         win-run win-run-nossl win-stop win-verify \
         test test-all test-list test-static test-unit test-integration test-e2e test-security test-fast \
         lint lint-strict lint-python format check \
-        docker-build docker-test docker-compose-up docker-compose-down docker-clean \
-        vnc-start vnc-stop ttyd-start ttyd-stop novnc-start services-start services-stop cleanup \
+        cleanup \
         ssl-setup ssl-renew ssl-check user-create user-remove deps-install ttyd-install \
-        duckdns-update duckdns-daemon duckdns-check duckdns-update-py \
+        duckdns-update duckdns-daemon duckdns-check duckdns-update-sh \
         nginx-install nginx-configure nginx-start nginx-stop nginx-restart nginx-reload nginx-status \
-        status docs docs-serve docs-build \
+        status docs \
         install uninstall install-systemd systemd-start systemd-stop systemd-status systemd-enable systemd-disable \
         clean clean-all clean-docs \
-        git-status git-log git-push git-pull \
-        demo demo-clean
+        git-status git-log git-push git-pull

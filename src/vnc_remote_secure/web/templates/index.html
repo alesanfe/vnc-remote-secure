@@ -11,8 +11,8 @@
 <body>
     <h1>VNC Remote - User Management Dashboard</h1>
     <div class="menu">
-        <a href="/users">Manage Users</a>
-        <form method="POST" action="/logout" style="display:inline;">
+        <a href="{{ url_for('users.users') }}">Manage Users</a>
+        <form method="POST" action="{{ url_for('users.logout') }}" style="display:inline;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit">Logout</button>
         </form>

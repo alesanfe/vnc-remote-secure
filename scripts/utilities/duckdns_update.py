@@ -6,10 +6,10 @@ Updates the IP address for a Duck DNS domain.
 Works on any OS with Python 3 (Linux, Windows, macOS).
 
 Usage:
-    python3 scripts/duckdns_update.py              # One-shot update
-    python3 scripts/duckdns_update.py --daemon     # Continuous update
-    python3 scripts/duckdns_update.py --check      # Check DNS resolution
-    python3 scripts/duckdns_update.py --help       # Show help
+    python3 scripts/utilities/duckdns_update.py              # One-shot update
+    python3 scripts/utilities/duckdns_update.py --daemon     # Continuous update
+    python3 scripts/utilities/duckdns_update.py --check      # Check DNS resolution
+    python3 scripts/utilities/duckdns_update.py --help       # Show help
 
 Required environment variables (from .env):
     DUCK_DOMAIN      - Duck DNS subdomain (e.g. "alesanfe")
@@ -24,15 +24,28 @@ import os
 import socket
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 
 def load_env():
-    """Load .env file if it exists (simple parser, no shell injection)."""
-    env_path = Path(__file__).resolve().parent.parent / ".env"
+    """Load .env via the canonical loader (no shell injection).
+
+    Falls back to a minimal inline read only when the package cannot be
+    imported (e.g. script copied outside the checkout).
+    """
+    try:
+        _src = Path(__file__).resolve().parent.parent.parent / 'src'
+        if str(_src) not in sys.path:
+            sys.path.insert(0, str(_src))
+        from vnc_remote_secure.core.config import load_env_file
+        load_env_file()
+        return
+    except Exception:  # noqa: BLE001 - fallback for standalone use
+        pass
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
     if not env_path.exists():
         return
     with open(env_path, "r", encoding="utf-8") as f:
@@ -74,7 +87,10 @@ def get_config():
 
 def update_ip(domain, token):
     """Send update request to Duck DNS API. Returns True on success."""
-    url = f"https://www.duckdns.org/update?domains={domain}&token={token}&ip="
+    import urllib.parse
+    url = ("https://www.duckdns.org/update?domains="
+           f"{urllib.parse.quote(domain, safe='')}"
+           f"&token={urllib.parse.quote(token, safe='')}&ip=")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     try:

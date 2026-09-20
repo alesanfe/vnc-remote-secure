@@ -12,62 +12,69 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Get project directory
+# Get project directory (scripts/maintenance is two levels below root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-echo -e "${BLUE}🧹 Raspberry Pi VNC Remote - Cleanup Script${NC}"
+echo -e "${BLUE}🧹 VNC Remote Secure - Cleanup Script${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
-# Function to ask for confirmation
-confirm_action() {
-    local message="$1"
-    read -p "$message (y/N): " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]]
+# Shared helpers
+source "$SCRIPT_DIR/common.sh"
+
+# Resolve the canonical platform directories via the Python package -
+# the runtime uses XDG/FHS paths (/var/log/vnc-remote-secure,
+# /run/vnc-remote-secure), not repo-relative ./logs or ./run.
+export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+_resolve_dir() {
+    python3 - "$1" <<'PYEOF' 2>/dev/null || true
+import sys
+from vnc_remote_secure.core import paths
+print(getattr(paths, sys.argv[1])())
+PYEOF
 }
+LOG_DIR_PATH="${LOG_DIR:-$(_resolve_dir get_log_dir)}"
+RUN_DIR_PATH="$(_resolve_dir get_run_dir)"
+LOG_DIR_PATH="${LOG_DIR_PATH:-$PROJECT_DIR/logs}"
+RUN_DIR_PATH="${RUN_DIR_PATH:-$PROJECT_DIR/run}"
 
 # Clean logs
 echo -e "\n${YELLOW}📋 Log Cleanup${NC}"
-if [[ -d "$PROJECT_DIR/data/logs" ]]; then
-    log_size=$(du -sh "$PROJECT_DIR/data/logs" 2>/dev/null | cut -f1)
+if [[ -d "$LOG_DIR_PATH" ]]; then
+    log_size=$(du -sh "$LOG_DIR_PATH" 2>/dev/null | cut -f1)
     echo -e "${BLUE}Current log directory size: $log_size${NC}"
-    
+
     if confirm_action "Clean logs older than 7 days?"; then
-        find "$PROJECT_DIR/data/logs" -name "*.log" -mtime +7 -delete 2>/dev/null || true
+        find "$LOG_DIR_PATH" -name "*.log" -mtime +7 -delete 2>/dev/null || true
         echo -e "${GREEN}✅ Old logs cleaned${NC}"
     fi
-    
+
     if confirm_action "Clean all logs?"; then
-        rm -f "$PROJECT_DIR/data/logs"/*.log 2>/dev/null || true
+        rm -f "$LOG_DIR_PATH"/*.log 2>/dev/null || true
         echo -e "${GREEN}✅ All logs cleaned${NC}"
     fi
 else
-    echo -e "${BLUE}📁 Log directory not found, creating...${NC}"
-    mkdir -p "$PROJECT_DIR/data/logs"
+    echo -e "${BLUE}📁 Log directory not found ($LOG_DIR_PATH)${NC}"
 fi
 
-# Clean temporary files
+# Clean runtime files (PID files live in the canonical run dir).
+# Deleting the .pid file of a LIVE service orphans it: the service
+# manager can no longer stop/restart it. Only remove PID files whose
+# process is already dead.
 echo -e "\n${YELLOW}🗂️  Temporary Files Cleanup${NC}"
-temp_files=(
-    "/tmp/health_status.html"
-    "/tmp/health_web_server.pid"
-    "/tmp/vnc_*"
-    "/tmp/ttyd_*"
-    "/tmp/novnc_*"
-)
-
-for pattern in "${temp_files[@]}"; do
-    # Expand glob safely; nullglob avoids literal pattern when no match
+if [[ -d "$RUN_DIR_PATH/pids" ]]; then
     shopt -s nullglob
-    local_files=($pattern)
+    for pidfile in "$RUN_DIR_PATH"/pids/*.pid; do
+        pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            echo -e "${BLUE}Keeping live PID file: $pidfile (PID $pid)${NC}"
+        else
+            rm -f -- "$pidfile" 2>/dev/null || true
+            echo -e "${GREEN}✅ Cleaned stale PID file: $pidfile${NC}"
+        fi
+    done
     shopt -u nullglob
-    if [[ ${#local_files[@]} -gt 0 ]]; then
-        echo -e "${BLUE}Found temporary files: $pattern${NC}"
-        rm -f -- "${local_files[@]}" 2>/dev/null || true
-        echo -e "${GREEN}✅ Cleaned: $pattern${NC}"
-    fi
-done
+fi
 
 # Clean old backups (keep last 3)
 echo -e "\n${YELLOW}💾 Backup Cleanup${NC}"
@@ -125,4 +132,4 @@ df -h "$PROJECT_DIR" 2>/dev/null | while IFS= read -r line; do
 done
 
 echo -e "\n${GREEN}✅ Cleanup completed successfully!${NC}"
-echo -e "${BLUE}💡 Run './scripts/health-check.sh' to verify system health${NC}"
+echo -e "${BLUE}💡 Run './scripts/maintenance/health-check.sh' to verify system health${NC}"

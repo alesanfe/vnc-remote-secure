@@ -5,6 +5,7 @@ Integrates with the existing session model in authentication.py.
 """
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import struct
@@ -12,6 +13,8 @@ import time
 from typing import Optional
 
 from vnc_remote_secure.core.config import load_env_file
+
+logger = logging.getLogger(__name__)
 
 # TOTP parameters (RFC 6238 defaults)
 TOTP_INTERVAL = 30  # seconds
@@ -60,32 +63,116 @@ def _hotp(secret: bytes, counter: int) -> int:
     return code % (10 ** TOTP_DIGITS)
 
 
+_NS_TOTP = 'mfa_last_step'
+
+
+def _secret_id(secret: str) -> str:
+    """Return a short stable identifier for a TOTP secret."""
+    return hashlib.sha256(secret.encode()).hexdigest()[:16]
+
+
+def _last_step(secret: str):
+    """Return the highest TOTP counter consumed for this secret.
+
+    Namespaced per secret — a global high-water mark would let one
+    user's successful login reject another user's legitimate code
+    (they share timesteps, not secrets).
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        val = get_backend().get(_NS_TOTP, f'last:{_secret_id(secret)}')
+        return int(val) if val is not None else -1
+    except Exception:  # noqa: BLE001
+        return -1
+
+
+def _record_step(step: int, secret: str = ''):
+    """Persist the consumed TOTP counter so it cannot be replayed.
+
+    ``secret`` may be empty for legacy/test callers — the key then
+    degrades to the old global bucket.
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        key = f'last:{_secret_id(secret)}' if secret else 'last'
+        get_backend().set(_NS_TOTP, key, step)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _claim_step(secret: str, step: int) -> bool:
+    """Atomically claim a TOTP timestep for a secret (single-use).
+
+    ``_last_step`` blocks counters at or below the highest consumed
+    one, but two processes could still verify the same code before
+    either records it — the per-step claim closes that race with an
+    atomic insert. The key is namespaced by a digest of the secret:
+    different users' devices legitimately share timesteps. Steps are
+    retained for two windows past the drift allowance so an ancient
+    claim never blocks a future legitimate code (counters are
+    monotonic).
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        sid = _secret_id(secret)
+        ttl = (TOTP_WINDOW * 2 + 1) * TOTP_INTERVAL * 2
+        return bool(get_backend().set_if_absent(
+            'mfa_used_steps', f'{sid}:{step}', True, ttl))
+    except Exception:  # noqa: BLE001 - backend down: fall back to last-step check
+        return True
+
+
 def verify_totp(secret: str, code: str, timestamp: Optional[int] = None) -> bool:
     """Verify a TOTP code against the secret.
 
     Allows a window of +/- TOTP_WINDOW steps to account for clock drift.
+    The matched counter is recorded and any code at that counter or
+    below is rejected afterwards — a captured code cannot be replayed
+    within its validity window (NIST 800-63B single-use guidance).
     """
-    if not code or not code.isdigit() or len(code) != TOTP_DIGITS:
+    # isdigit() alone accepts non-ASCII digits ('١٢٣٤٥٦', '１２３４５６')
+    # which then crash str-form compare_digest — require ASCII digits.
+    if (not isinstance(code, str) or not code.isascii()
+            or not code.isdigit() or len(code) != TOTP_DIGITS):
         return False
     try:
         key = _base32_decode(secret)
-    except Exception:
+    except (ValueError, KeyError) as exc:
+        logger.debug("TOTP secret decode failed: %s", exc)
         return False
     ts = timestamp or int(time.time())
     step = ts // TOTP_INTERVAL
+    last = _last_step(secret)
     for delta in range(-TOTP_WINDOW, TOTP_WINDOW + 1):
         candidate = _hotp(key, step + delta)
         if hmac.compare_digest(f"{candidate:0{TOTP_DIGITS}d}", code):
+            matched = step + delta
+            if matched <= last:
+                # Already consumed — replay within the drift window.
+                logger.debug("TOTP replay rejected (counter %d <= %d)",
+                             matched, last)
+                return False
+            if not _claim_step(secret, matched):
+                # Lost a cross-process race for this timestep.
+                logger.debug("TOTP replay rejected (step %d claimed)",
+                             matched)
+                return False
+            _record_step(matched, secret)
             return True
     return False
 
 
 def generate_recovery_codes(count: int = 8) -> list:
-    """Generate one-time recovery codes (format: XXXX-XXXX)."""
+    """Generate one-time recovery codes (format: XXXX-XXXX-XXXX).
+
+    Uses 6 bytes (48 bits) of entropy per code, formatted as three
+    4-char hex groups. This balances human-typability with sufficient
+    entropy to resist brute force.
+    """
     codes = []
     for _ in range(count):
-        raw = secrets.token_hex(4)  # 8 hex chars
-        codes.append(f"{raw[:4]}-{raw[4:]}".upper())
+        raw = secrets.token_hex(6)  # 12 hex chars = 48 bits
+        codes.append(f"{raw[:4]}-{raw[4:8]}-{raw[8:12]}".upper())
     return codes
 
 
@@ -100,11 +187,15 @@ def verify_recovery_code(code: str, stored_hashes: list) -> bool:
     Returns True if the code matches any stored hash. Caller should
     remove the used hash after successful verification.
     """
-    if not code:
+    if not code or not isinstance(code, str):
         return False
     code_hash = hash_recovery_code(code)
     for stored in stored_hashes:
-        if hmac.compare_digest(code_hash, stored):
+        # compare as bytes — a non-ASCII stored value would otherwise
+        # raise TypeError in str-form compare_digest (fail closed).
+        if hmac.compare_digest(
+                code_hash.encode('ascii'),
+                str(stored).encode('utf-8', 'replace')):
             return True
     return False
 

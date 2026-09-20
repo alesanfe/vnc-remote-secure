@@ -1,9 +1,8 @@
 """Input validation utilities for VNC Remote Secure.
 
-These functions mirror the Bash validation logic in
-``src/lib/core/validation.sh`` so that the Python components enforce the
-same security policies (password strength, port ranges, reserved
-usernames, path traversal prevention, etc.).
+These functions enforce the security policies (password strength, port
+ranges, reserved usernames, path traversal prevention, etc.) for the
+Python-canonical runtime.
 """
 import html
 import os
@@ -12,6 +11,7 @@ import re
 from vnc_remote_secure.core.constants import (
     MIN_PASSWORD_LENGTH,
     RESERVED_USERNAMES,
+    WEAK_PASSWORD_PATTERNS,
     WEAK_PASSWORDS,
 )
 
@@ -31,11 +31,8 @@ _WELL_KNOWN_PORTS = {22, 80, 443, 3389, 5900, 5901}
 # Common invalid email domains rejected for production use.
 _INVALID_EMAIL_DOMAINS = {"example.com", "test.com", "invalid.com"}
 
-# Weak password substrings (case-insensitive) mirroring validation.sh.
-_WEAK_PATTERNS = (
-    "password", "123456", "qwerty", "changeme", "admin", "root",
-    "user", "yourstrongpassword", "letmein", "welcome",
-)
+# Weak password substrings (case-insensitive) — centralized in constants.py.
+_WEAK_PATTERNS = WEAK_PASSWORD_PATTERNS
 
 
 class ValidationError(ValueError):
@@ -69,12 +66,17 @@ def validate_password(password, field_name='password', min_length=None):
 
     Enforces minimum length, rejects weak/common passwords, and requires
     at least one uppercase, lowercase, digit, and special character.
-    Mirrors ``validate_password`` in ``validation.sh``.
     """
     if min_length is None:
         min_length = MIN_PASSWORD_LENGTH
     if not isinstance(password, str):
         raise ValidationError(f"{field_name}: Password must be a string")
+    # Control characters (CR/LF/tab) must never reach backends that
+    # consume passwords in line formats — ``chpasswd`` reads
+    # ``user:pass\n`` records, so a newline would inject extra lines.
+    if any(c in password for c in '\r\n\t\x00'):
+        raise ValidationError(
+            f"{field_name}: Password cannot contain control characters")
     if len(password) < min_length:
         raise ValidationError(
             f"{field_name}: Password must be at least {min_length} characters"
@@ -173,8 +175,8 @@ def validate_username(username, field_name='username'):
 def sanitize_input(value):
     """Escape dangerous HTML characters to prevent XSS.
 
-    Mirrors ``sanitize_input`` in ``validation.sh`` which replaces ``<``,
-    ``>``, ``"`` and ``'`` with their HTML entity equivalents.
+    Replaces ``<``, ``>``, ``"`` and ``'`` with their HTML entity
+    equivalents.
     """
     if value is None:
         return ''

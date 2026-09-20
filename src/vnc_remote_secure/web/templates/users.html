@@ -22,9 +22,9 @@
             {% endfor %}
         {% endif %}
     {% endwith %}
-    <a href="/" class="btn btn-success">Back to Dashboard</a>
+    <a href="{{ url_for('users.login') }}" class="btn btn-success">Back to Login</a>
     <h2>Create New User</h2>
-    <form method="POST" action="/create_user">
+    <form method="POST" action="{{ url_for('users.create_user') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="text" name="username" placeholder="Username" required>
         <input type="password" name="password" placeholder="Password" required>
@@ -45,7 +45,7 @@
             <td>{{ user.home }}</td>
             <td>
                 {% if user.username not in RESERVED_USERNAMES %}
-                <form method="POST" action="/delete_user/{{ user.username }}" style="display:inline;">
+                <form method="POST" action="{{ url_for('users.delete_user', username=user.username) }}" style="display:inline;">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="btn btn-danger" onclick="return confirm('Delete user {{ user.username }}?')">Delete</button>
                 </form>

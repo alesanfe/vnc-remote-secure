@@ -21,7 +21,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 APP_DIR="/opt/vnc-remote-secure"
-SYSTEMD_SRC="${REPO_ROOT}/native/linux/systemd"
+SYSTEMD_SRC="${REPO_ROOT}/src/vnc_remote_secure/native/linux/systemd"
+# Fallback to legacy root-level location (pre-consolidation layout).
+if [[ ! -d "${SYSTEMD_SRC}" ]]; then
+    SYSTEMD_SRC="${REPO_ROOT}/native/linux/systemd"
+fi
 SYSTEMD_DST="/etc/systemd/system"
 CLI_SRC="${REPO_ROOT}/vnc-remote"
 CLI_DST="/usr/local/bin/vnc-remote"
@@ -69,6 +73,25 @@ done
 log "Installing CLI wrapper to ${CLI_DST}"
 install -m 0755 "${CLI_SRC}" "${CLI_DST}"
 
+# Patch the installed wrapper so it imports the package from ${APP_DIR}
+# instead of computing PYTHONPATH relative to its own location.
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<PYEOF
+import re, pathlib
+p = pathlib.Path("${CLI_DST}")
+s = p.read_text()
+s = re.sub(r'^PROJECT_DIR=.*$', 'PROJECT_DIR="${APP_DIR}"', s, flags=re.M)
+s = re.sub(r'^export PYTHONPATH=.*$', 'export PYTHONPATH="\${PROJECT_DIR}\${PYTHONPATH:+:\$PYTHONPATH}"', s, flags=re.M)
+p.write_text(s)
+PYEOF
+else
+    sed -i \
+        -e "s|^PROJECT_DIR=.*|PROJECT_DIR=\"${APP_DIR}\"|" \
+        -e "s|^export PYTHONPATH=.*|export PYTHONPATH=\"\${PROJECT_DIR}\${PYTHONPATH:+:\$PYTHONPATH}\"|" \
+        "${CLI_DST}"
+fi
+chmod 0755 "${CLI_DST}"
+
 # --- Reload systemd ----------------------------------------------------------
 log "Reloading systemd daemon"
 systemctl daemon-reload
@@ -80,6 +103,26 @@ install -d -m 0755 "${DATA_DIR}"
 install -d -m 0755 "${LOG_DIR}"
 install -d -m 0755 "${RUN_DIR}"
 
+# --- Create service user/group ----------------------------------------------
+# The systemd unit runs as User=vnc-remote. Create it if missing so the
+# unit can start without a manual useradd step.
+if ! getent group vnc-remote >/dev/null 2>&1; then
+    log "Creating group 'vnc-remote'"
+    groupadd --system vnc-remote
+fi
+if ! id -u vnc-remote >/dev/null 2>&1; then
+    log "Creating system user 'vnc-remote'"
+    # Home is the data dir: the unit runs with ProtectHome=true, so a
+    # passwd home under /home would be unreachable and vncserver could
+    # not write ~/.vnc. /var/lib/vnc-remote-secure is in ReadWritePaths.
+    useradd --system --shell /usr/sbin/nologin \
+        --home-dir "${DATA_DIR}" --gid vnc-remote vnc-remote
+fi
+
+# Hand the runtime/data/log directories to the service user so the
+# service can write PID files and logs.
+chown -R vnc-remote:vnc-remote "${RUN_DIR}" "${DATA_DIR}" "${LOG_DIR}" "${CONFIG_DIR}"
+
 # --- Install config ----------------------------------------------------------
 log "Installing config to ${CONFIG_FILE}"
 if [[ -f "${CONFIG_FILE}" ]]; then
@@ -87,6 +130,10 @@ if [[ -f "${CONFIG_FILE}" ]]; then
     cp -a "${CONFIG_FILE}" "${CONFIG_FILE}.bak"
 fi
 install -m 0640 "${ENV_EXAMPLE}" "${CONFIG_FILE}"
+# The file is installed after the earlier chown -R, so set the group
+# explicitly: the vnc-remote service user must be able to read it
+# (0640 root:vnc-remote keeps secrets out of world-readable scope).
+chown root:vnc-remote "${CONFIG_FILE}"
 
 # --- Done --------------------------------------------------------------------
 log ""
@@ -103,7 +150,6 @@ log "  CLI         : ${CLI_DST}"
 log ""
 log " Next steps:"
 log "   1. Edit ${CONFIG_FILE} and set real secrets."
-log "   2. Enable services:  systemctl enable vnc-remote-vnc \\"
-log "        vnc-remote-novnc vnc-remote-ttyd vnc-remote-health"
+log "   2. Enable services:  systemctl enable vnc-remote"
 log "   3. Start the system: vnc-remote start"
 log ""

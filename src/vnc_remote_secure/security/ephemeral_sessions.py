@@ -9,14 +9,22 @@ Usage:
 
 The command returns a URL with an ephemeral token that grants
 access according to the specified permissions.
+
+Token signing is delegated to ``security.token_signing`` so that
+ephemeral tokens and persistent session cookies share a single
+signing mechanism while remaining type-separated.
 """
-import hashlib
-import hmac
 import logging
 import secrets
 import threading
 import time
 from typing import Optional
+
+from vnc_remote_secure.security.token_signing import (
+    TOKEN_TYPE_EPHEMERAL,
+    sign_token,
+    verify_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +33,54 @@ _INSTANCE_ID = None
 
 
 def _get_instance_id() -> str:
-    """Return a unique identifier for this server instance."""
+    """Return the deployment-wide instance identifier.
+
+    The id is generated once and persisted to ``<run_dir>/instance.id``
+    so every process of this deployment (CLI, services) shares it —
+    the docstring-level claim that it binds tokens to the issuing
+    deployment only holds if validation can compare against the same
+    value everywhere. A purely per-process id would make CLI-created
+    share links invalid in the long-running services.
+    """
     global _INSTANCE_ID
-    if _INSTANCE_ID is None:
+    if _INSTANCE_ID is not None:
+        return _INSTANCE_ID
+    import os
+    try:
+        from vnc_remote_secure.core.paths import get_run_dir
+        path = os.path.join(get_run_dir(), 'instance.id')
+        if os.path.isfile(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                saved = f.read().strip()
+            if saved:
+                _INSTANCE_ID = saved
+                return _INSTANCE_ID
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _INSTANCE_ID = f'srv_{secrets.token_hex(4)}'
+        import tempfile
+        fd, tmp = tempfile.mkstemp(
+            dir=os.path.dirname(path), suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(_INSTANCE_ID)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        try:
+            from vnc_remote_secure.security.certificates import (
+                _restrict_key_permissions,
+            )
+            _restrict_key_permissions(path, writable=True)
+        except Exception:  # noqa: BLE001 - ACL hardening is best-effort
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+    except Exception:  # noqa: BLE001 - fall back to process-local id
         _INSTANCE_ID = f'srv_{secrets.token_hex(4)}'
     return _INSTANCE_ID
 
@@ -119,10 +172,19 @@ class EphemeralSession:
             return False
         if time.time() > self.expires_at:
             return False
-        if self.allowed_ip and client_ip and client_ip != self.allowed_ip:
+        # IP binding is fail-closed: a missing client_ip must not
+        # silently skip an operator-configured restriction.
+        if self.allowed_ip and client_ip != self.allowed_ip:
             return False
-        # Resource binding: if token has a resource, it must match.
+        # Resource binding restricts WHERE a permission may be used —
+        # enforced only when the caller names a resource (action-level
+        # checks without resource context assert the permission exists;
+        # see TestResourceBinding contract).
         if self.resource and resource and resource != self.resource:
+            return False
+        # Deployment binding: a token issued by a different deployment
+        # (different persisted instance.id) must not authenticate here.
+        if self.instance_id and self.instance_id != _get_instance_id():
             return False
         return True
 
@@ -130,13 +192,27 @@ class EphemeralSession:
         """Check if this session grants a specific permission.
 
         Args:
-            perm: Permission to check (e.g. 'view', 'control').
+            perm: Permission to check (e.g. 'view', 'control', 'terminal',
+                or 'terminal:use', 'desktop:view', 'desktop:control').
+                The ``resource:action`` form is normalized to the
+                canonical permission name.
             resource: Resource being accessed (for resource binding).
         """
-        # Resource binding: if token has a resource, it must match.
+        # Normalize 'resource:action' to canonical permission names.
+        # e.g. 'terminal:use' -> 'terminal', 'desktop:view' -> 'view',
+        # 'desktop:control' -> 'control'.
+        if ':' in perm:
+            res, action = perm.split(':', 1)
+            perm = action if action in ALL_PERMISSIONS else res
+        # Resource binding: if token has a resource, it must match —
+        # enforced only when the caller names the resource.
         if self.resource and resource and resource != self.resource:
             return False
-        if self.view_only and perm in (PERM_CONTROL, PERM_CLIPBOARD, PERM_FILE_TRANSFER):
+        # view_only also blocks the terminal: a shell is full control,
+        # so a "view-only" session that can open one is not view-only.
+        # (Documented in docs/user-guide/sessions.md.)
+        if self.view_only and perm in (PERM_CONTROL, PERM_CLIPBOARD,
+                                       PERM_FILE_TRANSFER, PERM_TERMINAL):
             return False
         if self.no_terminal and perm == PERM_TERMINAL:
             return False
@@ -153,7 +229,12 @@ class EphemeralSession:
 
     def to_dict(self) -> dict:
         """Serialize to dict (for logging/API, no secrets)."""
+        import hashlib
         return {
+            # Public identifier: sha256 of the internal token. Lets an
+            # operator reference a session (revoke by id) without the
+            # token itself appearing in list output.
+            'token_id': hashlib.sha256(self.token.encode()).hexdigest()[:12],
             'role': self.role,
             'permissions': sorted(self.permissions),
             'expires_at': self.expires_at,
@@ -171,23 +252,44 @@ class EphemeralSession:
             'use_count': self.use_count,
         }
 
+    def to_persist_dict(self) -> dict:
+        """Serialize to dict for persistence (includes token)."""
+        d = self.to_dict()
+        d['token'] = self.token
+        return d
 
-def _get_signing_secret() -> bytes:
-    """Return the signing secret for ephemeral tokens."""
-    from vnc_remote_secure.security.authentication import _get_secret
-    return _get_secret()
+    @classmethod
+    def from_dict(cls, data: dict) -> 'EphemeralSession':
+        """Deserialize from dict (for persistence)."""
+        session = cls(
+            token=data['token'],
+            role=data.get('role', 'viewer'),
+            permissions=set(data.get('permissions', [])),
+            expires_at=float(data.get('expires_at', 0)),
+            single_use=bool(data.get('single_use', False)),
+            view_only=bool(data.get('view_only', False)),
+            no_terminal=bool(data.get('no_terminal', False)),
+            allowed_ip=data.get('allowed_ip'),
+            created_by=data.get('created_by', 'admin'),
+            resource=data.get('resource'),
+            instance_id=data.get('instance_id'),
+            max_uses=int(data.get('max_uses', 0)),
+        )
+        session.created_at = float(data.get('created_at', time.time()))
+        session.used = bool(data.get('used', False))
+        session.revoked = bool(data.get('revoked', False))
+        session.use_count = int(data.get('use_count', 0))
+        return session
 
 
 def create_ephemeral_token(session: EphemeralSession) -> str:
     """Create a signed token for an ephemeral session.
 
-    Format: <payload>.<signature>
-    payload: hex(session_token:expires_at:single_use)
+    Format: <type>:<payload>.<signature>
+    payload: session_token:expires_at:single_use
     """
     payload = f"{session.token}:{session.expires_at}:{int(session.single_use)}"
-    secret = _get_signing_secret()
-    sig = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()
-    return f"{payload}.{sig}"
+    return sign_token(TOKEN_TYPE_EPHEMERAL, payload)
 
 
 def verify_ephemeral_token(token: str) -> Optional[dict]:
@@ -197,12 +299,8 @@ def verify_ephemeral_token(token: str) -> Optional[dict]:
     Does NOT check expiry or usage — caller must do that via
     the session store.
     """
-    if not token or '.' not in token:
-        return None
-    payload, sig = token.rsplit('.', 1)
-    secret = _get_signing_secret()
-    expected_sig = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, expected_sig):
+    payload = verify_token(TOKEN_TYPE_EPHEMERAL, token)
+    if payload is None:
         return None
     parts = payload.split(':')
     if len(parts) != 3:
@@ -218,16 +316,154 @@ def verify_ephemeral_token(token: str) -> Optional[dict]:
 
 
 class SessionStore:
-    """In-memory store for ephemeral sessions.
+    """Persistent store for ephemeral sessions.
 
-    For production use, this should be backed by Redis or a database
-    to survive restarts and share state across processes.
+    Sessions are persisted to a JSON file in the runtime directory so
+    they survive across CLI invocations and process restarts. The
+    in-memory dict is the primary store; the file is a mirror that is
+    loaded on startup and written on every mutation.
     """
 
     def __init__(self):
         self._sessions: dict = {}  # token -> EphemeralSession
         self._cleanup_interval = 300  # 5 min
         self._lock = threading.Lock()
+        self._last_mtime: float = 0.0
+        self._load()
+
+    def _persist_path(self) -> str:
+        """Return the path to the persistence file."""
+        import os
+
+        from vnc_remote_secure.core.paths import get_run_dir
+        return os.path.join(get_run_dir(), 'ephemeral_sessions.json')
+
+    def _load(self):
+        """Load sessions from disk into memory."""
+        import json
+        import os
+        path = self._persist_path()
+        if not os.path.exists(path):
+            self._last_mtime = 0.0
+            return
+        try:
+            self._last_mtime = os.path.getmtime(path)
+        except OSError:
+            pass
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                for token, sdata in data.items():
+                    try:
+                        self._sessions[token] = EphemeralSession.from_dict(sdata)
+                    except (KeyError, ValueError, TypeError) as exc:
+                        # Redact the token in logs; it is a secret.
+                        import hashlib
+                        token_hash = hashlib.sha256(token.encode()).hexdigest()[:12]
+                        logger.warning("Skipping corrupt session %s: %s", token_hash, exc)
+        except (OSError, ValueError) as exc:
+            logger.warning("Failed to load ephemeral sessions: %s", exc)
+
+    def _load_if_changed(self):
+        """Reload from disk only when another process rewrote the file.
+
+        ``get()`` used to reload only on cache MISS, so a session
+        revoked by a different process (``vnc-remote session revoke``)
+        stayed valid in this process's cache until restart — cross-
+        process revocation silently failed for already-cached tokens.
+        An mtime compare keeps the per-request cost near zero.
+        """
+        import os
+        try:
+            mtime = os.path.getmtime(self._persist_path())
+        except OSError:
+            return
+        if mtime != self._last_mtime:
+            self._load()
+
+    def _save(self):
+        """Persist sessions to disk.
+
+        Merges the on-disk state first: another process may have
+        mutated the file since our last load (e.g. ``session revoke``
+        marks ``revoked``/``used`` via the CLI). Writing our stale
+        in-memory copy would resurrect the revocation — terminal flags
+        from disk always win.
+        """
+        import json
+        import os
+        path = self._persist_path()
+        try:
+            # Pull terminal flags (revoked, used, use_count) from the
+            # disk copy into our in-memory sessions before serialising.
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        disk = json.load(f)
+                    if isinstance(disk, dict):
+                        now = time.time()
+                        for token, sdata in disk.items():
+                            session = self._sessions.get(token)
+                            if session is None:
+                                # A session created by another process
+                                # since our last load — preserve it or
+                                # our write would delete it (expired
+                                # entries stay droppable for cleanup).
+                                try:
+                                    other = EphemeralSession.from_dict(sdata)
+                                except (KeyError, ValueError, TypeError):
+                                    continue
+                                if not other.revoked and \
+                                        other.expires_at > now:
+                                    self._sessions[token] = other
+                                continue
+                            if sdata.get('revoked'):
+                                session.revoked = True
+                            if sdata.get('used'):
+                                session.used = True
+                            session.use_count = max(
+                                session.use_count,
+                                int(sdata.get('use_count', 0) or 0))
+                except (OSError, ValueError):
+                    pass  # corrupt file — keep in-memory state
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            data = {
+                token: session.to_persist_dict()
+                for token, session in self._sessions.items()
+            }
+            # Atomic write: a crash mid-write would corrupt the file
+            # and drop every active share session on the next load.
+            import tempfile
+            fd, tmp = tempfile.mkstemp(
+                dir=os.path.dirname(path) or '.', suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                os.replace(tmp, path)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            try:
+                self._last_mtime = os.path.getmtime(path)
+            except OSError:
+                pass
+            # The file contains live session tokens — anyone who can
+            # read it can hijack every active share session. Restrict
+            # to owner-only (os.chmod alone is a no-op on Windows).
+            try:
+                from vnc_remote_secure.security.certificates import _restrict_key_permissions
+                _restrict_key_permissions(path, writable=True)
+            except Exception:  # noqa: BLE001
+                try:
+                    os.chmod(path, 0o600)
+                except OSError:
+                    pass
+        except OSError as exc:
+            logger.warning("Failed to persist ephemeral sessions: %s", exc)
 
     def create(
         self,
@@ -267,11 +503,28 @@ class SessionStore:
         )
         self._sessions[token] = session
         signed = create_ephemeral_token(session)
+        self._save()
+        try:
+            from vnc_remote_secure.security.audit import audit_log
+            audit_log('ephemeral_session_create', user=created_by,
+                      detail=f'role={role} single_use={single_use} '
+                             f'resource={resource}')
+        except Exception:  # noqa: BLE001 - audit must not break sessions
+            pass
         return session, signed
 
     def get(self, token: str) -> Optional[EphemeralSession]:
-        """Retrieve a session by its token."""
-        return self._sessions.get(token)
+        """Retrieve a session by its token.
+
+        On a cache miss the persistence file is reloaded: sessions
+        created by other processes (e.g. ``vnc-remote session create``)
+        after this process started must be discoverable.
+        """
+        session = self._sessions.get(token)
+        if session is None:
+            self._load()
+            session = self._sessions.get(token)
+        return session
 
     def validate(self, signed_token: str, client_ip: Optional[str] = None,
                  resource: Optional[str] = None) -> Optional[EphemeralSession]:
@@ -293,10 +546,27 @@ class SessionStore:
         return session
 
     def revoke(self, token: str) -> bool:
-        """Revoke a session by token."""
-        session = self._sessions.get(token)
+        """Revoke a session by token.
+
+        Accepts either the internal session token or the signed token
+        string returned to users.
+        """
+        # If this looks like a signed token, extract the internal token.
+        internal = token
+        if '.' in token:
+            payload = verify_ephemeral_token(token)
+            if payload:
+                internal = payload['session_token']
+        session = self.get(internal)
         if session:
             session.revoke()
+            self._save()
+            try:
+                from vnc_remote_secure.security.audit import audit_log
+                audit_log('ephemeral_session_revoke',
+                          detail=f'role={session.role}')
+            except Exception:  # noqa: BLE001
+                pass
             return True
         return False
 
@@ -314,6 +584,8 @@ class SessionStore:
         expired = [t for t, s in self._sessions.items() if now >= s.expires_at]
         for t in expired:
             del self._sessions[t]
+        if expired:
+            self._save()
 
 
 # Global session store
@@ -333,7 +605,8 @@ def get_session_store() -> SessionStore:
 # ---------------------------------------------------------------------------
 
 def check_permission(signed_token: str, permission: str,
-                     resource: Optional[str] = None) -> bool:
+                     resource: Optional[str] = None,
+                     client_ip: Optional[str] = None) -> bool:
     """Check if a signed token's session has the given permission.
 
     This is the per-action authorization check. It verifies:
@@ -342,12 +615,25 @@ def check_permission(signed_token: str, permission: str,
     - Role includes the requested permission
     - view_only and no_terminal restrictions are enforced
     - Resource binding: if token has a resource, it must match
+
+    If the session is not in the in-memory store, the store is reloaded
+    from disk so sessions created by other processes (e.g. the CLI) are
+    recognized.
     """
     store = get_session_store()
-    session = store.validate(signed_token, resource=resource)
+    # Always reload from disk so revocations and new sessions from other
+    # processes (e.g. the CLI) are visible to long-running service processes.
+    store._load_if_changed()
+    session = store.validate(
+        signed_token, client_ip=client_ip, resource=resource)
     if not session:
         return False
-    return session.has_permission(permission, resource)
+    permitted = session.has_permission(permission, resource)
+    # Consume single-use tokens atomically after a successful check to
+    # prevent replay (INC-208). Multi-use tokens are unaffected.
+    if permitted and session.single_use:
+        consume_ephemeral_session(signed_token)
+    return permitted
 
 
 def create_ephemeral_session(
@@ -371,7 +657,11 @@ def create_ephemeral_session(
         role: Session role (viewer, support, operator, administrator).
         ttl_seconds: Time-to-live in seconds.
         single_use: If True, the session can only be used once.
-        view_only: If True, restricts to view-only access.
+        view_only: If True, restricts to view-only access — control
+            channels requiring ``desktop:control`` are rejected.
+            NOTE: RFB input inside the noVNC byte-transparent relay
+            is NOT filtered; see the limitation note in
+            ``services/novnc.py``.
         no_terminal: If True, terminal access is blocked.
         allowed_ip: Optional IP restriction.
         created_by: Username of the creator.
@@ -395,16 +685,23 @@ def create_ephemeral_session(
             max_uses=max_uses,
         )
         return signed
-    except Exception:
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("Failed to create ephemeral session: %s", exc)
         return None
 
 
 def is_session_revoked(signed_token: str) -> bool:
-    """Check if a session has been revoked (live revocation check)."""
+    """Check if a session has been revoked (live revocation check).
+
+    Reloads the persistence file so revocations issued by other
+    processes (e.g. ``vnc-remote session revoke``) are honored by
+    long-running service processes.
+    """
     payload = verify_ephemeral_token(signed_token)
     if not payload:
         return True  # Invalid token = treat as revoked
     store = get_session_store()
+    store._load_if_changed()
     session = store.get(payload['session_token'])
     if not session:
         return True  # Session doesn't exist = revoked
@@ -412,11 +709,12 @@ def is_session_revoked(signed_token: str) -> bool:
 
 
 def is_session_expired(signed_token: str) -> bool:
-    """Check if a session has expired."""
+    """Check if a session has expired (disk-fresh, cross-process)."""
     payload = verify_ephemeral_token(signed_token)
     if not payload:
         return True
     store = get_session_store()
+    store._load_if_changed()
     session = store.get(payload['session_token'])
     if not session:
         return True
@@ -426,26 +724,84 @@ def is_session_expired(signed_token: str) -> bool:
 def revoke_session(signed_token: str) -> bool:
     """Revoke a session by its signed token.
 
+    Accepts the signed share-link token, the raw internal session token
+    (e.g. the ``vnc_ephemeral`` cookie value), or the public
+    ``token_id`` fingerprint shown by ``vnc-remote session list`` —
+    without an id the operator cannot revoke a session whose token was
+    lost.
+
     This propagates immediately: any subsequent check_permission,
     is_session_revoked, or check_websocket_upgrade call will reject
     the token. Additionally, all active WebSocket connections for this
     session are forcibly closed via the WebSocket registry.
     """
-    payload = verify_ephemeral_token(signed_token)
-    if not payload:
-        return False
     store = get_session_store()
-    token = payload['session_token']
+    payload = verify_ephemeral_token(signed_token)
+    token = payload['session_token'] if payload else signed_token
+    if not store.get(token):
+        # Fingerprint form: resolve the public token_id (sha256 prefix
+        # of the internal token) to the real token before revoking.
+        import hashlib
+        store._load_if_changed()
+        for real_token, session in store._sessions.items():
+            if (hashlib.sha256(real_token.encode()).hexdigest()[:12]
+                    == signed_token.strip()):
+                token = real_token
+                break
     result = store.revoke(token)
 
     # Close all active WebSocket connections for this session.
     try:
         from vnc_remote_secure.security.websocket_registry import revoke_session_connections
         revoke_session_connections(token)
-    except Exception:
-        pass  # Registry not available (e.g. during tests)
+    except (ImportError, KeyError, RuntimeError) as exc:
+        logger.debug("WebSocket registry unavailable during revoke: %s", exc)
 
     return result
+
+
+def _claim_consumed(token: str, expires_at: float) -> bool:
+    """Atomically claim a single-use session token across processes.
+
+    Uses the shared-state backend's atomic test-and-set so only one
+    process can win the claim for a given token. On backend failure
+    the claim reports success — the per-process lock and persisted
+    ``used``/``revoked`` flags remain as the best-effort fallback
+    rather than making every share link unusable when the backend is
+    down.
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        ttl = max(60.0, expires_at - time.time())
+        return bool(get_backend().set_if_absent(
+            'ephemeral_consumed', token, True, ttl))
+    except Exception:  # noqa: BLE001 - best-effort fallback
+        logger.warning("Could not record ephemeral session consumption")
+        return True
+
+
+def _claim_use(token: str, max_uses: int, expires_at: float) -> bool:
+    """Atomically claim one activation of a multi-use token.
+
+    Uses the shared-state backend's atomic ``increment`` so two
+    processes cannot both claim the same use. Returns ``True`` when
+    the claim is within budget, ``False`` when the counter exceeded
+    ``max_uses`` (the increment is retained — the claim is consumed
+    either way, which is correct because the caller then rejects).
+
+    On backend failure the claim reports success: the per-process
+    ``use_count`` remains as the best-effort fallback rather than
+    making every share link unusable when the backend is down.
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        ttl = max(60.0, expires_at - time.time())
+        new_count = get_backend().increment(
+            'ephemeral_uses', token, 1, ttl_seconds=ttl)
+        return new_count is not None and int(new_count) <= max_uses
+    except Exception:  # noqa: BLE001 - best-effort fallback
+        logger.warning("Could not record multi-use claim")
+        return True
 
 
 def consume_ephemeral_session(signed_token: str) -> bool:
@@ -475,14 +831,130 @@ def consume_ephemeral_session(signed_token: str) -> bool:
             return False
         if time.time() >= session.expires_at:
             return False
+        if session.instance_id and session.instance_id != _get_instance_id():
+            return False
         if session.single_use:
-            # Atomic check-and-consume under lock.
-            if session.revoked:
+            # Cross-process single-use claim: store._lock only
+            # serialises threads in THIS process — two services could
+            # both pass the revoked check before either persists.
+            # The shared-state claim is a single atomic insert.
+            if not _claim_consumed(token, session.expires_at):
                 return False
             session.revoke()
+            store._save()
             return True  # Return inside lock to prevent race.
         else:
             return True  # Multi-use: valid, return inside lock.
 
-    # unreachable, but kept for safety
-    return True
+
+def activate_ephemeral_session(signed_token: str,
+                               client_ip: Optional[str] = None) -> Optional[str]:
+    """Exchange a share-link token for its internal session token.
+
+    This is the entry point of the browser flow: the landing page hands
+    ``/?session=<signed_token>`` here once. Unlike
+    ``consume_ephemeral_session`` (which revokes single-use tokens for
+    direct bearer use), activation marks the session used *without*
+    revoking it — the link is burned, but the activated session keeps
+    working until its TTL expires. The caller then issues the returned
+    internal token as a cookie so subsequent requests authenticate
+    against the session object (preserving role, view_only,
+    no_terminal, resource binding and allowed_ip).
+
+    For multi-use tokens the link is NOT burned: each use increments
+    ``use_count`` and the link keeps working until ``max_uses`` or the
+    TTL is reached.
+
+    Returns:
+        The internal session token to store in the client cookie, or
+        ``None`` when the link is invalid, expired, revoked, or its
+        use budget is exhausted.
+    """
+    payload = verify_ephemeral_token(signed_token)
+    if not payload:
+        return None
+    store = get_session_store()
+    store._load_if_changed()
+    token = payload['session_token']
+
+    with store._lock:
+        session = store.get(token)
+        if not session:
+            return None
+        if session.revoked:
+            return None
+        if time.time() >= session.expires_at:
+            return None
+        if session.single_use and session.used:
+            return None
+        if session.max_uses > 0 and session.use_count >= session.max_uses:
+            return None
+        # Deployment binding: a share link issued by a different
+        # deployment (foreign instance.id) must not activate here.
+        if session.instance_id and session.instance_id != _get_instance_id():
+            return None
+        # IP binding at activation too — without it a link bound to a
+        # client IP could still be *burned* by a different caller
+        # (single-use DoS on the intended recipient), even though the
+        # per-request check would later reject the attacker.
+        if session.allowed_ip and client_ip and \
+                session.allowed_ip != client_ip:
+            return None
+        if session.single_use:
+            # Cross-process single-use claim (see
+            # consume_ephemeral_session): the in-process lock cannot
+            # stop two services activating the same link at once.
+            if not _claim_consumed(token, session.expires_at):
+                return None
+        elif session.max_uses > 0:
+            # Multi-use: the local read-modify-write of use_count races
+            # across processes — claim one use via the shared-state
+            # atomic increment and reject when the budget is exhausted.
+            if not _claim_use(token, session.max_uses, session.expires_at):
+                return None
+        session.mark_used()
+        store._save()
+        try:
+            from vnc_remote_secure.security.audit import audit_log
+            audit_log('ephemeral_session_activate',
+                      detail=f'role={session.role}')
+        except Exception:  # noqa: BLE001
+            pass
+        return token
+
+
+def check_session_permission(
+    internal_token: str,
+    permission: str,
+    resource: Optional[str] = None,
+    client_ip: Optional[str] = None,
+) -> bool:
+    """Check a permission on an *activated* session by internal token.
+
+    Used by services when the client presents the ``vnc_ephemeral``
+    cookie issued by :func:`activate_ephemeral_session`. Validates the
+    session's revocation/expiry/IP/resource binding and permission —
+    but NOT the ``used``/``max_uses`` budget, which gates the share
+    link itself, not the activated session's requests.
+    """
+    store = get_session_store()
+    store._load_if_changed()
+    session = store.get(internal_token)
+    if not session:
+        return False
+    if session.revoked:
+        return False
+    if time.time() >= session.expires_at:
+        return False
+    # IP binding is fail-closed: a missing/unknown client_ip must not
+    # silently skip an operator-configured restriction.
+    if session.allowed_ip and client_ip != session.allowed_ip:
+        return False
+    if session.resource and resource and resource != session.resource:
+        return False
+    # Deployment binding must apply on this path too — the internal
+    # token path duplicates is_valid()'s checks manually, so a foreign
+    # deployment's activated token would otherwise slip through.
+    if session.instance_id and session.instance_id != _get_instance_id():
+        return False
+    return session.has_permission(permission, resource)

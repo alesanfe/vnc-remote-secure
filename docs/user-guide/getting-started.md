@@ -1,6 +1,6 @@
 # 🌐 Getting Started Guide
 
-How to use your Raspberry Pi VNC Remote Setup project.
+How to use your VNC Remote Secure project.
 
 ## 📱 Access Methods
 
@@ -12,7 +12,7 @@ Your project provides two remote access methods:
 - File management through GUI
 - Web browsing and desktop apps
 
-**Terminal Access:**
+**Web Terminal Access:**
 - Command-line interface
 - System administration
 - Script execution
@@ -25,8 +25,8 @@ Your project provides two remote access methods:
 2. Enter VNC password
 3. Click "Connect"
 
-### Terminal Access
-1. Open browser → Terminal URL
+### Web Terminal Access
+1. Open browser → Web Terminal URL
 2. Enter username and password
 3. Full command-line access
 
@@ -53,7 +53,7 @@ The VNC desktop interface provides a complete graphical experience similar to si
 - **Application Menu**: Access all installed applications
 - **File Manager**: Browse and manage files graphically
 - **Web Browser**: Access internet resources directly
-- **Terminal Emulator**: Access command line when needed
+- **Web Terminal Emulator**: Access command line when needed
 - **System Settings**: Configure system preferences
 
 ### Performance Optimization
@@ -88,10 +88,10 @@ The VNC desktop interface provides a complete graphical experience similar to si
 
 The web terminal provides efficient command-line access through your browser, offering powerful capabilities for system administration and development tasks.
 
-### Terminal Features
+### Web Terminal Features
 
 **Interface Elements:**
-- **Terminal Window**: Full-featured terminal emulator in your browser
+- **Web Terminal Window**: Full-featured terminal emulator in your browser
 - **Command History**: Navigate through previous commands with arrow keys
 - **Tab Completion**: Use tab key for command and filename completion
 - **Copy/Paste**: Right-click for context menu or use keyboard shortcuts
@@ -102,7 +102,7 @@ The web terminal provides efficient command-line access through your browser, of
 - **Color Schemes**: Choose color themes for comfort
 - **Scrollback Buffer**: Access previous command output
 
-### Essential Terminal Commands
+### Essential Web Terminal Commands
 
 **System Information:**
 ```bash
@@ -134,7 +134,7 @@ netstat -tlnp             # List listening ports
 ip addr show              # Network configuration
 ```
 
-### Terminal Productivity Tips
+### Web Terminal Productivity Tips
 
 **Command Efficiency:**
 - Use aliases for frequently used commands
@@ -155,7 +155,7 @@ Understanding how to manage your remote sessions effectively ensures a smooth an
 ### Session Lifecycle
 
 **Starting Sessions:**
-- Services start automatically when you run the setup script
+- Services start automatically when you run `vnc-remote start`
 - Both VNC and terminal services are available simultaneously
 - Sessions persist until you manually stop the services
 - Multiple users can connect simultaneously (with proper configuration)
@@ -187,9 +187,9 @@ du -sh /path/*            # Directory sizes
 ### Troubleshooting Common Issues
 
 **Connection Problems:**
-- Check if services are running: `ps aux | grep -E "vnc|ttyd"`
+- Check if services are running: `vnc-remote status`
 - Verify port accessibility: `netstat -tlnp | grep -E ":(6080|5000|5901)"`
-- Test local connectivity: `curl -I http://localhost:6080/`
+- Test local connectivity: `curl -I http://127.0.0.1:6080/`
 - Check firewall settings if connections fail
 
 **Performance Issues:**
@@ -230,7 +230,7 @@ Accessing your Raspberry Pi from mobile devices requires some considerations for
 - Consider external keyboard for extensive typing
 - Use split-screen mode for multitasking
 
-**Terminal on Mobile:**
+**Web Terminal on Mobile:**
 - Increase font size for better readability
 - Use external keyboard for command-line work
 - Enable auto-complete features to reduce typing
@@ -254,7 +254,7 @@ Personalizing your remote access environment enhances productivity and comfort d
 - Customize toolbar and menu layouts
 - Enable or disable specific features based on usage patterns
 
-### Terminal Customization
+### Web Terminal Customization
 
 **Shell Configuration:**
 - Customize your bash prompt for better information display
@@ -272,13 +272,12 @@ Personalizing your remote access environment enhances productivity and comfort d
 
 Now that you understand the basics of using your remote access system, consider exploring these advanced topics:
 
-- **[Security Guide](security.md)**: Learn about advanced security features and best practices
-- **[Features Guide](features.md)**: Discover additional capabilities and optional modules
-- **[Advanced Usage](advanced-usage.md)**: Explore power user features and automation
-- **[Troubleshooting](../reference/troubleshooting.md)**: Find solutions to common problems
+- **[Security Model](../architecture/security-model.md)**: Learn about security features and best practices
+- **[Configuration](../architecture/configuration.md)**: Discover configuration options
+- **[Troubleshooting](troubleshooting.md)**: Find solutions to common problems
 
 Remember that your remote access system is designed to be flexible and adaptable to your specific needs. Experiment with different configurations and workflows to find what works best for your use case.
 
 ---
 
-**Need help?** Check the [FAQ](../reference/faq.md) or [Troubleshooting Guide](../reference/troubleshooting.md) for common questions and solutions.
+**Need help?** Check the [Troubleshooting Guide](troubleshooting.md) for common questions and solutions.

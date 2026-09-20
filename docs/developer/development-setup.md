@@ -1,430 +1,160 @@
-# System Architecture
+# Development Setup
 
-Technical architecture and design of the Raspberry Pi VNC Remote Setup system.
+How to set up a local development environment for VNC Remote Secure.
 
-## 🏗️ Overview
+## Prerequisites
 
-The system provides secure remote access to Raspberry Pi through web-based interfaces using a modular, service-oriented architecture.
+- **Python 3.11+** (required by `pyproject.toml`)
+- **Git**
+- **pip** (for installing the package in editable mode)
+- **Linux**: bash 4.0+, sudo (for system service tests)
+- **Windows**: PowerShell 5.1+, Git Bash (for wrapper tests)
 
-## 📐 Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        User Layer                           │
-├─────────────────────────────────────────────────────────────┤
-│  Web Browser (Desktop/Mobile)                              │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │   VNC Desktop   │  │   Web Terminal  │                  │
-│  │   (noVNC)       │  │   (ttyd)        │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ HTTPS/HTTP
-┌─────────────────────────────────────────────────────────────┐
-│                     Gateway Layer                           │
-├─────────────────────────────────────────────────────────────┤
-│  Nginx Reverse Proxy                                        │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │   SSL/TLS       │  │   Rate Limiting │                  │
-│  │   Termination   │  │   & Security    │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ Proxy
-┌─────────────────────────────────────────────────────────────┐
-│                    Service Layer                            │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │     noVNC       │  │     ttyd        │  │    VNC       │ │
-│  │   :6080         │  │   :5000         │  │   :5901      │ │
-│  │   Web Client    │  │   Web Terminal  │  │  Server      │ │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ Local Access
-┌─────────────────────────────────────────────────────────────┐
-│                    System Layer                             │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │   Desktop Env   │  │   User Mgmt     │  │   Security   │ │
-│  │   (remote user) │  │   (temp user)   │  │ (Fail2ban)   │ │
-│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 🔧 Component Architecture
-
-### Core Components
-
-#### 1. Main Script (`src/rpi-vnc-remote.sh`)
-**Purpose:** Orchestration and entry point
-**Responsibilities:**
-- Configuration validation
-- Dependency installation
-- Service orchestration
-- Error handling and cleanup
-- Lifecycle management
-
-#### 2. Service Modules (`src/lib/core/services.sh`)
-**Purpose:** Service management
-**Services:**
-- VNC Server (tigervncserver)
-- noVNC Proxy (novnc_proxy)
-- Terminal Server (ttyd)
-- User management
-
-#### 3. Nginx Module (`src/lib/web/nginx.sh`)
-**Purpose:** Reverse proxy configuration
-**Features:**
-- SSL/TLS termination
-- Rate limiting
-- URL routing
-- Security headers
-
-#### 4. Security Modules
-- **Fail2ban** (`src/lib/security/fail2ban.sh`) - Brute force protection
-- **SSL Management** (`src/lib/security/ssl.sh`) - Certificate handling
-- **User Management** (`src/lib/security/user.sh`) - Temporary user isolation
-
-#### 5. Monitoring Module (`src/lib/monitoring/healthcheck.sh`)
-**Purpose:** System health monitoring
-**Checks:**
-- Service availability
-- Resource usage (CPU, memory, disk)
-- SSL certificate status
-- Auto-restart functionality
-
-## 📁 Module Structure
-
-```
-src/
-├── rpi-vnc-remote.sh          # Main orchestration script
-└── lib/                       # Modular components (organized by category)
-    ├── core/                  # Core functionality
-    │   ├── config.sh          # Configuration management
-    │   ├── logging.sh         # Logging system
-    │   ├── validation.sh      # Input validation
-    │   ├── error_handling.sh  # Error handling
-    │   ├── utils.sh           # Main utilities (sources specialized modules)
-    │   ├── process_utils.sh   # Process management
-    │   ├── command_utils.sh   # Command execution helpers
-    │   ├── display_utils.sh   # Output formatting
-    │   ├── cleanup_utils.sh   # Cleanup helpers
-    │   ├── dependency_utils.sh # Dependency checks
-    │   └── services.sh        # Service management
-    ├── security/              # Security modules
-    │   ├── ssl.sh             # SSL/TLS handling
-    │   ├── user.sh            # Temporary user management
-    │   └── fail2ban.sh        # Fail2ban integration
-    ├── web/                   # Web components
-    │   ├── nginx.sh           # Nginx reverse proxy configuration
-    │   ├── user_ui.sh         # User management UI (Bash)
-    │   ├── user_ui_app.py     # User management UI (Flask)
-    │   └── templates/         # HTML templates
-    ├── monitoring/            # System monitoring
-    │   ├── healthcheck.sh     # Health monitoring
-    │   ├── health_web_server.sh  # Health web server (Bash)
-    │   ├── health_web_server.py  # Health web server (Python)
-    │   └── monitoring.sh      # Prometheus/Grafana
-    ├── communication/         # Notifications and alerts
-    │   ├── notifications.sh   # Notification handling
-    │   └── alerts.sh          # Alert delivery
-    └── features/              # Additional features
-        └── recording.sh       # Session recording
-```
-
-## 🔄 Data Flow
-
-### 1. Initialization Flow
-```
-1. Script Start → Configuration Validation
-2. Dependency Check → Install Missing
-3. User Creation → Permission Setup
-4. Service Start → Health Check
-5. Nginx Config → SSL Setup
-6. Final Health Check → Ready State
-```
-
-### 2. Request Flow (HTTPS)
-```
-Browser → Nginx (SSL) → Service (noVNC/ttyd) → Backend (VNC/Shell)
-```
-
-### 3. Authentication Flow
-```
-User Request → nginx → Service → Authentication → Access Granted/Denied
-```
-
-### 4. Error Handling Flow
-```
-Error Detection → Logging → Cleanup → Service Restart → Notification
-```
-
-## 🔐 Security Architecture
-
-### Multi-Layer Security
-
-#### Layer 1: Network Security
-- **SSL/TLS Encryption** - All traffic encrypted
-- **Rate Limiting** - DDoS protection
-- **Port Knocking** - Hidden services
-- **Fail2ban** - Brute force protection
-
-#### Layer 2: Application Security
-- **Input Sanitization** - Command injection prevention
-- **User Isolation** - Temporary user sessions
-- **Secure Defaults** - Safe out-of-the-box configuration
-- **Permission Management** - Least privilege principle
-
-#### Layer 3: System Security
-- **Automatic Cleanup** - Resource cleanup on exit
-- **Process Isolation** - Service separation
-- **Log Monitoring** - Security event tracking
-- **Certificate Management** - Auto-renewal and validation
-
-### Security Controls
+## Quick start
 
 ```bash
-# Rate limiting zones
-limit_req_zone $binary_remote_addr zone=vnc_limit:10m rate=10r/s;
-limit_req_zone $binary_remote_addr zone=terminal_limit:10m rate=5r/s;
+# Clone the repository
+git clone https://github.com/alesanfe/vnc-remote-secure.git
+cd vnc-remote-secure
 
-# SSL configuration
-ssl_protocols TLSv1.2 TLSv1.3;
-ssl_ciphers HIGH:!aNULL:!MD5;
-ssl_prefer_server_ciphers on;
+# Create a virtual environment
+python -m venv .venv
+source .venv/bin/activate    # Linux
+# .venv\Scripts\Activate.ps1  # Windows PowerShell
 
-# Security headers
-add_header X-Frame-Options DENY;
-add_header X-Content-Type-Options nosniff;
-add_header X-XSS-Protection "1; mode=block";
+# Install in development mode (includes test and lint tools)
+pip install -e ".[dev]"
+
+# Copy the example configuration
+cp .env.example .env
+# Edit .env and set VNC_PASSWORD, TTYD_PASSWD, etc.
+
+# Verify the installation
+vnc-remote version
+vnc-remote doctor
 ```
 
-## 🚀 Service Architecture
+## Architecture overview
 
-### Service Dependencies
+The project uses a **package-based multiplatform architecture**:
 
 ```
-rpi-vnc-remote.sh (main)
-├── core/config.sh (configuration)
-├── core/utils.sh (utilities)
-├── core/process_utils.sh (process management)
-├── security/user.sh (user management)
-├── core/services.sh (core services)
-│   ├── VNC Server
-│   ├── noVNC Proxy
-│   └── ttyd
-├── web/nginx.sh (reverse proxy)
-├── security/ssl.sh (certificates)
-├── monitoring/healthcheck.sh (monitoring)
-└── Optional modules
-    ├── security/fail2ban.sh
-    ├── monitoring/monitoring.sh
-    ├── features/recording.sh
-    └── web/user_ui.sh
+Unified CLI (vnc-remote) → Python service manager (src/vnc_remote_secure/core/service_manager.py)
+        |
+        +-- Common services (src/vnc_remote_secure/services/)
+        |     audio, gamepad, health, landing, novnc, terminal, vnc
+        |
+        +-- Platform adapters (src/vnc_remote_secure/platform/)
+        |     linux/  — TigerVNC, Tornado terminal, nginx, systemd, certbot
+        |     windows/ — UltraVNC, Tornado, Windows Services, Firewall, ACLs
+        |
+        +-- Security (src/vnc_remote_secure/security/)
+        |     auth_gateway, authentication, mfa, sessions, rate_limit,
+        |     audit, certificates, http_auth, websocket_registry, ...
+        |
+        +-- Web UI (src/vnc_remote_secure/web/)
+              Flask app, routes (health, landing, users), templates
 ```
 
-### Service Lifecycle
+The canonical entry point is `vnc-remote` (a thin Bash wrapper that
+delegates to `vnc_remote_secure.cli:main`). The legacy Bash stack under
+`src/lib/` has been removed; `src/rpi-vnc-remote.sh` is the only retained
+Bash wrapper and delegates all commands to the Python CLI.
 
-#### 1. Startup Sequence
-```
-1. Configuration Validation
-2. Dependency Installation
-3. User Creation
-4. SSL Setup (if enabled)
-5. Service Startup (VNC → noVNC → ttyd)
-6. Nginx Configuration
-7. Health Check Initialization
-8. Monitoring Setup (if enabled)
-```
-
-#### 2. Runtime Management
-```
-Health Checks → Service Monitoring → Auto-restart → Notifications
-```
-
-#### 3. Shutdown Sequence
-```
-Signal Handling → Service Stop → User Cleanup → Resource Release
-```
-
-## 📊 Monitoring Architecture
-
-### Health Check System
-
-#### Component Monitoring
-- **Service Availability** - Port checks, process monitoring
-- **Resource Usage** - CPU, memory, disk utilization
-- **SSL Status** - Certificate expiration monitoring
-- **Network Status** - Connectivity and performance
-
-#### Alerting System
-- **Threshold Monitoring** - Resource usage alerts
-- **Service Failure** - Automatic restart notifications
-- **Security Events** - Failed login attempts, anomalies
-- **System Events** - Certificate expiry, disk space
-
-### Metrics Collection
+## Running tests
 
 ```bash
-# System metrics
-check_memory()  # Memory usage monitoring
-check_cpu()     # CPU usage monitoring  
-check_disk()    # Disk usage monitoring
+# Python unit and security tests
+pytest tests/unit tests/security
 
-# Service metrics
-check_novnc()   # noVNC service status
-check_ttyd()    # ttyd service status
-check_vnc()     # VNC server status
+# Full Bash test pyramid (static, unit, integration, e2e, security)
+bash tests/run_tests.sh
 
-# Security metrics
-check_ssl_cert() # Certificate status
+# List available test suites
+bash tests/run_tests.sh -l
+
+# Lint
+ruff check src/vnc_remote_secure
+black --check src/vnc_remote_secure
+
+# PowerShell tests (Windows, requires Pester)
+pwsh -c "Invoke-Pester tests/powershell -Output Detailed"
 ```
 
-## 🔧 Configuration Architecture
-
-### Configuration Hierarchy
+### Test structure
 
 ```
-1. Environment Variables (.env)
-2. Command Line Arguments
-3. Default Values (built-in)
-4. Runtime Detection (system-specific)
+tests/
+├── static/         # Lint, syntax, CRLF, shellcheck
+├── unit/           # Python unit tests (core, security, services, web)
+├── integration/    # Cross-module integration (common, linux, windows)
+├── e2e/            # End-to-end scenarios (linux, windows)
+├── security/       # Security tests (permissions, secret exposure, network)
+├── powershell/     # Pester tests for Windows PowerShell module
+├── windows/        # Pester tests for Windows wrapper (VncRemote.ps1)
+└── fixtures/       # Static test data (certificates)
 ```
 
-### Configuration Management
+## Configuration
 
-#### 1. Validation Layer
-- **Required Variables** - Essential configuration
-- **Type Validation** - Data type checking
-- **Range Validation** - Value bounds checking
-- **Dependency Validation** - Inter-variable relationships
+Configuration defaults live in `src/vnc_remote_secure/config/defaults/`:
 
-#### 2. Loading Layer
-- **Environment Files** - .env loading
-- **Argument Parsing** - Command line options
-- **Default Fallback** - Built-in defaults
-- **Runtime Detection** - System capabilities
+- `common.env` — shared defaults (ports, features)
+- `linux.env` — Linux-specific defaults (VNC port 5901, health 8080)
+- `windows.env` — Windows-specific defaults (VNC port 5900, health 8090)
 
-#### 3. Application Layer
-- **Service Configuration** - Service-specific settings
-- **Security Configuration** - Security parameters
-- **Performance Tuning** - Optimization settings
-- **Feature Flags** - Optional features
+The Python runtime loads these as the lowest-priority defaults before
+the project `.env` file. Platform-aware fallbacks are in
+`src/vnc_remote_secure/core/constants.py`.
 
-## 🐳 Container Architecture
-
-### Docker Compose Design
-
-```
-Services:
-├── nginx (reverse proxy)
-├── novnc (web VNC client)
-├── vnc (VNC server)
-├── ttyd (web terminal)
-└── Network (bridge)
-```
-
-### Container Orchestration
-
-#### Development Environment
-- **Local Testing** - Quick setup for development
-- **Integration Testing** - End-to-end testing
-- **Configuration Validation** - Setup verification
-
-#### Production Considerations
-- **Security Hardening** - Container security
-- **Resource Limits** - Memory/CPU constraints
-- **Networking** - Service isolation
-- **Persistence** - Data management
-
-## 🔌 Extension Architecture
-
-### Plugin System Design
-
-#### Module Interface
 ```bash
-# Standard module structure
-module_init()     # Initialize module
-module_config()  # Configure module
-module_start()    # Start module services
-module_stop()     # Stop module services
-module_cleanup()  # Cleanup resources
-module_health()  # Health check
+# Show the effective configuration
+vnc-remote config show-effective
+
+# Validate the configuration
+vnc-remote config validate
+
+# Diff two profiles (both --profile-a and --profile-b are required)
+vnc-remote config diff --profile-a development --profile-b public-hardened
 ```
 
-#### Extension Points
-- **Authentication** - Custom auth methods
-- **Monitoring** - Additional metrics
-- **Notifications** - Custom alerting
-- **Security** - Additional security layers
+## Development workflow
 
-### Integration Patterns
+1. Create a feature branch: `git checkout -b feat/my-feature`
+2. Make changes following the existing code style (Ruff + Black).
+3. Add or update tests under `tests/`.
+4. Run the full test suite: `pytest tests/unit tests/security && bash tests/run_tests.sh`
+5. Run lint: `ruff check src/vnc_remote_secure`
+6. Commit using Conventional Commits (see `CONTRIBUTING.md`).
+7. Push and open a pull request.
 
-#### 1. Service Integration
-- **Health Checks** - Standard health interface
-- **Configuration** - Unified config management
-- **Logging** - Centralized logging
-- **Error Handling** - Consistent error patterns
+## Debugging
 
-#### 2. External Integration
-- **APIs** - REST/GraphQL interfaces
-- **Webhooks** - Event notifications
-- **Databases** - Data persistence
-- **Cloud Services** - Cloud integration
+```bash
+# Run the doctor to diagnose system readiness
+vnc-remote doctor
 
-## 📈 Performance Architecture
+# Check service status
+vnc-remote status
 
-### Optimization Strategies
+# View logs (Linux)
+journalctl -u vnc-remote -f
 
-#### 1. Network Optimization
-- **Connection Pooling** - Reuse connections
-- **Compression** - Data compression
-- **Caching** - Response caching
-- **Load Balancing** - Traffic distribution
+# Run a single service in the foreground for debugging
+vnc-remote start --verbose
+```
 
-#### 2. Resource Optimization
-- **Memory Management** - Efficient memory usage
-- **CPU Optimization** - Process scheduling
-- **Disk I/O** - Efficient storage
-- **Network I/O** - Optimized networking
+## Dependencies
 
-#### 3. Service Optimization
-- **Process Isolation** - Service separation
-- **Resource Limits** - Resource constraints
-- **Monitoring** - Performance tracking
-- **Auto-scaling** - Dynamic adjustment
+Dependencies are managed in `pyproject.toml` (single source of truth).
 
-## 🔮 Future Architecture
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
 
-### Scalability Considerations
+# Install Linux-specific dependencies
+pip install -e ".[linux]"
 
-#### Horizontal Scaling
-- **Service Clustering** - Multiple instances
-- **Load Distribution** - Traffic balancing
-- **State Management** - Distributed state
-- **Data Replication** - Data synchronization
-
-#### Vertical Scaling
-- **Resource Allocation** - Dynamic resources
-- **Performance Tuning** - Optimization
-- **Hardware Upgrades** - Capacity planning
-- **Monitoring** - Resource tracking
-
-### Technology Evolution
-
-#### Emerging Technologies
-- **WebAssembly** - Client-side processing
-- **WebRTC** - Real-time communication
-- **Container Orchestration** - Kubernetes
-- **Edge Computing** - Distributed processing
-
-#### Architecture Evolution
-- **Microservices** - Service decomposition
-- **Event-Driven** - Async processing
-- **API Gateway** - Unified interface
-- **Service Mesh** - Service communication
-
----
-
-**Next:** [Testing Guide](testing.md) for testing architecture and strategies
+# Build the package
+python -m build
+```

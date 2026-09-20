@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -41,16 +41,20 @@ jobs:
           exit-code: '1'
 
   # ============================================================================
-  # SECURITY TESTS (Bash security suite)
+  # SECURITY TESTS (Python security suite)
   # ============================================================================
   security-tests:
-    name: Security Tests (Bash)
+    name: Security Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python package
+        run: pip install -e ".[dev]"
       - name: Run security test suite
-        run: |
-          bash tests/security/test_security.sh
+        run: python -m pytest tests/security -q
 
   # ============================================================================
   # OPENSSF SCORECARD - Evaluate repository security practices
@@ -100,7 +104,3 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
-
-  # ============================================================================
-  # DEPENDABOT - Dependency updates (configured via .github/dependabot.yml)
-  # ============================================================================

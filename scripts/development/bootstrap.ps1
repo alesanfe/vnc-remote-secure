@@ -4,10 +4,12 @@ param()
 
 Write-Host "=== VNC Remote Secure - Development Bootstrap ===" -ForegroundColor Cyan
 
-# Check Python
+# Check Python — same resolution as the runtime scripts (python, then
+# python3); invoke the resolved executable rather than a bare name.
 $pythonExe = Get-Command python -ErrorAction SilentlyContinue
+if (-not $pythonExe) { $pythonExe = Get-Command python3 -ErrorAction SilentlyContinue }
 if (-not $pythonExe) {
-    Write-Error "Python not found. Please install Python 3.8+."
+    Write-Error "Python not found. Please install Python 3.11+."
     exit 1
 }
 
@@ -15,7 +17,7 @@ if (-not $pythonExe) {
 if (-not (Test-Path ".venv")) {
     Write-Host "Creating virtual environment..."
     if ($PSCmdlet.ShouldProcess(".venv", "Create virtual environment")) {
-        python -m venv .venv
+        & $pythonExe.Source -m venv .venv
     }
 }
 

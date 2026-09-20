@@ -5,47 +5,51 @@ are deterministic and run in air-gapped environments.
 """
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.services import landing
-
 
 # ---------------------------------------------------------------------------
 # check_port
 # ---------------------------------------------------------------------------
 
 def test_check_port_returns_bool_when_closed(monkeypatch):
-    """check_port returns False when the socket cannot connect."""
-    class _FakeSocket:
-        def __init__(self, *a, **k): pass
-        def settimeout(self, t): pass
-        def connect_ex(self, addr): return 111  # connection refused
-        def close(self): pass
-
-    monkeypatch.setattr(landing.socket, 'socket', lambda *a, **k: _FakeSocket())
+    """check_port returns False when nothing listens (port available)."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.processes.is_port_available',
+        lambda port, host='127.0.0.1': True)
     assert landing.check_port(59999) is False
 
 
 def test_check_port_returns_true_when_open(monkeypatch):
-    """check_port returns True when connect_ex returns 0."""
-    class _FakeSocket:
-        def __init__(self, *a, **k): pass
-        def settimeout(self, t): pass
-        def connect_ex(self, addr): return 0
-        def close(self): pass
-
-    monkeypatch.setattr(landing.socket, 'socket', lambda *a, **k: _FakeSocket())
+    """check_port returns True when the port is listening."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.processes.is_port_available',
+        lambda port, host='127.0.0.1': False)
     assert landing.check_port(5900) is True
 
 
 def test_check_port_returns_false_on_exception(monkeypatch):
-    """check_port returns False if socket raises."""
+    """check_port returns False if the probe raises."""
     def _boom(*a, **k):
         raise OSError("no network")
-    monkeypatch.setattr(landing.socket, 'socket', _boom)
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.processes.is_port_available', _boom)
     assert landing.check_port(5900) is False
+
+
+def test_check_port_wildcard_normalised_to_loopback(monkeypatch):
+    """A wildcard/empty host is probed on loopback (Windows cannot
+    connect to '0.0.0.0')."""
+    seen = {}
+    def _spy(port, host='127.0.0.1'):
+        seen['host'] = host
+        return False  # listening
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.processes.is_port_available', _spy)
+    assert landing.check_port(5900, '0.0.0.0') is True
+    assert seen['host'] == '127.0.0.1'
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +111,7 @@ def test_get_system_metrics_returns_dict(monkeypatch):
     }
     import vnc_remote_secure.platform.linux.metrics as linux_metrics
     monkeypatch.setattr(linux_metrics, 'get_system_metrics', lambda: fake_metrics)
+    monkeypatch.setattr(linux_metrics, 'get_os_display_name', lambda: 'Ubuntu 24.04 LTS')
 
     metrics = landing.get_system_metrics()
     assert isinstance(metrics, dict)
@@ -116,6 +121,22 @@ def test_get_system_metrics_returns_dict(monkeypatch):
     assert metrics['disk'] == '/ 50% (10G used)'
     assert metrics['uptime'] == '1h 30m'
     assert metrics['hostname'] == 'test-host'
+    # os should be overridden by get_os_display_name when it returns a value.
+    assert metrics['os'] == 'Ubuntu 24.04 LTS'
+
+
+def test_get_system_metrics_falls_back_to_platform_release(monkeypatch):
+    """get_system_metrics falls back to platform.release() when get_os_display_name returns None."""
+    monkeypatch.setattr(landing.platform, 'system', lambda: 'Linux')
+    monkeypatch.setattr(landing.platform, 'node', lambda: 'test-host')
+    monkeypatch.setattr(landing.platform, 'release', lambda: '6.5')
+
+    fake_metrics = {'cpu': 'N/A', 'memory': 'N/A', 'disk': 'N/A', 'uptime': 'N/A'}
+    import vnc_remote_secure.platform.linux.metrics as linux_metrics
+    monkeypatch.setattr(linux_metrics, 'get_system_metrics', lambda: fake_metrics)
+    monkeypatch.setattr(linux_metrics, 'get_os_display_name', lambda: None)
+
+    metrics = landing.get_system_metrics()
     assert metrics['os'] == 'Linux 6.5'
 
 
@@ -124,15 +145,24 @@ def test_get_system_metrics_returns_dict(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_landing_port_is_integer():
-    assert isinstance(landing.PORT, int)
-    assert landing.PORT > 0
+    """landing_port is a positive integer matching the configured default."""
+    port = landing._config()['landing_port']
+    assert isinstance(port, int)
+    assert port > 0
+    assert port == landing._config()['landing_port']  # deterministic across calls
 
 
 def test_landing_host_is_string():
-    assert isinstance(landing.HOST, str)
-    assert len(landing.HOST) > 0
+    """landing_host is a non-empty string (typically 127.0.0.1 in dev)."""
+    host = landing._config()['landing_host']
+    assert isinstance(host, str)
+    assert len(host) > 0
+    # In development profile, the host should be a loopback or bind address.
+    assert host in ('127.0.0.1', '0.0.0.0', 'localhost') or '.' in host
 
 
 def test_vnc_http_port_is_integer():
-    assert isinstance(landing.VNC_HTTP_PORT, int)
-    assert landing.VNC_HTTP_PORT > 0
+    """vnc_http_port is a positive integer in the valid port range."""
+    port = landing._config()['vnc_http_port']
+    assert isinstance(port, int)
+    assert 1024 <= port <= 65535  # privileged ports excluded

@@ -120,7 +120,14 @@
         let buttonStates = {};
 
         async function connectGamepad() {
-            const wsUrl = `ws://${location.hostname}:7788`;
+            // The gamepad endpoint serves wss:// when TLS is configured —
+            // match the page's scheme (and browsers block ws:// from
+            // https:// pages as mixed content anyway).
+            // The landing service substitutes the correct endpoint:
+            // the proxied /gamepad/ path when behind nginx (raw ports
+            // are loopback-only) or the direct host:port otherwise,
+            // with a matching ws/wss scheme.
+            const wsUrl = '{{ gamepad_ws_url }}';
             document.getElementById('status').className = 'status connecting';
             document.getElementById('status').textContent = 'Connecting...';
 

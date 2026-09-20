@@ -9,13 +9,13 @@ indent_style = space
 indent_size = 4
 
 [*.{sh,bash}]
-indent_style = tab
+indent_style = space
 indent_size = 4
 
 [*.py]
 indent_style = space
 indent_size = 4
-max_line_length = 120
+max_line_length = 100
 
 [*.{yml,yaml}]
 indent_style = space
@@ -39,3 +39,9 @@ indent_size = 4
 [*.{js,css}]
 indent_style = space
 indent_size = 2
+
+# PowerShell is CRLF-native (matches .gitattributes eol=crlf)
+[*.{ps1,psm1,psd1}]
+end_of_line = crlf
+indent_style = space
+indent_size = 4

@@ -28,35 +28,58 @@ class LinuxInputInjector:
             logger.warning("  Install with: pip install evdev")
             logger.warning("  Also ensure uinput module is loaded: sudo modprobe uinput")
 
+    def _button_map(self):
+        """Map the client's button names to evdev codes.
+
+        The JS client (gamepad.html) sends standard Gamepad-API names
+        (``button_0`` … ``button_15``); the Linux injector must translate
+        them — it used to pass the raw string to ``uinput.write`` which
+        raised TypeError on every event.
+        """
+        e = self.ecodes
+        return {
+            'button_0': e.BTN_A,          # A (cross)
+            'button_1': e.BTN_B,          # B (circle)
+            'button_2': e.BTN_X,          # X (square)
+            'button_3': e.BTN_Y,          # Y (triangle)
+            'button_4': e.BTN_TL,         # L1
+            'button_5': e.BTN_TR,         # R1
+            'button_8': e.BTN_SELECT,     # Select/Share
+            'button_9': e.BTN_START,      # Start
+            'button_10': e.BTN_THUMBL,    # Left stick press
+            'button_11': e.BTN_THUMBR,    # Right stick press
+            'button_12': e.BTN_DPAD_UP,   # D-pad up
+            'button_13': e.BTN_DPAD_DOWN,
+            'button_14': e.BTN_DPAD_LEFT,
+            'button_15': e.BTN_DPAD_RIGHT,
+        }
+
+    def _axis_map(self):
+        """Map the client's axis names to evdev ABS codes."""
+        e = self.ecodes
+        return {
+            'axis_0': e.ABS_X,            # left stick X
+            'axis_1': e.ABS_Y,            # left stick Y
+            'axis_2': e.ABS_RX,           # right stick X
+            'axis_3': e.ABS_RY,           # right stick Y
+        }
+
+    def _key_events(self):
+        """Return the declared EV_KEY code set (also the allowlist)."""
+        return list(self._button_map().values())
+
+    def _abs_events(self):
+        """Return the declared EV_ABS code set (also the allowlist)."""
+        return list(self._axis_map().values())
+
     def create_device(self):
         if not self.available:
             return False
         try:
             self.uinput = self.UInput(
                 events={
-                    self.ecodes.EV_KEY: [
-                        self.ecodes.BTN_GAMEPAD,
-                        self.ecodes.BTN_A,
-                        self.ecodes.BTN_B,
-                        self.ecodes.BTN_X,
-                        self.ecodes.BTN_Y,
-                        self.ecodes.BTN_TL,
-                        self.ecodes.BTN_TR,
-                        self.ecodes.BTN_SELECT,
-                        self.ecodes.BTN_START,
-                        self.ecodes.BTN_THUMBL,
-                        self.ecodes.BTN_THUMBR,
-                        self.ecodes.KEY_ENTER,
-                        self.ecodes.KEY_ESC,
-                        self.ecodes.KEY_SPACE,
-                        self.ecodes.BTN_LEFT,
-                    ],
-                    self.ecodes.EV_ABS: [
-                        self.ecodes.ABS_X,
-                        self.ecodes.ABS_Y,
-                        self.ecodes.ABS_RX,
-                        self.ecodes.ABS_RY,
-                    ],
+                    self.ecodes.EV_KEY: self._key_events(),
+                    self.ecodes.EV_ABS: self._abs_events(),
                 },
                 name="VNC Remote Virtual Gamepad"
             )
@@ -69,16 +92,44 @@ class LinuxInputInjector:
     def inject_button(self, button, value):
         if not self.uinput:
             return
-        self.uinput.write(self.ecodes.EV_KEY, button, value)
-        self.uinput.syn()
+        # Whitelist: the client supplies a button NAME (``button_N``)
+        # — anything outside the map is dropped, so a control session
+        # cannot emit arbitrary key events. Values are binary
+        # press/release.
+        code = self._button_map().get(str(button))
+        if code is None:
+            return
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return
+        if value not in (0, 1):
+            return
+        try:
+            self.uinput.write(self.ecodes.EV_KEY, code, value)
+            self.uinput.syn()
+        except OSError:
+            pass
 
     def inject_axis(self, axis, value):
         if not self.uinput:
             return
-        # value is -1.0 to 1.0, convert to uinput range (-32768 to 32767)
+        code = self._axis_map().get(str(axis))
+        if code is None:
+            return
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return
+        # Clamp to the declared axis range — out-of-range writes are
+        # dropped by the driver anyway, so normalise here.
+        value = max(-1.0, min(1.0, value))
         uinput_value = int(value * 32767)
-        self.uinput.write(self.ecodes.EV_ABS, axis, uinput_value)
-        self.uinput.syn()
+        try:
+            self.uinput.write(self.ecodes.EV_ABS, code, uinput_value)
+            self.uinput.syn()
+        except OSError:
+            pass
 
     def close(self):
         if self.uinput:

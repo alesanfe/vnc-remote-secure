@@ -1,1 +1,1 @@
-"""Services package: audio, gamepad, landing, terminal, noVNC."""
+"""Services package: audio, gamepad, health, landing, noVNC, terminal, vnc."""

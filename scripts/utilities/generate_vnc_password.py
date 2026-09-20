@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Generate VNC password hash using d3des (correct VNC encryption).
+"""Generate a VNC password hash in the real ``vncpasswd`` format.
 
-Supports two modes:
-- Standard VNC (TigerVNC, TightVNC, RealVNC): uses bit-reversed DES key
-- UltraVNC: uses DES key directly (no bit reversal)
+There is exactly ONE algorithm: the password is truncated/zero-padded
+to 8 bytes and DES-encrypted under the fixed VNC key (each key byte
+bit-reversed before use). The same stored form is used by TigerVNC
+(-PasswordFile), TightVNC, RealVNC AND UltraVNC (``ultravnc.ini``
+``passwd``). The canonical implementation is
+``vnc_remote_secure.vendor.d3des.encrypt_vnc_password`` — this script
+is a thin CLI wrapper around it.
 
-UltraVNC 1.4.x uses a different key transformation than standard VNC.
-This script generates both formats so the correct one can be used.
+Verified vector (matches a real ultravnc.ini):
+    vnc12345 -> F50F904B11EE3F7C
 """
-import sys
 import os
-import binascii
+import sys
 
 # Add project root to path for vendor import
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,42 +21,18 @@ _src_path = os.path.join(_project_root, 'src')
 if _src_path not in sys.path:
     sys.path.insert(0, _src_path)
 
-from vnc_remote_secure.vendor import d3des as d
+from vnc_remote_secure.vendor.d3des import encrypt_vnc_password
 
 
 def vnc_encrypt_password(password):
-    """Encrypt password using standard VNC d3des with bit-reversed key.
-
-    Used by TigerVNC, TightVNC, RealVNC, and most VNC clients.
-    """
-    passpadd = (password + '\x00' * 8)[:8].encode('latin-1')
-    key = bytes(d.vnckey)
-    dk = d.deskey(key, False)
-    crypted = d.desfunc(passpadd, dk)
-    return binascii.hexlify(crypted).decode('ascii').upper()
+    """Return the hex-encoded vncpasswd form (the only VNC format)."""
+    return encrypt_vnc_password(password).hex().upper()
 
 
 def ultravnc_encrypt_password(password):
-    """Encrypt password using UltraVNC's DES (no bit reversal).
-
-    UltraVNC 1.4.x uses the VNC fixed key directly without reversing
-    the bit order in each byte, unlike standard VNC.
-    """
-    try:
-        from Crypto.Cipher import DES
-    except ImportError:
-        # Fallback: use pycryptodome or manual DES
-        raise ImportError(
-            "pycryptodome is required for UltraVNC password generation. "
-            "Install with: pip install pycryptodome"
-        )
-
-    passpadd = (password + '\x00' * 8)[:8].encode('latin-1')
-    # UltraVNC uses the VNC key directly (no bit reversal)
-    key = bytes(d.vnckey)
-    cipher = DES.new(key, DES.MODE_ECB)
-    crypted = cipher.encrypt(passpadd)
-    return binascii.hexlify(crypted).decode('ascii').upper()
+    """Alias kept for backwards compatibility — UltraVNC uses the
+    same vncpasswd format as every other VNC flavour."""
+    return vnc_encrypt_password(password)
 
 
 if __name__ == '__main__':
@@ -62,11 +41,10 @@ if __name__ == '__main__':
     password = os.environ.get('VNC_PASSWORD', '')
     if not password and len(sys.argv) >= 2 and not sys.argv[1].startswith('--'):
         password = sys.argv[1]
-    use_ultravnc = '--ultravnc' in sys.argv
 
     if not password:
         print(
-            "Usage: VNC_PASSWORD=<password> python3 generate_vnc_password.py [--ultravnc]",
+            "Usage: VNC_PASSWORD=<password> python3 generate_vnc_password.py",
             file=sys.stderr,
         )
         print(
@@ -79,19 +57,7 @@ if __name__ == '__main__':
 
     # Only print the truncated and encrypted forms, not the plaintext
     print(f"Truncated to 8 chars: {pw_8}")
-
-    if use_ultravnc:
-        encrypted = ultravnc_encrypt_password(password)
-        print(f"UltraVNC encrypted (hex): {encrypted}")
-        print(f"ultravnc.ini line: passwd={encrypted}")
-    else:
-        encrypted = vnc_encrypt_password(password)
-        print(f"Standard VNC encrypted (hex): {encrypted}")
-        # Also show UltraVNC format for convenience
-        try:
-            uv_encrypted = ultravnc_encrypt_password(password)
-            print(f"UltraVNC encrypted (hex): {uv_encrypted}")
-            print(f"ultravnc.ini line: passwd={uv_encrypted}")
-        except ImportError:
-            pass
-        print(f"Standard VNC ini line: Password={encrypted}")
+    encrypted = vnc_encrypt_password(password)
+    print(f"VNC encrypted (hex): {encrypted}")
+    print(f"ultravnc.ini line: passwd={encrypted}")
+    print(f"TigerVNC ini line: Password={encrypted}")

@@ -1,17 +1,19 @@
 # 🚀 Quick Start Guide
 
-Start your Raspberry Pi VNC Remote Setup in 5 minutes. This project provides web-based remote access to your Raspberry Pi through VNC (desktop) and terminal interfaces.
+Start your VNC Remote Secure setup in 5 minutes. This project provides web-based
+remote access to your machine through VNC (desktop) and terminal interfaces.
 
 ## 📋 Prerequisites
 
 **Hardware:**
-- Raspberry Pi 3B+, 4, or 5
+- Raspberry Pi 3B+, 4, or 5 (or any Linux server)
 - 1GB+ RAM (2GB+ recommended)
 - 8GB+ free storage
 - Internet connection
 
 **Software:**
-- Raspberry Pi OS, Ubuntu 20.04+, or Debian 11+
+- Raspberry Pi OS, Debian 12+, or Ubuntu 22.04+
+- Python 3.11+
 - Sudo access
 - Optional: Domain name for SSL
 
@@ -24,48 +26,60 @@ git clone https://github.com/alesanfe/vnc-remote-secure.git
 cd vnc-remote-secure
 ```
 
-### 2. Set Password
+### 2. Install Python Dependencies
 
 ```bash
-export TTYD_PASSWD=your_secure_password
+pip install -e ".[dev]"
 ```
 
-### 3. Run Setup
+### 3. Set Password and Run
 
 ```bash
 # Basic setup (HTTP only)
-TTYD_PASSWD=your_secure_password ./src/rpi-vnc-remote.sh
+TTYD_PASSWD="your-strong-password" ./vnc-remote start
 
 # Or with SSL (recommended)
-TTYD_PASSWD=your_secure_password DUCK_DOMAIN=your-domain.duckdns.org EMAIL=your-email@example.com ./src/rpi-vnc-remote.sh
+TTYD_PASSWD="your-strong-password" DUCK_DOMAIN=your-domain.duckdns.org EMAIL=your-email@your-domain.duckdns.org ./vnc-remote start
 ```
 
-The script installs VNC server, noVNC, ttyd, nginx, and starts all services.
+`vnc-remote start` starts all configured services (VNC, noVNC, terminal,
+health, landing, and optional nginx). It does **not** install system
+dependencies — run `./vnc-remote install` first to install apt packages,
+nginx, SSL certificates, and systemd units.
 
 ## 🌐 Access Your Services
 
 Once running, access your services:
 
 ### Without SSL (HTTP)
-- **VNC Desktop:** `http://your-pi-ip:6080/`
-- **Terminal:** `http://your-pi-ip:5000/`
+- **Landing portal:** `http://your-server:8000/` — links to every service
 
-### With SSL (HTTPS)
-- **VNC Desktop:** `https://your-domain.duckdns.org/vnc/`
-- **Terminal:** `https://your-domain.duckdns.org/terminal/`
+### With SSL (HTTPS, nginx)
+- **Landing portal:** `https://your-domain.duckdns.org/`
+- **VNC Desktop (noVNC):** `https://your-domain.duckdns.org/vnc/`
+- **Web Terminal:** `https://your-domain.duckdns.org/terminal/`
+
+> Backend services (noVNC :6080, terminal :5000, health :8080) bind to
+> `127.0.0.1` by default — they are reached through the portal or nginx,
+> never directly from the network. The landing portal itself enforces
+> authentication (`LANDING_PASSWORD`).
 
 ## 🔐 First Time Setup
 
 ### 1. Set Passwords
-Edit `.env` file:
+Edit `.env` file (copy from `.env.example`):
 ```bash
-# Required
-TTYD_PASSWD=your_secure_password
-VNC_PASSWORD=your_vnc_password
+cp .env.example .env
+# Set for production; if empty, strong passwords are auto-generated
+# and stored (owner-only) in <run_dir>/generated_credentials.env —
+# e.g. /run/vnc-remote-secure/generated_credentials.env for a
+# systemd deployment.
+TTYD_PASSWD="your-strong-password"
+VNC_PASSWORD="your-strong-password"
 
 # Optional (for SSL)
 DUCK_DOMAIN=your-domain.duckdns.org
-EMAIL=your-email@example.com
+EMAIL=your-email@your-domain.duckdns.org
 ```
 
 ### 2. Enable Nginx (Recommended)
@@ -76,14 +90,14 @@ NGINX_ENABLED=true
 
 ### 3. Start Services
 ```bash
-./src/rpi-vnc-remote.sh
+./vnc-remote start
 ```
 
 ## 📱 Access from Anywhere
 
 ### From Your Computer
 1. Open your web browser
-2. Go to your VNC or terminal URL
+2. Go to your VNC or Web Terminal URL
 3. Enter your credentials
 
 ### From Mobile Device
@@ -94,20 +108,29 @@ NGINX_ENABLED=true
 ## 🛠️ Common Quick Commands
 
 ```bash
-# Install to system
-make install
+# Install dependencies and configure
+./vnc-remote install
+
+# Start services
+./vnc-remote start
+
+# Stop services
+./vnc-remote stop
+
+# Restart services
+./vnc-remote restart
+
+# Check status
+./vnc-remote status
+
+# Diagnose issues
+./vnc-remote doctor
 
 # Run all tests
 make test-all
 
-# View logs
-VERBOSE=true ./src/rpi-vnc-remote.sh
-
-# Stop services
-Ctrl+C
-
-# Clean up
-make clean
+# View logs (verbose mode)
+./vnc-remote start --verbose
 ```
 
 ## 🔧 Quick Troubleshooting
@@ -117,17 +140,17 @@ make clean
 # Check what's using ports
 sudo netstat -tlnp | grep -E ':(6080|5000|5901)'
 
-# Kill conflicting processes
-sudo pkill -f "novnc_proxy\|ttyd\|tigervncserver"
+# Restart services to free ports
+./vnc-remote restart
 ```
 
 ### Permission Denied
 ```bash
-# Make script executable
-chmod +x src/rpi-vnc-remote.sh
+# Make the CLI wrapper executable
+chmod +x vnc-remote
 
 # Run with proper permissions
-sudo ./src/rpi-vnc-remote.sh
+sudo ./vnc-remote install
 ```
 
 ### SSL Certificate Issues
@@ -142,25 +165,27 @@ curl -I http://your-domain.duckdns.org
 ## 📋 Quick Checklist
 
 Before starting:
-- [ ] Raspberry Pi updated: `sudo apt update && sudo apt upgrade`
+- [ ] System updated: `sudo apt update && sudo apt upgrade`
+- [ ] Python 3.11+ installed
 - [ ] Internet connection working
-- [ ] Domain pointing to Pi (if using SSL)
-- [ ] Firewall allows ports 80, 443, 6080, 5000
+- [ ] Domain pointing to server (if using SSL)
+- [ ] Firewall allows the public entry ports only: 80 and 443 when
+      nginx is enabled (backend ports 6080/5000/5901 stay on loopback
+      — opening them publicly bypasses the auth gateway)
 
 After setup:
-- [ ] Services are running: `ps aux | grep -E "novnc|ttyd|vnc"`
-- [ ] Ports are accessible: `netstat -tlnp | grep -E ":(6080|5000|5901)"`
+- [ ] Services are running: `./vnc-remote status`
+- [ ] Backend ports listen on loopback: `netstat -tlnp | grep -E "127.0.0.1:(6080|5000|5901)"`
 - [ ] Web interface loads in browser
 - [ ] Login credentials work
 
-## 🎯 Next Steps
+## Next Steps
 
-- **[Detailed Installation](detailed-setup.md)** - Complete setup guide
-- **[Configuration](configuration.md)** - All configuration options
-- **[Security Guide](../user-guide/security.md)** - Security best practices
-- **[Troubleshooting](troubleshooting.md)** - Common issues
+- **[Configuration](../architecture/configuration.md)** - All configuration options
+- **[Security Model](../architecture/security-model.md)** - Security best practices
+- **[Troubleshooting](../user-guide/troubleshooting.md)** - Common issues
 
-## 💡 Pro Tips
+## Pro Tips
 
 1. **Use Strong Passwords** - Always use unique, strong passwords
 2. **Enable SSL** - Use HTTPS for production environments
@@ -170,4 +195,4 @@ After setup:
 
 ---
 
-**Need help?** Check the [FAQ](../reference/faq.md) or [Troubleshooting](troubleshooting.md) guide.
+**Need help?** Check the [Troubleshooting](../user-guide/troubleshooting.md) guide.

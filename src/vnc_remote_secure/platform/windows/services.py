@@ -1,75 +1,95 @@
-"""Windows Services management via PowerShell."""
+"""Windows Service management for VNC Remote Secure.
+
+Provides ``install_service`` and ``remove_service`` parity with the Linux
+adapter so the canonical installer can register the application as a
+Windows Service. The service executable is the Python CLI entry point
+(``vnc-remote``), which delegates to ``vnc_remote_secure.cli:main``.
+
+We use ``sc.exe`` (available on every supported Windows version) instead
+of the ``New-Service`` PowerShell cmdlet so the helper works even on
+systems without PowerShell 5+.
+"""
+import os
 import subprocess
 
 from vnc_remote_secure.core.exceptions import ServiceError
 
-
-def _run_powershell(script):
-    """Run a PowerShell command and return the CompletedProcess."""
-    return subprocess.run(
-        ['powershell', '-NoProfile', '-Command', script],
-        capture_output=True, text=True,
-    )
+SERVICE_NAME = 'VncRemoteSecure'
 
 
-def install_service(name, binary, display_name=None, startup_type='Automatic'):
-    """Install a Windows Service.
+def _resolve_service_binary():
+    """Return the command line for the Windows Service executable.
+
+    Prefers the ``service-run.py`` launcher installed into ProgramData
+    by the installer — it puts the copied package on ``sys.path`` so the
+    service does not need a pip install nor PYTHONPATH (sc.exe services
+    cannot set environment variables). Falls back to ``python -m`` for
+    pip-installed deployments.
+    """
+    import sys
+    launcher = os.path.join(
+        os.environ.get('ProgramData', r'C:\ProgramData'),
+        'VncRemoteSecure', 'service-run.py')
+    if os.path.isfile(launcher):
+        return f'"{sys.executable}" "{launcher}" start --foreground'
+    python = os.environ.get('PYTHON', 'python')
+    # Quote the interpreter — a path containing spaces (e.g.
+    # "C:\Program Files\Python311\python.exe") would split the
+    # binPath into bogus arguments.
+    if ' ' in python and not python.startswith('"'):
+        python = f'"{python}"'
+    return f'{python} -m vnc_remote_secure.cli start --foreground'
+
+
+def install_service(name=SERVICE_NAME, unit_file=None, unit_content=None):
+    """Install and start a Windows Service backed by the Python CLI.
 
     Args:
-        name: Service name.
-        binary: Path to the service executable (with arguments if needed).
-        display_name: Human-readable name. Defaults to ``name``.
-        startup_type: One of ``Automatic``, ``Manual``, ``Disabled``.
+        name: Windows Service name. Defaults to ``VncRemoteSecure``.
+        unit_file: Ignored on Windows (kept for API parity with Linux).
+        unit_content: Ignored on Windows (kept for API parity with Linux).
 
     Returns:
         ``True`` on success.
+
+    Raises:
+        ServiceError: if ``sc.exe`` is unavailable or the service already
+            exists and could not be removed first.
     """
-    display_name = display_name or name
-    ps_script = (
-        f"New-Service -Name '{name}' -BinaryPathName '{binary}' "
-        f"-DisplayName '{display_name}' -StartupType {startup_type} "
-        f"-ErrorAction SilentlyContinue"
+    # Remove any pre-existing service with the same name so installs are
+    # idempotent. ``sc query`` returns non-zero when the service is absent.
+    query = subprocess.run(
+        ['sc', 'query', name], capture_output=True, text=True,
     )
-    result = _run_powershell(ps_script)
-    if result.returncode != 0:
-        raise ServiceError(f"Failed to install service {name}: {result.stderr.strip()}")
+    if query.returncode == 0:
+        remove_service(name)
+
+    bin_path = _resolve_service_binary()
+    create = subprocess.run(
+        ['sc', 'create', name, 'binPath=', bin_path, 'start=', 'auto'],
+        capture_output=True, text=True,
+    )
+    if create.returncode != 0:
+        raise ServiceError(
+            f"Failed to create Windows Service '{name}': {create.stderr.strip()}"
+        )
+    # Set a human-readable display name and description.
+    subprocess.run(
+        ['sc', 'description', name,
+         'VNC Remote Secure — secure browser-based remote access.'],
+        capture_output=True, text=True,
+    )
     return True
 
 
-def start_service(name):
-    """Start a Windows Service."""
-    result = _run_powershell(f"Start-Service -Name '{name}' -ErrorAction SilentlyContinue")
-    if result.returncode != 0:
-        raise ServiceError(f"Failed to start {name}: {result.stderr.strip()}")
-    return True
+def remove_service(name=SERVICE_NAME):
+    """Stop and remove a Windows Service.
 
-
-def stop_service(name):
-    """Stop a Windows Service."""
-    result = _run_powershell(
-        f"Stop-Service -Name '{name}' -Force -ErrorAction SilentlyContinue"
+    Returns ``True`` on success or when the service was not present.
+    """
+    subprocess.run(['sc', 'stop', name], capture_output=True, text=True)
+    delete = subprocess.run(
+        ['sc', 'delete', name], capture_output=True, text=True,
     )
-    if result.returncode != 0:
-        raise ServiceError(f"Failed to stop {name}: {result.stderr.strip()}")
-    return True
-
-
-def service_status(name):
-    """Return a dict with ``running`` and ``enabled`` keys."""
-    result = _run_powershell(
-        f"(Get-Service -Name '{name}' -ErrorAction SilentlyContinue).Status"
-    )
-    status = result.stdout.strip().lower()
-    return {
-        'running': status == 'running',
-        'enabled': status in ('running', 'stopped'),
-    }
-
-
-def remove_service(name):
-    """Stop and remove a Windows Service."""
-    _run_powershell(f"Stop-Service -Name '{name}' -Force -ErrorAction SilentlyContinue")
-    result = _run_powershell(
-        f"(Get-WmiObject Win32_Service -Filter \"Name='{name}'\").Delete()"
-    )
-    return result.returncode == 0
+    # ``sc delete`` returns 1072 when the service does not exist.
+    return delete.returncode in (0, 1072)

@@ -14,6 +14,12 @@ secrets/
 *.pem
 *.pfx
 *.p12
+# Runtime-generated secret files (normally live outside the repo, but
+# keep them out of history if ever copied into the checkout)
+generated_credentials.env
+auth_secret.key
+*.session
+*.bak
 
 # --- SSL certificates (never commit) ---
 ssl/
@@ -58,7 +64,6 @@ env/
 logs/
 *.log
 *.log.*
-data/logs/
 data/vnc/
 .runtime/
 run/
@@ -91,35 +96,32 @@ novnc/
 # --- Old directories (replaced by docs/ and packaging/docker/) ---
 doc/
 docker/
-systemd/
+/systemd/
 
 # --- Old root-level Python wrappers (moved to src/vnc_remote_secure/) ---
 audio_stream_server.py
 config_loader.py
-d3des.py
+/d3des.py
 gamepad_server.py
 gen_ssl.py
 gen_vnc_pass.py
 landing_page.py
 serve_novnc.py
 verify_all.py
-web_terminal.py
 
 # --- Old root-level launchers (replaced by vnc-remote CLI) ---
-kill_all.sh
 launch_nossl.sh
 
 # --- Old duplicate scripts in scripts/ root (moved to subdirectories) ---
-scripts/backup.sh
-scripts/cleanup.sh
-scripts/duckdns_update.py
-scripts/duckdns_update.sh
-scripts/health-check.sh
-scripts/install_systemd.sh
-scripts/Manage-Firewall.ps1
-scripts/restore.sh
-scripts/uninstall.sh
-scripts/update.sh
+/scripts/backup.sh
+/scripts/cleanup.sh
+/scripts/duckdns_update.py
+/scripts/duckdns_update.sh
+/scripts/health-check.sh
+/scripts/install_systemd.sh
+/scripts/restore.sh
+/scripts/uninstall.sh
+/scripts/update.sh
 
 # --- Binaries (managed externally, not committed) ---
 bin/
@@ -128,12 +130,16 @@ bin/ttyd_msvc/
 bin/*.zip
 bin/*.exe
 # Exception: native launcher scripts are source code, not downloaded binaries
-!native/linux/bin/
-!native/linux/bin/*
+!src/vnc_remote_secure/native/linux/bin/
+!src/vnc_remote_secure/native/linux/bin/*
 
 # --- Third-party cache ---
-third_party/cache/
+src/vnc_remote_secure/third_party/cache/
 vendor/bin/
+# Downloaded third-party binaries land at the repo-root vendor/ dir
+# (tools/download_dependencies.py); anchor to root so the tracked
+# src/vnc_remote_secure/vendor/ package dir is unaffected.
+/vendor/
 
 # --- Diagnostic / temp test files ---
 debug_*.py

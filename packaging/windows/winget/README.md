@@ -23,6 +23,6 @@ winget install --manifest .\packaging\windows\winget\
 
 ## Status
 
-**Placeholder.** No manifests are published yet. The MSI produced by
+No manifests are published yet. The MSI produced by
 [`packaging/windows/build-installer.ps1`](../build-installer.ps1) must be
-signed and hosted before submission.
+signed and hosted before submission to the winget-pkgs repository.

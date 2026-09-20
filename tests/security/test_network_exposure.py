@@ -1,11 +1,11 @@
 """Security test: verify internal services are not publicly exposed."""
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from vnc_remote_secure.core.config import get_config
+
 
 def test_internal_ports_not_public():
     """Internal service ports should not be 0.0.0.0 by default."""

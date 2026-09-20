@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-This guide covers common issues and their solutions for Raspberry Pi VNC Remote.
+This guide covers common issues and their solutions for VNC Remote Secure.
 
 ## Table of Contents
 - [Installation Issues](#installation-issues)
@@ -13,19 +13,19 @@ This guide covers common issues and their solutions for Raspberry Pi VNC Remote.
 
 ## Installation Issues
 
-### Script Not Found
-**Error**: `bash: rpi-vnc-remote.sh: No such file or directory`
+### CLI Not Found
+**Error**: `bash: vnc-remote: command not found`
 
 **Solution**:
 ```bash
 # Make sure you're in the project directory
 cd /path/to/vnc-remote-secure
 
-# Make script executable
-chmod +x src/rpi-vnc-remote.sh
+# Make the CLI wrapper executable
+chmod +x vnc-remote
 
-# Run script
-./src/rpi-vnc-remote.sh setup
+# Run setup/install
+./vnc-remote install
 ```
 
 ### Permission Denied
@@ -34,10 +34,10 @@ chmod +x src/rpi-vnc-remote.sh
 **Solution**:
 ```bash
 # Fix permissions
-chmod +x src/rpi-vnc-remote.sh
+chmod +x vnc-remote
 
 # If still fails, check file ownership
-sudo chown $USER:$USER src/rpi-vnc-remote.sh
+sudo chown $USER:$USER vnc-remote
 ```
 
 ### Dependencies Missing
@@ -51,8 +51,9 @@ sudo apt update
 # Fix broken packages
 sudo apt --fix-broken install
 
-# Install dependencies manually
-sudo apt install -y nginx tigervnc-standalone-server novnc ttyd openssl
+# Install dependencies manually (the web terminal is the built-in
+# Python/Tornado service — ttyd is only needed as an optional alternative)
+sudo apt install -y nginx tigervnc-standalone-server novnc openssl
 ```
 
 ## Service Problems
@@ -74,18 +75,16 @@ ss -tlnp | grep :5901
 
 **Solutions**:
 ```bash
-# Kill existing VNC processes
-pkill -f tigervncserver
+# Stop the managed VNC service by its recorded PID (the service
+# manager refuses to kill PIDs it did not start — never pkill)
+./vnc-remote stop
 
-# Remove lock files
-rm -f /tmp/.X11-unix/X*
+# Remove stale X11 lock files left by a crashed vncserver
+rm -f /tmp/.X11-unix/X1
 
-# Restart VNC
-./src/rpi-vnc-remote.sh restart
-
-# If still fails, check display number
-export DISPLAY=:1
-./src/rpi-vnc-remote.sh start
+# Restart VNC (VNC_DISPLAY selects the display; the RFB port is
+# 5900 + display number on Linux)
+./vnc-remote start
 ```
 
 ### noVNC Proxy Not Working
@@ -99,41 +98,42 @@ ps aux | grep novnc
 # Check noVNC port
 ss -tlnp | grep :6080
 
-# Check noVNC logs
-journalctl -u novnc
+# Check noVNC logs (services log to <log_dir>/novnc.log; the systemd
+# unit is the unified vnc-remote.service)
+journalctl -u vnc-remote
+tail -f /var/log/vnc-remote-secure/novnc.log
 ```
 
 **Solutions**:
 ```bash
 # Restart noVNC
-pkill -f novnc_proxy
-./src/rpi-vnc-remote.sh restart
+./vnc-remote restart
 
-# Check firewall
+# Check firewall — remember: backend ports are loopback-only by
+# design. Do NOT open 6080 publicly; access noVNC through nginx
+# (port 443) so the auth gateway stays in front of it.
 sudo ufw status
-sudo ufw allow 6080
 ```
 
-### ttyd Terminal Not Accessible
-**Symptoms**: Terminal page shows connection error
+### Web Terminal Not Accessible
+**Symptoms**: Web Terminal page shows connection error
 
 **Diagnosis**:
 ```bash
-# Check ttyd process
-ps aux | grep ttyd
+# Check Web Terminal process
+vnc-remote status
 
-# Check ttyd port
+# Check Web Terminal port
 ss -tlnp | grep :5000
 
-# Test ttyd manually
-ttyd -p 5000 bash
+# Test Web Terminal manually (Python Tornado backend, both platforms)
+PYTHONPATH=src python -m vnc_remote_secure.services.terminal
 ```
 
 **Solutions**:
 ```bash
-# Restart ttyd
-pkill -f ttyd
-./src/rpi-vnc-remote.sh restart
+# Restart Web Terminal service
+./vnc-remote restart
 
 # Check if port is in use
 sudo lsof -i :5000
@@ -159,14 +159,14 @@ sudo journalctl -u nginx
 **Solutions**:
 ```bash
 # Check template file
-cat src/config/nginx.conf
+cat src/vnc_remote_secure/config/nginx.conf
 
 # Verify environment variables
 env | grep -E "(NOVNC_PORT|TTYD_PORT|VNC_PORT)"
 
-# Regenerate nginx config
-sudo rm -f /etc/nginx/sites-enabled/rpi-vnc
-./src/rpi-vnc-remote.sh restart
+# Regenerate nginx config (the site file is named vnc-remote-secure)
+sudo rm -f /etc/nginx/sites-enabled/vnc-remote-secure
+./vnc-remote restart
 ```
 
 ### Port Conflicts
@@ -203,17 +203,21 @@ nano .env
 sudo ufw status
 
 # Test port accessibility
-telnet localhost 6080
+telnet 127.0.0.1 6080
 ```
 
 **Solutions**:
 ```bash
-# Allow required ports
+# Only the public entry point needs a rule — that is nginx (443/80).
+# Backend ports (noVNC 6080, terminal 5000, VNC 5901) stay on
+# loopback: opening them publicly bypasses the authentication
+# gateway, so never add ufw rules for them.
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
-sudo ufw allow 6080/tcp
-sudo ufw allow 5000/tcp
-sudo ufw allow 5901/tcp
+
+# If the deployment is LAN-only without nginx, restrict backend
+# access to the LAN instead of opening it to the world, e.g.:
+sudo ufw allow from 192.168.1.0/24 to any port 8000 proto tcp
 
 # Or disable firewall temporarily (testing only)
 sudo ufw disable
@@ -224,19 +228,25 @@ sudo ufw disable
 ### Certificate Expired
 **Error**: SSL connection fails, certificate expired
 
+The canonical SSL directory is `get_ssl_dir()`:
+`/var/lib/vnc-remote-secure/ssl` (root/systemd install),
+`~/.local/share/vnc-remote-secure/ssl` (non-root Linux), or
+`%ProgramData%\VncRemoteSecure\ssl` (Windows). Adjust the paths below
+accordingly — the examples use the systemd path.
+
 **Diagnosis**:
 ```bash
 # Check certificate expiry
-openssl x509 -enddate -noout -in data/ssl/fullchain.pem
+openssl x509 -enddate -noout -in /var/lib/vnc-remote-secure/ssl/fullchain.pem
 
 # Check certificate validity
-openssl x509 -checkend 86400 -noout -in data/ssl/fullchain.pem
+openssl x509 -checkend 86400 -noout -in /var/lib/vnc-remote-secure/ssl/fullchain.pem
 ```
 
 **Solutions**:
 ```bash
 # Generate new certificate
-./src/rpi-vnc-remote.sh setup
+./vnc-remote install
 
 # Or use Let's Encrypt
 sudo apt install certbot
@@ -249,24 +259,20 @@ sudo certbot certonly --standalone -d yourdomain.com
 **Diagnosis**:
 ```bash
 # Check certificate files
-ls -la data/ssl/
+ls -la /var/lib/vnc-remote-secure/ssl/
 
 # Check nginx configuration
-grep ssl_cert /etc/nginx/sites-enabled/rpi-vnc
+grep ssl_cert /etc/nginx/sites-enabled/vnc-remote-secure
 ```
 
 **Solutions**:
 ```bash
-# Create SSL directory
-mkdir -p data/ssl
-
-# Generate self-signed certificate
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout data/ssl/privkey.pem \
-    -out data/ssl/fullchain.pem
+# Regenerate into the canonical ssl directory (cert path overrides:
+# SSL_CERT / SSL_KEY in .env)
+./vnc-remote install
 
 # Set correct permissions
-chmod 600 data/ssl/*.pem
+chmod 600 /var/lib/vnc-remote-secure/ssl/*.pem
 ```
 
 ### Certificate Permissions
@@ -274,12 +280,11 @@ chmod 600 data/ssl/*.pem
 
 **Solution**:
 ```bash
-# Set correct ownership
-sudo chown $USER:$USER data/ssl/*
-
-# Set correct permissions
-chmod 600 data/ssl/privkey.pem
-chmod 644 data/ssl/fullchain.pem
+# Set correct permissions (the service user must be able to read them;
+# on a systemd install that is the vnc-remote user)
+sudo chown vnc-remote:vnc-remote /var/lib/vnc-remote-secure/ssl/*
+chmod 600 /var/lib/vnc-remote-secure/ssl/privkey.pem
+chmod 644 /var/lib/vnc-remote-secure/ssl/fullchain.pem
 ```
 
 ## Performance Issues
@@ -303,7 +308,7 @@ uptime
 **Solutions**:
 ```bash
 # Restart heavy processes
-./src/rpi-vnc-remote.sh restart
+./vnc-remote restart
 
 # Optimize VNC settings
 # Edit .env and reduce resolution or color depth
@@ -330,7 +335,7 @@ swapon --show
 sudo sync && sudo sysctl vm.drop_caches=3
 
 # Restart services
-./src/rpi-vnc-remote.sh restart
+./vnc-remote restart
 
 # Add swap space if needed
 sudo fallocate -l 2G /swapfile
@@ -345,7 +350,7 @@ sudo swapon /swapfile
 **Diagnosis**:
 ```bash
 # Check network latency
-ping localhost
+ping 127.0.0.1
 
 # Check nginx performance
 sudo nginx -t && sudo systemctl reload nginx
@@ -357,11 +362,11 @@ ps aux | grep health_web_server
 **Solutions**:
 ```bash
 # Restart web services
-./src/rpi-vnc-remote.sh restart
+./vnc-remote restart
 
 # Clear browser cache
 # Or test with curl
-curl -k https://localhost/health
+curl -k https://127.0.0.1/health
 ```
 
 ## User Management
@@ -390,7 +395,7 @@ sudo pkill -u remote
 sudo userdel -rf remote
 
 # Recreate user
-./src/rpi-vnc-remote.sh setup
+./vnc-remote install
 ```
 
 ### SSH Agent Issues
@@ -416,21 +421,24 @@ sudo userdel -rf remote
 
 **Diagnosis**:
 ```bash
-# Check health web server
-ps aux | grep health_web_server
+# Check health service status (managed by the service manager by PID —
+# do not pkill by pattern)
+vnc-remote status
 
-# Check port 8080
+# Check the health service log
+tail -f /var/log/vnc-remote-secure/health.log
+
+# Check port 8080 (8090 on Windows)
 ss -tlnp | grep :8080
 
 # Check nginx configuration
-grep -A 5 "location /health" /etc/nginx/sites-enabled/rpi-vnc
+grep -A 5 "location /health" /etc/nginx/sites-enabled/vnc-remote-secure
 ```
 
 **Solutions**:
 ```bash
-# Restart health web server
-pkill -f health_web_server
-./src/rpi-vnc-remote.sh restart
+# Restart via the service manager (stops/starts by recorded PID)
+./vnc-remote restart
 
 # Check nginx and restart if needed
 sudo nginx -t && sudo systemctl restart nginx
@@ -442,14 +450,14 @@ sudo nginx -t && sudo systemctl restart nginx
 **Diagnosis**:
 ```bash
 # Run complete health check
-./scripts/health-check.sh
+./scripts/maintenance/health-check.sh
 
 # Check environment variables
 env | grep -E "(NOVNC_PORT|TTYD_PORT|VNC_PORT)"
 
 # Enable debug mode
 export VERBOSE=true
-./scripts/health-check.sh
+./scripts/maintenance/health-check.sh
 ```
 
 **Solutions**:
@@ -458,7 +466,7 @@ export VERBOSE=true
 source .env
 
 # Restart services
-./src/rpi-vnc-remote.sh restart
+./vnc-remote restart
 ```
 
 ### Auto-refresh Not Working
@@ -473,7 +481,7 @@ source .env
 # Click refresh button or F5
 
 # Check network connectivity
-curl -k https://localhost/health
+curl -k https://127.0.0.1/health
 ```
 
 ## Getting Help
@@ -483,7 +491,7 @@ Enable verbose logging for detailed diagnostics:
 
 ```bash
 export VERBOSE=true
-./src/rpi-vnc-remote.sh <command>
+./vnc-remote <command>
 ```
 
 ### Log Files
@@ -498,7 +506,7 @@ sudo journalctl -u systemd-logind
 ls ~/.vnc/*.log
 
 # Application logs
-tail -f data/logs/*.log
+tail -f logs/*.log
 ```
 
 ### Support Commands
@@ -506,16 +514,16 @@ Use these commands for system diagnostics:
 
 ```bash
 # Complete health check
-./scripts/health-check.sh
+./scripts/maintenance/health-check.sh
 
 # System status
-./src/rpi-vnc-remote.sh status
+./vnc-remote status
 
 # Service restart
-./src/rpi-vnc-remote.sh restart
+./vnc-remote restart
 
 # Configuration check
-./src/rpi-vnc-remote.sh status
+./vnc-remote status
 ```
 
 ### Reporting Issues
@@ -531,7 +539,7 @@ When reporting issues, include:
 
 3. **Configuration**: Redacted `.env` file
 
-4. **Health Check Output**: `./scripts/health-check.sh`
+4. **Health Check Output**: `./scripts/maintenance/health-check.sh`
 
 5. **Steps to Reproduce**: What you did before the error
 
@@ -540,10 +548,10 @@ If the system is completely broken:
 
 ```bash
 # Backup current state
-./scripts/backup.sh
+vnc-remote backup
 
 # Restore from last known good backup
-./scripts/restore.sh backups/backup_YYYYMMDD_HHMMSS.tar.gz
+vnc-remote restore backups/backup_YYYYMMDD_HHMMSS.tar.gz
 
 # Or reset to defaults
 make uninstall

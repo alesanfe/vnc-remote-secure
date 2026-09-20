@@ -13,20 +13,22 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Get project directory
+# Get project directory (scripts/maintenance is two levels below root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-echo -e "${BLUE}🔄 Raspberry Pi VNC Remote - Update Script${NC}"
+echo -e "${BLUE}🔄 VNC Remote Secure - Update Script${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
-# Function to ask for confirmation
-confirm_action() {
-    local message="$1"
-    read -p "$message (y/N): " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]]
-}
+# Shared helpers
+source "$SCRIPT_DIR/common.sh"
+
+# Resolve the canonical log directory via the Python package - the
+# runtime uses XDG/FHS paths (/var/log/vnc-remote-secure), not
+# repo-relative ./logs (same resolution as cleanup.sh).
+export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+LOG_DIR_PATH="${LOG_DIR:-$(python3 -c 'from vnc_remote_secure.core import paths; print(paths.get_log_dir())' 2>/dev/null || true)}"
+LOG_DIR_PATH="${LOG_DIR_PATH:-$PROJECT_DIR/logs}"
 
 # Check if we're in a git repository
 if [[ ! -d "$PROJECT_DIR/.git" ]]; then
@@ -124,8 +126,9 @@ if confirm_action "Update project dependencies and reinstall?"; then
     else
         echo -e "${YELLOW}⚠️  Make install failed, trying manual installation...${NC}"
         
-        # Manual dependency installation
-        deps=("nginx" "tigervnc-standalone-server" "novnc" "ttyd" "openssl")
+        # Manual dependency installation — mirrors the canonical
+        # _SYSTEM_PACKAGES list in platform/linux/installer.py
+        deps=("nginx" "fail2ban" "tigervnc-standalone-server" "tigervnc-common" "websockify" "openssl" "certbot" "python3-certbot-nginx")
         for dep in "${deps[@]}"; do
             echo -e "${BLUE}🔄 Installing $dep...${NC}"
             if sudo apt install -y "$dep"; then
@@ -142,19 +145,23 @@ fi
 # Restart services
 echo -e "\n${YELLOW}🚀 Restarting services...${NC}"
 if confirm_action "Restart all services?"; then
-    if [[ -f "$PROJECT_DIR/src/rpi-vnc-remote.sh" ]]; then
-        echo -e "${BLUE}🔄 Restarting VNC Remote services...${NC}"
-        cd "$PROJECT_DIR"
+    echo -e "${BLUE}🔄 Restarting VNC Remote services...${NC}"
+    cd "$PROJECT_DIR"
 
-        # Stop services
-        "$PROJECT_DIR/src/rpi-vnc-remote.sh" stop 2>/dev/null || true
-        sleep 2
+    # Stop services via the canonical CLI (prefer repo wrapper over PATH)
+    if [[ -x "$PROJECT_DIR/vnc-remote" ]]; then
+        VNC_REMOTE="$PROJECT_DIR/vnc-remote"
+    else
+        VNC_REMOTE="vnc-remote"
+    fi
+    "$VNC_REMOTE" stop 2>/dev/null || true
+    sleep 2
 
-        # Start services
-        "$PROJECT_DIR/src/rpi-vnc-remote.sh" start
+    # Start services via the canonical CLI
+    if "$VNC_REMOTE" start; then
         echo -e "${GREEN}✅ Services restarted${NC}"
     else
-        echo -e "${YELLOW}⚠️  Main script not found, manual restart required${NC}"
+        echo -e "${YELLOW}⚠️  Failed to restart services, manual restart required${NC}"
     fi
 else
     echo -e "${BLUE}📋 Skipping service restart${NC}"
@@ -179,8 +186,8 @@ echo -e "${BLUE}• Services restarted${NC}"
 echo -e "${BLUE}• Health check completed${NC}"
 
 echo -e "\n${BLUE}💡 Next steps:${NC}"
-echo -e "${BLUE}• Check service status: ./scripts/health-check.sh${NC}"
-echo -e "${BLUE}• View logs: tail -f data/logs/*.log${NC}"
-echo -e "${BLUE}• Access web interface: https://your-domain.com/health${NC}"
+echo -e "${BLUE}• Check service status: ./scripts/maintenance/health-check.sh${NC}"
+echo -e "${BLUE}• View logs: tail -f \"${LOG_DIR_PATH}\"/*.log${NC}"
+echo -e "${BLUE}• Access web interface: https://your-domain.duckdns.org/health${NC}"
 
 echo -e "\n${GREEN}🎉 Update process completed!${NC}"

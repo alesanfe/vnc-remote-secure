@@ -2,15 +2,27 @@
 """
 Migrate configuration from old format to new package-based format.
 
-Handles:
-- Moving .env to config/ structure
-- Updating paths in configuration
-- Migrating from old launch scripts to vnc-remote CLI
+This tool is a thin wrapper around the canonical migration logic in
+``vnc-remote config migrate``. It delegates to the CLI to perform:
+
+- Renaming deprecated environment variables (VNC_REMOTE_PROFILE → SECURITY_PROFILE,
+  CERT_FILE → SSL_CERT, KEY_FILE → SSL_KEY, etc.)
+- Renaming old security profile aliases (home-lan, private-vpn, etc.)
+
+It also checks for deprecated launch scripts. Note that the CLI's
+``config migrate`` command performs string replacements of deprecated
+names and profile aliases; it does not validate against the JSON schema
+or normalize TLS flags. Run ``vnc-remote config validate`` separately
+to validate the resulting configuration.
+
+Usage:
+    python tools/migrate_configuration.py
+    # or equivalently:
+    vnc-remote config migrate
 """
 import os
+import subprocess
 import sys
-import shutil
-import json
 
 
 def find_project_root():
@@ -22,31 +34,12 @@ def find_project_root():
     return os.getcwd()
 
 
-def migrate_env_file(project_root):
-    """Migrate .env to new config structure."""
-    old_env = os.path.join(project_root, '.env')
-    new_env = os.path.join(project_root, 'config', 'local.env')
-
-    if not os.path.exists(old_env):
-        print("[SKIP] No .env file found")
-        return True
-
-    if os.path.exists(new_env):
-        print(f"[SKIP] {new_env} already exists")
-        return True
-
-    os.makedirs(os.path.dirname(new_env), exist_ok=True)
-    shutil.copy2(old_env, new_env)
-    print(f"[OK] Migrated .env -> config/local.env")
-    print("     You can now remove the old .env file")
-    return True
-
-
 def check_old_scripts(project_root):
     """Check for deprecated scripts and warn."""
     deprecated = [
-        ('launch_nossl.sh', 'Use: vnc-remote start'),
-        ('kill_all.sh', 'Use: vnc-remote stop'),
+        ('launch.sh', 'Deprecated delegator. Use: vnc-remote start'),
+        ('src/rpi-vnc-remote.sh',
+         'Legacy compatibility wrapper. Prefer: vnc-remote'),
     ]
     for script, replacement in deprecated:
         path = os.path.join(project_root, script)
@@ -55,83 +48,39 @@ def check_old_scripts(project_root):
     return True
 
 
-def validate_config_schema(project_root):
-    """Validate configuration against schema if available."""
-    schema_path = os.path.join(project_root, 'config', 'schema', 'config.schema.json')
-    env_path = os.path.join(project_root, '.env')
-
-    if not os.path.exists(schema_path):
-        print("[SKIP] No config schema found")
-        return True
-
-    if not os.path.exists(env_path):
-        print("[SKIP] No .env file to validate")
-        return True
-
-    try:
-        import jsonschema
-    except ImportError:
-        print("[SKIP] jsonschema not installed, skipping validation")
-        return True
-
-    with open(schema_path) as f:
-        schema = json.load(f)
-
-    # Parse .env into dict
-    config = {}
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            key, _, val = line.partition('=')
-            key = key.strip()
-            val = val.strip().strip('"\'')
-            # Type coercion based on schema
-            if key in schema.get('properties', {}):
-                prop = schema['properties'][key]
-                if prop.get('type') == 'integer':
-                    try:
-                        val = int(val)
-                    except ValueError:
-                        pass
-                elif prop.get('type') == 'boolean':
-                    val = val.lower() in ('true', '1', 'yes')
-            config[key] = val
-
-    try:
-        jsonschema.validate(config, schema)
-        print("[OK] Configuration validates against schema")
-    except jsonschema.ValidationError as e:
-        print(f"[FAIL] Configuration validation error: {e.message}")
-        return False
-
-    return True
+def run_cli_migrate(project_root):
+    """Delegate to ``vnc-remote config migrate`` for canonical migration."""
+    print("[INFO] Running: vnc-remote config migrate")
+    env = os.environ.copy()
+    src_dir = os.path.join(project_root, 'src')
+    env['PYTHONPATH'] = src_dir + os.pathsep + env.get('PYTHONPATH', '')
+    result = subprocess.run(
+        [sys.executable, '-m', 'vnc_remote_secure.cli', 'config', 'migrate'],
+        cwd=project_root,
+        env=env,
+    )
+    return result.returncode == 0
 
 
 def main():
     project_root = find_project_root()
-    print(f"=== VNC Remote Secure - Configuration Migration ===")
+    print("=== VNC Remote Secure - Configuration Migration ===")
     print(f"Project root: {project_root}")
     print()
 
-    steps = [
-        migrate_env_file,
-        check_old_scripts,
-        validate_config_schema,
-    ]
+    # Check for deprecated scripts first.
+    check_old_scripts(project_root)
 
-    all_ok = True
-    for step in steps:
-        if not step(project_root):
-            all_ok = False
+    # Delegate to the canonical CLI migration.
+    ok = run_cli_migrate(project_root)
 
     print()
-    if all_ok:
-        print("[PASS] Migration checks complete")
+    if ok:
+        print("[PASS] Migration complete")
+        print("       Run 'vnc-remote config validate' to verify.")
         return 0
     else:
-        print("[FAIL] Some migration checks failed")
+        print("[FAIL] Migration failed")
         return 1
 
 

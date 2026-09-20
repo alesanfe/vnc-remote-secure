@@ -1,0 +1,16 @@
+{
+  "name": "TightVNC",
+  "version": "2.8.85",
+  "platform": "windows",
+  "architecture": "x86_64",
+  "description": "VNC server for Windows (alternative to UltraVNC)",
+  "homepage": "https://www.tightvnc.com/",
+  "repository": null,
+  "license": "GPL-2.0",
+  "license_file": "../licenses/tightvnc.txt",
+  "managed_by": "manual",
+  "download_url": "https://www.tightvnc.com/download/tightvnc-2.8.85-gpl-setup-64bit.msi",
+  "filename": "tightvnc-2.8.85-gpl-setup-64bit.msi",
+  "sha256": "e4b80953edda4f404adf4108264d30b5a087562cf2f07c9766841a24daa7cd2c",
+  "notes": "TightVNC is distributed as an MSI installer (not a zip). It cannot be auto-extracted by download_dependencies.py. Marked manual: download the MSI and run the installer, or extract with msiexec. UltraVNC is the preferred VNC server. Not committed to repository."
+}

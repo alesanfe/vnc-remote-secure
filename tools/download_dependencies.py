@@ -30,10 +30,20 @@ def find_project_root():
 
 
 def load_manifests(project_root):
-    """Load all manifests from third_party/manifests/."""
-    manifests_dir = os.path.join(project_root, 'third_party', 'manifests')
+    """Load all manifests from third_party/manifests/.
+
+    Looks first at the package-relative location
+    ``src/vnc_remote_secure/third_party/manifests`` (post-consolidation
+    layout, also used by pip-installed wheels), then at the legacy
+    ``<project_root>/third_party/manifests`` (pre-consolidation layout).
+    """
+    candidates = [
+        os.path.join(project_root, 'src', 'vnc_remote_secure', 'third_party', 'manifests'),
+        os.path.join(project_root, 'third_party', 'manifests'),
+    ]
+    manifests_dir = next((d for d in candidates if d and os.path.isdir(d)), None)
     manifests = []
-    if not os.path.isdir(manifests_dir):
+    if not manifests_dir:
         return manifests
     for f in sorted(os.listdir(manifests_dir)):
         if f.endswith('.json'):
@@ -73,15 +83,33 @@ def _extract_zip(zip_path, extract_dir, name):
     print(f"[EXTRACT] {name}: {zip_path} -> {extract_dir}")
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            zf.extractall(extract_dir)
+            # Reject member paths that escape the target dir
+            # (zip-slip) — same guard as the runtime UltraVNC
+            # provisioning path in platform/windows/installer.py.
+            dest = os.path.realpath(extract_dir)
+            for member in zf.namelist():
+                target = os.path.realpath(os.path.join(dest, member))
+                if not target.startswith(dest + os.sep):
+                    raise RuntimeError(
+                        f"Unsafe path in {name} archive: {member}")
+            try:
+                zf.extractall(dest, filter='data')
+            except TypeError:
+                zf.extractall(dest)
         return True
     except Exception as e:
         print(f"[ERROR] {name}: extraction failed: {e}", file=sys.stderr)
         return False
 
 
-def _git_clone(clone_url, target_dir, name, pinned_commit=None):
-    """Clone a git repository to target directory."""
+def _git_clone(clone_url, target_dir, name, pinned_commit=None,
+               pinned_sha=None):
+    """Clone a git repository to target directory.
+
+    When ``pinned_sha`` is given, the checked-out HEAD must equal it —
+    tags are mutable (a force-moved tag must fail loudly, not silently
+    vendored a different tree).
+    """
     if os.path.isdir(target_dir) and os.listdir(target_dir):
         print(f"[EXISTS] {name}: {target_dir}")
         return True
@@ -89,23 +117,38 @@ def _git_clone(clone_url, target_dir, name, pinned_commit=None):
     print(f"[CLONE] {name}: {clone_url} -> {target_dir}")
     os.makedirs(os.path.dirname(target_dir), exist_ok=True)
     try:
-        subprocess.run(
-            ['git', 'clone', '--depth', '1', clone_url, target_dir],
-            check=True,
-            capture_output=True,
-        )
+        # A shallow clone only fetches the default-branch HEAD, so a
+        # pinned tag/branch must be passed to ``--branch`` at clone
+        # time — a later ``checkout`` cannot see refs the shallow
+        # clone never fetched.
+        clone_cmd = ['git', 'clone', '--depth', '1']
         if pinned_commit:
-            subprocess.run(
-                ['git', '-C', target_dir, 'checkout', pinned_commit],
-                check=True,
-                capture_output=True,
-            )
+            clone_cmd += ['--branch', pinned_commit]
+        clone_cmd += [clone_url, target_dir]
+        subprocess.run(clone_cmd, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] {name}: git clone failed: {e.stderr.decode()}", file=sys.stderr)
         return False
     except FileNotFoundError:
         print(f"[ERROR] {name}: git not found", file=sys.stderr)
         return False
+    if pinned_sha:
+        try:
+            head = subprocess.run(
+                ['git', '-C', target_dir, 'rev-parse', 'HEAD'],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+        except subprocess.CalledProcessError:
+            head = ''
+        if head != pinned_sha:
+            print(
+                f"[ERROR] {name}: checked-out HEAD {head or '<unknown>'} "
+                f"does not match pinned_commit_sha {pinned_sha} — the "
+                f"tag may have been re-pointed. Refusing to use it.",
+                file=sys.stderr)
+            shutil.rmtree(target_dir, ignore_errors=True)
+            return False
+        print(f"[VERIFIED] {name}: HEAD {head} matches pinned SHA")
     return True
 
 
@@ -117,6 +160,17 @@ def download_and_verify(manifest, project_root):
 
     # Determine target directory
     platform = manifest.get('platform', 'cross-platform')
+    # Skip manifests for other platforms — the same gate
+    # verify_dependencies.py applies, so running this tool on Windows
+    # does not fetch Linux-only binaries (and vice versa).
+    import sys as _sys
+    is_windows = _sys.platform == 'win32'
+    if platform == 'linux' and is_windows:
+        print(f"[SKIP] {name}: Linux-only dependency")
+        return False
+    if platform == 'windows' and not is_windows:
+        print(f"[SKIP] {name}: Windows-only dependency")
+        return False
     if platform == 'windows':
         target_dir = os.path.join(project_root, 'bin')
     else:
@@ -130,7 +184,10 @@ def download_and_verify(manifest, project_root):
             print(f"[SKIP] {name}: no clone_url")
             return False
         target_path = os.path.join(project_root, clone_target)
-        return _git_clone(clone_url, target_path, name, manifest.get('pinned_commit'))
+        return _git_clone(
+            clone_url, target_path, name,
+            manifest.get('pinned_commit'),
+            manifest.get('pinned_commit_sha'))
 
     # --- manual (verify existing binary) ---
     if managed_by == 'manual':
@@ -204,7 +261,7 @@ def main():
     manifests = load_manifests(project_root)
 
     if not manifests:
-        print("No manifests found in third_party/manifests/")
+        print("No manifests found (checked src/vnc_remote_secure/third_party/manifests/ and third_party/manifests/)")
         return 1
 
     print(f"Found {len(manifests)} manifest(s)")

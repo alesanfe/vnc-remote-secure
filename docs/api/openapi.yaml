@@ -3,11 +3,18 @@ info:
   title: VNC Remote Secure API
   description: |
     REST API for VNC Remote Secure — a self-hosted remote access platform
-    with browser-based VNC, terminal, and health monitoring.
+    with browser-based VNC, Web Terminal, and health monitoring.
 
     ## Authentication
-    All endpoints except `/health/live` require a valid session cookie
-    or Bearer token. MFA (TOTP) is required when `MFA_REQUIRED=true`.
+    Health, metrics, and audit endpoints accept a Bearer token
+    (`HEALTH_AUTH_TOKEN`). When the token is unset, access is open only
+    while every health-serving bind (`HEALTH_WEB_HOST`, `USER_UI_HOST`,
+    `BIND_HOST`) is loopback — a public bind without a token fails
+    closed with 401. The Flask user-management UI
+    uses a `vnc_session` cookie issued by `/login` (with CSRF
+    protection); that scheme is not covered by this spec and is not
+    accepted by the health server. MFA (TOTP) is required for
+    user-management when `MFA_REQUIRED=true`.
 
     ## Security
     - Backends bind to 127.0.0.1 only
@@ -25,19 +32,17 @@ servers:
     description: Linux (health service)
   - url: http://127.0.0.1:8090
     description: Windows (health service)
+  - url: http://127.0.0.1:8081
+    description: User-management UI (metrics and audit endpoints)
   - url: https://{domain}
     description: Public (via nginx reverse proxy)
     variables:
       domain:
-        default: myremote.duckdns.org
+        default: your-domain.duckdns.org
 
 tags:
   - name: Health
     description: Service health and readiness checks
-  - name: Auth
-    description: Authentication and session management
-  - name: Sessions
-    description: Ephemeral remote sessions
   - name: Metrics
     description: Prometheus metrics export
   - name: Audit
@@ -48,21 +53,27 @@ paths:
     get:
       tags: [Health]
       summary: Get overall health status
-      description: Returns the aggregate health of all services.
+      description: >-
+        Returns the aggregate health of all services. The legacy aliases
+        ``/health_status`` and ``/health_status.json`` return the same
+        payload for backward compatibility.
       security:
-        - sessionCookie: []
         - bearerToken: []
       responses:
         '200':
-          description: Health status
+          description: Health status (healthy or degraded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: All services down or no data available
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthStatus'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
 
   /health/live:
     get:
@@ -81,47 +92,47 @@ paths:
                   status:
                     type: string
                     example: alive
+        '429':
+          description: Rate limited (60 requests/minute per client IP)
 
   /health/ready:
     get:
       tags: [Health]
       summary: Readiness probe
-      description: Returns 200 if all critical services are ready.
+      description: |
+        Returns the aggregated health status. A 200 response indicates
+        the service is healthy or degraded; a 503 response indicates all
+        services are down or no data is available. The body is the same
+        `HealthStatus` object returned by `/health`.
       security:
-        - sessionCookie: []
         - bearerToken: []
       responses:
         '200':
-          description: All services ready
+          description: Services are healthy or degraded
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  ready:
-                    type: boolean
-                  services:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/ServiceHealth'
+                $ref: '#/components/schemas/HealthStatus'
         '503':
-          description: One or more services not ready
+          description: All services down or no data available
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  ready:
-                    type: boolean
-                    example: false
+                $ref: '#/components/schemas/HealthStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /health/services:
     get:
       tags: [Health]
       summary: Per-service health
-      description: Returns health status for each individual service.
+      description: |
+        Returns service-manager status for every managed service.
+        Each entry reports ``pid``, ``running``, ``port`` (when known)
+        and ``enabled: false`` for intentionally disabled services.
+        Service names: `vnc`, `novnc`, `websockify`, `terminal`,
+        `health`, `landing`, `user_ui`, `audio`, `gamepad`, `nginx`.
       security:
-        - sessionCookie: []
         - bearerToken: []
       responses:
         '200':
@@ -130,19 +141,38 @@ paths:
             application/json:
               schema:
                 type: object
-                properties:
-                  services:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/ServiceHealth'
+                additionalProperties:
+                  type: object
+                  properties:
+                    pid:
+                      type: integer
+                      nullable: true
+                    running:
+                      type: boolean
+                    port:
+                      type: integer
+                    enabled:
+                      type: boolean
+                example:
+                  vnc: {pid: 1234, running: true, port: 5901}
+                  novnc: {pid: 1235, running: true, port: 6080}
+                  websockify: {pid: 1236, running: true, port: 5700}
+                  terminal: {pid: 1237, running: false, port: 5000}
+                  health: {pid: 1238, running: true, port: 8080}
+                  landing: {pid: 1239, running: true, port: 8000}
+                  user_ui: {pid: null, running: false, enabled: false, port: 8081}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /health/all:
     get:
       tags: [Health]
       summary: Complete health report
-      description: Returns system metrics, service health, and posture score.
+      description: |
+        Returns system metrics (CPU, memory, disk, uptime, hostname, OS)
+        and the aggregated service health status. There is no posture
+        score or top-level `status` field.
       security:
-        - sessionCookie: []
         - bearerToken: []
       responses:
         '200':
@@ -151,6 +181,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CompleteHealth'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          description: Health status generation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /metrics:
     get:
@@ -161,7 +199,6 @@ paths:
         Includes service status, active sessions, auth attempts,
         TLS status, and posture score.
       security:
-        - sessionCookie: []
         - bearerToken: []
       responses:
         '200':
@@ -174,6 +211,8 @@ paths:
                   # HELP vnc_remote_up Service status (1=up, 0=down)
                   # TYPE vnc_remote_up gauge
                   vnc_remote_up 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /audit:
     get:
@@ -181,7 +220,6 @@ paths:
       summary: Recent audit log entries
       description: Returns recent structured audit log entries.
       security:
-        - sessionCookie: []
         - bearerToken: []
       parameters:
         - name: limit
@@ -206,8 +244,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/AuditEntry'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /audit/verify:
     get:
@@ -215,7 +253,6 @@ paths:
       summary: Verify audit log chain integrity
       description: Verifies the tamper-evident hash chain of the audit log.
       security:
-        - sessionCookie: []
         - bearerToken: []
       responses:
         '200':
@@ -229,17 +266,19 @@ paths:
                     type: boolean
                   message:
                     type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
 components:
   securitySchemes:
-    sessionCookie:
-      type: apiKey
-      in: cookie
-      name: vnc_session
     bearerToken:
       type: http
       scheme: bearer
       bearerFormat: opaque
+      description: |
+        Bearer token matching the `HEALTH_AUTH_TOKEN` environment variable.
+        When the token is unset, the health server accepts unauthenticated
+        requests (intended for localhost-only binding).
 
   responses:
     Unauthorized:
@@ -248,19 +287,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-    Forbidden:
-      description: Permission denied or MFA required
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    RateLimited:
-      description: Too many attempts
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-
   schemas:
     Error:
       type: object
@@ -274,47 +300,43 @@ components:
           example: ERR_AUTH_REQUIRED
         message:
           type: string
-          example: Authentication required
-        detail:
-          type: string
-        request_id:
-          type: string
-          format: uuid
+          example: Unauthorized
 
     HealthStatus:
       type: object
+      description: |
+        Aggregated health status. `status` is `healthy` when every
+        service is listening, `degraded` when some are down, `down`
+        when all are down, and `unknown` when no services are configured.
+        `services` maps each service name to a boolean (true = listening).
       properties:
         status:
           type: string
-          enum: [healthy, degraded, unhealthy]
-        timestamp:
-          type: string
-          format: date-time
-        services:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceHealth'
-
-    ServiceHealth:
-      type: object
-      properties:
-        name:
-          type: string
-          example: novnc
-        status:
-          type: string
-          enum: [up, down, degraded]
-        port:
+          enum: [healthy, degraded, down, unknown]
+        services_up:
           type: integer
-        detail:
-          type: string
+          example: 4
+        services_total:
+          type: integer
+          example: 5
+        services:
+          type: object
+          additionalProperties:
+            type: boolean
+          example:
+            vnc: true
+            novnc: true
+            terminal: false
+            health: true
+            landing: true
 
     CompleteHealth:
       type: object
+      description: |
+        Combined system + service health snapshot. `system` contains
+        best-effort resource strings (`N/A` when unavailable). `services`
+        is the full `HealthStatus` object.
       properties:
-        status:
-          type: string
-          enum: [healthy, degraded, unhealthy]
         system:
           type: object
           properties:
@@ -326,29 +348,12 @@ components:
               type: string
             uptime:
               type: string
+            hostname:
+              type: string
+            os:
+              type: string
         services:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceHealth'
-        posture:
-          type: object
-          properties:
-            score:
-              type: integer
-              minimum: 0
-              maximum: 100
-            checks:
-              type: array
-              items:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  status:
-                    type: string
-                    enum: [ok, warn, fail]
-                  detail:
-                    type: string
+          $ref: '#/components/schemas/HealthStatus'
 
     AuditEntry:
       type: object

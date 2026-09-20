@@ -6,23 +6,16 @@ or don't have admin rights in CI.
 """
 import os
 import sys
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.platform.windows.permissions import (
     create_restricted_user,
     restrict_user,
-    create_user,
-    remove_user,
-    user_exists,
 )
 from vnc_remote_secure.platform.windows.users import (
     create_restricted_runtime_user,
-    create_runtime_user,
-    remove_runtime_user,
 )
 
 
@@ -42,7 +35,7 @@ class TestRestrictedUserAPI:
 class TestRestrictedUserBehavior:
     """Test behavior with mocked PowerShell."""
 
-    @patch('vnc_remote_secure.platform.windows.permissions._run_powershell')
+    @patch('vnc_remote_secure.platform.windows.permissions.run_powershell')
     @patch('vnc_remote_secure.platform.windows.permissions.user_exists')
     def test_create_restricted_user_calls_create_and_restrict(self, mock_exists, mock_ps):
         # user_exists returns True (simulating user was created)
@@ -59,7 +52,7 @@ class TestRestrictedUserBehavior:
         result = restrict_user('nonexistent')
         assert result is False
 
-    @patch('vnc_remote_secure.platform.windows.permissions._run_powershell')
+    @patch('vnc_remote_secure.platform.windows.permissions.run_powershell')
     @patch('vnc_remote_secure.platform.windows.permissions.user_exists')
     def test_restrict_user_returns_true_if_exists(self, mock_exists, mock_ps):
         mock_exists.return_value = True

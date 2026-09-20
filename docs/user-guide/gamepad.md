@@ -16,10 +16,13 @@ GAMEPAD_ENABLED=true
 
 1. Browser captures gamepad input via the Gamepad API
 2. Input is sent via WebSocket to `vnc_remote_secure.services.gamepad`
-3. Server creates a virtual gamepad device:
-   - **Linux**: via `uinput` (requires `evdev` and `uinput` module)
-   - **Windows**: via `SendInput` (ctypes/win32)
-4. Games on the server receive the input as if from a local controller
+3. Server injects the input into the OS:
+   - **Linux**: a virtual gamepad device via `uinput` (requires `evdev`
+     and the `uinput` kernel module) — games see a real controller
+   - **Windows**: keystrokes via `SendInput` (ctypes) — buttons are
+     mapped to keyboard keys, not a gamepad device
+4. Games on the server receive the input — as a real controller on
+   Linux, as keyboard input on Windows
 
 ## Requirements
 
@@ -30,4 +33,7 @@ GAMEPAD_ENABLED=true
 
 ## Limitations
 
+- **Windows**: input is keyboard emulation — games that require a real
+  XInput/DirectInput controller will not see it. The Linux path creates
+  an actual gamepad device.
 - Latency may affect fast-paced games

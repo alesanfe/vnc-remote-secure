@@ -1,8 +1,8 @@
 """Linux runtime user management.
 
 Thin wrapper around :mod:`vnc_remote_secure.platform.linux.permissions`
-providing the ``create_runtime_user``/``remove_runtime_user``/
-``user_exists`` API expected by the platform adapter contract.
+providing the ``create_runtime_user``/``remove_runtime_user`` API
+expected by the platform adapter contract.
 """
 from vnc_remote_secure.platform.linux.permissions import (
     create_user,

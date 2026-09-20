@@ -11,29 +11,28 @@ Verifies that:
 """
 import os
 import sys
-import time
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.security.ephemeral_sessions import (
-    get_session_store,
-    check_permission,
-    is_session_revoked,
-    is_session_expired,
-    revoke_session,
-    PERM_VIEW,
-    PERM_CONTROL,
-    PERM_CLIPBOARD,
-    PERM_FILE_TRANSFER,
-    PERM_TERMINAL,
-    PERM_ADMIN,
-)
 from vnc_remote_secure.security.auth_gateway import (
     check_permission_for_action,
     check_websocket_upgrade,
     revoke_session_live,
+)
+from vnc_remote_secure.security.ephemeral_sessions import (
+    PERM_ADMIN,
+    PERM_CLIPBOARD,
+    PERM_CONTROL,
+    PERM_FILE_TRANSFER,
+    PERM_TERMINAL,
+    PERM_VIEW,
+    check_permission,
+    get_session_store,
+    is_session_expired,
+    is_session_revoked,
+    revoke_session,
 )
 
 
@@ -240,3 +239,96 @@ class TestExpiredSessions:
         store = get_session_store()
         _, token = store.create(role='viewer', expires_in=3600)
         assert not is_session_expired(token)
+
+
+class TestShareLinkExchange:
+    """The browser share-link flow: ?session= activates once, then the
+    activated session keeps working via the internal token until TTL."""
+
+    def test_activate_returns_internal_token(self):
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+        store = get_session_store()
+        session, signed = store.create(role='viewer', expires_in=3600)
+        internal = activate_ephemeral_session(signed)
+        assert internal == session.token
+
+    def test_single_use_link_burns_after_first_exchange(self):
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+        store = get_session_store()
+        _, signed = store.create(role='viewer', expires_in=3600,
+                                 single_use=True)
+        assert activate_ephemeral_session(signed) is not None
+        # Second exchange of the same link must fail.
+        assert activate_ephemeral_session(signed) is None
+
+    def test_activated_session_keeps_working(self):
+        """After a single-use link is burned, the activated session must
+        still serve requests (the cookie flow requires many requests)."""
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session,
+            check_session_permission,
+        )
+        store = get_session_store()
+        _, signed = store.create(role='viewer', expires_in=3600,
+                                 single_use=True)
+        internal = activate_ephemeral_session(signed)
+        assert check_session_permission(internal, 'view', resource='desktop')
+        # Repeated checks keep working until TTL.
+        assert check_session_permission(internal, 'view', resource='desktop')
+
+    def test_check_session_permission_enforces_role(self):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session,
+            check_session_permission,
+        )
+        store = get_session_store()
+        _, signed = store.create(role='viewer', expires_in=3600)
+        internal = activate_ephemeral_session(signed)
+        assert check_session_permission(internal, 'view')
+        assert not check_session_permission(internal, 'terminal')
+
+    def test_check_session_permission_revoked(self):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session,
+            check_session_permission,
+            revoke_session,
+        )
+        store = get_session_store()
+        _, signed = store.create(role='viewer', expires_in=3600)
+        internal = activate_ephemeral_session(signed)
+        revoke_session(signed)
+        assert not check_session_permission(internal, 'view')
+
+    def test_activate_rejects_garbage(self):
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+        assert activate_ephemeral_session('not-a-token') is None
+        assert activate_ephemeral_session('') is None
+
+    def test_activate_enforces_allowed_ip(self):
+        """An IP-bound share link must not activate from a different
+        client IP — without the check a link could be *burned* by a
+        third party (single-use DoS) even though per-request checks
+        would later reject them."""
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+        store = get_session_store()
+        _, signed = store.create(role='viewer', expires_in=3600,
+                                 allowed_ip='203.0.113.7')
+        assert activate_ephemeral_session(
+            signed, client_ip='198.51.100.9') is None
+        # The link is NOT burned by the rejected attempt — the bound
+        # IP can still activate it.
+        _, signed2 = store.create(role='viewer', expires_in=3600,
+                                  allowed_ip='203.0.113.7')
+        assert activate_ephemeral_session(
+            signed2, client_ip='203.0.113.7') is not None
+
+    def test_activate_ip_bound_missing_client_ip(self):
+        """An IP-bound link activated without caller-IP context still
+        activates (backward compat: CLI-created links via API paths
+        that never saw an IP). The per-request check still enforces
+        the binding on actual resource access."""
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+        store = get_session_store()
+        _, signed = store.create(role='viewer', expires_in=3600,
+                                 allowed_ip='203.0.113.7')
+        assert activate_ephemeral_session(signed) is not None

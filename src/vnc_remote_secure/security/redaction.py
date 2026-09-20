@@ -5,11 +5,17 @@ doctor output, or API responses. Shows only ``configured`` or a
 partial fingerprint, never the full value.
 """
 import hashlib
+import logging
 import os
 
 from vnc_remote_secure.core.config import load_env_file
 
-# Secret variable names that should never be printed in full
+logger = logging.getLogger(__name__)
+
+# Secret variable names that should never be printed in full.
+# CANONICAL list — config_inspector.CREDENTIAL_VARS aliases this set
+# so new secrets only have to be added here once (the two lists had
+# already drifted apart once and leaked LANDING_PASSWORD).
 SECRET_VARS = {
     'TTYD_PASSWD',
     'TEMP_USER_PASS',
@@ -21,8 +27,12 @@ SECRET_VARS = {
     'AUTH_SECRET',
     'FLASK_SECRET_KEY',
     'TOTP_SECRET',
+    'RECOVERY_CODES_HASHES',
+    'BACKUP_PASSWORD',
     'DISCORD_WEBHOOK_URL',
-    'ALERT_SMTP_PASSWORD',
+    'ALERT_WEBHOOK_URL',
+    'ALERT_SMTP_PASS',
+    'SSL_KEY',
 }
 
 
@@ -49,9 +59,25 @@ def redact_value(name: str, value: str, show_fingerprint: bool = False) -> str:
 
 
 def redact_env(name: str, show_fingerprint: bool = False) -> str:
-    """Redact an environment variable for safe display."""
+    """Redact an environment variable for safe display.
+
+    Falls back to the persisted generated credential — the same
+    resolution ``secret_status`` uses, so ``secrets redact`` and
+    ``secrets status`` cannot disagree about whether a credential is
+    configured.
+    """
     load_env_file()
     value = os.environ.get(name, '')
+    if not value and name.upper() in SECRET_VARS:
+        try:
+            from vnc_remote_secure.core.config import (
+                _load_generated_credential,
+            )
+            value = _load_generated_credential(name) or ''
+        except (ImportError, OSError):
+            logger.debug(
+                "Generated credential lookup failed for %s", name,
+                exc_info=True)
     return redact_value(name, value, show_fingerprint)
 
 
@@ -91,10 +117,43 @@ def redact_text(text: str) -> str:
 def get_secret_status() -> dict:
     """Return a status dict of all known secrets (no values).
 
-    Each entry is either 'configured' or 'empty'.
+    Each entry is either 'configured' or 'empty'. For secrets that are
+    persisted to the runtime directory (AUTH_SECRET, FLASK_SECRET_KEY),
+    the persisted file is also checked so the status reflects reality
+    even when the value is not in the current process environment.
     """
     load_env_file()
-    return {
-        name: redact_value(name, os.environ.get(name, ''))
-        for name in sorted(SECRET_VARS)
-    }
+    status = {}
+    for name in sorted(SECRET_VARS):
+        val = os.environ.get(name, '')
+        if not val and name in ('AUTH_SECRET', 'FLASK_SECRET_KEY'):
+            # _get_secret() resolves AUTH_SECRET || FLASK_SECRET_KEY ||
+            # persisted auth_secret.key — the two names share one chain,
+            # so either being set means both are effectively configured,
+            # and a persisted file counts for both.
+            other = 'FLASK_SECRET_KEY' if name == 'AUTH_SECRET' else 'AUTH_SECRET'
+            if os.environ.get(other, ''):
+                val = '<shared>'
+            else:
+                try:
+                    from vnc_remote_secure.security.authentication import _secret_file_path
+                    if os.path.exists(_secret_file_path()):
+                        val = '<persisted>'
+                except (ImportError, OSError):
+                    logger.debug("Failed to check persisted secret file", exc_info=True)
+        if not val and name in (
+                'VNC_PASSWORD', 'TTYD_PASSWD', 'LANDING_PASSWORD'):
+            # Auto-generated credentials persist to
+            # generated_credentials.env — report them as configured or
+            # `secrets status` claims the deployment has no password
+            # while services are in fact enforcing one.
+            try:
+                from vnc_remote_secure.core.config import (
+                    _load_generated_credential,
+                )
+                if _load_generated_credential(name):
+                    val = '<generated>'
+            except (ImportError, OSError):
+                logger.debug("Failed to check generated credential", exc_info=True)
+        status[name] = redact_value(name, val)
+    return status

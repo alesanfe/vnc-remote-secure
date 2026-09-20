@@ -8,23 +8,17 @@ proxy. We test:
 2. Blocking findings detect backends bound to 0.0.0.0.
 3. Direct port access to backends is rejected when bound to localhost.
 """
+import http.client
 import os
 import socket
 import sys
-import threading
-import time
-
-import http.client
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.security import profiles
 from vnc_remote_secure.security.profiles import (
     PROFILES,
     get_blocking_findings,
     is_deployment_blocked,
-    BACKEND_BIND_HOST,
 )
 from vnc_remote_secure.services import health
 
@@ -171,7 +165,7 @@ class TestDirectPortAccess:
                     conn2 = http.client.HTTPConnection(ext_ip, port, timeout=2)
                     try:
                         conn2.request('GET', '/health/live')
-                        resp2 = conn2.getresponse()
+                        conn2.getresponse()
                         # If we get here, the server is reachable externally — BAD
                         # But on some OS configs 0.0.0.0 routes to localhost
                         # so we just log it

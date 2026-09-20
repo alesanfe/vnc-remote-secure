@@ -6,11 +6,10 @@ This project includes multiple security features to protect your Raspberry Pi re
 
 ### Network Security
 - **SSL/TLS Encryption**: All traffic encrypted between browser and Raspberry Pi
-- **Rate Limiting**: Protection against brute force attacks (10 req/s for VNC, 5 req/s for terminal)
-- **Port Knocking**: Optional stealth mode to hide services from scanners
+- **Rate Limiting**: Application-layer auth lockouts and per-IP endpoint throttling protect against brute force
 - **Fail2ban Integration**: Automatic IP blocking for failed login attempts
 
-### Application Security  
+### Application Security
 - **Input Sanitization**: All inputs validated to prevent command injection
 - **Temporary User Isolation**: Remote access uses dedicated user with limited privileges
 - **Session Management**: Automatic cleanup when sessions end
@@ -19,7 +18,11 @@ This project includes multiple security features to protect your Raspberry Pi re
 ### System Security
 - **Process Isolation**: Services run with minimal privileges
 - **Automatic Cleanup**: Resources removed when sessions end
-- **Certificate Management**: SSL certificates auto-renew before expiration
+- **Certificate Management**: Let's Encrypt certificates renew via
+  certbot's own timer (the app symlinks the live certs, so renewals are
+  picked up automatically). Self-signed certificates do NOT auto-renew —
+  the TLS validation warns 30 days before expiry so the operator can
+  regenerate them.
 
 ## 🔐 Authentication
 
@@ -48,33 +51,39 @@ The project creates a temporary user for remote sessions:
 ## 🛡️ Network Security
 
 ### SSL/TLS
-- **Automatic certificates** from Let's Encrypt
-- **30-day renewal** before expiration
+- **Automatic certificates** from Let's Encrypt when `DUCK_DOMAIN` +
+  `EMAIL` are configured (certbot renews; live certs are symlinked)
+- **Expiry warnings**: TLS validation flags certificates expiring in
+  under 30 days; self-signed certs must be regenerated manually
 - **TLS 1.2/1.3** protocols only
 - **HSTS support** for enhanced security
 
 ### Rate Limiting and DDoS Protection
 
 **Built-in Rate Limiting:**
-The nginx reverse proxy includes sophisticated rate limiting to protect against abuse:
+Authentication and per-endpoint rate limiting is enforced at the
+application layer (`security/rate_limit.py`), backed by the shared-state
+store so limits hold across service processes:
 
-```nginx
-# Rate limiting configuration
-limit_req_zone $binary_remote_addr zone=vnc_limit:10m rate=10r/s;
-limit_req_zone $binary_remote_addr zone=terminal_limit:10m rate=5r/s;
-```
+- **Auth attempts**: `AUTH_MAX_ATTEMPTS` failures inside
+  `AUTH_WINDOW_SECONDS` trigger an `AUTH_LOCKOUT_SECONDS` lockout,
+  tracked per IP and per username.
+- **Endpoint throttling**: unauthenticated endpoints (e.g.
+  `/health/live`) are rate-limited per IP.
+- **WebSocket upgrades**: rejected connections are counted against the
+  same limiter.
+
+> Note: the bundled `nginx.conf` template does not define `limit_req`
+> zones; request-rate limits live in the application so they apply with
+> or without the reverse proxy. Operators who want edge-level limiting
+> can add `limit_req_zone`/`limit_req` directives to their nginx config.
 
 **Protection Benefits:**
-- **Brute Force Prevention**: Limits login attempts per second
-- **DDoS Mitigation**: Prevents service overload from excessive requests
-- **Resource Protection**: Ensures fair access to system resources
-- **Performance Stability**: Maintains service availability under load
-
-**Rate Limiting Tuning:**
-- **VNC Access**: 10 requests per second with burst capacity
-- **Terminal Access**: 5 requests per second for command-line interface
-- **Burst Handling**: Temporary traffic spikes are accommodated
-- **Adaptive Response**: Limits adjust based on system load
+- **Brute Force Prevention**: failed logins lock the source IP/account
+- **DDoS Mitigation**: open endpoints cannot be hammered without cost
+- **Resource Protection**: auth flood cannot exhaust worker capacity
+- **Cross-process coverage**: limits hold even when services run as
+  separate processes (SQLite shared-state backend)
 
 ## 🔍 Monitoring and Detection
 
@@ -86,11 +95,11 @@ Effective security requires continuous monitoring and threat detection capabilit
 The built-in health check system monitors various security-relevant metrics:
 
 ```bash
-# Security monitoring functions
-check_memory()     # Monitor for unusual memory usage
-check_cpu()        # Detect abnormal CPU consumption
-check_disk()       # Watch for rapid disk usage changes
-check_ssl_cert()   # Monitor certificate status and expiration
+# Security monitoring via the health service (authenticated endpoints)
+curl -sf -H "Authorization: Bearer $HEALTH_AUTH_TOKEN" \
+    http://127.0.0.1:8080/health/all   # CPU, memory, disk, services
+vnc-remote status                     # per-service health summary
+vnc-remote doctor                     # readiness + security findings
 ```
 
 **Anomaly Detection:**
@@ -126,7 +135,7 @@ The system can send notifications for security events:
 ```bash
 # Alert configuration
 ALERTS_ENABLED=true
-ALERT_EMAIL_TO=admin@example.com
+ALERT_EMAIL_TO=your-email@your-domain.duckdns.org
 DISCORD_ENABLED=true
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
@@ -274,9 +283,9 @@ Even with strong security measures, incidents can occur. Having a response plan 
 Stay informed about security best practices and emerging threats:
 
 ### Documentation and Guides
-- **[Security Configuration](../installation/configuration.md)**: Detailed security settings
-- **[Troubleshooting Guide](../reference/troubleshooting.md)**: Security-related issues
-- **[Architecture Overview](../developer/architecture.md)**: Security architecture details
+- **[Configuration](configuration.md)**: Detailed security settings
+- **[Troubleshooting Guide](../user-guide/troubleshooting.md)**: Security-related issues
+- **[Architecture Overview](overview.md)**: Security architecture details
 
 ### External Resources
 - **OWASP Guidelines**: Web application security best practices

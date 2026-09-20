@@ -1,14 +1,15 @@
 """Unit tests for core.validation module."""
 import os
 import sys
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.core.validation import (
     ValidationError,
-    validate_port,
     validate_password,
+    validate_port,
     validate_username,
 )
 

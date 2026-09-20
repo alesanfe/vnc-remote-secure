@@ -136,7 +136,14 @@
         let isPlaying = false;
 
         async function connectAudio() {
-            const wsUrl = `ws://${location.hostname}:7777`;
+            // The audio endpoint serves wss:// when TLS is configured —
+            // match the page's scheme (and browsers block ws:// from
+            // https:// pages as mixed content anyway).
+            // The landing service substitutes the correct endpoint:
+            // the proxied /audio/ path when behind nginx (raw ports
+            // are loopback-only) or the direct host:port otherwise,
+            // with a matching ws/wss scheme.
+            const wsUrl = '{{ audio_ws_url }}';
             document.getElementById('status').className = 'status connecting';
             document.getElementById('status').textContent = 'Connecting...';
             document.getElementById('info').textContent = `Connecting to ${wsUrl}`;

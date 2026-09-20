@@ -1,0 +1,17 @@
+{
+  "name": "xterm.js",
+  "version": "5.3.0",
+  "platform": "any",
+  "architecture": "any",
+  "description": "Terminal frontend component (xterm.js + fit/web-links addons) — vendored under static/xterm so the web terminal is fully self-hosted (no CDN dependency).",
+  "homepage": "https://xtermjs.org/",
+  "repository": "https://github.com/xtermjs/xterm.js",
+  "license": "MIT",
+  "license_file": "../licenses/xterm.txt",
+  "managed_by": "manual",
+  "download_url": "https://cdn.jsdelivr.net/npm/xterm@5.3.0/",
+  "filename": "xterm.js",
+  "target_path": "src/vnc_remote_secure/static/xterm/xterm.js",
+  "sha256": "f0aea0f75f48559013ae6643c2479dd737d26da42d5524e6d2b70915ae6523c7",
+  "notes": "Files vendored: xterm.js (5.3.0), xterm.css, xterm-addon-fit.js (0.8.0), xterm-addon-web-links.js (0.9.0). Served by services/terminal.py at /xterm/."
+}

@@ -4,9 +4,10 @@ External dependencies (platform adapter, websockets) are mocked so the
 tests are deterministic and do not require evdev or a running server.
 """
 import asyncio
+import json
 import os
 import sys
-import json
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
@@ -107,18 +108,34 @@ def _run(coro):
 
 
 class _FakeWebSocket:
-    """Fake websocket for testing handle_client."""
+    """Fake websocket for testing handle_client.
+
+    Mirrors the real ``websockets`` library API: ``close()`` accepts
+    ``code`` and ``reason`` keyword arguments, and the connection
+    exposes ``handler.request.headers`` for auth-gateway inspection.
+    """
     def __init__(self, messages=None, remote_ip='127.0.0.1'):
         self._messages = list(messages or [])
         self.sent = []
         self.closed = False
+        self.close_code = None
+        self.close_reason = None
         self.remote_address = (remote_ip, 12345)
+        # Mimic the websockets library's request headers accessor so the
+        # auth gateway can read Origin/Cookie/Authorization.
+        class _Req:
+            headers = {}
+        class _Handler:
+            request = _Req()
+        self.handler = _Handler()
 
     async def send(self, msg):
         self.sent.append(msg)
 
-    async def close(self):
+    async def close(self, code=None, reason=None):
         self.closed = True
+        self.close_code = code
+        self.close_reason = reason
 
     def __aiter__(self):
         return self
@@ -127,6 +144,35 @@ class _FakeWebSocket:
         if self._messages:
             return self._messages.pop(0)
         raise StopAsyncIteration
+
+
+@pytest.fixture(autouse=True)
+def _bypass_auth_gateway(monkeypatch):
+    """Bypass the central auth gateway in gamepad unit tests.
+
+    The gamepad tests exercise gamepad logic (injector, event forwarding,
+    malformed-message handling). Authentication is enforced in
+    production by ``services.gamepad.handle_client`` via
+    ``auth_gateway.check_websocket_upgrade`` and has dedicated tests in
+    ``tests/security``. Here we stub the gateway at the boundary so the
+    gamepad logic is tested in isolation without weakening the real
+    security model.
+    """
+    async def _noop_close(code=None, reason=None):
+        pass
+
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+        lambda **kw: (True, 'OK'),
+    )
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
+        lambda *a, **kw: 'test-conn-id',
+    )
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.unregister_websocket_connection',
+        lambda *a, **kw: None,
+    )
 
 
 def test_handle_client_rejects_when_injector_unavailable(monkeypatch):

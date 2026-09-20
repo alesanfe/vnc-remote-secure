@@ -3,11 +3,7 @@
 This module is consumed by the Windows platform adapter to provide a
 platform-specific injector for the gamepad forwarding service. Keeping the
 injector in the platform layer avoids circular imports between
-``services.gamepad`` and ``platform.*.adapter``.
-"""
-import logging
-
-logger = logging.getLogger(__name__)
+``services.gamepad`` and ``platform.*.adapter``"""
 
 
 class WindowsInputInjector:
@@ -33,7 +29,6 @@ class WindowsInputInjector:
 
         # SendInput structures
         INPUT_KEYBOARD = 1
-        _INPUT_MOUSE = 2  # defined for completeness, not currently used
 
         KEYEVENTF_KEYDOWN = 0x0000
         KEYEVENTF_KEYUP = 0x0002
@@ -51,10 +46,14 @@ class WindowsInputInjector:
             _anonymous_ = ("_input",)
             _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT)]
 
-        vk = self.key_map.get(button_code)
+        vk = self.key_map.get(str(button_code))
         if vk is None:
             return
 
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return
         flags = KEYEVENTF_KEYUP if value == 0 else KEYEVENTF_KEYDOWN
 
         inp = INPUT()
@@ -87,6 +86,14 @@ class WindowsInputInjector:
             _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT)]
 
         # Only move on left stick (axis_0 = X, axis_1 = Y)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return
+        # Clamp: the JS client sends -1.0..1.0 but a control session
+        # could send huge values — MOUSEINPUT dx/dy are LONG, so an
+        # overflow would raise inside ctypes and kill the handler.
+        value = max(-1.0, min(1.0, value))
         dx = dy = 0
         if axis == "axis_0":
             dx = int(value * 20)

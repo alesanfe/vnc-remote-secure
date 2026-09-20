@@ -10,25 +10,23 @@ Tests specific attack vectors mentioned in the security review:
 """
 import os
 import sys
-import time
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.security.ephemeral_sessions import (
-    get_session_store,
-    check_permission,
-    is_session_revoked,
-    revoke_session,
-    PERM_VIEW,
-    PERM_CONTROL,
-    PERM_TERMINAL,
-    PERM_FILE_TRANSFER,
-)
 from vnc_remote_secure.security.auth_gateway import (
     check_permission_for_action,
     check_websocket_upgrade,
+)
+from vnc_remote_secure.security.ephemeral_sessions import (
+    PERM_CONTROL,
+    PERM_FILE_TRANSFER,
+    PERM_TERMINAL,
+    PERM_VIEW,
+    check_permission,
+    get_session_store,
+    revoke_session,
 )
 
 

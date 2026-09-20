@@ -1,7 +1,6 @@
 """Security test: verify file permissions are correct."""
 import os
-import stat
-import pytest
+
 
 def test_env_example_not_secret():
     """The .env.example file should not contain real secrets."""

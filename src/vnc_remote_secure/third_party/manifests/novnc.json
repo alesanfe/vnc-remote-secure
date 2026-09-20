@@ -1,0 +1,17 @@
+{
+  "name": "noVNC",
+  "version": "1.4.0",
+  "platform": "cross-platform",
+  "architecture": "any",
+  "description": "HTML5 VNC client library",
+  "homepage": "https://novnc.com/",
+  "repository": "https://github.com/novnc/noVNC",
+  "license": "MPL-2.0",
+  "license_file": "../licenses/novnc.txt",
+  "managed_by": "git-clone",
+  "clone_url": "https://github.com/novnc/noVNC.git",
+  "clone_target": "novnc/",
+  "pinned_commit": "v1.4.0",
+  "pinned_commit_sha": "90455eef0692d2e35276fd31286114d0955016b0",
+  "notes": "Cloned at runtime by tools/download_dependencies.py (or `make setup-novnc`). Not vendored in the repository. pinned_commit_sha is the commit the annotated v1.4.0 tag dereferences to — tags are mutable, so the downloader must verify the checked-out SHA matches."
+}

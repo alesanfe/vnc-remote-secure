@@ -16,9 +16,13 @@ logger = logging.getLogger(__name__)
 MIN_TLS_VERSION = ssl.TLSVersion.TLSv1_2
 
 # Rejected cipher patterns (case-insensitive substring match).
+# 'DH' alone must NOT be here: it would flag ECDHE/DHE — the strong
+# forward-secrecy key exchanges — as weak. The genuinely weak
+# DH-family suites are anonymous DH ('ADH', covered by 'anon'/'aNULL')
+# and static DH without ephemeral ('DH-'/'DH_'/static 'kDH').
 WEAK_CIPHER_PATTERNS = (
     'RC4', '3DES', 'DES', 'MD5', 'NULL', 'EXPORT', 'anon', 'eNULL',
-    'aNULL', 'PSK', 'SRP', 'kRSA', 'DH',
+    'aNULL', 'PSK', 'SRP', 'kRSA', 'kDH', 'DH-', 'DH_', 'ADH',
 )
 
 # Required security headers when TLS is enabled.
@@ -26,7 +30,9 @@ REQUIRED_SECURITY_HEADERS = {
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
     'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
-    'X-Content-Security-Policy': "default-src 'self'",
+    # Canonical name — 'X-Content-Security-Policy' is the deprecated
+    # IE-only variant; http_headers.py emits 'Content-Security-Policy'.
+    'Content-Security-Policy': "default-src 'self'",
 }
 
 
@@ -57,15 +63,27 @@ def validate_tls_config() -> list:
                 'message': f'Minimum TLS version is {ctx.minimum_version.name}, '
                            f'should be {MIN_TLS_VERSION.name} or higher',
             })
-    except Exception as e:
+    except (OSError, ssl.SSLError, ValueError) as e:
         findings.append({
             'severity': 'warning',
             'message': f'Could not create SSL context: {e}',
         })
 
-    # Validate certificate if configured.
+    # Validate certificate if configured. Resolve through the same
+    # canonical logic the services use: explicit SSL_CERT/SSL_KEY
+    # first, then the platform ssl dir (fullchain.pem/privkey.pem).
     cert = os.environ.get('SSL_CERT', '')
     key = os.environ.get('SSL_KEY', '')
+    if not (cert and key and os.path.exists(cert) and os.path.exists(key)):
+        try:
+            from vnc_remote_secure.core.paths import get_ssl_dir
+            ssl_dir = get_ssl_dir()
+            d_cert = os.path.join(ssl_dir, 'fullchain.pem')
+            d_key = os.path.join(ssl_dir, 'privkey.pem')
+            if os.path.exists(d_cert) and os.path.exists(d_key):
+                cert, key = d_cert, d_key
+        except Exception:  # noqa: BLE001
+            pass
     if cert and key and os.path.exists(cert) and os.path.exists(key):
         cert_findings = _validate_certificate(cert, key)
         findings.extend(cert_findings)
@@ -97,38 +115,32 @@ def _validate_certificate(cert_path: str, key_path: str) -> list:
     """Validate a certificate file for security issues."""
     findings = []
     try:
-        import ssl
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(cert_path, key_path)
+        import datetime
 
-        # Get the certificate.
-        cert = ctx.get_certificate()
-        if cert is None:
-            findings.append({
-                'severity': 'warning',
-                'message': 'Could not load certificate from file',
-            })
-            return findings
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
+
+        # Load and parse the certificate using the cryptography library
+        # (ssl.SSLContext does not expose get_certificate() in CPython).
+        with open(cert_path, 'rb') as f:
+            cert_data = f.read()
+        cert = x509.load_pem_x509_certificate(cert_data, default_backend())
 
         # Check key size.
-        public_key = cert.get_publickey()
-        key_size = public_key.bits()
+        public_key = cert.public_key()
+        key_size = public_key.key_size
         if key_size < 2048:
             findings.append({
                 'severity': 'critical',
                 'message': f'Certificate key size is {key_size} bits, '
                            f'minimum 2048 required',
             })
-        public_key.free()
 
         # Check expiry.
-        not_after = cert.get_notAfter()
+        not_after = cert.not_valid_after_utc
         if not_after:
-            import datetime
-            expiry = datetime.datetime.strptime(
-                not_after.decode('ascii'), '%Y%m%d%H%M%SZ'
-            )
-            days_left = (expiry - datetime.datetime.utcnow()).days
+            from datetime import timezone
+            days_left = (not_after - datetime.datetime.now(timezone.utc)).days
             if days_left < 0:
                 findings.append({
                     'severity': 'critical',
@@ -140,7 +152,28 @@ def _validate_certificate(cert_path: str, key_path: str) -> list:
                     'message': f'Certificate expires in {days_left} days',
                 })
 
-    except Exception as e:
+        # Verify the key matches the certificate (best-effort).
+        try:
+            from cryptography.hazmat.primitives import serialization
+            with open(key_path, 'rb') as f:
+                key_data = f.read()
+            key = serialization.load_pem_private_key(
+                key_data, password=None, backend=default_backend())
+            # Compare public numbers — if they match, key and cert are a pair.
+            cert_pub = cert.public_key().public_numbers()
+            key_pub = key.public_key().public_numbers()
+            if cert_pub != key_pub:
+                findings.append({
+                    'severity': 'critical',
+                    'message': 'Certificate and private key do not match',
+                })
+        except (OSError, ssl.SSLError, ValueError) as e:
+            findings.append({
+                'severity': 'warning',
+                'message': f'Could not validate private key: {e}',
+            })
+
+    except (OSError, ssl.SSLError, ValueError) as e:
         findings.append({
             'severity': 'warning',
             'message': f'Certificate validation error: {e}',

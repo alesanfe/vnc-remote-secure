@@ -10,6 +10,7 @@ from flask import Blueprint, Response, jsonify, request
 from vnc_remote_secure.core.errors import json_error
 from vnc_remote_secure.monitoring.health import get_all_health
 from vnc_remote_secure.security.http_auth import check_health_auth, require_auth
+from vnc_remote_secure.security.rate_limit import check_rate_limit
 from vnc_remote_secure.services.health import get_health_status
 
 health_bp = Blueprint('health', __name__)
@@ -21,8 +22,54 @@ logger = logging.getLogger(__name__)
 @health_bp.route('/health_status.json')
 @require_auth(check_health_auth, scheme='Bearer', realm='Health')
 def health():
-    """Return aggregated service health as JSON."""
-    return jsonify(get_health_status())
+    """Return aggregated service health as JSON.
+
+    Returns 503 when the aggregate status is ``down``/``unknown`` so a
+    monitor polling the user-UI port sees the same failure signal the
+    standalone health server emits (200 for healthy/degraded).
+    """
+    status = get_health_status()
+    code = 200 if status.get('status') in ('healthy', 'degraded') else 503
+    return jsonify(status), code
+
+
+@health_bp.route('/health/live')
+def health_live():
+    """Liveness probe — always 200 when the process is running.
+
+    Rate-limited per IP to prevent trivial DoS / reconnaissance.
+    """
+    # Behind a trusted proxy the peer is always 127.0.0.1 — key the
+    # limiter on the forwarded client IP like every other route, or one
+    # abuser rate-limits the liveness probe for everyone.
+    # Liveness probes poll frequently (k8s: every 10s by default), so
+    # this endpoint gets a generous budget: 60 req / 60s per IP.
+    from vnc_remote_secure.security.http_auth import client_ip_from
+    ip = client_ip_from(request.headers, request.remote_addr) or 'unknown'
+    if not check_rate_limit(ip, max_requests=60, window_seconds=60):
+        return json_error('Too many requests', 429)
+    return jsonify({'status': 'alive'})
+
+
+@health_bp.route('/health/ready')
+@require_auth(check_health_auth, scheme='Bearer', realm='Health')
+def health_ready():
+    """Readiness probe — 200 when all enabled services are listening."""
+    status = get_health_status()
+    services = status.get('services', {}) if isinstance(status, dict) else {}
+    all_ready = all(services.values()) if services else False
+    if all_ready:
+        return jsonify({'status': 'ready'})
+    return jsonify({'status': 'not ready'}), 503
+
+
+@health_bp.route('/health/services')
+@require_auth(check_health_auth, scheme='Bearer', realm='Health')
+def health_services():
+    """Per-service status with PID and port details."""
+    from vnc_remote_secure.core.service_manager import status_all
+
+    return jsonify(status_all())
 
 
 @health_bp.route('/health/all')
