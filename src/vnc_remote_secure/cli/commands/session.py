@@ -116,6 +116,19 @@ def cmd_session(args):
         if role not in ROLES:
             print(f"Error: unknown role '{role}'. Available: {', '.join(ROLES.keys())}")
             return 1
+        if args.max_uses < 0:
+            print("Error: --max-uses must be >= 0 (0 = unlimited)")
+            return 1
+        if args.allowed_ip:
+            # Fail fast on a malformed IP — the store validates by
+            # string match, so a typo would create a session that
+            # never activates.
+            import ipaddress
+            try:
+                ipaddress.ip_address(args.allowed_ip.strip())
+            except ValueError:
+                print(f"Error: --allowed-ip is not a valid IP: {args.allowed_ip!r}")
+                return 1
 
         session, signed_token = store.create(
             expires_in=expires_in,

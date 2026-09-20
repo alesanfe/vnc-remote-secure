@@ -64,6 +64,16 @@ DUCKDNS_API="https://www.duckdns.org/update"
 DUCK_DOMAIN="${DUCK_DOMAIN%.duckdns.org}"
 DUCK_DOMAIN="${DUCK_DOMAIN%.duckdns.org}"
 
+# Strict charset validation: the domain is interpolated into curl
+# config files and Python -c strings below — anything outside the
+# DuckDNS naming set ([a-z0-9-]) could break quoting or inject into
+# those contexts. Fail fast instead.
+if [[ ! "$DUCK_DOMAIN" =~ ^[a-z0-9][a-z0-9-]*[a-z0-9]$ ]]; then
+    echo -e "${RED}Error: DUCK_DOMAIN contains invalid characters: '${DUCK_DOMAIN}'${NC}"
+    echo -e "${YELLOW}  Expected: lowercase letters, digits, hyphens (e.g. alesanfe)${NC}"
+    exit 1
+fi
+
 # Interval for daemon mode (in seconds)
 INTERVAL_SECONDS=$((${DUCKDNS_UPDATE_INTERVAL:-5} * 60))
 
@@ -88,9 +98,15 @@ EOF
     elif command -v wget &>/dev/null; then
         # wget has no stdin-config equivalent; fall back to the Python
         # path below, which keeps the token out of the process table.
-        response=$(python3 -c "
-import urllib.request
-url = '${DUCKDNS_API}?domains=${DUCK_DOMAIN}&token=${DUCKDNS_TOKEN}&ip='
+        # Domain is charset-validated above; the token reaches Python via
+    # the environment (never interpolated into the -c source, so a
+    # quote in it cannot inject).
+    response=$(DUCKDNS_API_URL="$DUCKDNS_API" python3 -c "
+import os, urllib.request
+url = '%s?domains=%s&token=%s&ip=' % (
+    os.environ['DUCKDNS_API_URL'],
+    os.environ['DUCK_DOMAIN'],
+    os.environ['DUCKDNS_TOKEN'])
 try:
     with urllib.request.urlopen(url, timeout=30) as r:
         print(r.read().decode().strip())
@@ -99,9 +115,15 @@ except Exception as e:
 " 2>&1)
     else
         # Fallback to Python (available on both platforms)
-        response=$(python3 -c "
-import urllib.request
-url = '${DUCKDNS_API}?domains=${DUCK_DOMAIN}&token=${DUCKDNS_TOKEN}&ip='
+        # Domain is charset-validated above; the token reaches Python via
+    # the environment (never interpolated into the -c source, so a
+    # quote in it cannot inject).
+    response=$(DUCKDNS_API_URL="$DUCKDNS_API" python3 -c "
+import os, urllib.request
+url = '%s?domains=%s&token=%s&ip=' % (
+    os.environ['DUCKDNS_API_URL'],
+    os.environ['DUCK_DOMAIN'],
+    os.environ['DUCKDNS_TOKEN'])
 try:
     with urllib.request.urlopen(url, timeout=30) as r:
         print(r.read().decode().strip())
@@ -135,9 +157,9 @@ check_dns() {
     else
         # Python fallback
         resolved_ip=$(python3 -c "
-import socket
+import os, socket
 try:
-    print(socket.gethostbyname('${DUCK_DOMAIN}.duckdns.org'))
+    print(socket.gethostbyname(os.environ['DUCK_DOMAIN'] + '.duckdns.org'))
 except Exception:
     print('ERROR')
 " 2>&1)
@@ -179,7 +201,9 @@ except Exception:
 show_status() {
     echo -e "${BLUE}Duck DNS Configuration:${NC}"
     echo "  Domain:     ${DUCK_DOMAIN}.duckdns.org"
-    echo "  Token:      ${DUCKDNS_TOKEN:0:8}...${DUCKDNS_TOKEN: -4}"
+    # Never echo token fragments — 12 of ~32 chars is enough material
+    # to cut brute-force cost dramatically if a log leaks.
+    echo "  Token:      *** (${#DUCKDNS_TOKEN} chars)"
     echo "  Interval:   ${DUCKDNS_UPDATE_INTERVAL:-5} minutes"
     echo ""
 }
