@@ -173,6 +173,16 @@ These controls are recommended but not yet implemented:
 - The VNC protocol's legacy DES authentication is accepted as a known
   limitation and is mitigated by placing VNC behind TLS and restricting
   network exposure.
+- **View-only sessions do not block RFB input.** A `--view-only`
+  ephemeral session blocks the control channels (gamepad requires
+  `desktop:control`, terminal honours `no_terminal`, clipboard/file
+  transfer are separate permissions) but mouse/keyboard events inside
+  the VNC stream still reach the server: the websockify relay is
+  byte-transparent and does not parse RFB messages (KeyEvent=4,
+  PointerEvent=5, ClientCutText=6). Operators needing hard input
+  isolation must configure a view-only password on the VNC server
+  itself. A protocol-aware filtering proxy is tracked as a planned
+  enhancement.
 
 ## Risk Matrix
 

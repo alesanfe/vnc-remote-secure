@@ -224,3 +224,26 @@ def test_save_and_restore_state_roundtrip(tmp_path, monkeypatch):
     sm._clear_pid('vnc')
     sm.restore_state(state)
     assert sm._read_pid('vnc') == os.getpid()
+
+
+# ---------------------------------------------------------------------------
+# watchdog auto-restart throttling
+# ---------------------------------------------------------------------------
+
+def test_watchdog_restart_throttled_after_limit(tmp_path, monkeypatch):
+    """After _RESTART_MAX restarts in the window the watchdog stops
+    retrying -- a permanently broken service must not respawn forever."""
+    monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))
+    sm._restart_history.clear()
+    sm._last_throttled.clear()
+    monkeypatch.setattr(sm, '_pid_alive', lambda pid: False)
+    monkeypatch.setattr(sm, '_enabled_services', lambda c: ['vnc'])
+    sm._write_pid('vnc', 999999)
+    calls = []
+    monkeypatch.setattr(sm, '_start_service',
+                        lambda s, c: calls.append(s) or 1234)
+    cfg = {'healthcheck_enabled': True, 'auto_restart': True}
+    for _ in range(sm._RESTART_MAX + 2):
+        sm.watchdog_tick(cfg)
+    assert len(calls) == sm._RESTART_MAX
+    assert 'vnc' in sm._last_throttled

@@ -148,6 +148,10 @@ def cmd_session(args):
             print(f"URL: {base_url}/?session={signed_token}")
             if args.view_only:
                 print("  View-only: yes")
+                print("  NOTE: view-only blocks control channels (gamepad,"
+                      " terminal, clipboard) but NOT mouse/keyboard inside the"
+                      " VNC/RFB stream — the websockify relay is byte-transparent."
+                      " For hard view-only use VNC-server view-only passwords.")
             if args.no_terminal:
                 print("  Web Terminal: disabled")
             if args.single_use:

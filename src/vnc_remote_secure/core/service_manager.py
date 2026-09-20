@@ -719,6 +719,29 @@ def status_all() -> dict:
 # is not re-alerted every interval).
 _last_watchdog_dead: set = set()
 
+# Restart throttling: timestamps of recent auto-restarts per service.
+# Without a cap, a permanently broken service would be respawned every
+# watchdog tick forever (~2880 restarts/day at the 30s default).
+_RESTART_WINDOW_S = 600
+_RESTART_MAX = 5
+_restart_history: dict = {}
+
+# Services currently in the restart-suppressed state (alert once on
+# entry, not every tick).
+_last_throttled: set = set()
+
+
+def _restart_allowed(service: str, now: float) -> bool:
+    """True if ``service`` may be auto-restarted (rate-limited)."""
+    hist = [t for t in _restart_history.get(service, [])
+            if now - t < _RESTART_WINDOW_S]
+    _restart_history[service] = hist
+    return len(hist) < _RESTART_MAX
+
+
+def _record_restart(service: str, now: float) -> None:
+    _restart_history.setdefault(service, []).append(now)
+
 
 def watchdog_tick(config: dict = None) -> dict:
     """One watchdog iteration over all enabled services.
@@ -762,9 +785,38 @@ def watchdog_tick(config: dict = None) -> dict:
 
     results = {}
     if auto:
+        import time as _time
+        now = _time.monotonic()
+        throttled = []
         for service in dead:
+            if not _restart_allowed(service, now):
+                throttled.append(service)
+                continue
+            _record_restart(service, now)
             _clear_pid(service)
             results[service] = _start_service(service, config)
+        if throttled:
+            # Alert once on the transition into the throttled state —
+            # not on every tick while the service stays down.
+            newly_throttled = [s for s in throttled
+                               if s not in _last_throttled]
+            _last_throttled.update(throttled)
+            for s in set(_last_throttled) - set(throttled):
+                _last_throttled.discard(s)
+            logger.error(
+                "Auto-restart suppressed (>%d restarts in %ds): %s — "
+                "the service is kept down; fix the cause and run "
+                "'vnc-remote start' manually",
+                _RESTART_MAX, _RESTART_WINDOW_S, ', '.join(throttled))
+            if newly_throttled:
+                try:
+                    from vnc_remote_secure.monitoring.alerts import notify
+                    notify('Auto-restart suppressed',
+                           'Restart limit reached for: '
+                           + ', '.join(newly_throttled),
+                           severity='error')
+                except Exception:  # noqa: BLE001 - alerting is best-effort
+                    pass
 
     # Alerts fire on state transitions only — restarting every tick is
     # correct, but re-alerting every tick would be notification spam.
