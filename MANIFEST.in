@@ -45,7 +45,7 @@ recursive-include src/vnc_remote_secure/third_party *
 # Web templates (also declared in pyproject.toml package-data; repeated
 # here so sdist includes them).
 recursive-include src/vnc_remote_secure/web/templates *
-recursive-include src/vnc_remote_secure/static *.css *.js
+recursive-include src/vnc_remote_secure/static *.css *.js *.html
 
 # Packaging
 recursive-include packaging *

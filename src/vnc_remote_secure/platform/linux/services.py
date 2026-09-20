@@ -1,8 +1,8 @@
 """systemd service management for Linux."""
 import os
-import subprocess
 
 from vnc_remote_secure.core.exceptions import ServiceError
+from vnc_remote_secure.core.processes import run_cmd
 
 
 def install_service(name, unit_file, unit_content=None):
@@ -23,7 +23,7 @@ def install_service(name, unit_file, unit_content=None):
             f.write(unit_content)
     elif not os.path.exists(unit_file):
         raise ServiceError(f"Unit file not found: {unit_file}")
-    result = subprocess.run(
+    result = run_cmd(
         ['systemctl', 'daemon-reload'],
         capture_output=True, text=True,
     )
@@ -32,10 +32,10 @@ def install_service(name, unit_file, unit_content=None):
 
 def remove_service(name):
     """Stop, disable, and remove a systemd service unit file."""
-    subprocess.run(['systemctl', 'stop', name], capture_output=True)
-    subprocess.run(['systemctl', 'disable', name], capture_output=True)
+    run_cmd(['systemctl', 'stop', name], capture_output=True)
+    run_cmd(['systemctl', 'disable', name], capture_output=True)
     unit_path = f'/etc/systemd/system/{name}.service'
     if os.path.exists(unit_path):
         os.remove(unit_path)
-    subprocess.run(['systemctl', 'daemon-reload'], capture_output=True)
+    run_cmd(['systemctl', 'daemon-reload'], capture_output=True)
     return True

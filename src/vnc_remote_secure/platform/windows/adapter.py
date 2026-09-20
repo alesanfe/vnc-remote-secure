@@ -14,6 +14,7 @@ import os
 import socket
 import subprocess
 
+from vnc_remote_secure.core.processes import run_cmd
 from vnc_remote_secure.platform.base import PlatformAdapter
 from vnc_remote_secure.platform.windows._powershell import run_powershell
 
@@ -52,7 +53,7 @@ class WindowsAdapter(PlatformAdapter):
             "-Force -ErrorAction SilentlyContinue"
         )
         # sc.exe delete is the documented way to remove a service.
-        result = subprocess.run(
+        result = run_cmd(
             ['sc.exe', 'delete', service_name],
             capture_output=True, text=True,
         )

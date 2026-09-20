@@ -28,6 +28,7 @@ from vnc_remote_secure.core.paths import (
     get_run_dir,
     get_ssl_dir,
 )
+from vnc_remote_secure.core.processes import run_cmd
 from vnc_remote_secure.platform.linux.services import install_service
 from vnc_remote_secure.platform.linux.users import create_runtime_user
 
@@ -105,7 +106,7 @@ ignoreregex =
 def _run(cmd, check=True):
     """Run a command, logging output."""
     logger.info("Running: %s", ' '.join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_cmd(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         logger.warning("Command failed (%d): %s", result.returncode, result.stderr.strip())
         if check:
@@ -150,7 +151,7 @@ def _configure_nginx(project_root):
         return
 
     # Read the template and substitute variables.
-    with open(nginx_src) as f:
+    with open(nginx_src, encoding='utf-8') as f:
         template = f.read()
 
     # Backend proxy protocols must match what the services actually
@@ -237,7 +238,7 @@ def _configure_nginx(project_root):
     nginx_dst = '/etc/nginx/sites-available/vnc-remote-secure'
     nginx_link = '/etc/nginx/sites-enabled/vnc-remote-secure'
     os.makedirs(os.path.dirname(nginx_dst), exist_ok=True)
-    with open(nginx_dst, 'w') as f:
+    with open(nginx_dst, 'w', encoding='utf-8') as f:
         f.write(result)
     logger.info("Installed nginx config: %s", nginx_dst)
 
@@ -303,12 +304,12 @@ def _configure_fail2ban():
     os.makedirs(filter_dir, exist_ok=True)
 
     jail_path = os.path.join(jail_dir, 'vnc-remote.local')
-    with open(jail_path, 'w') as f:
+    with open(jail_path, 'w', encoding='utf-8') as f:
         f.write(jail_content)
     logger.info("Installed fail2ban jail: %s", jail_path)
 
     filter_path = os.path.join(filter_dir, 'vnc-remote.conf')
-    with open(filter_path, 'w') as f:
+    with open(filter_path, 'w', encoding='utf-8') as f:
         f.write(_FAIL2BAN_FILTER)
     logger.info("Installed fail2ban filter: %s", filter_path)
 

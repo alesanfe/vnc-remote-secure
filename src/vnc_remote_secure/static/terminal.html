@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Web Terminal</title>
+    <link rel="stylesheet" href="xterm/xterm.css">
+    <style>
+        body { margin: 0; padding: 0; background: #1e1e1e; }
+        #terminal { width: 100vw; height: 100vh; }
+        #status { position: fixed; top: 5px; right: 10px; color: #888; font-family: monospace; font-size: 12px; z-index: 100; }
+        #reconnect { position: fixed; bottom: 10px; right: 10px; z-index: 100; }
+        #reconnect button { background: #333; color: #ccc; border: 1px solid #555; padding: 5px 15px; cursor: pointer; border-radius: 4px; }
+        #reconnect button:hover { background: #444; }
+    </style>
+</head>
+<body>
+    <div id="status">Connecting...</div>
+    <div id="reconnect" style="display:none;"><button onclick="location.reload()">Reconnect</button></div>
+    <div id="terminal"></div>
+    <script src="xterm/xterm.js"></script>
+    <script src="xterm/xterm-addon-fit.js"></script>
+    <script src="xterm/xterm-addon-web-links.js"></script>
+    <script>
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Consolas, "Courier New", monospace',
+            theme: {
+                background: '#1e1e1e',
+                foreground: '#cccccc',
+                cursor: '#ffffff',
+                selection: 'rgba(255,255,255,0.3)',
+            },
+            scrollback: 5000,
+            allowProposedApi: true,
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        const linksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(linksAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        const statusEl = document.getElementById('status');
+        const reconnectEl = document.getElementById('reconnect');
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // Relative WS path: behind nginx the page lives at /terminal/
+        // (proxied to /), so an absolute /ws would 404 — /terminal/ws
+        // maps back to the backend's /ws. Direct access at / resolves
+        // to /ws identically.
+        const wsPath = location.pathname.replace(/[^/]*$/, '') + 'ws';
+        const wsUrl = protocol + '//' + location.host + wsPath;
+
+        let ws = null;
+        let inputBuffer = '';
+        let history = [];
+        let historyIndex = -1;
+        let busy = false;
+
+        function setStatus(text, color) {
+            statusEl.textContent = text;
+            statusEl.style.color = color || '#888';
+        }
+
+        function connect() {
+            setStatus('Connecting...', '#ff9800');
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = function() {
+                setStatus('Connected', '#4caf50');
+                reconnectEl.style.display = 'none';
+            };
+            ws.onmessage = function(event) {
+                if (event.data instanceof ArrayBuffer) {
+                    term.write(new Uint8Array(event.data));
+                } else {
+                    // Try to parse as JSON control message
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'busy') {
+                            busy = msg.value;
+                        } else if (msg.type === 'completion') {
+                            handleCompletion(msg.suggestions, msg.input);
+                        }
+                    } catch (e) {
+                        term.write(event.data);
+                    }
+                }
+            };
+            ws.onerror = function() {
+                setStatus('Error', '#f44336');
+            };
+            ws.onclose = function() {
+                setStatus('Disconnected', '#f44336');
+                reconnectEl.style.display = 'block';
+                setTimeout(connect, 3000);
+            };
+        }
+
+        function clearCurrentLine() {
+            // Clear the current input line
+            term.write('\\r\\x1b[K');  // Carriage return + clear line
+        }
+
+        function redrawPrompt(input) {
+            // Redraw prompt + input
+            const prompt = window._currentPrompt || '>';
+            term.write('\\r\\x1b[K' + prompt + input);
+        }
+
+        term.onData(function(data) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                if (busy) return;  // Ignore input while command is running
+
+                // Handle special keys
+                if (data === '\\r') {  // Enter
+                    term.write('\\r\\n');
+                    if (inputBuffer.trim()) {
+                        history.push(inputBuffer);
+                        if (history.length > 100) history.shift();
+                    }
+                    historyIndex = -1;
+                    ws.send(JSON.stringify({ type: 'command', cmd: inputBuffer }));
+                    inputBuffer = '';
+                    busy = true;
+                } else if (data === '\\u007f') {  // Backspace
+                    if (inputBuffer.length > 0) {
+                        inputBuffer = inputBuffer.slice(0, -1);
+                        term.write('\\b \\b');
+                    }
+                } else if (data === '\\u0003') {  // Ctrl+C
+                    term.write('^C\\r\\n');
+                    ws.send(JSON.stringify({ type: 'interrupt' }));
+                    inputBuffer = '';
+                    historyIndex = -1;
+                } else if (data === '\\u001b[A') {  // Arrow Up - history
+                    if (history.length > 0) {
+                        if (historyIndex === -1) {
+                            historyIndex = history.length - 1;
+                        } else if (historyIndex > 0) {
+                            historyIndex--;
+                        }
+                        // Clear current line and show history entry
+                        term.write('\\r\\x1b[K');
+                        const prompt = window._currentPrompt || '>';
+                        term.write(prompt + history[historyIndex]);
+                        inputBuffer = history[historyIndex];
+                    }
+                } else if (data === '\\u001b[B') {  // Arrow Down - history
+                    if (historyIndex !== -1) {
+                        if (historyIndex < history.length - 1) {
+                            historyIndex++;
+                        } else {
+                            historyIndex = -1;
+                        }
+                        term.write('\\r\\x1b[K');
+                        const prompt = window._currentPrompt || '>';
+                        if (historyIndex === -1) {
+                            term.write(prompt);
+                            inputBuffer = '';
+                        } else {
+                            term.write(prompt + history[historyIndex]);
+                            inputBuffer = history[historyIndex];
+                        }
+                    }
+                } else if (data === '\\u0009') {  // Tab - completion
+                    if (inputBuffer) {
+                        ws.send(JSON.stringify({ type: 'complete', input: inputBuffer }));
+                    }
+                } else if (data === '\\u001b[D') {  // Left arrow - ignore (no cursor movement)
+                    // No-op: we don't support cursor movement in this simple terminal
+                } else if (data === '\\u001b[C') {  // Right arrow - ignore
+                    // No-op
+                } else if (data === '\\u001b[H') {  // Home - ignore
+                    // No-op
+                } else if (data === '\\u001b[F') {  // End - ignore
+                    // No-op
+                } else if (data.charCodeAt(0) >= 32) {  // Printable chars
+                    inputBuffer += data;
+                    term.write(data);
+                }
+            }
+        });
+
+        function handleCompletion(suggestions, input) {
+            if (!suggestions || suggestions.length === 0) {
+                return;  // No completions, do nothing
+            }
+            if (suggestions.length === 1) {
+                // Single match - complete it
+                const completed = suggestions[0];
+                // Replace the last word with the completion
+                const parts = input.split(' ');
+                parts[parts.length - 1] = completed;
+                const newInput = parts.join(' ');
+                // Clear line and rewrite
+                term.write('\\r\\x1b[K');
+                const prompt = window._currentPrompt || '>';
+                term.write(prompt + newInput);
+                inputBuffer = newInput;
+            } else {
+                // Multiple matches - show them
+                term.write('\\r\\n');
+                const line = suggestions.join('  ');
+                term.write(line + '\\r\\n');
+                const prompt = window._currentPrompt || '>';
+                term.write(prompt + inputBuffer);
+            }
+        }
+
+        window.addEventListener('resize', function() { fitAddon.fit(); });
+        connect();
+    </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 """POSIX permission and user management for Linux."""
 import logging
-import subprocess
+
+from vnc_remote_secure.core.processes import run_cmd
 
 
 def _valid_username(username):
@@ -33,7 +34,7 @@ def create_user(username, system=True, shell='/usr/sbin/nologin'):
     if system:
         cmd.append('-r')
     cmd.extend(['-s', shell, '--', username])
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_cmd(cmd, capture_output=True, text=True)
     return result.returncode == 0
 
 
@@ -51,7 +52,7 @@ def remove_user(username):
         logging.getLogger(__name__).warning(
             "Refusing to remove reserved user %s", username)
         return False
-    result = subprocess.run(
+    result = run_cmd(
         ['userdel', '-r', '--', username],
         capture_output=True, text=True,
     )
@@ -71,7 +72,7 @@ def set_user_password(username, password):
         return False
     if '\n' in password or '\r' in password:
         return False
-    result = subprocess.run(
+    result = run_cmd(
         ['chpasswd'],
         input=f'{username}:{password}\n',
         capture_output=True, text=True,

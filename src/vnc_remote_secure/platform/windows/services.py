@@ -10,9 +10,9 @@ of the ``New-Service`` PowerShell cmdlet so the helper works even on
 systems without PowerShell 5+.
 """
 import os
-import subprocess
 
 from vnc_remote_secure.core.exceptions import ServiceError
+from vnc_remote_secure.core.processes import run_cmd
 
 SERVICE_NAME = 'VncRemoteSecure'
 
@@ -58,14 +58,14 @@ def install_service(name=SERVICE_NAME, unit_file=None, unit_content=None):
     """
     # Remove any pre-existing service with the same name so installs are
     # idempotent. ``sc query`` returns non-zero when the service is absent.
-    query = subprocess.run(
+    query = run_cmd(
         ['sc', 'query', name], capture_output=True, text=True,
     )
     if query.returncode == 0:
         remove_service(name)
 
     bin_path = _resolve_service_binary()
-    create = subprocess.run(
+    create = run_cmd(
         ['sc', 'create', name, 'binPath=', bin_path, 'start=', 'auto'],
         capture_output=True, text=True,
     )
@@ -74,7 +74,7 @@ def install_service(name=SERVICE_NAME, unit_file=None, unit_content=None):
             f"Failed to create Windows Service '{name}': {create.stderr.strip()}"
         )
     # Set a human-readable display name and description.
-    subprocess.run(
+    run_cmd(
         ['sc', 'description', name,
          'VNC Remote Secure — secure browser-based remote access.'],
         capture_output=True, text=True,
@@ -87,8 +87,8 @@ def remove_service(name=SERVICE_NAME):
 
     Returns ``True`` on success or when the service was not present.
     """
-    subprocess.run(['sc', 'stop', name], capture_output=True, text=True)
-    delete = subprocess.run(
+    run_cmd(['sc', 'stop', name], capture_output=True, text=True)
+    delete = run_cmd(
         ['sc', 'delete', name], capture_output=True, text=True,
     )
     # ``sc delete`` returns 1072 when the service does not exist.

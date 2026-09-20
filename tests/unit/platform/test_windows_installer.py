@@ -85,10 +85,10 @@ def test_ensure_ultravnc_noop_when_present(monkeypatch, tmp_path):
     """Does nothing when UltraVNC is already available."""
     monkeypatch.setattr(installer, '_find_ultravnc',
                         lambda: str(tmp_path / 'winvnc.exe'))
-    # If _ensure_ultravnc tries to download, urlretrieve will fail and raise.
+    # If _ensure_ultravnc tries to download, urlopen will fail and raise.
     def _fail(*a, **k):
         raise AssertionError("should not download when UltraVNC present")
-    monkeypatch.setattr(installer.urllib.request, 'urlretrieve', _fail)
+    monkeypatch.setattr(installer.urllib.request, 'urlopen', _fail)
     installer._ensure_ultravnc()
 
 
@@ -109,11 +109,10 @@ def test_ensure_ultravnc_downloads_and_extracts(monkeypatch, tmp_path):
         zf.writestr('winvnc.exe', 'fake-binary')
     zip_bytes = buf.getvalue()
 
-    def _fake_urlretrieve(url, path):
-        with open(path, 'wb') as fh:
-            fh.write(zip_bytes)
+    def _fake_urlopen(url, timeout=None):
+        return io.BytesIO(zip_bytes)
 
-    monkeypatch.setattr(installer.urllib.request, 'urlretrieve', _fake_urlretrieve)
+    monkeypatch.setattr(installer.urllib.request, 'urlopen', _fake_urlopen)
     monkeypatch.setattr(installer.tempfile, 'TemporaryDirectory',
                         lambda: _TmpCtx(tmp_path))
     # The installer verifies the extracted binary's SHA-256 against the
@@ -140,11 +139,10 @@ def test_ensure_ultravnc_removes_hash_mismatch(monkeypatch, tmp_path):
         zf.writestr('winvnc.exe', 'tampered-binary')
     zip_bytes = buf.getvalue()
 
-    def _fake_urlretrieve(url, path):
-        with open(path, 'wb') as fh:
-            fh.write(zip_bytes)
+    def _fake_urlopen(url, timeout=None):
+        return io.BytesIO(zip_bytes)
 
-    monkeypatch.setattr(installer.urllib.request, 'urlretrieve', _fake_urlretrieve)
+    monkeypatch.setattr(installer.urllib.request, 'urlopen', _fake_urlopen)
     monkeypatch.setattr(installer.tempfile, 'TemporaryDirectory',
                         lambda: _TmpCtx(tmp_path))
     # Real verifier: the fake binary will not match the manifest hash.
@@ -163,10 +161,10 @@ def test_ensure_ultravnc_handles_download_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(installer, '_find_ultravnc', lambda: None)
     monkeypatch.setattr(installer, '_ULTRAVNC_INSTALL_DIR', str(tmp_path / 'UltraVNC'))
 
-    def _raise(url, path):
+    def _raise(url, timeout=None):
         raise urllib.error.URLError('boom')
 
-    monkeypatch.setattr(installer.urllib.request, 'urlretrieve', _raise)
+    monkeypatch.setattr(installer.urllib.request, 'urlopen', _raise)
     monkeypatch.setattr(installer.tempfile, 'TemporaryDirectory',
                         lambda: _TmpCtx(tmp_path))
     # Should not raise.

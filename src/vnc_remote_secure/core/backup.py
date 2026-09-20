@@ -399,7 +399,7 @@ def restore_backup(backup_file: str) -> bool:
             state_file = os.path.join(temp_dir, 'service_state.json')
             if os.path.isfile(state_file):
                 import json
-                with open(state_file, 'r') as f:
+                with open(state_file, 'r', encoding='utf-8') as f:
                     state = json.load(f)
                 restore_state(state)
         except Exception as e:

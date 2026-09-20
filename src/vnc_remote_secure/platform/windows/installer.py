@@ -152,7 +152,12 @@ def _ensure_ultravnc():
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             zip_path = os.path.join(tmp_dir, 'ultravnc.zip')
-            urllib.request.urlretrieve(url, zip_path)
+            # urlretrieve() has no timeout — a stalled mirror would
+            # hang install forever. Stream via urlopen instead.
+            import shutil
+            with urllib.request.urlopen(url, timeout=60) as resp, \
+                    open(zip_path, 'wb') as out:
+                shutil.copyfileobj(resp, out)
             logger.info("Downloaded UltraVNC archive: %s", zip_path)
 
             os.makedirs(_ULTRAVNC_INSTALL_DIR, exist_ok=True)

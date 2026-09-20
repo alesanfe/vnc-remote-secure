@@ -21,7 +21,7 @@ class _FakeResult:
 class TestLinuxUsernameGuard:
     def test_create_user_rejects_flag_injection(self):
         calls = []
-        with patch.object(linux_perms.subprocess, 'run',
+        with patch.object(linux_perms, 'run_cmd',
                           side_effect=lambda *a, **kw: calls.append(a) or _FakeResult()):
             with patch.object(linux_perms, 'user_exists', return_value=False):
                 assert linux_perms.create_user('-f') is False
@@ -30,7 +30,7 @@ class TestLinuxUsernameGuard:
 
     def test_remove_user_rejects_flag_injection(self):
         calls = []
-        with patch.object(linux_perms.subprocess, 'run',
+        with patch.object(linux_perms, 'run_cmd',
                           side_effect=lambda *a, **kw: calls.append(a) or _FakeResult()):
             assert linux_perms.remove_user('-rf') is False
             assert linux_perms.remove_user('root') is False
@@ -38,14 +38,14 @@ class TestLinuxUsernameGuard:
 
     def test_remove_user_allows_normal_name(self):
         seen = []
-        with patch.object(linux_perms.subprocess, 'run',
+        with patch.object(linux_perms, 'run_cmd',
                           side_effect=lambda cmd, **kw: seen.append(cmd) or _FakeResult()):
             assert linux_perms.remove_user('remote') is True
         assert seen and '--' in seen[0] and 'remote' in seen[0]
 
     def test_set_user_password_rejects_flag_injection(self):
         calls = []
-        with patch.object(linux_perms.subprocess, 'run',
+        with patch.object(linux_perms, 'run_cmd',
                           side_effect=lambda *a, **kw: calls.append(a) or _FakeResult()):
             assert linux_perms.set_user_password('-e', 'Passw0rd!') is False
         assert calls == []

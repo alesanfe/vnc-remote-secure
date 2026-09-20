@@ -25,3 +25,27 @@ def is_port_available(port, host='127.0.0.1'):
     except (OSError, ConnectionRefusedError, socket.timeout):
         # Nothing listening → port IS available
         return True
+
+
+def run_cmd(cmd, timeout=30, check=False, **kwargs):
+    """``subprocess.run`` with a hard timeout by default.
+
+    A hung ``systemctl``, ``netsh``, ``taskkill`` or ``certbot`` must
+    not wedge the service manager or installer forever. On timeout the
+    child is killed and a ``CompletedProcess`` with ``returncode=-1``
+    is returned so ``check=False`` callers see a normal failure. With
+    ``check=True`` the timeout is re-raised as ``TimeoutExpired``
+    (still an exception, matching the contract that failure is
+    exceptional).
+    """
+    import subprocess
+    try:
+        return subprocess.run(cmd, timeout=timeout, check=check,
+                              **kwargs)
+    except subprocess.TimeoutExpired as e:
+        if check:
+            raise
+        return subprocess.CompletedProcess(
+            cmd, returncode=-1,
+            stdout=e.stdout or b'',
+            stderr=e.stderr or b'command timed out')

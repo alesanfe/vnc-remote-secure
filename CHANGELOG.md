@@ -176,6 +176,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`docs/developer/release-checklist.md`**: 30-scenario E2E matrix
   (deployment, security, operational) for release validation on real
   VMs, linked from the docs index.
+- **Subprocess hardening**: all `subprocess.run()` call sites now go
+  through `core.processes.run_cmd()` (hard 30s timeout; hung
+  `systemctl`/`netsh`/`certbot` can no longer wedge the service
+  manager or installer) — 21 sites migrated across platform adapters
+  and `certificates.py`.
+- **Download timeout**: `urlretrieve()` (no timeout — a stalled mirror
+  would hang install forever) replaced by streamed `urlopen`
+  (timeout=60) in the UltraVNC bootstrap.
+- **Encoding consistency**: 9 text `open()` calls now declare
+  `encoding='utf-8'` — the platform default (cp1252 on Windows vs
+  UTF-8 on Linux) could diverge on non-ASCII config/state files.
+- **Terminal page extracted**: `terminal.py`'s 215-line inline
+  `HTML_PAGE` moved to `static/terminal.html` via
+  `importlib.resources` (like `static/landing.css`).
 - **`AUDIT_MIRROR_FILE`**: optional second append-only audit sink
   (e.g. a mounted network share or WORM store) — each entry is written
   to both sinks inside the file lock so rewriting the primary log

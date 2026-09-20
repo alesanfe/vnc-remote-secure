@@ -8,7 +8,8 @@ import datetime
 import logging
 import os
 import shutil
-import subprocess
+
+from vnc_remote_secure.core.processes import run_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ def request_letsencrypt(domain, email, ssl_dir=None):
         '-m', email, '-d', domain,
     ]
     for plugin_args in (['--nginx'], ['--standalone']):
-        result = subprocess.run(
+        result = run_cmd(
             base_cmd + plugin_args, capture_output=True, text=True,
         )
         if result.returncode == 0:
@@ -283,7 +284,7 @@ def _generate_via_openssl(cert_path, key_path, common_name, days_valid):
         '-out', cert_path,
         '-subj', f'/CN={common_name}',
     ]
-    result = subprocess.run(cmd, capture_output=True)
+    result = run_cmd(cmd, capture_output=True)
     if result.returncode != 0:
         raise RuntimeError(
             f"openssl failed: {result.stderr.decode('utf-8', 'replace')}"

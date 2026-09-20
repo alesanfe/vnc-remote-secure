@@ -15,6 +15,7 @@ import shutil
 import socket
 import subprocess
 
+from vnc_remote_secure.core.processes import run_cmd
 from vnc_remote_secure.platform.base import PlatformAdapter
 
 logger = logging.getLogger(__name__)
@@ -39,12 +40,12 @@ class LinuxAdapter(PlatformAdapter):
 
     def remove_service(self, service_name):
         """Stop and remove a systemd service."""
-        subprocess.run(['systemctl', 'stop', service_name], check=False)
-        subprocess.run(['systemctl', 'disable', service_name], check=False)
+        run_cmd(['systemctl', 'stop', service_name], check=False)
+        run_cmd(['systemctl', 'disable', service_name], check=False)
         unit_path = f'/etc/systemd/system/{service_name}.service'
         if os.path.exists(unit_path):
             os.remove(unit_path)
-            subprocess.run(['systemctl', 'daemon-reload'], check=False)
+            run_cmd(['systemctl', 'daemon-reload'], check=False)
         return True
 
     def remove_firewall_rule(self, rule_name):
@@ -56,7 +57,7 @@ class LinuxAdapter(PlatformAdapter):
         matching rules are located via ``ufw status numbered`` and
         deleted highest-first (numbers shift on each delete).
         """
-        status = subprocess.run(
+        status = run_cmd(
             ['ufw', 'status', 'numbered'],
             capture_output=True, text=True,
         )
@@ -69,7 +70,7 @@ class LinuxAdapter(PlatformAdapter):
         ]
         ok = True
         for n in sorted(nums, reverse=True):
-            res = subprocess.run(
+            res = run_cmd(
                 ['ufw', '--force', 'delete', str(n)],
                 capture_output=True,
             )
@@ -85,7 +86,7 @@ class LinuxAdapter(PlatformAdapter):
         not valid UFW syntax. Returns ``True`` on success.
         """
         comment = rule_name or 'vnc-remote'
-        result = subprocess.run(
+        result = run_cmd(
             ['ufw', 'allow', f'{port}/{protocol}', 'comment', comment],
             capture_output=True
         )
