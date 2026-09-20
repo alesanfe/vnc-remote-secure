@@ -92,14 +92,17 @@ def send_email_alert(title, message):
     if not to_addr or not smtp_server:
         return False
 
-    msg = EmailMessage()
-    msg['Subject'] = f"[VNC Remote Secure] {title}"
-    msg['From'] = os.environ.get('ALERT_EMAIL_FROM', 'vnc-remote-secure@localhost')
-    msg['To'] = to_addr
-    msg.set_content(message)
-
     host, _, port = smtp_server.partition(':')
     try:
+        # Inside the try: header assignment rejects CR/LF (ValueError)
+        # and must not crash the caller.
+        msg = EmailMessage()
+        msg['Subject'] = f"[VNC Remote Secure] {title}"
+        msg['From'] = os.environ.get(
+            'ALERT_EMAIL_FROM', 'vnc-remote-secure@localhost')
+        msg['To'] = to_addr
+        msg.set_content(message)
+
         with smtplib.SMTP(host, int(port or 25), timeout=_HTTP_TIMEOUT) as smtp:
             # TLS protects the message body too, not just credentials —
             # attempt it whenever supported. When the operator asked for

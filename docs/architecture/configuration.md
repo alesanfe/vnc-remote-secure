@@ -604,6 +604,7 @@ Every variable accepted by .env (mirrors .env.example). Variables marked
 | SESSION_COOKIE_NAME | vnc_flask_session | Flask session cookie name (the raw session token cookie `vnc_session` is reserved) |
 | SESSION_IDLE_TIMEOUT | 1800 | Idle session timeout (s) |
 | SESSION_MAX_LIFETIME | 28800 | Absolute session lifetime (s) |
+| WEB_MAX_CONTENT_LENGTH | 65536 | Max request body size (bytes) for the web UI |
 
 ### Services & Features
 

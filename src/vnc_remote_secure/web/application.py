@@ -154,6 +154,12 @@ def create_app(config=None):
                 'SESSION_IDLE_TIMEOUT',
                 str(_sessions.DEFAULT_IDLE_TIMEOUT))),
         VNC_CONFIG=config,
+        # Request bodies are only small form fields (login/user mgmt)
+        # — without a cap, a POST with a huge Content-Length is
+        # buffered in memory (DoS). 64 KiB is generous; overridable via
+        # env for exotic deployments.
+        MAX_CONTENT_LENGTH=int(
+            os.environ.get('WEB_MAX_CONTENT_LENGTH', str(64 * 1024))),
     )
 
     # Register blueprints.

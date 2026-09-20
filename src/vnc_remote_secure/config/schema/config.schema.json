@@ -384,6 +384,12 @@
       "default": 28800,
       "description": "Maximum session lifetime in seconds."
     },
+    "WEB_MAX_CONTENT_LENGTH": {
+      "type": "integer",
+      "minimum": 1024,
+      "default": 65536,
+      "description": "Maximum request body size in bytes accepted by the Flask user-management UI (mitigates memory-DoS via oversized POSTs)."
+    },
     "SESSION_SAMESITE": {
       "type": "string",
       "enum": [
