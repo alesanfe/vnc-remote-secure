@@ -33,6 +33,23 @@
 | Windows Server 2022+ | Experimental | UltraVNC | Tornado | Self-signed | Less tested |
 | Any browser (client) | Supported | — | — | — | No install needed |
 
+## Feature Maturity
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Desktop (noVNC + websockify) | Stable | Primary use case |
+| Web terminal (Tornado + xterm.js) | Stable | `env` sanitized for child processes |
+| Auth gateway (sessions, MFA, RBAC) | Stable | Step-up for sensitive actions |
+| Ephemeral share sessions | Stable | Revocation closes live WebSockets |
+| Health dashboard + `/metrics` | Stable | Loopback-only by default |
+| TLS (self-signed / Let's Encrypt) | Stable | Per-profile policy |
+| Landing portal | Stable | |
+| Encrypted backups | Stable | Fernet/PBKDF2, `verify backup` |
+| Audio streaming | Beta | Optional; `AUDIO_STREAM_ENABLED` |
+| Gamepad forwarding | Experimental | Optional; `GAMEPAD_ENABLED`; view-only sessions block it |
+| DuckDNS updater | Stable | |
+| `http.server` fallback (no Flask) | Development only | Refused under hardened profiles |
+
 ## Architecture
 
 ```

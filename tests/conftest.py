@@ -77,4 +77,11 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     import vnc_remote_secure.core.config as config_mod
     monkeypatch.setattr(config_mod, '_ENV_LOADED', True)
 
+    # Audit sinks are read from os.environ at call time — a developer
+    # shell exporting AUDIT_LOG_FILE/AUDIT_MIRROR_FILE would write real
+    # audit entries during tests. Scrub them unless a test sets them
+    # explicitly (it can monkeypatch.setenv itself).
+    monkeypatch.delenv('AUDIT_LOG_FILE', raising=False)
+    monkeypatch.delenv('AUDIT_MIRROR_FILE', raising=False)
+
     yield
