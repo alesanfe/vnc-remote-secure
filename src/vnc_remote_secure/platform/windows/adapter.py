@@ -297,7 +297,13 @@ class WindowsAdapter(PlatformAdapter):
             # format (8-byte padded password, fixed-key DES).
             hex_pass = encrypt_vnc_password(password).hex().upper()
             overrides['passwd'] = hex_pass
-            overrides['passwd2'] = hex_pass  # view-only password
+            # passwd2 is UltraVNC's view-only password. Setting it
+            # equal to passwd is deliberate: a *different* stale
+            # passwd2 left in the ini would still authenticate a
+            # view-only login (credential bypass for viewing), and
+            # per-session view-only is enforced at the control-channel
+            # layer, not in RFB (see services/novnc.py).
+            overrides['passwd2'] = hex_pass
 
         try:
             with open(ini_path, encoding='utf-8', errors='replace') as fh:
