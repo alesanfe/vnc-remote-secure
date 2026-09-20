@@ -7,6 +7,7 @@ available; falls back to the ``openssl`` CLI otherwise.
 import datetime
 import logging
 import os
+import re
 import shutil
 
 from vnc_remote_secure.core.processes import run_cmd
@@ -38,6 +39,12 @@ def request_letsencrypt(domain, email, ssl_dir=None):
         return False
     if not domain or not email:
         logger.warning("Domain and email are required for Let's Encrypt.")
+        return False
+    # The domain is interpolated into a filesystem path below —
+    # reject anything outside a DNS hostname (dots, hyphens, alnum)
+    # so a '../..' cannot escape /etc/letsencrypt/live.
+    if not re.fullmatch(r'[A-Za-z0-9.-]{1,253}', domain) or '..' in domain:
+        logger.warning("Refusing suspicious certbot domain: %r", domain)
         return False
 
     base_cmd = [
