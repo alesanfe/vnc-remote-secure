@@ -99,7 +99,9 @@ def uninstall(keep_data: bool = False, force: bool = False) -> dict:
         # the canonical uninstall must not orphan it either.
         try:
             import subprocess
-            subprocess.run(
+
+            from vnc_remote_secure.core.processes import run_cmd
+            run_cmd(
                 ['groupdel', 'vnc-remote'],
                 capture_output=True, check=False, timeout=15)
             results['remove_service_group'] = True

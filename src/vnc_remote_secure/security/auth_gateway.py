@@ -68,9 +68,10 @@ def _claim_recovery_code(code_hash: str) -> bool:
     race across service processes, so the claim is a single atomic
     ``INSERT OR IGNORE`` against the shared-state backend.
 
-    On backend failure the claim reports success so the legacy
-    check-then-mark behaviour (and the .env hash removal) remains the
-    best-effort fallback rather than locking users out.
+    On backend failure the claim FAILS CLOSED: an open claim would let
+    a one-time recovery code be replayed across processes (a degraded
+    per-process memory backend sees nothing of the other side). A
+    denied legitimate login is recoverable; a replayed code is not.
     """
     if not code_hash:
         return False
@@ -78,9 +79,11 @@ def _claim_recovery_code(code_hash: str) -> bool:
         from vnc_remote_secure.security.shared_state import get_backend
         return bool(get_backend().set_if_absent(
             _NS_USED_RECOVERY, code_hash, True, 30 * 86400))
-    except Exception:  # noqa: BLE001 - best-effort; .env removal is the fallback
-        logger.warning("Could not record recovery-code consumption")
-        return True
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        logger.error(
+            "Recovery-code claim backend unavailable — denying: %s",
+            exc)
+        return False
 
 
 def check_origin(origin: str, allowed_origins: list) -> bool:

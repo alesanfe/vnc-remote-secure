@@ -314,7 +314,8 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 RfbInputFilter,
                             )
                             rfb_filter = RfbInputFilter(
-                                allow_clipboard=clip)
+                                allow_clipboard=clip,
+                                allow_control=control)
                             logger.info(
                                 "RFB input filter active "
                                 "(control=%s clipboard=%s)", control, clip)

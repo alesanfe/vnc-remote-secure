@@ -820,20 +820,23 @@ def _claim_consumed(token: str, expires_at: float) -> bool:
     """Atomically claim a single-use session token across processes.
 
     Uses the shared-state backend's atomic test-and-set so only one
-    process can win the claim for a given token. On backend failure
-    the claim reports success — the per-process lock and persisted
-    ``used``/``revoked`` flags remain as the best-effort fallback
-    rather than making every share link unusable when the backend is
-    down.
+    process can win the claim for a given token.
+
+    On backend failure the claim FAILS CLOSED: a denied legitimate
+    activation is recoverable (retry), but an open claim would let a
+    single-use token be consumed twice — or replayed across processes
+    when one side degraded to a private memory backend.
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         ttl = max(60.0, expires_at - time.time())
         return bool(get_backend().set_if_absent(
             'ephemeral_consumed', token, True, ttl))
-    except Exception:  # noqa: BLE001 - best-effort fallback
-        logger.warning("Could not record ephemeral session consumption")
-        return True
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        logger.error(
+            "Ephemeral claim backend unavailable — denying claim: %s",
+            exc)
+        return False
 
 
 def _claim_use(token: str, max_uses: int, expires_at: float) -> bool:
@@ -845,9 +848,9 @@ def _claim_use(token: str, max_uses: int, expires_at: float) -> bool:
     ``max_uses`` (the increment is retained — the claim is consumed
     either way, which is correct because the caller then rejects).
 
-    On backend failure the claim reports success: the per-process
-    ``use_count`` remains as the best-effort fallback rather than
-    making every share link unusable when the backend is down.
+    On backend failure the claim FAILS CLOSED (same reasoning as
+    ``_claim_consumed``): a denied activation is retryable; an open
+    claim would silently exceed the multi-use budget.
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
@@ -855,9 +858,11 @@ def _claim_use(token: str, max_uses: int, expires_at: float) -> bool:
         new_count = get_backend().increment(
             'ephemeral_uses', token, 1, ttl_seconds=ttl)
         return new_count is not None and int(new_count) <= max_uses
-    except Exception:  # noqa: BLE001 - best-effort fallback
-        logger.warning("Could not record multi-use claim")
-        return True
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        logger.error(
+            "Multi-use claim backend unavailable — denying claim: %s",
+            exc)
+        return False
 
 
 def consume_ephemeral_session(signed_token: str) -> bool:

@@ -365,4 +365,38 @@ if __name__ == '__main__':
     ssl_ctx = create_ssl_context()
     logger.info("Web UI starting on %s:%s (%s)",
                 args.host, args.port, 'https' if ssl_ctx else 'http')
-    app.run(host=args.host, port=args.port, ssl_context=ssl_ctx)
+    # Prefer waitress (production WSGI server with bounded threads and
+    # request timeouts) over the Werkzeug dev server, which has no
+    # read-timeout protection against slowloris-style partial requests.
+    try:
+        import waitress
+        waitress_kwargs = {
+            'host': args.host,
+            'port': args.port,
+            'threads': 8,
+            'channel_timeout': 30,
+            'cleanup_interval': 15,
+        }
+        if ssl_ctx:
+            # waitress does not terminate TLS itself in older releases;
+            # wrap the listener socket so the profile-secured context
+            # is honoured rather than silently downgraded to HTTP.
+            import socket as _socket
+            sock = ssl_ctx.wrap_socket(
+                _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM),
+                server_side=True)
+            sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+            sock.bind((args.host, args.port))
+            sock.listen(128)
+            waitress.serve(app, sockets=[sock],
+                           threads=waitress_kwargs['threads'],
+                           channel_timeout=30,
+                           cleanup_interval=15)
+        else:
+            waitress.serve(app, **waitress_kwargs)
+    except ImportError:
+        logger.warning(
+            "waitress not installed — falling back to the Werkzeug "
+            "development server (pip install 'vnc-remote-secure[ops]')")
+        app.run(host=args.host, port=args.port, ssl_context=ssl_ctx,
+                threaded=True)

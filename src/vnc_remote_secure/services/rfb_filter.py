@@ -46,6 +46,10 @@ _VAR_LEN = {
     251: (8, lambda h: 16 * h[4]),                          # SetDesktopSize
 }
 
+# SetDesktopSize resizes the remote framebuffer — control-plane input,
+# gated like KeyEvent/PointerEvent for view-only sessions.
+_TYPE_SET_DESKTOP_SIZE = 251
+
 # Messages always permitted (display-related, not input).
 _ALLOWED_TYPES = set(_FIXED_LEN) | set(_VAR_LEN)
 
@@ -229,8 +233,10 @@ class RfbInputFilter:
     be closed — fail closed, never pass unparseable input through.
     """
 
-    def __init__(self, allow_clipboard: bool = False):
+    def __init__(self, allow_clipboard: bool = False,
+                 allow_control: bool = False):
         self.allow_clipboard = allow_clipboard
+        self.allow_control = allow_control
         self._ws_cbuf = bytearray()   # raw client WS bytes
         self._ws_sbuf = bytearray()   # raw server WS bytes
         self._rfb = bytearray()       # client RFB stream (payloads)
@@ -357,7 +363,8 @@ class RfbInputFilter:
                 return None
             raw = bytes(self._rfb[:mlen])
             del self._rfb[:mlen]
-            if mtype in (_TYPE_KEY_EVENT, _TYPE_POINTER_EVENT):
+            if mtype in (_TYPE_KEY_EVENT, _TYPE_POINTER_EVENT,
+                         _TYPE_SET_DESKTOP_SIZE) and not self.allow_control:
                 continue  # dropped: no desktop:control
             if mtype == _TYPE_CUT_TEXT and not self.allow_clipboard:
                 continue  # dropped: no desktop:clipboard

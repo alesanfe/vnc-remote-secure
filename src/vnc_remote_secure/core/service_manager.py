@@ -35,6 +35,7 @@ from vnc_remote_secure.core.constants import (
     DEFAULT_VNC_PORT,
 )
 from vnc_remote_secure.core.paths import find_project_root, get_run_dir
+from vnc_remote_secure.core.processes import run_cmd
 from vnc_remote_secure.platform.detection import is_windows
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def _pid_alive(pid: int) -> bool:
             # The CSV rows are quoted — match the exact field
             # ,"<pid>", rather than a bare substring: pid 12 would
             # otherwise match a row containing pid 12345.
-            res = subprocess.run(
+            res = run_cmd(
                 ['tasklist', '/FI', f'PID eq {pid}', '/NH', '/FO', 'CSV'],
                 capture_output=True, text=True, timeout=5,
             )
@@ -144,7 +145,7 @@ def _kill_descendants(pid: int, depth: int = 0) -> None:
     if depth > 4:
         return
     try:
-        res = subprocess.run(
+        res = run_cmd(
             ['pgrep', '-P', str(pid)],
             capture_output=True, text=True, timeout=5,
         )
@@ -198,7 +199,7 @@ def _pid_is_ours(pid: int, service: str = None) -> Optional[bool]:
 
     if is_windows():
         try:
-            res = subprocess.run(
+            res = run_cmd(
                 ['wmic', 'process', 'where', f'ProcessId={pid}',
                  'get', 'CommandLine', '/FORMAT:LIST'],
                 capture_output=True, text=True, timeout=10,
@@ -206,7 +207,7 @@ def _pid_is_ours(pid: int, service: str = None) -> Optional[bool]:
             if res.returncode == 0 and res.stdout.strip():
                 return _matches(res.stdout)
             # wmic missing on newer Windows — fall back to PowerShell.
-            res = subprocess.run(
+            res = run_cmd(
                 ['powershell', '-NoProfile', '-Command',
                  f"(Get-CimInstance Win32_Process -Filter "
                  f"'ProcessId={pid}').CommandLine"],
@@ -261,7 +262,7 @@ def _kill_pid(pid: int, timeout: float = 5.0,
             # /T kills the whole tree: services that spawn children
             # (audio -> ffmpeg, vnc -> winvnc helpers) would otherwise
             # orphan them on stop.
-            subprocess.run(
+            run_cmd(
                 ['taskkill', '/F', '/T', '/PID', str(pid)],
                 capture_output=True, timeout=10,
             )
@@ -799,7 +800,7 @@ def _start_nginx(config: dict) -> Optional[int]:
         logger.info("nginx not supported on Windows via service manager; skipping")
         return None
     try:
-        res = subprocess.run(
+        res = run_cmd(
             ['systemctl', 'start', 'nginx'],
             capture_output=True, timeout=15,
         )
@@ -808,7 +809,7 @@ def _start_nginx(config: dict) -> Optional[int]:
             # pgrep order is arbitrary and can adopt a worker or a
             # foreign nginx for later SIGKILL.
             try:
-                show = subprocess.run(
+                show = run_cmd(
                     ['systemctl', 'show', '-p', 'MainPID', '--value', 'nginx'],
                     capture_output=True, text=True, timeout=5,
                 )
@@ -820,7 +821,7 @@ def _start_nginx(config: dict) -> Optional[int]:
                 pass
             return None
         # Fallback: try direct nginx binary
-        res = subprocess.run(
+        res = run_cmd(
             ['nginx'], capture_output=True, timeout=10,
         )
         if res.returncode == 0:
@@ -829,7 +830,7 @@ def _start_nginx(config: dict) -> Optional[int]:
             # order is arbitrary, so picking pids[0] could adopt a
             # worker (or a foreign nginx) for later SIGKILL.
             try:
-                res = subprocess.run(
+                res = run_cmd(
                     ['pgrep', '-x', 'nginx'], capture_output=True, text=True, timeout=5,
                 )
                 pids = [int(p) for p in res.stdout.split() if p.strip().isdigit()]

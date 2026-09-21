@@ -55,7 +55,13 @@ def run_cmd(cmd, timeout=30, check=False, **kwargs):
     except subprocess.TimeoutExpired as e:
         if check:
             raise
+        # Honour text mode on the synthetic result: TimeoutExpired.stdout
+        # is always bytes, but callers that passed text=True expect str.
+        text_mode = kwargs.get('text') or kwargs.get('universal_newlines')
+        out, err = e.stdout or b'', e.stderr or b'command timed out'
+        if text_mode:
+            enc = kwargs.get('encoding') or 'utf-8'
+            out = out.decode(enc, 'replace') if isinstance(out, bytes) else out
+            err = err.decode(enc, 'replace') if isinstance(err, bytes) else err
         return subprocess.CompletedProcess(
-            cmd, returncode=-1,
-            stdout=e.stdout or b'',
-            stderr=e.stderr or b'command timed out')
+            cmd, returncode=-1, stdout=out, stderr=err)

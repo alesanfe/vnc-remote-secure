@@ -200,7 +200,8 @@ def _complete_windows_command(prefix):
     # 'which' works but COMMON_COMMANDS already covers the usual verbs)
     if os.name != 'posix' and _config()['webterm_shell'] == 'cmd.exe':
         try:
-            result = subprocess.run(
+            from vnc_remote_secure.core.processes import run_cmd
+            result = run_cmd(
                 ['where', prefix + '*'],
                 capture_output=True, text=True, timeout=5, check=False
             )
@@ -358,7 +359,8 @@ def _kill_process_tree(proc):
     """
     try:
         if os.name == 'nt':
-            subprocess.run(
+            from vnc_remote_secure.core.processes import run_cmd
+            run_cmd(
                 ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
                 capture_output=True, timeout=10, check=False)
         else:
@@ -522,10 +524,13 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 logger.debug("Failed to unregister WebSocket: %s", e)
             self._ws_conn_id = None
         logger.info("Client disconnected")
-        if self.current_process:
+        # current_process is only assigned after successful auth —
+        # sockets rejected in open() raise AttributeError noise here.
+        proc = getattr(self, 'current_process', None)
+        if proc:
             try:
-                self.current_process.terminate()
-                self.current_process.wait(timeout=5)
+                proc.terminate()
+                proc.wait(timeout=5)
             except Exception as e:
                 logger.warning("Failed to terminate process on close: %s", e)
             self.current_process = None

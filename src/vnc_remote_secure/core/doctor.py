@@ -216,6 +216,57 @@ def _check_runtime_deps(checks):
               'psutil not installed — orphaned service processes are '
               'not reaped on restart. Install with: '
               'pip install "vnc-remote-secure[ops]"')
+    try:
+        import waitress  # noqa: F401
+        _ok(checks, 'deps.waitress',
+            'waitress present — user UI served by a production WSGI '
+            'server')
+    except ImportError:
+        _warn(checks, 'deps.waitress',
+              'waitress not installed — user UI runs on the Werkzeug '
+              'development server (no read timeouts, not hardened for '
+              'untrusted networks). Install with: '
+              'pip install "vnc-remote-secure[ops]"')
+
+
+def _check_terminal_isolation(checks):
+    """Warn when web-terminal shells run as the service account.
+
+    The terminal service strips secret env vars from children, but the
+    shell it spawns inherits the service's filesystem identity: it can
+    read auth_secret.key, generated_credentials.env and config.env, and
+    WRITE shared_state.db (erasing rate-limit lockouts, TOTP step
+    claims and revocation markers). On Linux the privilege drop only
+    applies when the service runs as root and WEBTERM_USER is set —
+    the packaged systemd unit runs as the unprivileged 'vnc-remote'
+    user, where setpriv is unavailable and the check below fails
+    closed to a warning.
+    """
+    if sys.platform == 'win32':
+        _warn(checks, 'terminal.isolation',
+              'Windows terminal/VNC processes share the interactive '
+              'user session (F-035) — a terminal shell can read the '
+              'service data dir. Restrict terminal access or set '
+              'WEBTERM_USER where possible')
+        return
+    try:
+        euid = os.geteuid()  # type: ignore[attr-defined]
+    except AttributeError:
+        return
+    webterm_user = os.environ.get('WEBTERM_USER', '').strip()
+    if euid == 0 and webterm_user:
+        _ok(checks, 'terminal.isolation',
+            f'WEBTERM_USER={webterm_user} — shell drops privileges')
+    elif euid == 0:
+        _warn(checks, 'terminal.isolation',
+              'Running as root without WEBTERM_USER — terminal shells '
+              'spawn as root. Set WEBTERM_USER to an unprivileged user')
+    else:
+        _warn(checks, 'terminal.isolation',
+              'Not running as root — WEBTERM_USER is ignored and '
+              'terminal shells run as the service account, which owns '
+              'auth_secret.key/shared_state.db. Treat terminal:use as '
+              'equivalent to credential disclosure; see AGENTS.md')
 
 
 def _check_firewall(checks):
@@ -376,6 +427,7 @@ def run_doctor(as_json: bool = False) -> dict:
     _check_firewall(checks)
     _check_shared_state(checks)
     _check_runtime_deps(checks)
+    _check_terminal_isolation(checks)
 
     # --- Summary ---
     counts = {'ok': 0, 'warn': 0, 'fail': 0, 'skip': 0}

@@ -186,7 +186,7 @@ class WindowsAdapter(PlatformAdapter):
                 "$_.IPAddress -notlike '192.168.204.*' } | "
                 "Select-Object -ExpandProperty IPAddress -Unique"
             )
-            result = subprocess.run(
+            result = run_cmd(
                 ['powershell', '-NoProfile', '-Command', ps_cmd],
                 capture_output=True, text=True, timeout=10, check=False
             )
@@ -376,7 +376,7 @@ class WindowsAdapter(PlatformAdapter):
     def list_audio_devices(self, ffmpeg):
         """List DirectShow audio capture devices."""
         try:
-            result = subprocess.run(
+            result = run_cmd(
                 ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
                 capture_output=True, text=True, timeout=10
             )

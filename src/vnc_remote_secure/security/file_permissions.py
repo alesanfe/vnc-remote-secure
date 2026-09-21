@@ -78,8 +78,9 @@ def _check_windows_permissions(path: str) -> List[dict]:
     findings = []
     try:
         import re
-        import subprocess
-        result = subprocess.run(
+
+        from vnc_remote_secure.core.processes import run_cmd
+        result = run_cmd(
             ['icacls', path],
             capture_output=True, text=True, timeout=10,
         )

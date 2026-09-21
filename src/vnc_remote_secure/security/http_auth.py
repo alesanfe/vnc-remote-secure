@@ -262,7 +262,25 @@ def check_health_auth(auth_header, client_ip=None, peer_ip=None):
             "non-loopback (%s, %s) — requiring Bearer auth",
             ui_host, health_host)
         return False  # fail-closed on public binds
-    return check_bearer_token(auth_header, token)
+    # Feed the shared auth limiter like the landing/terminal checkers —
+    # otherwise the Bearer endpoints are an unthrottled token
+    # brute-force oracle (only exploitable for a weak token, but the
+    # limiter is nearly free). The raw peer is a fine limiter key when
+    # the caller did not resolve an XFF client_ip.
+    limiter_ip = client_ip or peer_ip
+    limiter = None
+    if limiter_ip:
+        from vnc_remote_secure.security.rate_limit import get_auth_limiter
+        limiter = get_auth_limiter()
+        if _is_locked(limiter, limiter_ip):
+            return False
+    ok = check_bearer_token(auth_header, token)
+    if limiter is not None:
+        if ok:
+            limiter.record_success(limiter_ip)
+        else:
+            limiter.record_failure(limiter_ip)
+    return ok
 
 
 def require_auth(check_func, scheme='Basic', realm='VNC Remote Secure'):

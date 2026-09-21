@@ -417,10 +417,22 @@ def get_blocking_findings() -> list:
     # every restart and breaks multi-process deployments.
     if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
         flask_key = os.environ.get('FLASK_SECRET_KEY', '')
-        if flask_key == '' or flask_key.lower() in weak_lower:
+        if flask_key == '' or flask_key.lower() in weak_lower \
+                or len(flask_key) < 32:
             blockers.append({
                 'code': 'WEAK_FLASK_SECRET',
-                'message': 'FLASK_SECRET_KEY is empty or weak in a hardened profile.',
+                'message': 'FLASK_SECRET_KEY is empty, weak, or under '
+                           '32 chars in a hardened profile.',
+            })
+        # AUTH_SECRET signs every session cookie, bearer token and
+        # share link — a short value is offline-brute-forceable from
+        # any observed token, so it needs the same minimum entropy.
+        auth_secret = os.environ.get('AUTH_SECRET', '')
+        if auth_secret and len(auth_secret) < 32:
+            blockers.append({
+                'code': 'WEAK_AUTH_SECRET',
+                'message': 'AUTH_SECRET is under 32 chars in a '
+                           'hardened profile — tokens are forgeable.',
             })
         # Backups contain secrets (.env, SSL keys) and must be encrypted
         # in hardened profiles. BACKUP_PASSWORD must be set.

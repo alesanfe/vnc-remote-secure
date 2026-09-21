@@ -196,6 +196,8 @@ def _restrict_dir(path):
     """
     if os.name == 'nt':
         import subprocess
+
+        from vnc_remote_secure.core.processes import run_cmd
         user = os.environ.get('USERNAME', '')
         # (OI)(CI) so the grant propagates to files created inside.
         # NOTE: 'M' (Modify), not 'R,W' — plain R+W omits DELETE /
@@ -207,10 +209,10 @@ def _restrict_dir(path):
         if user:
             grants.append(f'{user}:{rights}')
         try:
-            subprocess.run(
+            run_cmd(
                 ['icacls', path, '/reset'],
                 capture_output=True, timeout=15, check=False)
-            subprocess.run(
+            run_cmd(
                 ['icacls', path, '/inheritance:r', '/grant:r', *grants],
                 capture_output=True, timeout=15, check=False)
         except (OSError, subprocess.SubprocessError):
@@ -228,24 +230,31 @@ def ensure_dirs():
                  get_run_dir(), get_ssl_dir()):
         os.makedirs(path, exist_ok=True)
     # /tmp fallback (non-root Linux without XDG_RUNTIME_DIR) is shared —
-    # an attacker could pre-create the dir. If it exists but is owned by
-    # another UID, warn loudly rather than silently trusting planted
-    # PID/state files. Only checked for the /tmp fallback: the root and
-    # XDG paths may legitimately be owned by the service user while the
-    # CLI runs as root.
+    # an attacker could pre-create the dir with planted PID/state files
+    # (ephemeral_sessions.json, auth_secret.key, shared_state.db are all
+    # readable/forgable inside a foreign-owned dir). Refuse rather than
+    # warn-and-continue: the previous behaviour ran the full stack on
+    # attacker-controlled state. Only checked for the /tmp fallback: the
+    # root and XDG paths may legitimately be owned by the service user
+    # while the CLI runs as root.
     if (not is_windows() and os.name != 'nt'
             and not _is_root()
             and not os.environ.get('XDG_RUNTIME_DIR')):
         try:
             run_dir = get_run_dir()
-            st = os.stat(run_dir)
+            st = os.lstat(run_dir)
             if st.st_uid != os.geteuid():
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Runtime dir %s is owned by uid %s, not %s — "
-                    "possible /tmp squatting; set XDG_RUNTIME_DIR",
-                    run_dir, st.st_uid, os.geteuid())
-        except (OSError, AttributeError):
+                raise RuntimeError(
+                    f"Runtime dir {run_dir} is owned by uid "
+                    f"{st.st_uid}, not {os.geteuid()} — refusing to "
+                    f"start on possibly-squatted /tmp state. Set "
+                    f"XDG_RUNTIME_DIR (e.g. via systemd/logind) and "
+                    f"remove the foreign directory.")
+            if not os.path.isdir(run_dir):
+                raise RuntimeError(
+                    f"Runtime dir {run_dir} exists but is not a "
+                    f"directory — refusing to use it.")
+        except AttributeError:
             pass
     # run/ssl/config hold secrets (session stores, auth_secret.key,
     # generated_credentials.env, private keys) — keep them owner-only.
@@ -265,6 +274,8 @@ def _repair_state_file_acls():
     on every startup repairs old files idempotently.
     """
     import subprocess
+
+    from vnc_remote_secure.core.processes import run_cmd
     run_dir = get_run_dir()
     try:
         entries = os.listdir(run_dir)
@@ -282,10 +293,10 @@ def _repair_state_file_acls():
         if user:
             grants.append(f'{user}:(M)')
         try:
-            subprocess.run(
+            run_cmd(
                 ['icacls', p, '/reset'],
                 capture_output=True, timeout=15, check=False)
-            subprocess.run(
+            run_cmd(
                 ['icacls', p, '/inheritance:r', '/grant:r', *grants],
                 capture_output=True, timeout=15, check=False)
         except (OSError, subprocess.SubprocessError):

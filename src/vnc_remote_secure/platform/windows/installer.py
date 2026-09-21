@@ -116,10 +116,19 @@ def _verify_winvnc_hash(winvnc_path):
                 continue
             break
     if not expected or expected == 'TBD':
-        logger.warning(
-            "No UltraVNC checksum available in manifest — "
-            "installing unverified binary")
-        return True
+        # A missing pin means the downloaded binary is unverifiable —
+        # silently installing it trusts the network path completely.
+        # Fail closed unless the operator explicitly opts out.
+        if os.environ.get('ULTRAVNC_ALLOW_UNVERIFIED', '') == '1':
+            logger.warning(
+                "No UltraVNC checksum in manifest — installing "
+                "unverified binary (ULTRAVNC_ALLOW_UNVERIFIED=1)")
+            return True
+        logger.error(
+            "Refusing to install UltraVNC: no sha256 pinned in "
+            "manifest (sha256 is 'TBD'). Pin a checksum or set "
+            "ULTRAVNC_ALLOW_UNVERIFIED=1 to accept the risk")
+        return False
     try:
         with open(winvnc_path, 'rb') as f:
             actual = hashlib.sha256(f.read()).hexdigest()

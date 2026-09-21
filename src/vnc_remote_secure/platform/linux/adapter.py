@@ -130,7 +130,7 @@ class LinuxAdapter(PlatformAdapter):
             logger.debug("LAN IP detection via UDP socket failed: %s", e)
         # Parse 'ip addr' output
         try:
-            result = subprocess.run(
+            result = run_cmd(
                 ['ip', 'addr'],
                 capture_output=True, text=True, timeout=10, check=False
             )
@@ -238,7 +238,7 @@ class LinuxAdapter(PlatformAdapter):
         """Return ffmpeg input args for PulseAudio/ALSA capture."""
         if not device:
             try:
-                result = subprocess.run(
+                result = run_cmd(
                     ["pactl", "get-default-source"],
                     capture_output=True, text=True, timeout=5
                 )
@@ -256,7 +256,7 @@ class LinuxAdapter(PlatformAdapter):
     def list_audio_devices(self, ffmpeg):
         """List PulseAudio/ALSA capture devices."""
         try:
-            result = subprocess.run(
+            result = run_cmd(
                 ["pactl", "list", "short", "sources"],
                 capture_output=True, text=True, timeout=10
             )
@@ -267,7 +267,7 @@ class LinuxAdapter(PlatformAdapter):
         except FileNotFoundError:
             logger.info("pactl not found, trying ALSA...")
             try:
-                result = subprocess.run(
+                result = run_cmd(
                     ["arecord", "-l"],
                     capture_output=True, text=True, timeout=10
                 )

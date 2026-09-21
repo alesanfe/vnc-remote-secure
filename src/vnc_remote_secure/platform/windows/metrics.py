@@ -7,13 +7,15 @@ import logging
 import subprocess
 from datetime import datetime
 
+from vnc_remote_secure.core.processes import run_cmd
+
 logger = logging.getLogger(__name__)
 
 
 def _run_ps(command):
     """Run a PowerShell command and return its stdout (or None on failure)."""
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ['powershell', '-NoProfile', '-Command', command],
             capture_output=True, text=True, timeout=5,
         )

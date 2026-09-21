@@ -2,6 +2,8 @@
 import logging
 import subprocess
 
+from vnc_remote_secure.core.processes import run_cmd
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,7 +76,7 @@ def get_system_metrics():
 
     # Memory usage (with percentage)
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ['free', '-m'], capture_output=True, text=True, timeout=5
         )
         for line in result.stdout.split('\n'):
@@ -92,7 +94,7 @@ def get_system_metrics():
 
     # Disk usage for root partition
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ['df', '-h', '/'], capture_output=True, text=True, timeout=5
         )
         lines = result.stdout.strip().split('\n')

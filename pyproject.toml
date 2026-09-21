@@ -56,6 +56,7 @@ linux = [
 # (_reap_stale_service). Without it the stale-PID cleanup no-ops.
 ops = [
     "psutil>=5.9,<7.0",
+    "waitress>=2.1,<4.0",
 ]
 
 [project.scripts]

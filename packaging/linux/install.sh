@@ -120,8 +120,14 @@ if ! id -u vnc-remote >/dev/null 2>&1; then
 fi
 
 # Hand the runtime/data/log directories to the service user so the
-# service can write PID files and logs.
-chown -R vnc-remote:vnc-remote "${RUN_DIR}" "${DATA_DIR}" "${LOG_DIR}" "${CONFIG_DIR}"
+# service can write PID files and logs. The CONFIG dir stays
+# root-owned: a vnc-remote-owned directory would let any process
+# running as that user (e.g. the web terminal) unlink and replace the
+# root-owned config.env inside it — directory ownership, not file
+# ownership, controls rename/unlink.
+chown -R vnc-remote:vnc-remote "${RUN_DIR}" "${DATA_DIR}" "${LOG_DIR}"
+chown root:vnc-remote "${CONFIG_DIR}"
+chmod 0750 "${CONFIG_DIR}"
 
 # --- Install config ----------------------------------------------------------
 log "Installing config to ${CONFIG_FILE}"

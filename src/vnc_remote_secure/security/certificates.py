@@ -213,11 +213,11 @@ def _restrict_key_permissions(key_path, writable=False):
             # earlier Everyone grant) would survive. '/reset' first
             # restores the inherited ACL, wiping every explicit ACE,
             # so the file ends up with exactly the grants below.
-            subprocess.run(
+            run_cmd(
                 ['icacls', key_path, '/reset'],
                 capture_output=True, timeout=15, check=False,
             )
-            subprocess.run(
+            run_cmd(
                 ['icacls', key_path, '/inheritance:r',
                  '/grant:r', *grants],
                 capture_output=True, timeout=15, check=False,

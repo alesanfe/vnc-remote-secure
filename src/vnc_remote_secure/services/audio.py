@@ -51,9 +51,13 @@ DEFAULT_BITRATE = 128
 def find_ffmpeg():
     """Find ffmpeg binary."""
     try:
-        subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
-        return "ffmpeg"
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        from vnc_remote_secure.core.processes import run_cmd
+        result = run_cmd(["ffmpeg", "-version"], capture_output=True,
+                         timeout=5)
+        # run_cmd maps a timeout to returncode=-1 — a hung ffmpeg is
+        # not a usable ffmpeg, so the rc matters here.
+        return "ffmpeg" if result.returncode == 0 else None
+    except FileNotFoundError:
         return None
 
 

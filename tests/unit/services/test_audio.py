@@ -42,7 +42,10 @@ def _patch_adapter(monkeypatch, adapter):
 def test_find_ffmpeg_returns_binary_when_available(monkeypatch):
     """find_ffmpeg returns 'ffmpeg' when the binary responds to -version."""
     import subprocess
-    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: None)
+    monkeypatch.setattr(
+        subprocess, 'run',
+        lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [],
+                                                  returncode=0))
     assert audio.find_ffmpeg() == "ffmpeg"
 
 

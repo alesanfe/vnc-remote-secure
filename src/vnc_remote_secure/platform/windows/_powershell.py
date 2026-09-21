@@ -1,5 +1,5 @@
 """Shared PowerShell execution helper for the Windows platform adapter."""
-import subprocess
+from vnc_remote_secure.core.processes import run_cmd
 
 
 def run_powershell(script, input_data=None):
@@ -9,7 +9,7 @@ def run_powershell(script, input_data=None):
     secrets so they do not appear in the process command line, which
     any same-session process can read via WMI/Process Explorer.
     """
-    return subprocess.run(
+    return run_cmd(
         ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
         capture_output=True, text=True, timeout=60,
         input=input_data,
