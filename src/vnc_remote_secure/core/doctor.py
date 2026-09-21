@@ -154,6 +154,37 @@ def _check_ssl(checks, config):
         _skip(checks, 'tls.certificates', 'TLS disabled')
 
 
+def _check_shared_state(checks):
+    """Add shared-state backend check.
+
+    The service manager runs each service as a separate process, so
+    single-use claims, rate limiting and revocation propagation need
+    the cross-process SQLite backend. ``memory`` is only acceptable
+    for development/test runs.
+    """
+    backend = os.environ.get('SHARED_STATE_BACKEND', 'sqlite').lower()
+    try:
+        profile = os.environ.get('SECURITY_PROFILE', 'development').lower()
+    except Exception:  # noqa: BLE001
+        profile = 'development'
+    if backend == 'sqlite':
+        _ok(checks, 'state.backend',
+            'SQLite shared state (cross-process guarantees)')
+    elif backend == 'memory':
+        if profile in ('development', 'test'):
+            _warn(checks, 'state.backend',
+                  'In-memory backend — single-use claims, revocation '
+                  'and rate limiting are process-local (dev only)')
+        else:
+            _fail(checks, 'state.backend',
+                  'In-memory backend in a hardened profile — revoked '
+                  'sessions and TOTP claims do not propagate across '
+                  'service processes. Set SHARED_STATE_BACKEND=sqlite')
+    else:
+        _warn(checks, 'state.backend',
+              f'Unknown backend {backend!r} — falling back to memory')
+
+
 def _check_firewall(checks):
     """Add firewall checks (platform-aware)."""
     # --- Firewall (Windows only) ---
@@ -310,6 +341,7 @@ def run_doctor(as_json: bool = False) -> dict:
 
     _check_services(checks)
     _check_firewall(checks)
+    _check_shared_state(checks)
 
     # --- Summary ---
     counts = {'ok': 0, 'warn': 0, 'fail': 0, 'skip': 0}

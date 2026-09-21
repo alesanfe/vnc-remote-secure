@@ -30,6 +30,13 @@ from vnc_remote_secure.core.paths import (
 
 logger = logging.getLogger(__name__)
 
+# Restore-time bounds: a tar-bomb would otherwise fill the disk
+# during extraction. Generous ceilings — real backups contain config,
+# certs and state files, far below these limits.
+_MAX_BACKUP_MEMBERS = 10000
+_MAX_BACKUP_FILE_SIZE = 512 * 1024 * 1024      # 512 MiB per member
+_MAX_BACKUP_TOTAL_SIZE = 2 * 1024 * 1024 * 1024  # 2 GiB uncompressed
+
 
 def _get_backup_key(salt: bytes = None, iterations: int = 600000):
     """Return a Fernet key derived from BACKUP_PASSWORD, or None.
@@ -311,8 +318,17 @@ def restore_backup(backup_file: str) -> bool:
     try:
         with tarfile.open(actual_tar, 'r:gz') as tar:
             # Validate each member to prevent path traversal (absolute paths,
-            # '..' components) before extracting.
-            for member in tar.getmembers():
+            # '..' components) before extracting. Also bound the archive:
+            # member count, per-file size and total uncompressed size —
+            # a tar-bomb would otherwise fill the disk during extraction.
+            members = tar.getmembers()
+            if len(members) > _MAX_BACKUP_MEMBERS:
+                raise RuntimeError(
+                    f"Backup has too many entries "
+                    f"({len(members)} > {_MAX_BACKUP_MEMBERS})"
+                )
+            total_size = 0
+            for member in members:
                 member_path = os.path.normpath(member.name)
                 if member_path.startswith('..') or os.path.isabs(member_path):
                     raise RuntimeError(
@@ -324,6 +340,17 @@ def restore_backup(backup_file: str) -> bool:
                     raise RuntimeError(
                         f"Unsafe path in backup archive: {member.name}"
                     )
+                if member.size > _MAX_BACKUP_FILE_SIZE:
+                    raise RuntimeError(
+                        f"Backup member too large: {member.name} "
+                        f"({member.size} > {_MAX_BACKUP_FILE_SIZE})"
+                    )
+                total_size += member.size
+            if total_size > _MAX_BACKUP_TOTAL_SIZE:
+                raise RuntimeError(
+                    f"Backup uncompressed size too large "
+                    f"({total_size} > {_MAX_BACKUP_TOTAL_SIZE})"
+                )
             # 'data' filter additionally blocks symlink/hardlink members
             # whose targets escape temp_dir — the name checks above do
             # not cover link payloads. filter= exists on 3.12+ (and

@@ -19,6 +19,12 @@ services:
     # The runtime spawns no setuid helpers, so this is pure hardening.
     security_opt:
       - no-new-privileges:true
+    # Resource bounds: VNC + websockify + terminal + ffmpeg fit
+    # comfortably inside these limits; a runaway process (fork bomb,
+    # memory leak) degrades the container instead of the host.
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2.0
     ports:
       - "443:443"
     # Liveness probe: /health/live is the unauthenticated probe
