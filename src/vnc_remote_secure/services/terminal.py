@@ -292,7 +292,40 @@ def _build_subprocess_args(cmd, shell, cwd):
                   or r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe')
         return [ps_exe, '-NoProfile', '-NonInteractive', '-Command', cmd]
     cmd_exe = _shutil.which('cmd.exe') or os.environ.get('ComSpec', r'C:\Windows\System32\cmd.exe')
+    # NOTE: cmd.exe /c has notoriously inconsistent quote handling
+    # (inner quotes may be stripped depending on the command). This is
+    # a cmd.exe behaviour, not something this layer can safely fix —
+    # wrapping the whole command in quotes breaks paths containing
+    # spaces. Users needing complex quoting should set
+    # WEBTERM_SHELL=powershell.exe, which takes -Command verbatim.
     return [cmd_exe, '/c', cmd]
+
+
+def _kill_process_tree(proc):
+    """Kill ``proc`` and its whole process tree.
+
+    ``proc.kill()`` alone kills only the shell — grandchildren
+    (``cmd /c ping``, ``bash -c 'tail -f'``) keep running and keep the
+    stdout/stderr pipes open, so the drain threads would block until
+    the grandchild exits. On Windows use ``taskkill /T`` (tree kill);
+    on POSIX send SIGKILL to the process group.
+    """
+    try:
+        if os.name == 'nt':
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                capture_output=True, timeout=10, check=False)
+        else:
+            import signal
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                proc.kill()
+    except Exception:  # noqa: BLE001 - kill is best-effort
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _help_text():
@@ -616,6 +649,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             kwargs = {}
             if sys.platform == 'win32':
                 kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            else:
+                # Own process group so _kill_process_tree can SIGKILL
+                # the shell AND its children without hitting ours.
+                kwargs['start_new_session'] = True
             self.current_process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
@@ -639,38 +676,71 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             ioloop = TerminalWebSocket.main_ioloop
 
             try:
-                stdout_data = proc.stdout.read()
-                stderr_data = proc.stderr.read()
-                proc.wait(timeout=CMD_TIMEOUT)
+                # Drain stdout/stderr incrementally on helper threads so
+                # BOTH limits actually hold: wait(timeout) alone cannot
+                # fire while a blocking read() is still consuming a
+                # never-ending stream (e.g. `yes`, `tail -f`), and an
+                # uncapped buffer would grow without bound. The readers
+                # kill the process once MAX_OUTPUT is exceeded.
+                out_chunks, err_chunks = [], []
+                overflow = {'hit': False}
 
-                output = b''
-                if stdout_data:
-                    output += stdout_data
+                def _drain(stream, chunks):
+                    try:
+                        while True:
+                            data = stream.read(65536)
+                            if not data:
+                                break
+                            chunks.append(data)
+                            if sum(len(c) for c in chunks) > MAX_OUTPUT:
+                                overflow['hit'] = True
+                                _kill_process_tree(proc)
+                                break
+                    except Exception:  # noqa: BLE001 - best-effort drain
+                        pass
+
+                t_out = threading.Thread(
+                    target=_drain, args=(proc.stdout, out_chunks),
+                    daemon=True)
+                t_err = threading.Thread(
+                    target=_drain, args=(proc.stderr, err_chunks),
+                    daemon=True)
+                t_out.start()
+                t_err.start()
+
+                timed_out = False
+                try:
+                    proc.wait(timeout=CMD_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    _kill_process_tree(proc)
+                    try:
+                        proc.wait(timeout=5)
+                    except Exception:  # noqa: BLE001 - best-effort reap
+                        pass
+                t_out.join(timeout=5)
+                t_err.join(timeout=5)
+
+                output = b''.join(out_chunks)
+                stderr_data = b''.join(err_chunks)
                 if stderr_data:
                     if output:
                         output += b'\r\n'
                     output += stderr_data
 
-                # Truncate output to prevent memory exhaustion
-                truncated = False
-                if len(output) > MAX_OUTPUT:
-                    output = output[:MAX_OUTPUT]
-                    truncated = True
+                truncated = overflow['hit'] or len(output) > MAX_OUTPUT
+                output = output[:MAX_OUTPUT]
 
                 text = output.decode('utf-8', errors='replace') if output else ''
                 if truncated:
                     text += '\r\n\x1b[33m[output truncated at 1MB]\x1b[0m\r\n'
+                if timed_out:
+                    text += (f"\r\n\x1b[33m[command timed out after "
+                             f"{CMD_TIMEOUT}s]\x1b[0m\r\n")
                 ioloop.add_callback(self._send_output, text)
-                ioloop.add_callback(self._after_command, cmd, proc.returncode)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                try:
-                    proc.wait(timeout=5)
-                except Exception:  # noqa: BLE001 - best-effort reap
-                    pass
-                ioloop.add_callback(self._send_output,
-                    f"\r\n\x1b[33m[command timed out after {CMD_TIMEOUT}s]\x1b[0m\r\n")
-                ioloop.add_callback(self._after_command, cmd, -1)
+                ioloop.add_callback(
+                    self._after_command, cmd,
+                    -1 if timed_out else proc.returncode)
             except Exception as e:
                 log_exception(e, 'Web Terminal read output')
                 ioloop.add_callback(self._send_output, f"\r\n\x1b[31mError: {e}\x1b[0m\r\n")

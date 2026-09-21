@@ -129,3 +129,63 @@ def test_check_terminal_auth_uses_default_username(monkeypatch):
     monkeypatch.setenv('TTYD_PASSWD', 'StrongPass1!')
     header = _basic_header(DEFAULT_TTYD_USERNAME, 'StrongPass1!')
     assert check_terminal_auth(header) is True
+
+
+# ---------------------------------------------------------------------------
+# _execute_command: streaming commands must still honour CMD_TIMEOUT
+# ---------------------------------------------------------------------------
+
+def _ws_stub(tmp_path):
+    """Minimal TerminalWebSocket double: no real socket, callbacks run
+    inline so the test observes the final state synchronously."""
+    from unittest.mock import MagicMock
+    from vnc_remote_secure.services import terminal as term
+    ws = object.__new__(term.TerminalWebSocket)
+    ws.cwd = str(tmp_path)
+    ws.current_process = None
+    ws.write_message = MagicMock()
+    ws._send_output = MagicMock()
+    ws._after_command = MagicMock()
+    ws._send_prompt = MagicMock()
+    ws._set_busy = MagicMock()
+    loop = MagicMock()
+    loop.add_callback = lambda fn, *a, **k: fn(*a, **k)
+    term.TerminalWebSocket.main_ioloop = loop
+    return ws
+
+
+def test_infinite_command_is_killed_by_timeout(tmp_path, monkeypatch):
+    """`read()` before wait(timeout) let endless commands (`yes`,
+    `tail -f`) bypass the timeout and buffer output forever. The
+    incremental drain must kill them after CMD_TIMEOUT."""
+    import time
+    from vnc_remote_secure.services import terminal as term
+    monkeypatch.setattr(term, 'DEFAULT_CMD_TIMEOUT', 1)
+    ws = _ws_stub(tmp_path)
+    t0 = time.monotonic()
+    # Quote-free long-running command (cmd.exe quote handling is too
+    # fragile to rely on for the test itself).
+    sleeper = ('ping -n 60 127.0.0.1' if os.name == 'nt'
+               else 'sleep 60')
+    ws._execute_command(sleeper)
+    # The drain thread is daemonised; give it a moment past timeout.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not ws._after_command.called:
+        time.sleep(0.05)
+    assert time.monotonic() - t0 < 10
+    ws._after_command.assert_called_once()
+    assert ws._after_command.call_args[0][1] == -1  # timed out
+
+
+def test_fast_command_returns_output(tmp_path, monkeypatch):
+    from vnc_remote_secure.services import terminal as term
+    monkeypatch.setattr(term, 'DEFAULT_CMD_TIMEOUT', 10)
+    ws = _ws_stub(tmp_path)
+    ws._execute_command('echo hello-world-42')
+    import time
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and not ws._after_command.called:
+        time.sleep(0.05)
+    ws._after_command.assert_called_once()
+    texts = ''.join(c.args[0] for c in ws._send_output.call_args_list)
+    assert 'hello-world-42' in texts

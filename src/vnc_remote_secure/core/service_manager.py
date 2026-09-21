@@ -121,6 +121,33 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _kill_descendants(pid: int, depth: int = 0) -> None:
+    """Best-effort SIGTERM to all descendants of ``pid`` (POSIX).
+
+    ``pgrep -P`` lists direct children; recursion covers grandchildren.
+    Depth-capped to avoid pathological process graphs.
+    """
+    if depth > 4:
+        return
+    try:
+        res = subprocess.run(
+            ['pgrep', '-P', str(pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    for line in res.stdout.splitlines():
+        line = line.strip()
+        if not line.isdigit():
+            continue
+        child = int(line)
+        _kill_descendants(child, depth + 1)
+        try:
+            os.kill(child, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            pass
+
+
 # Process-name needles per service: most services are python modules
 # under ``vnc_remote_secure``, but external binaries (websockify, nginx,
 # Xvnc/winvnc, ttyd, ffmpeg) carry their own names. Used to verify a
@@ -199,13 +226,20 @@ def _kill_pid(pid: int, timeout: float = 5.0,
         return True
     if is_windows():
         try:
+            # /T kills the whole tree: services that spawn children
+            # (audio -> ffmpeg, vnc -> winvnc helpers) would otherwise
+            # orphan them on stop.
             subprocess.run(
-                ['taskkill', '/F', '/PID', str(pid)],
+                ['taskkill', '/F', '/T', '/PID', str(pid)],
                 capture_output=True, timeout=10,
             )
         except (OSError, subprocess.SubprocessError):
             return False
     else:
+        # Terminate children first — a dead parent (e.g. the audio
+        # supervisor) would orphan grandchildren like ffmpeg, which
+        # keep the capture running after `stop`.
+        _kill_descendants(pid)
         try:
             os.kill(pid, signal.SIGTERM)
         except (OSError, ProcessLookupError):
