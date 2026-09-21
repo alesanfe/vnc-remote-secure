@@ -219,15 +219,29 @@ def _loopback_bind(host: str) -> bool:
         '127.0.0.1', '::1', 'localhost', '127.0.0.0/8')
 
 
-def check_health_auth(auth_header):
+def _loopback_peer(client_ip) -> bool:
+    """True when the request's socket peer is loopback."""
+    import ipaddress
+    try:
+        return ipaddress.ip_address(
+            (client_ip or '').strip()).is_loopback
+    except ValueError:
+        return (client_ip or '').strip() in ('localhost',)
+
+
+def check_health_auth(auth_header, client_ip=None, peer_ip=None):
     """Check health endpoint auth using optional ``HEALTH_AUTH_TOKEN``.
 
     Returns ``True`` if no token is configured — but ONLY when every
-    host these endpoints can bind is loopback. An empty token with a
-    public bind (``USER_UI_HOST``/``HEALTH_WEB_HOST`` set to a
-    non-loopback address, or ``BIND_HOST=0.0.0.0``) would expose
-    ``/audit``, ``/metrics`` and service state to the network — the
-    same fail-open trap the landing Basic-auth had.
+    host these endpoints can bind is loopback AND the request's socket
+    peer is itself loopback. The bind check alone is not enough: any
+    operator-added reverse proxy (not just the shipped nginx.conf,
+    which denies non-loopback) in front of the loopback port would
+    otherwise expose ``/audit``, ``/metrics`` and service state to the
+    network. ``peer_ip`` is the real socket peer (``client_address`` /
+    ``remote_addr``) — it must NOT come from X-Forwarded-For, which a
+    direct client can spoof when TRUSTED_PROXY is set. ``client_ip``
+    is only used as a fallback when no peer is available.
     """
     load_env_file()
     token = os.environ.get('HEALTH_AUTH_TOKEN', '')
@@ -236,7 +250,13 @@ def check_health_auth(auth_header):
         ui_host = os.environ.get('USER_UI_HOST', '') or base
         health_host = os.environ.get('HEALTH_WEB_HOST', '') or base
         if _loopback_bind(ui_host) and _loopback_bind(health_host):
-            return True  # Open access is safe: loopback-only binds.
+            peer = peer_ip if peer_ip is not None else client_ip
+            if peer is None or _loopback_peer(peer):
+                return True  # Open access is safe: loopback only.
+            logger.warning(
+                "Health request from non-loopback peer %s with no "
+                "HEALTH_AUTH_TOKEN — denying", peer)
+            return False
         logger.warning(
             "HEALTH_AUTH_TOKEN unset but health endpoints bind "
             "non-loopback (%s, %s) — requiring Bearer auth",
@@ -260,7 +280,9 @@ def require_auth(check_func, scheme='Basic', realm='VNC Remote Secure'):
     limiter; single-argument checkers are called as before.
     """
     import inspect
-    wants_ip = 'client_ip' in inspect.signature(check_func).parameters
+    params = inspect.signature(check_func).parameters
+    wants_ip = 'client_ip' in params
+    wants_peer = 'peer_ip' in params
 
     def decorator(view):
         @functools.wraps(view)
@@ -274,8 +296,14 @@ def require_auth(check_func, scheme='Basic', realm='VNC Remote Secure'):
             # proxy (127.0.0.1), which would otherwise rate-limit and
             # audit-log the proxy instead of the actual client.
             real_ip = client_ip_from(request.headers, request.remote_addr)
-            ok = (check_func(auth, client_ip=real_ip)
-                  if wants_ip else check_func(auth))
+            check_kwargs = {}
+            if wants_ip:
+                check_kwargs['client_ip'] = real_ip
+            if wants_peer:
+                # The raw socket peer — XFF-spoofable checks (loopback
+                # gating) must use this, not the resolved real_ip.
+                check_kwargs['peer_ip'] = request.remote_addr
+            ok = check_func(auth, **check_kwargs)
             if not ok:
                 resp, status = json_error('Unauthorized', 401)
                 resp.headers['WWW-Authenticate'] = f'{scheme} realm="{realm}"'

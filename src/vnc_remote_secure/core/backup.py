@@ -329,7 +329,28 @@ def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir)
     os.makedirs(temp_dir, exist_ok=True)
+    try:
+        os.chmod(temp_dir, 0o700)  # POSIX; no-op semantics on Windows
+    except OSError:
+        pass
 
+    try:
+        return _restore_from_temp(backup_file, temp_dir, project_root,
+                                  dry_run)
+    finally:
+        # The extracted tree holds plaintext .env, SSL keys, the auth
+        # signing secret and the session store — NEVER leave it on
+        # disk, whether the restore succeeded, failed validation, or
+        # raised mid-copy.
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _restore_from_temp(backup_file: str, temp_dir: str,
+                       project_root: str, dry_run: bool) -> bool:
+    """Decrypt, validate, extract and copy a backup from ``temp_dir``.
+
+    Caller guarantees ``temp_dir`` exists and is removed afterwards.
+    """
     # Determine if the backup is encrypted.
     is_encrypted = backup_file.endswith('.enc.tar.gz')
     actual_tar = backup_file
@@ -442,7 +463,6 @@ def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
     if dry_run:
         logger.info("Dry run: backup validated and extracted; "
                     "no files were modified")
-        shutil.rmtree(temp_dir, ignore_errors=True)
         return True
 
     try:
@@ -549,8 +569,6 @@ def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
         logger.error("Restore failed: %s — partial files may have been "
                      "copied; check permissions on the target directories.", e)
         return False
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
     logger.info("Backup restored from: %s", backup_file)
     return True
 

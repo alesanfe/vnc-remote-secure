@@ -37,8 +37,18 @@ def run_cmd(cmd, timeout=30, check=False, **kwargs):
     ``check=True`` the timeout is re-raised as ``TimeoutExpired``
     (still an exception, matching the contract that failure is
     exceptional).
+
+    Unless the caller passes ``env`` explicitly, the child gets a
+    credential-scrubbed environment: a PATH-shadowed helper binary
+    must not harvest ``VNC_PASSWORD``/``DUCKDNS_TOKEN``/etc. through
+    inherited env vars.
     """
     import subprocess
+    if 'env' not in kwargs:
+        from vnc_remote_secure.security.redaction import (
+            sanitized_child_env,
+        )
+        kwargs['env'] = sanitized_child_env()
     try:
         return subprocess.run(cmd, timeout=timeout, check=check,
                               **kwargs)

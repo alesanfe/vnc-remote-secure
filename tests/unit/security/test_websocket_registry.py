@@ -80,7 +80,9 @@ class TestWebSocketRegistry:
         reg.register('ses_1', bad_cb)
         reg.register('ses_1', lambda: True)
         count = reg.revoke_session('ses_1')
-        assert count == 2  # Both counted as closed
+        # Only the callback that actually ran counts — a failed close
+        # is reported honestly, not silently counted as closed.
+        assert count == 1
 
     def test_multiple_sessions_tracked_independently(self):
         """Multiple sessions are tracked independently."""

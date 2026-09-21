@@ -329,3 +329,9 @@ addressed in future work but are tracked here for transparency.
   a different user would break screen capture (Session-0 isolation).
   Full impersonation (CreateProcessAsUser via ctypes or the uvnc
   service account) is a tracked enhancement; see ADR-0007 Risks.
+  The same applies to the **web terminal**: `_build_child_env`
+  only hides secrets from `env`/`set` — the spawned shell still runs
+  as the service account and can read `.env`,
+  `<run_dir>/auth_secret.key`, and the session stores. On POSIX,
+  `WEBTERM_USER` (requires the service running as root) drops the
+  shell to a restricted user; there is no equivalent on Windows.

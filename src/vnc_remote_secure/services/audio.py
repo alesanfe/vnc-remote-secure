@@ -305,6 +305,13 @@ class AudioStreamServer:
             # stay open for a revoked session.
             await websocket.close(code=1008, reason='Session revoked')
             return
+        # A revocation issued from another process (e.g. the CLI) only
+        # marks the shared namespace — this watcher notices and runs
+        # the local close path.
+        from vnc_remote_secure.security.websocket_registry import (
+            start_revocation_watcher,
+        )
+        start_revocation_watcher(token)
 
         self.clients.add(websocket)
         client_ip = websocket.remote_address[0] if websocket.remote_address else "unknown"
@@ -383,7 +390,11 @@ class AudioStreamServer:
             self.port,
             ssl=ssl_ctx,
             ping_interval=DEFAULT_PING_INTERVAL,
-            ping_timeout=DEFAULT_PING_TIMEOUT
+            ping_timeout=DEFAULT_PING_TIMEOUT,
+            # Inbound client messages are control-only — the audio
+            # flows server->client, so a few KiB is generous (default
+            # was 1 MiB).
+            max_size=8192,
         ):
             logger.info("Server running. Press Ctrl+C to stop.")
             await asyncio.Future()  # Run forever

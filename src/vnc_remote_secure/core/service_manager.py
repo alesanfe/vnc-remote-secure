@@ -227,14 +227,15 @@ def _pid_is_ours(pid: int, service: str = None) -> Optional[bool]:
 
 
 def _kill_pid(pid: int, timeout: float = 5.0,
-              service: str = None) -> bool:
+              service: str = None, force: bool = False) -> bool:
     """Terminate a process by PID. Returns True if it stopped."""
     if not pid or pid <= 0:
         return True
     if not _pid_alive(pid):
         _clear_pid_by_value(pid)
         return True
-    if _pid_is_ours(pid, service) is False:
+    identity = _pid_is_ours(pid, service)
+    if identity is False:
         # Stale pid file: the PID exists but belongs to an unrelated
         # process (PID reuse). Do not kill it — just drop the record.
         logger.warning(
@@ -242,6 +243,19 @@ def _kill_pid(pid: int, timeout: float = 5.0,
             "removing stale pid file instead of killing", pid)
         _clear_pid_by_value(pid)
         return True
+    if identity is None and not force:
+        # The cmdline could not be read (wmic/PowerShell blocked on
+        # Windows, /proc unavailable or denied on POSIX). Killing a PID
+        # whose ownership is UNKNOWN can destroy an unrelated process
+        # that recycled the number — refuse; the operator can pass
+        # --force to override. Callers that spawned the PID themselves
+        # (failed-start cleanup) pass force=True since ownership is
+        # certain.
+        logger.error(
+            "Cannot verify that PID %d belongs to %s — refusing to "
+            "kill an unidentified process (use --force to override)",
+            pid, service or 'vnc_remote_secure')
+        return False
     if is_windows():
         try:
             # /T kills the whole tree: services that spawn children
@@ -539,7 +553,7 @@ def _start_python_service(module: str, service_name: str,
             logger.error(
                 "%s did not bind port %s within 5s — terminating",
                 service_name, port)
-            _kill_pid(proc.pid, service=service_name)
+            _kill_pid(proc.pid, service=service_name, force=True)
             return None
     _write_pid(service_name, proc.pid)
     logger.info("Started %s (PID %s)", service_name, proc.pid)
@@ -684,7 +698,7 @@ def _start_vnc(config: dict) -> Optional[int]:
                 logger.error(
                     "VNC started (PID %s) but pid-file write failed "
                     "(%s) — terminating the orphan", pid, e)
-                _kill_pid(pid, service='vnc')
+                _kill_pid(pid, service='vnc', force=True)
                 return None
         return pid
     except Exception as e:
@@ -836,7 +850,7 @@ def _start_nginx(config: dict) -> Optional[int]:
         return None
 
 
-def stop_all() -> dict:
+def stop_all(force: bool = False) -> dict:
     """Stop all managed services by PID. Returns a dict of service -> stopped_bool."""
     with _GlobalLock() as lock:
         if not lock.acquired:
@@ -854,8 +868,13 @@ def stop_all() -> dict:
         for service in services:
             pid = _read_pid(service)
             if pid:
-                results[service] = _kill_pid(pid, service=service)
-                _clear_pid(service)
+                results[service] = _kill_pid(pid, service=service,
+                                             force=force)
+                if results[service]:
+                    _clear_pid(service)
+                # else: keep the pid file so a --force retry (or a
+                # later stop once identity is readable) can still
+                # find the process.
             else:
                 results[service] = True
         # Clean up the temporary user unless KEEP_TEMP_USER is set.

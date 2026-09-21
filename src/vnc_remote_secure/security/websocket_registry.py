@@ -63,16 +63,22 @@ CloseCallback = Callable[[], bool]
 class _ConnectionEntry:
     """Internal: tracks a single WebSocket connection."""
 
-    __slots__ = ('conn_id', 'session_id', 'close_callback', 'resource', 'created_at')
+    __slots__ = ('conn_id', 'session_id', 'close_callback', 'resource',
+                 'created_at', 'loop')
 
     def __init__(self, conn_id: str, session_id: str,
                  close_callback: CloseCallback,
                  resource: Optional[str] = None,
-                 created_at: Optional[float] = None):
+                 created_at: Optional[float] = None,
+                 loop=None):
         self.conn_id = conn_id
         self.session_id = session_id
         self.close_callback = close_callback
         self.resource = resource
+        # The registering thread's asyncio loop (None for sync/threaded
+        # handlers). Needed when close_callback() returns a coroutine —
+        # scheduling it requires the loop it was created on.
+        self.loop = loop
         import time
         self.created_at = created_at or time.time()
 
@@ -115,7 +121,15 @@ class WebSocketRegistry:
                 return None
             self._next_id += 1
             conn_id = f'ws_{self._next_id}'
-            entry = _ConnectionEntry(conn_id, session_id, close_callback, resource)
+            loop = None
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None  # threaded handler (novnc) — sync callback
+            entry = _ConnectionEntry(
+                conn_id, session_id, close_callback, resource,
+                loop=loop)
             self._connections[conn_id] = entry
             if session_id not in self._by_session:
                 self._by_session[session_id] = set()
@@ -181,20 +195,52 @@ class WebSocketRegistry:
         for conn_id, entry in zip(conn_ids, entries):
             if entry is None:
                 continue
-            try:
-                entry.close_callback()
+            if self._fire_close(conn_id, entry):
                 closed += 1
-            except Exception as e:
-                logger.warning(
-                    'Error closing WebSocket connection %s: %s',
-                    conn_id, e,
-                )
-                closed += 1  # Count as closed even on error
         logger.info(
             'Revoked %d WebSocket connection(s) for session %s',
             closed, _redact(session_id),
         )
         return closed
+
+    @staticmethod
+    def _fire_close(conn_id: str, entry: '_ConnectionEntry') -> bool:
+        """Invoke one close callback; returns True if the close ran.
+
+        Handles callbacks that return a coroutine (websockets<=13's
+        ``websocket.close()``): scheduling them on the registering
+        loop is the only way they actually execute — calling and
+        dropping a coroutine leaves the socket open while looking
+        closed.
+        """
+        import asyncio
+        import inspect
+        try:
+            result = entry.close_callback()
+        except Exception as e:
+            logger.warning(
+                'Error closing WebSocket connection %s: %s',
+                conn_id, e,
+            )
+            return False
+        if not inspect.iscoroutine(result):
+            return True
+        loop = entry.loop
+        if loop is not None and loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(result, loop)
+                return True
+            except RuntimeError as e:
+                logger.warning(
+                    'Could not schedule close for %s: %s', conn_id, e)
+        else:
+            logger.warning(
+                'Close callback for %s is a coroutine but no running '
+                'loop was captured — connection may stay open', conn_id)
+        # Silence the "coroutine never awaited" warning on the
+        # abandoned coroutine object.
+        result.close()
+        return False
 
     def get_active_count(self, session_id: str) -> int:
         """Return the number of active connections for a session."""
@@ -271,3 +317,82 @@ def is_revoked_shared(session_id: str) -> bool:
 def clear_revoked_shared(session_id: str):
     """Remove a session from the shared revocation set (for testing)."""
     get_backend().delete(_NS_REVOKED, session_id)
+
+
+# --- Cross-process live-connection revocation -------------------------
+#
+# ``revoke_session_connections`` only fires close callbacks in ITS OWN
+# process — a share link revoked via the CLI marks the shared
+# ``revoked`` namespace, but a desktop/audio session already open in a
+# service process would stream forever without a poller. The watchers
+# below poll the shared namespace and run the local revoke path when
+# the mark appears.
+
+_watcher_tasks: Set = set()
+
+
+def _sweep_revoked_session(session_id: str) -> bool:
+    """Run the local revoke path when the shared mark exists."""
+    if is_revoked_shared(session_id):
+        get_registry().revoke_session(session_id)
+        return True
+    return False
+
+
+async def watch_shared_revocation_async(session_id: str,
+                                        interval: float = 5.0) -> None:
+    """Poll the shared revocation set; closes local connections on hit.
+
+    Exits when the session has no local connections left (normal
+    disconnect), so no per-connection cleanup is needed beyond keeping
+    a task reference until completion.
+    """
+    import asyncio
+    while True:
+        await asyncio.sleep(interval)
+        if _sweep_revoked_session(session_id):
+            return
+        if get_registry().get_active_count(session_id) == 0:
+            return
+
+
+def start_revocation_watcher(session_id: str,
+                             interval: float = 5.0):
+    """Spawn the async watcher on the current loop.
+
+    Call right after a successful ``register_connection`` from an
+    asyncio handler (audio/gamepad/terminal). The task is kept in a
+    module set so it is not garbage-collected mid-run; it removes
+    itself when the watcher exits.
+    """
+    import asyncio
+    task = asyncio.ensure_future(
+        watch_shared_revocation_async(session_id, interval))
+    _watcher_tasks.add(task)
+    task.add_done_callback(_watcher_tasks.discard)
+    return task
+
+
+def start_revocation_watcher_thread(session_id: str,
+                                    interval: float = 5.0
+                                    ) -> threading.Thread:
+    """Spawn the watcher on a daemon thread (for non-asyncio handlers).
+
+    Used by the noVNC relay, whose connections live in
+    ``http.server`` worker threads rather than an event loop.
+    """
+    import time as _time
+
+    def _run():
+        while True:
+            if _sweep_revoked_session(session_id):
+                return
+            if get_registry().get_active_count(session_id) == 0:
+                return
+            _time.sleep(interval)
+
+    t = threading.Thread(
+        target=_run, daemon=True,
+        name=f'ws-revoke-{_redact(session_id)}')
+    t.start()
+    return t

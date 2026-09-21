@@ -125,6 +125,12 @@ def _authenticate_gamepad_connection(headers, websocket):
         # Session revoked between validation and registration
         # (TOCTOU guard in the registry).
         return False, None, None, 'Session revoked'
+    # Cross-process revocation: the CLI's revoke marks shared state;
+    # this watcher runs the local close path when the mark appears.
+    from vnc_remote_secure.security.websocket_registry import (
+        start_revocation_watcher,
+    )
+    start_revocation_watcher(token)
     return True, token, conn_id, None
 
 
@@ -279,7 +285,10 @@ class GamepadServer:
             self.port,
             ssl=ssl_ctx,
             ping_interval=DEFAULT_PING_INTERVAL,
-            ping_timeout=DEFAULT_PING_TIMEOUT
+            ping_timeout=DEFAULT_PING_TIMEOUT,
+            # Gamepad events are small JSON objects — the 1 MiB default
+            # only served a memory-exhaustion vector.
+            max_size=8192,
         ):
             logger.info("Server running. Press Ctrl+C to stop.")
             await asyncio.Future()

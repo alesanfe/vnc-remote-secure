@@ -149,6 +149,16 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
     bind without a token fails closed with 401.
     """
 
+    def setup(self):
+        super().setup()
+        # Slowloris guard: a dribbled pre-auth request must not pin a
+        # thread forever — the connection pool is also bounded (see
+        # start_health_server).
+        from vnc_remote_secure.services.bounded_server import (
+            install_read_timeout,
+        )
+        install_read_timeout(self)
+
     def end_headers(self):
         from vnc_remote_secure.security.http_headers import send_security_headers
         send_security_headers(self)
@@ -162,7 +172,9 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
         # branch still reads the query via urlparse(self.path).)
         path = self.path.split('?', 1)[0]
         if path in ('/health', '/health_status', '/health_status.json'):
-            if not check_health_auth(self.headers.get('Authorization', '')):
+            if not check_health_auth(self.headers.get('Authorization', ''),
+                              peer_ip=self.client_address[0]
+                              if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -213,7 +225,9 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             # a 'degraded' aggregate means an enabled service is down,
             # so the deployment cannot serve all traffic (matches the
             # Flask blueprint, which requires all services listening).
-            if not check_health_auth(self.headers.get('Authorization', '')):
+            if not check_health_auth(self.headers.get('Authorization', ''),
+                              peer_ip=self.client_address[0]
+                              if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -231,7 +245,9 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path == '/health/services':
             # Per-service status with PID and port details.
-            if not check_health_auth(self.headers.get('Authorization', '')):
+            if not check_health_auth(self.headers.get('Authorization', ''),
+                              peer_ip=self.client_address[0]
+                              if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -247,7 +263,9 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == '/health/all':
-            if not check_health_auth(self.headers.get('Authorization', '')):
+            if not check_health_auth(self.headers.get('Authorization', ''),
+                              peer_ip=self.client_address[0]
+                              if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -275,7 +293,9 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
         elif path == '/metrics':
             # Prometheus scrape endpoint — lives on the health port so
             # external monitoring does not depend on the optional user UI.
-            if not check_health_auth(self.headers.get('Authorization', '')):
+            if not check_health_auth(self.headers.get('Authorization', ''),
+                              peer_ip=self.client_address[0]
+                              if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -291,7 +311,9 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body.encode('utf-8'))
         elif path == '/audit':
-            if not check_health_auth(self.headers.get('Authorization', '')):
+            if not check_health_auth(self.headers.get('Authorization', ''),
+                              peer_ip=self.client_address[0]
+                              if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -322,7 +344,9 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == '/audit/verify':
-            if not check_health_auth(self.headers.get('Authorization', '')):
+            if not check_health_auth(self.headers.get('Authorization', ''),
+                              peer_ip=self.client_address[0]
+                              if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -360,10 +384,13 @@ def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST, ssl_co
     Returns the :class:`http.server.HTTPServer` instance. The caller is
     responsible for calling ``shutdown()`` when finished.
     """
-    # ThreadingHTTPServer: a single slow/hung health probe must not
-    # block every other probe behind it (HTTP/1.1 keep-alive).
-    server = http.server.ThreadingHTTPServer((host, port), _HealthHandler)
-    server.daemon_threads = True
+    # Bounded threading server: a single slow/hung health probe must
+    # not block every other probe behind it (HTTP/1.1 keep-alive),
+    # and a pre-auth connection flood cannot exhaust threads.
+    from vnc_remote_secure.services.bounded_server import (
+        BoundedThreadingHTTPServer,
+    )
+    server = BoundedThreadingHTTPServer((host, port), _HealthHandler)
     if ssl_context:
         server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

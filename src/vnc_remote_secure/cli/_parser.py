@@ -145,6 +145,9 @@ def create_parser():
     # Stop
     p_stop = subparsers.add_parser('stop', help='Stop all services')
     _add_common_args(p_stop)
+    p_stop.add_argument('--force', action='store_true',
+                        help='Kill PIDs whose ownership cannot be '
+                             'verified (e.g. cmdline unreadable)')
     p_stop.set_defaults(func=cmd_stop)
 
     # Restart

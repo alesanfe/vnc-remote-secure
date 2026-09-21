@@ -270,7 +270,9 @@ class SimpleWebApp:
         if path in ('/health', '/health_status', '/health_status.json'):
             from vnc_remote_secure.core.errors import error_json
             from vnc_remote_secure.security.http_auth import check_health_auth
-            if not check_health_auth(auth_header):
+            if not check_health_auth(
+                    auth_header,
+                    peer_ip=environ.get('REMOTE_ADDR')):
                 body, status = error_json('Unauthorized', 401)
                 body = body.encode('utf-8')
                 start_response(f'{status} Unauthorized',
@@ -288,7 +290,9 @@ class SimpleWebApp:
         if path == '/health/all':
             from vnc_remote_secure.core.errors import error_json
             from vnc_remote_secure.security.http_auth import check_health_auth
-            if not check_health_auth(auth_header):
+            if not check_health_auth(
+                    auth_header,
+                    peer_ip=environ.get('REMOTE_ADDR')):
                 body, status = error_json('Unauthorized', 401)
                 body = body.encode('utf-8')
                 start_response(f'{status} Unauthorized',

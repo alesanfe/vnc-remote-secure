@@ -32,7 +32,6 @@ import logging
 import os
 import select
 import signal
-import socketserver
 import sys
 import time
 
@@ -157,6 +156,16 @@ def relay_rfb_stream(client_sock, upstream, rfb_filter=None):
 
 class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """SimpleHTTPRequestHandler that enforces auth before serving files."""
+
+    def setup(self):
+        super().setup()
+        # Slowloris guard: bound the pre-auth header-read window. The
+        # websocket path clears this before relaying — the RFB relay
+        # owns its own idle timeout for long-lived sessions.
+        from vnc_remote_secure.services.bounded_server import (
+            install_read_timeout,
+        )
+        install_read_timeout(self)
 
     def end_headers(self):
         from vnc_remote_secure.security.http_headers import send_security_headers
@@ -325,6 +334,14 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                             pass
                 conn_id = register_connection(
                     token, _close, resource='desktop')
+                if conn_id is not None:
+                    # Cross-process revocation: a CLI revoke marks the
+                    # shared namespace — this handler runs on a worker
+                    # thread, so the watcher is a thread too.
+                    from vnc_remote_secure.security.websocket_registry import (
+                        start_revocation_watcher_thread,
+                    )
+                    start_revocation_watcher_thread(token)
                 if conn_id is None:
                     # Session revoked between validation and
                     # registration (TOCTOU guard in the registry) —
@@ -371,6 +388,10 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         try:
             upstream.sendall(request_bytes)
             self.close_connection = True
+            # The header-read timeout from setup() must not fire inside
+            # the relay — an idle VNC session is legitimate, and the
+            # relay applies its own (longer) idle timeout via select.
+            self.connection.settimeout(None)
             relay_rfb_stream(self.connection, upstream, rfb_filter)
         except OSError:
             pass
@@ -418,8 +439,9 @@ def main():
 
     os.chdir(novnc_dir)
 
-    socketserver.ThreadingTCPServer.allow_reuse_address = True
-    socketserver.ThreadingTCPServer.daemon_threads = True
+    from vnc_remote_secure.services.bounded_server import (
+        BoundedThreadingTCPServer,
+    )
 
     # Same resolution chain as config._env_host: SERVE_NOVNC_HOST →
     # NOVNC_HOST → BIND_HOST → loopback — so the documented BIND_HOST
@@ -440,7 +462,7 @@ def main():
     if hasattr(signal, 'SIGTERM'):
         signal.signal(signal.SIGTERM, signal_handler)
 
-    with socketserver.ThreadingTCPServer((host, port), _AuthedSimpleHTTPRequestHandler) as httpd:
+    with BoundedThreadingTCPServer((host, port), _AuthedSimpleHTTPRequestHandler) as httpd:
         from vnc_remote_secure.security.certificates import create_ssl_context
         ssl_ctx = create_ssl_context()
         if ssl_ctx:

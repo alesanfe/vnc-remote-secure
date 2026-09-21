@@ -476,6 +476,12 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             if self._ws_conn_id is None:
                 self.close(code=1008, reason='Session revoked')
                 return
+            # Cross-process revocation watcher — a CLI-issued revoke
+            # only marks shared state; this closes the live socket.
+            from vnc_remote_secure.security.websocket_registry import (
+                start_revocation_watcher,
+            )
+            start_revocation_watcher(token)
         elif not check_terminal_auth(
                 auth, client_ip=client_ip_from(
                     self.request.headers, self.request.remote_ip)):
@@ -666,6 +672,13 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             # Build a sanitized environment for the child process so that
             # secrets loaded from .env (VNC_PASSWORD, TTYD_PASSWD, tokens, etc.)
             # are not exfiltrable via `set`/`env` commands run in the terminal.
+            # NOTE: this only hides secrets from the environment — the
+            # shell still runs as the service account, which owns
+            # .env, <run_dir>/auth_secret.key and the session stores.
+            # Real isolation requires WEBTERM_USER (POSIX, see
+            # _restricted_user_prefix); on Windows there is no
+            # privilege-drop path (documented limitation, AGENTS.md
+            # F-035).
             child_env = _build_child_env()
             # CREATE_NO_WINDOW is Windows-only; on Linux the attribute does
             # not exist and passing it raises AttributeError.

@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import platform
-import socketserver
 
 from vnc_remote_secure.core.errors import error_json, log_exception
 from vnc_remote_secure.platform.detection import is_windows
@@ -1058,20 +1057,38 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body.encode())
 
+    def setup(self):
+        super().setup()
+        # Slowloris guard: bound the pre-auth header-read window.
+        from vnc_remote_secure.services.bounded_server import (
+            install_read_timeout,
+        )
+        install_read_timeout(self)
+
     def log_message(self, fmt, *args):
-        # Route stdlib access logs to the module logger instead of discarding.
-        logger.info("%s - %s", self.client_address[0], fmt % args)
+        # Route stdlib access logs to the module logger instead of
+        # discarding — but NEVER verbatim: the request line carries
+        # the share-link token (``GET /?session=<signed>``), which
+        # would otherwise sit replayable in landing.log.
+        import re as _re
+        line = _re.sub(r'session=[^&\s"]+', 'session=<redacted>',
+                       fmt % args)
+        logger.info("%s - %s", self.client_address[0], line)
 
 
 def main():
     from vnc_remote_secure.security.certificates import create_ssl_context
     ssl_options = create_ssl_context(_config()['ssl_cert'], _config()['ssl_key'])
 
-    socketserver.ThreadingTCPServer.allow_reuse_address = True
-    # Daemon threads: a hung client connection must not block
-    # service shutdown (the health server sets the same flag).
-    socketserver.ThreadingTCPServer.daemon_threads = True
-    server = socketserver.ThreadingTCPServer((_config()['landing_host'], _config()['landing_port']), LandingHandler)
+    # Bounded threading server: daemon threads so a hung client cannot
+    # block shutdown, and a hard cap so a pre-auth connection flood
+    # (slowloris) cannot exhaust threads.
+    from vnc_remote_secure.services.bounded_server import (
+        BoundedThreadingTCPServer,
+    )
+    server = BoundedThreadingTCPServer(
+        (_config()['landing_host'], _config()['landing_port']),
+        LandingHandler)
 
     if ssl_options:
         server.socket = ssl_options.wrap_socket(server.socket, server_side=True)

@@ -536,6 +536,14 @@ class SessionStore:
         if session is None:
             self._load()
             session = self._sessions.get(token)
+        if session is not None and not session.revoked \
+                and _is_revoked_shared(token):
+            # A cross-process revoke won the lost-update race with a
+            # concurrent _save() — the JSON flag was overwritten, but
+            # the shared marker survives. Honour it locally so every
+            # downstream check (is_valid, check_permission, ws
+            # upgrade) sees the session as revoked.
+            session.revoked = True
         return session
 
     def validate(self, signed_token: str, client_ip: Optional[str] = None,
@@ -572,6 +580,12 @@ class SessionStore:
         session = self.get(internal)
         if session:
             session.revoke()
+            # Shared-state marker: a concurrent _save() in another
+            # process can lose this JSON flag (merge-read then
+            # os.replace is not atomic across processes), so the
+            # revocation is ALSO recorded in the backend that
+            # _claim_use already uses. get() consults it.
+            _mark_revoked_shared(internal, session.expires_at)
             self._save()
             try:
                 from vnc_remote_secure.security.audit import audit_log
@@ -770,6 +784,36 @@ def revoke_session(signed_token: str) -> bool:
         logger.debug("WebSocket registry unavailable during revoke: %s", exc)
 
     return result
+
+
+_NS_EPH_REVOKED = 'ephemeral_revoked_sessions'
+
+
+def _mark_revoked_shared(token: str, expires_at: float) -> None:
+    """Record a revocation in the shared-state backend.
+
+    The JSON ``revoked`` flag can be lost when two processes interleave
+    ``_save()`` (merge-read then atomic replace); the shared marker is
+    written atomically and consulted by ``SessionStore.get()``. TTL
+    outlives the session with the same 24h floor the WebSocket
+    revocation namespace uses.
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        ttl = max(86400, int(expires_at - time.time()))
+        get_backend().set_ttl(_NS_EPH_REVOKED, token, True, ttl)
+    except Exception as exc:  # noqa: BLE001 - best-effort mirror
+        logger.debug("Could not mark ephemeral revocation shared: %s",
+                     exc)
+
+
+def _is_revoked_shared(token: str) -> bool:
+    """True when the token was revoked in any process via the backend."""
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        return bool(get_backend().get(_NS_EPH_REVOKED, token))
+    except Exception:  # noqa: BLE001 - backend down: JSON flag suffices
+        return False
 
 
 def _claim_consumed(token: str, expires_at: float) -> bool:

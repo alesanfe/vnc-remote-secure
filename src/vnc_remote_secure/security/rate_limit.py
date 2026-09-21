@@ -186,20 +186,23 @@ def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
     """Check whether ``ip`` is within the allowed request rate.
 
     Records the current attempt and returns ``True`` if allowed,
-    ``False`` if rate-limited. Attempts are stored as individual
-    TTL'd records (insert-only) so concurrent requests across
-    processes cannot lose updates — the previous list read-modify-
-    write raced under multi-process deployments.
+    ``False`` if rate-limited.
+
+    Uses an atomic fixed-window bucket counter (``increment`` on
+    ``<ip>\x00<bucket>``): the previous count-then-insert sequence let
+    N simultaneous requests all observe ``count < max`` and all pass.
+    Fixed windows allow up to ~2x the budget across a bucket boundary —
+    an accepted trade-off for atomic admission.
     """
-    import secrets as _secrets
     backend = get_backend()
-    if _general_attempt_count(ip, window_seconds) >= max_requests:
+    bucket = int(time.time() // window_seconds)
+    count = backend.increment(
+        _NS_GENERAL, f'{ip}{_GENERAL_SEP}{bucket}', 1, window_seconds)
+    try:
+        return int(count) <= max_requests
+    except (TypeError, ValueError):
+        # A corrupt/None counter must not fail open — deny.
         return False
-    record_key = (
-        f'{ip}{_GENERAL_SEP}{time.time()}{_GENERAL_SEP}'
-        f'{_secrets.token_hex(4)}')
-    backend.set_ttl(_NS_GENERAL, record_key, True, window_seconds)
-    return True
 
 
 def reset_rate_limit(ip):
@@ -212,8 +215,14 @@ def reset_rate_limit(ip):
 
 def get_rate_limit_info(ip, window_seconds=DEFAULT_GENERAL_WINDOW_SECONDS):
     """Return a dict with current attempt count and remaining allowance."""
+    bucket = int(time.time() // window_seconds)
+    try:
+        attempts = int(get_backend().get(
+            _NS_GENERAL, f'{ip}{_GENERAL_SEP}{bucket}') or 0)
+    except (TypeError, ValueError):
+        attempts = 0
     return {
         'ip': ip,
-        'attempts': _general_attempt_count(ip, window_seconds),
+        'attempts': attempts,
         'window_seconds': window_seconds,
     }
