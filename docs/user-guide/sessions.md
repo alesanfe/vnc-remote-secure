@@ -40,9 +40,12 @@ permission).
 - `--allowed-ip` — fail-closed IP restriction.
 - `--single-use` / `--max-uses` — atomic, cross-process use counters.
 - `--view-only` — blocks control channels (gamepad, terminal, file
-  transfer). Caveat: RFB input inside the noVNC byte-transparent relay
-  is **not** filtered (see `services/novnc.py`); do not treat
-  `--view-only` as input isolation.
+  transfer) **and** filters RFB input at the protocol layer: the
+  noVNC WebSocket relay drops KeyEvent/PointerEvent/ClientCutText
+  messages for sessions without `desktop:control`/`desktop:clipboard`
+  (see `services/rfb_filter.py`). Direct RFB access to the VNC port
+  is a separate channel — keep it loopback-only or use a view-only
+  VNC password for hard isolation.
 
 ## List and revoke
 

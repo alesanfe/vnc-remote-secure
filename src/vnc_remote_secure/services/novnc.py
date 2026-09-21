@@ -10,18 +10,16 @@ that:
   permissions are honored.
 - Revoked sessions are rejected immediately.
 
-Known limitation — ``view_only`` and RFB input:
-    The ``/websockify`` relay below is byte-transparent: it pipes the
-    client socket to the loopback websockify bridge without parsing
-    WebSocket frames, let alone RFB messages. A ``view_only``
-    ephemeral session therefore still transmits KeyEvent/PointerEvent
-    input to the VNC server — the view-only restriction is enforced
-    on the *control channels* (gamepad requires ``desktop:control``,
-    terminal honours ``no_terminal``) but not inside the RFB stream.
-    Blocking RFB input would need a protocol-aware proxy that parses
-    client messages and drops types 4 (KeyEvent), 5 (PointerEvent)
-    and 6 (ClientCutText); VNC-server-side view-only passwords are
-    the alternative. Tracked as a planned enhancement.
+RFB input filtering — ``view_only`` enforcement:
+    The ``/websockify`` relay is byte-transparent by default, but when
+    the client authenticates with an ephemeral session that lacks
+    ``desktop:control`` (or ``desktop:clipboard``) the relay activates
+    ``services.rfb_filter.RfbInputFilter``: a protocol-aware filter
+    that parses the client RFB message stream inside the WebSocket
+    frames and drops KeyEvent (4), PointerEvent (5) and ClientCutText
+    (6) messages. Unknown message types or unparseable streams close
+    the connection (fail closed). Regular (non-ephemeral) sessions are
+    not filtered — they are full-control admin sessions.
 
 Security model:
     This server binds to 127.0.0.1 by default. Even with the bind,
@@ -195,6 +193,7 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         # Re-register for live revocation (best-effort).
         conn_id = None
+        rfb_filter = None
         try:
             auth = self.headers.get('Authorization', '')
             bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
@@ -213,6 +212,36 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                         cookies[k.strip()] = v.strip()
             token = (cookies.get('vnc_ephemeral') or bearer
                      or cookies.get('vnc_session') or '')
+            # RFB input filter: an ephemeral session without
+            # desktop:control gets protocol-level view-only — the
+            # filter drops KeyEvent/PointerEvent/ClientCutText inside
+            # the WebSocket stream so a modified client cannot send
+            # input even though the UI hides the controls.
+            eph_tok = cookies.get('vnc_ephemeral')
+            if eph_tok:
+                try:
+                    from vnc_remote_secure.security.ephemeral_sessions import (
+                        get_session_store,
+                    )
+                    store = get_session_store()
+                    store._load_if_changed()
+                    sess = store.get(eph_tok)
+                    if sess is not None:
+                        control = sess.has_permission(
+                            'desktop:control', 'desktop')
+                        clip = sess.has_permission(
+                            'desktop:clipboard', 'desktop')
+                        if not (control and clip):
+                            from vnc_remote_secure.services.rfb_filter import (
+                                RfbInputFilter,
+                            )
+                            rfb_filter = RfbInputFilter(
+                                allow_clipboard=clip)
+                            logger.info(
+                                "RFB input filter active "
+                                "(control=%s clipboard=%s)", control, clip)
+                except Exception:  # noqa: BLE001 - filter is best-effort
+                    rfb_filter = None
             if token:
                 from vnc_remote_secure.security.websocket_registry import register_connection
                 def _close():
@@ -261,6 +290,20 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     data = sock.recv(65536)
                     if not data:
                         return
+                    if rfb_filter is not None:
+                        if sock is self.connection:
+                            out = rfb_filter.client_to_server(data)
+                            if out is None:
+                                # Protocol violation / fail-closed:
+                                # tear the connection down rather than
+                                # relay unparseable input.
+                                return
+                            if out:
+                                upstream.sendall(out)
+                        else:
+                            rfb_filter.track_server(data)
+                            self.connection.sendall(data)
+                        continue
                     peer = upstream if sock is self.connection else self.connection
                     peer.sendall(data)
         except OSError:
