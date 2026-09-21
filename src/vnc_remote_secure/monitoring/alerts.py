@@ -131,6 +131,13 @@ def send_email_alert(title, message):
         return False
 
 
+# Dedup window: identical (title, message, severity) alerts within
+# this interval are dropped so a flapping caller cannot spam the
+# configured channels (Discord/webhook rate limits, email floods).
+_DEDUP_WINDOW_S = 60
+_last_sent: dict = {}
+
+
 def notify(title, message, severity='info', force=False):
     """Dispatch an alert to every configured channel.
 
@@ -145,6 +152,15 @@ def notify(title, message, severity='info', force=False):
     """
     if not (force or _env_flag('ALERTS_ENABLED')):
         return 0
+
+    import time as _time
+    key = (title, message, severity)
+    now = _time.monotonic()
+    if now - _last_sent.get(key, -_DEDUP_WINDOW_S) < _DEDUP_WINDOW_S:
+        logger.debug("Alert deduplicated (sent < %ds ago): %s",
+                     _DEDUP_WINDOW_S, title)
+        return 0
+    _last_sent[key] = now
 
     sent = 0
     if _env_flag('DISCORD_ENABLED') and send_discord_alert(title, message, severity):
