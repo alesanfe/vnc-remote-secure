@@ -342,8 +342,93 @@ class _GlobalLock:
         return self._locked
 
 
+def _port_in_use(port: int, host: str = '127.0.0.1') -> bool:
+    """True if ``host:port`` is held by another socket.
+
+    Uses a bind probe, not connect_ex: connecting consumes a backlog
+    slot on the listener and a listener with a full backlog returns
+    WSAEWOULDBLOCK/ECONNREFUSED — falsely reporting the port free.
+    Binding fails with EADDRINUSE for any holder regardless of backlog.
+
+    Caveat: a port in TIME_WAIT also fails bind. To avoid a stale
+    TIME_WAIT blocking a legitimate restart, when bind fails we
+    additionally probe connect_ex — a successful connect confirms a
+    live listener. bind-fail + connect-fail means TIME_WAIT (or a
+    full backlog — in that case the child will fail to bind anyway
+    and the post-start check reports the real failure).
+    """
+    import socket
+    try:
+        with socket.socket() as s:
+            s.bind((host, port))
+        return False
+    except OSError:
+        pass
+    try:
+        with socket.socket() as s:
+            s.settimeout(1.0)
+            return s.connect_ex((host, port)) == 0
+    except OSError:
+        return False
+
+
+def _port_accepting(port: int, host: str = '127.0.0.1') -> bool:
+    """True if a live listener accepts TCP connections on ``port``.
+
+    Used by the post-start verification: the child must not only hold
+    the port but actually accept — this distinguishes a bound service
+    from a lingering TIME_WAIT socket.
+    """
+    import socket
+    try:
+        with socket.socket() as s:
+            s.settimeout(1.0)
+            return s.connect_ex((host, port)) == 0
+    except OSError:
+        return False
+
+
+def _reap_stale_service(module: str, service_name: str, port: int):
+    """Best-effort kill of an orphaned service process holding ``port``.
+
+    A crashed/aborted run can leave a service process alive without a
+    PID file — it then occupies the port forever and every subsequent
+    start fails with EADDRINUSE. When psutil is available, look for a
+    listener on ``port`` whose command line references this service's
+    module and kill it. Foreign processes are never touched.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return
+    marker = module
+    own_pid = os.getpid()
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            # Never match ourselves — a caller that embeds the module
+            # name in its own command line (tests, wrappers) must not
+            # be reaped.
+            if proc.info['pid'] == own_pid:
+                continue
+            cmdline = ' '.join(proc.info.get('cmdline') or [])
+            if marker not in cmdline:
+                continue
+            for conn in proc.net_connections('tcp'):
+                if (conn.laddr and conn.laddr.port == port
+                        and conn.status == 'LISTEN'):
+                    logger.warning(
+                        "Killing orphaned %s (PID %s) holding port %s",
+                        service_name, proc.info['pid'], port)
+                    proc.kill()
+                    proc.wait(timeout=5)
+        except (psutil.NoSuchProcess, psutil.AccessDenied,
+                psutil.ZombieProcess):
+            continue
+
+
 def _start_python_service(module: str, service_name: str,
-                          extra_args: Optional[list] = None) -> Optional[int]:
+                          extra_args: Optional[list] = None,
+                          port: Optional[int] = None) -> Optional[int]:
     """Start a Python service module as a subprocess and record its PID.
 
     Returns the PID on success, None on failure.
@@ -351,6 +436,16 @@ def _start_python_service(module: str, service_name: str,
     if _read_pid(service_name) and _pid_alive(_read_pid(service_name)):
         logger.info("Service %s already running (PID %s)", service_name, _read_pid(service_name))
         return _read_pid(service_name)
+    # Pre-check: if the service port is already occupied, either an
+    # orphaned copy of ours survived a crash (reap it) or a foreign
+    # process owns it (fail loudly — never kill foreign processes).
+    if port and _port_in_use(port):
+        _reap_stale_service(module, service_name, port)
+        if _port_in_use(port):
+            logger.error(
+                "%s port %s is already in use by another process — "
+                "not starting %s", service_name, port, service_name)
+            return None
     cmd = [sys.executable, '-m', module] + list(extra_args or [])
     # websockify is an external binary that performs no auth and needs
     # none of our credentials — strip secret env vars so a compromise
@@ -388,6 +483,27 @@ def _start_python_service(module: str, service_name: str,
     except OSError as e:
         logger.error("Failed to start %s: %s", service_name, e)
         return None
+    # Post-start verification: a process that is alive but never bound
+    # its port (EADDRINUSE inside, import error that caught itself)
+    # must not be reported as "started" — status would show "running"
+    # for a functionally dead service.
+    if port:
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                logger.error(
+                    "%s exited during startup (code %s) — see %s.log",
+                    service_name, proc.returncode, service_name)
+                return None
+            if _port_accepting(port):
+                break
+            time.sleep(0.15)
+        else:
+            logger.error(
+                "%s did not bind port %s within 5s — terminating",
+                service_name, port)
+            _kill_pid(proc.pid, service=service_name)
+            return None
     _write_pid(service_name, proc.pid)
     logger.info("Started %s (PID %s)", service_name, proc.pid)
     return proc.pid
@@ -464,8 +580,24 @@ def start_all(config: dict = None) -> dict:
         return results
 
 
+# Service name → config key holding the TCP port it binds. Used by
+# the pre-start port check and the post-start bind verification.
+_SERVICE_PORT_KEYS = {
+    'terminal': 'ttyd_port',
+    'novnc': 'novnc_port',
+    'websockify': 'novnc_ws_port',
+    'health': 'health_port',
+    'landing': 'landing_port',
+    'user_ui': 'user_ui_port',
+    'audio': 'audio_stream_port',
+    'gamepad': 'gamepad_port',
+}
+
+
 def _start_service(service: str, config: dict) -> Optional[int]:
     """Start a single service by name. Returns PID or None."""
+    port_key = _SERVICE_PORT_KEYS.get(service)
+    port = config.get(port_key) if port_key else None
     if service == 'vnc':
         return _start_vnc(config)
     if service == 'terminal':
@@ -475,15 +607,20 @@ def _start_service(service: str, config: dict) -> Optional[int]:
     if service == 'websockify':
         return _start_websockify(config)
     if service == 'health':
-        return _start_python_service('vnc_remote_secure.services.health', 'health')
+        return _start_python_service('vnc_remote_secure.services.health', 'health',
+                                     port=port)
     if service == 'landing':
-        return _start_python_service('vnc_remote_secure.services.landing', 'landing')
+        return _start_python_service('vnc_remote_secure.services.landing', 'landing',
+                                     port=port)
     if service == 'user_ui':
-        return _start_python_service('vnc_remote_secure.web.application', 'user_ui')
+        return _start_python_service('vnc_remote_secure.web.application', 'user_ui',
+                                     port=port)
     if service == 'audio':
-        return _start_python_service('vnc_remote_secure.services.audio', 'audio')
+        return _start_python_service('vnc_remote_secure.services.audio', 'audio',
+                                     port=port)
     if service == 'gamepad':
-        return _start_python_service('vnc_remote_secure.services.gamepad', 'gamepad')
+        return _start_python_service('vnc_remote_secure.services.gamepad', 'gamepad',
+                                     port=port)
     if service == 'nginx':
         return _start_nginx(config)
     logger.warning("Unknown service: %s", service)
@@ -525,7 +662,9 @@ def _start_terminal(config: dict) -> Optional[int]:
     that auth_gateway and WebSocket registry are connected. On Windows,
     the same module is used (it was designed for ConPTY issues).
     """
-    return _start_python_service('vnc_remote_secure.services.terminal', 'terminal')
+    return _start_python_service(
+        'vnc_remote_secure.services.terminal', 'terminal',
+        port=config.get('ttyd_port'))
 
 
 def _resolve_novnc_dir() -> Optional[str]:
@@ -562,7 +701,8 @@ def _start_novnc(config: dict) -> Optional[int]:
             "Refusing to start the static server without a web root.")
         return None
     return _start_python_service(
-        'vnc_remote_secure.services.novnc', 'novnc', [novnc_dir])
+        'vnc_remote_secure.services.novnc', 'novnc', [novnc_dir],
+        port=config.get('novnc_port'))
 
 
 def _start_websockify(config: dict) -> Optional[int]:
@@ -598,6 +738,7 @@ def _start_websockify(config: dict) -> Optional[int]:
     return _start_python_service(
         'websockify', 'websockify',
         [f'127.0.0.1:{ws_port}', f'127.0.0.1:{vnc_port}'],
+        port=ws_port,
     )
 
 

@@ -177,14 +177,17 @@ def _restrict_key_permissions(key_path, writable=False):
     ``Users`` group. Uses universal SIDs so the call works on any
     system locale (e.g. ``Administradores`` on es-ES).
 
-    ``writable=True`` grants (R,W) instead of (R) — required for
+    ``writable=True`` grants (M) instead of (R) — required for
     files the service rewrites (audit log, session store, shared
     state db); a read-only grant would break the app's own writes.
+    Modify (not plain R,W) is required because os.replace() needs
+    DELETE on the existing target — atomic rewrites would otherwise
+    fail with WinError 5.
     """
     if os.name == 'nt':
         import subprocess
         user = os.environ.get('USERNAME', '')
-        rights = '(R,W)' if writable else '(R)'
+        rights = '(M)' if writable else '(R)'
         grants = [f'*S-1-5-18:{rights}', f'*S-1-5-32-544:{rights}']
         if user:
             grants.append(f'{user}:{rights}')

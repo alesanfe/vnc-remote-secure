@@ -162,9 +162,10 @@ def cmd_session(args):
             if args.view_only:
                 print("  View-only: yes")
                 print("  NOTE: view-only blocks control channels (gamepad,"
-                      " terminal, clipboard) but NOT mouse/keyboard inside the"
-                      " VNC/RFB stream — the websockify relay is byte-transparent."
-                      " For hard view-only use VNC-server view-only passwords.")
+                      " terminal, clipboard) and drops RFB input messages"
+                      " (KeyEvent/PointerEvent/ClientCutText) in the WebSocket"
+                      " relay. Direct access to the VNC port bypasses this —"
+                      " keep it loopback-bound.")
             if args.no_terminal:
                 print("  Web Terminal: disabled")
             if args.single_use:
@@ -175,15 +176,8 @@ def cmd_session(args):
                 print(f"  Resource: {args.resource} only")
             if args.max_uses:
                 print(f"  Max uses: {args.max_uses}")
-        # Session creation is a sensitive admin action — it mints a
-        # credential that bypasses normal login. Record it like the
-        # web-side session events.
-        _audit_cli(
-            'ephemeral_session_create', 'success',
-            f'role={role} expires_in={expires_in} '
-            f'single_use={args.single_use} '
-            f'max_uses={args.max_uses} '
-            f'resource={args.resource or "*"}')
+        # Audited inside SessionStore.create() — a second audit here
+        # would emit a duplicate event per session.
         return 0
 
     elif args.session_action == 'list':

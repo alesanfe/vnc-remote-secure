@@ -198,7 +198,11 @@ def _restrict_dir(path):
         import subprocess
         user = os.environ.get('USERNAME', '')
         # (OI)(CI) so the grant propagates to files created inside.
-        rights = '(OI)(CI)(R,W)'
+        # NOTE: 'M' (Modify), not 'R,W' — plain R+W omits DELETE /
+        # FILE_DELETE_CHILD, which breaks os.replace()-based atomic
+        # writes (PID files, shared-state, credential rotation all
+        # rename a tmp file into place).
+        rights = '(OI)(CI)(M)'
         grants = [f'*S-1-5-18:{rights}', f'*S-1-5-32-544:{rights}']
         if user:
             grants.append(f'{user}:{rights}')
@@ -247,3 +251,42 @@ def ensure_dirs():
     # generated_credentials.env, private keys) — keep them owner-only.
     for path in (get_config_dir(), get_run_dir(), get_ssl_dir()):
         _restrict_dir(path)
+    if os.name == 'nt':
+        _repair_state_file_acls()
+
+
+def _repair_state_file_acls():
+    """Re-apply restrictive ACLs to existing state files in run_dir.
+
+    Files created before the Modify grant (R,W without DELETE) break
+    os.replace()-based atomic writes — the ephemeral session store,
+    shared-state DB, audit log and generated credentials all rewrite
+    via tmp+rename and would silently lose state. Re-granting Modify
+    on every startup repairs old files idempotently.
+    """
+    import subprocess
+    run_dir = get_run_dir()
+    try:
+        entries = os.listdir(run_dir)
+    except OSError:
+        return
+    user = os.environ.get('USERNAME', '')
+    for name in entries:
+        p = os.path.join(run_dir, name)
+        if not os.path.isfile(p):
+            continue
+        # Skip transient/lock artifacts — only durable state files.
+        if name.endswith(('.tmp', '.lock')):
+            continue
+        grants = [f'*S-1-5-18:(M)', f'*S-1-5-32-544:(M)']
+        if user:
+            grants.append(f'{user}:(M)')
+        try:
+            subprocess.run(
+                ['icacls', p, '/reset'],
+                capture_output=True, timeout=15, check=False)
+            subprocess.run(
+                ['icacls', p, '/inheritance:r', '/grant:r', *grants],
+                capture_output=True, timeout=15, check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass

@@ -61,8 +61,8 @@ def _add_session_args(subparsers):
     p_create.add_argument('--expires', default='30m', help='Duration (e.g. 30m, 2h, 1d)')
     p_create.add_argument('--role', default='viewer', choices=['viewer', 'support', 'operator', 'administrator'], help='Role (viewer, support, operator, administrator)')
     p_create.add_argument('--view-only', action='store_true',
-                          help='View-only: blocks control channels (gamepad/terminal). '
-                               'Caveat: RFB input on the VNC stream is not filtered')
+                          help='View-only: blocks control channels (gamepad/terminal) '
+                               'and drops RFB input messages at the protocol layer')
     p_create.add_argument('--no-terminal', action='store_true', help='Disable terminal access')
     p_create.add_argument('--single-use', action='store_true', help='Session expires after first use')
     p_create.add_argument('--max-uses', type=int, default=0,

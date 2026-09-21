@@ -382,7 +382,7 @@ class SessionStore:
         if mtime != self._last_mtime:
             self._load()
 
-    def _save(self):
+    def _save(self, raise_on_error: bool = False):
         """Persist sessions to disk.
 
         Merges the on-disk state first: another process may have
@@ -390,6 +390,10 @@ class SessionStore:
         marks ``revoked``/``used`` via the CLI). Writing our stale
         in-memory copy would resurrect the revocation — terminal flags
         from disk always win.
+
+        ``raise_on_error=True`` makes persistence failure fatal —
+        ``create()`` uses it because returning a signed token that was
+        never persisted hands the operator a dead share link.
         """
         import json
         import os
@@ -463,7 +467,13 @@ class SessionStore:
                 except OSError:
                     pass
         except OSError as exc:
-            logger.warning("Failed to persist ephemeral sessions: %s", exc)
+            if raise_on_error:
+                raise RuntimeError(
+                    f"Failed to persist ephemeral sessions: {exc}") from exc
+            logger.error(
+                "Failed to persist ephemeral sessions: %s — state "
+                "changes (revocation, use counts) will not survive "
+                "this process", exc)
 
     def create(
         self,
@@ -503,12 +513,14 @@ class SessionStore:
         )
         self._sessions[token] = session
         signed = create_ephemeral_token(session)
-        self._save()
+        self._save(raise_on_error=True)
         try:
             from vnc_remote_secure.security.audit import audit_log
             audit_log('ephemeral_session_create', user=created_by,
-                      detail=f'role={role} single_use={single_use} '
-                             f'resource={resource}')
+                      detail=f'role={role} expires_in={expires_in} '
+                             f'single_use={single_use} '
+                             f'max_uses={session.max_uses} '
+                             f'resource={resource or "*"}')
         except Exception:  # noqa: BLE001 - audit must not break sessions
             pass
         return session, signed
