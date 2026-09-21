@@ -435,37 +435,9 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 elif part.startswith('vnc_ephemeral='):
                     eph = part.split('=', 1)[1].strip()
         origin = self.request.headers.get('Origin', '')
-        # Activated ephemeral sessions (vnc_ephemeral cookie from the
-        # share-link exchange) authenticate against the session object —
-        # terminal:use permission and origin validation are enforced.
-        if eph and not bearer and not cookie_value:
-            from vnc_remote_secure.security.auth_gateway import (
-                check_origin,
-                get_allowed_origins,
-                register_websocket_connection,
-            )
-            from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
-            from vnc_remote_secure.security.rate_limit import get_auth_limiter
-            ip = client_ip_from(
-                self.request.headers, self.request.remote_ip)
-            if not check_origin(origin, get_allowed_origins()):
-                get_auth_limiter().record_failure(f'ws:{ip}')
-                self.close(code=1008, reason='Invalid origin')
-                return
-            if not check_session_permission(
-                    eph, 'terminal:use', resource='terminal',
-                    client_ip=ip):
-                get_auth_limiter().record_failure(f'ws:{ip}')
-                self.close(code=1008, reason='Unauthorized')
-                return
-            self._ws_conn_id = register_websocket_connection(
-                eph, self.close, resource='terminal')
-            if self._ws_conn_id is None:
-                # Session revoked between validation and registration
-                # (TOCTOU guard in the registry).
-                self.close(code=1008, reason='Session revoked')
-                return
-        elif bearer or cookie_value:
+        # Token credentials (ephemeral cookie, bearer, session cookie)
+        # all resolve through the gateway's single enforcement tree.
+        if eph or bearer or cookie_value:
             from vnc_remote_secure.security.auth_gateway import (
                 check_websocket_upgrade,
                 register_websocket_connection,
@@ -478,21 +450,26 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 required_permission='terminal:use',
                 client_ip=client_ip_from(
                     self.request.headers, self.request.remote_ip),
+                ephemeral_cookie=eph,
             )
             if not allowed:
                 self.close(code=1008, reason=reason)
                 return
-            # Step-up auth: opening a terminal requires recent authentication.
-            from vnc_remote_secure.security.auth_gateway import check_authenticated
-            from vnc_remote_secure.security.step_up_auth import require_step_up
-            _authed, ws_user = check_authenticated(cookie_value, bearer)
-            if ws_user:
-                step_up_err = require_step_up(ws_user, 'open_terminal')
-                if step_up_err:
-                    self.close(code=1008, reason=step_up_err)
-                    return
+            # Step-up auth applies to operator sessions — skip it only
+            # when the ephemeral cookie is the SOLE credential (the
+            # previous behavior): a session that is already
+            # permission-bound has no username for step-up to challenge.
+            if bearer or cookie_value:
+                from vnc_remote_secure.security.auth_gateway import check_authenticated
+                from vnc_remote_secure.security.step_up_auth import require_step_up
+                _authed, ws_user = check_authenticated(cookie_value, bearer)
+                if ws_user:
+                    step_up_err = require_step_up(ws_user, 'open_terminal')
+                    if step_up_err:
+                        self.close(code=1008, reason=step_up_err)
+                        return
             # Register the connection so revocation can close it live.
-            token = bearer or cookie_value
+            token = eph or bearer or cookie_value
             self._ws_conn_id = register_websocket_connection(
                 token, self.close, resource='terminal',
             )

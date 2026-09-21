@@ -57,16 +57,12 @@ def _check_novnc_auth(headers, client_ip=None):
     ephemeral session token with ``desktop:view`` permission.
     ``client_ip`` enforces the session's ``allowed_ip`` binding.
     Returns (allowed: bool, reason: str).
+
+    The credential→session→permission→rate-limit tree lives in
+    ``auth_gateway.authorize_request`` — this function only extracts
+    credentials from the headers.
     """
-    # Rejected attempts feed the shared auth limiter so the noVNC
-    # endpoint is not an unthrottled credential oracle.
-    limiter = None
-    if client_ip:
-        from vnc_remote_secure.security.rate_limit import get_auth_limiter
-        limiter = get_auth_limiter()
-        if limiter.is_locked(f'ws:{client_ip}') or limiter.is_locked(client_ip):
-            return False, 'Rate limited'
-    from vnc_remote_secure.security.auth_gateway import check_authenticated
+    from vnc_remote_secure.security.auth_gateway import authorize_request
     cookie = headers.get('Cookie', '') if hasattr(headers, 'get') else ''
     cookie_value = ''
     eph = ''
@@ -81,40 +77,15 @@ def _check_novnc_auth(headers, client_ip=None):
     auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
     if auth and auth.lower().startswith('bearer '):
         bearer = auth[7:].strip()
-    # Activated ephemeral sessions (vnc_ephemeral cookie issued by the
-    # landing-page share-link exchange) authenticate against the session
-    # object — desktop:view permission is required.
-    if eph:
-        from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
-        if check_session_permission(
-                eph, 'desktop:view', resource='desktop',
-                client_ip=client_ip):
-            return True, 'OK'
-        # An expired/revoked share-link cookie must not lock out a
-        # separately authenticated session (vnc_session/bearer): the
-        # browser keeps the stale cookie until it expires client-side.
-        # Only reject when the ephemeral cookie is the sole credential.
-        if not cookie_value and not bearer:
-            if limiter is not None:
-                limiter.record_failure(client_ip)
-            return False, 'Invalid or expired session'
-    if not cookie_value and not bearer:
-        return False, 'Authentication required'
-    # Try ephemeral session token first (per-action authorization).
-    if bearer:
-        from vnc_remote_secure.security.ephemeral_sessions import check_permission
-        if check_permission(
-                bearer, 'desktop:view', resource='desktop',
-                client_ip=client_ip):
-            return True, 'OK'
-    allowed, _user = check_authenticated(cookie_value, bearer)
-    if not allowed:
-        if limiter is not None:
-            limiter.record_failure(client_ip)
-        return False, 'Invalid or expired session'
-    if limiter is not None:
-        limiter.record_success(client_ip)
-    return True, 'OK'
+    allowed, reason, _ = authorize_request(
+        cookie_value=cookie_value,
+        bearer_token=bearer,
+        ephemeral_cookie=eph,
+        resource='desktop',
+        required_permission='desktop:view',
+        client_ip=client_ip or '',
+    )
+    return allowed, reason
 
 
 class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):

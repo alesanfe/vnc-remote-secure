@@ -336,6 +336,105 @@ def check_authenticated(
     return False, None
 
 
+def is_client_locked(client_ip: str) -> bool:
+    """True when ``client_ip`` is locked out in ANY limiter namespace.
+
+    The login flow records failures under ``ip:{addr}``, WebSocket
+    rejections under ``ws:{addr}``, and the basic-auth helpers use the
+    bare address — every surface must consult all three or a lockout on
+    one auth path leaves the others open to the same credential.
+    """
+    limiter = get_auth_limiter()
+    return (limiter.is_locked(client_ip)
+            or limiter.is_locked(f'ip:{client_ip}')
+            or limiter.is_locked(f'ws:{client_ip}'))
+
+
+def authorize_request(
+    cookie_value: str = '',
+    bearer_token: str = '',
+    ephemeral_cookie: str = '',
+    resource: str = '',
+    required_permission: str = '',
+    client_ip: str = '',
+) -> Tuple[bool, str, Optional[str]]:
+    """Unified credential→session→permission→rate-limit decision.
+
+    This is THE single token-credential enforcement tree — every
+    token-based surface (noVNC, websockify relay, audio, gamepad) must
+    resolve credentials through it so that fixes apply everywhere.
+    Basic-auth surfaces are a different credential type and live in
+    http_auth, but share :func:`is_client_locked`.
+
+    Resolution order:
+      1. Activated ephemeral session (``vnc_ephemeral`` cookie /
+         internal token) → ``check_session_permission`` when a
+         required_permission is given.
+      2. Ephemeral Bearer token → ``check_permission`` (per-action,
+         enforces the permission and single-use semantics).
+      3. Operator session (``vnc_session`` cookie or session Bearer) →
+         ``check_authenticated`` — not permission-bound.
+
+    Rate limiting: a locked IP is rejected up front; final failures
+    record a failure, final successes record a success — matching the
+    semantics the individual surfaces implemented by hand.
+
+    Returns:
+        Tuple of (allowed, reason, session_identity). The identity is
+        the resolved session key usable for WebSocket registration and
+        revocation (internal ephemeral token, session cookie, or
+        bearer), or None when not allowed.
+    """
+    limiter = get_auth_limiter() if client_ip else None
+    if limiter is not None and is_client_locked(client_ip):
+        return False, 'Rate limited', None
+
+    from vnc_remote_secure.security.ephemeral_sessions import (
+        check_permission,
+        check_session_permission,
+    )
+
+    # 1. Activated ephemeral session (internal token cookie).
+    if ephemeral_cookie:
+        if required_permission:
+            if check_session_permission(
+                    ephemeral_cookie, required_permission,
+                    resource=resource or None,
+                    client_ip=client_ip or None):
+                return True, 'OK', ephemeral_cookie
+        elif check_session_permission(
+                ephemeral_cookie, 'view',
+                client_ip=client_ip or None):
+            return True, 'OK', ephemeral_cookie
+        # A stale ephemeral cookie must not block a separately valid
+        # credential — only reject when it is the sole credential.
+        if not cookie_value and not bearer_token:
+            if limiter is not None:
+                limiter.record_failure(client_ip)
+            return False, 'Invalid or expired session', None
+
+    if not cookie_value and not bearer_token:
+        return False, 'Authentication required', None
+
+    # 2. Ephemeral Bearer token (per-action authorization).
+    if bearer_token and required_permission:
+        if check_permission(
+                bearer_token, required_permission,
+                resource=resource or None,
+                client_ip=client_ip or None):
+            return True, 'OK', bearer_token
+
+    # 3. Operator session (cookie or session bearer).
+    allowed, _user = check_authenticated(cookie_value, bearer_token)
+    if allowed:
+        if limiter is not None:
+            limiter.record_success(client_ip)
+        return True, 'OK', cookie_value or bearer_token
+    if limiter is not None:
+        limiter.record_failure(client_ip)
+    return False, 'Invalid or expired session', None
+
+
 def check_websocket_upgrade(
     origin: str,
     cookie_value: str = '',
@@ -343,6 +442,7 @@ def check_websocket_upgrade(
     resource: str = '',
     required_permission: str = '',
     client_ip: str = '',
+    ephemeral_cookie: str = '',
 ) -> Tuple[bool, str]:
     """Validate a WebSocket upgrade request.
 
@@ -367,10 +467,7 @@ def check_websocket_upgrade(
     # A locked IP is rejected before any other check — otherwise a
     # brute-force lockout would not actually block subsequent valid
     # upgrades from the same address.
-    if client_ip and (
-            limiter.is_locked(f'ws:{client_ip}')
-            or limiter.is_locked(client_ip)
-            or limiter.is_locked(f'ip:{client_ip}')):
+    if client_ip and is_client_locked(client_ip):
         return False, 'Rate limited'
 
     def _reject(reason: str) -> Tuple[bool, str]:
@@ -384,6 +481,22 @@ def check_websocket_upgrade(
     # Origin must be valid
     if not check_origin(origin, get_allowed_origins()):
         return _reject('Invalid origin')
+
+    # Activated ephemeral session (vnc_ephemeral cookie → internal
+    # token). Unified through authorize_request's resolution — when it
+    # fails, a separately valid credential may still authenticate, so
+    # only reject when the ephemeral cookie is the sole credential.
+    if ephemeral_cookie and required_permission:
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            check_session_permission,
+        )
+        if check_session_permission(
+                ephemeral_cookie, required_permission,
+                resource=resource or None,
+                client_ip=client_ip or None):
+            return True, 'OK'
+        if not cookie_value and not bearer_token:
+            return _reject('Invalid or expired session')
 
     # If a required permission is specified, the bearer token is an
     # ephemeral session token — validate it against the session store.

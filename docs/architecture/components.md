@@ -65,9 +65,9 @@ vnc-remote-secure/
 │   ├── windows/                     # Pester tests (Windows wrapper)
 │   └── fixtures/                    # Static test data
 ├── packaging/
+│   ├── docker/                      # Dockerfile + Compose (Linux only)
 │   ├── linux/                       # Linux packaging
 │   └── windows/                     # Windows packaging
-│   # docker/ is planned but not yet shipped (see ROADMAP.md)
 ├── docs/
 │   ├── architecture/                # Architecture docs (this file)
 │   ├── adr/                         # Architecture Decision Records

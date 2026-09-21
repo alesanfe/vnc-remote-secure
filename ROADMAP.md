@@ -27,8 +27,8 @@ Dates are indicative and may change based on priorities and feedback.
 - ~~⚠️ Session recording~~ — removed: no recording service exists;
   `RECORDING_ENABLED` was dropped entirely (F-033)
 - ✅ Backup and restore scripts
-- ⚠️ Docker packaging — planned (`packaging/docker/Dockerfile` +
-  `compose.yml`), **not yet shipped**; the directory does not exist
+- ✅ Docker packaging (`packaging/docker/Dockerfile` +
+  `compose.integration.yml` for CI)
 - ✅ Test pyramid (Python unit/integration/e2e/security + Pester +
   Playwright; the legacy Bats suites were removed with the Bash stack)
 - ✅ CI/CD pipeline (lint, test, build, multi-arch)
@@ -87,8 +87,8 @@ Dates are indicative and may change based on priorities and feedback.
 - ✅ Alert integration (`monitoring/alerts.py`: Discord webhook,
   generic JSON webhook, SMTP email — on start failure / watchdog events)
 - 📋 DNS provider abstraction (DuckDNS, Cloudflare, manual, self-signed)
-- ⏳ `make demo` target (Docker-based; blocked — `packaging/docker/`
-  is not shipped yet)
+- ⏳ `make demo` target (Docker-based; `packaging/docker/` now provided,
+  demo target still pending)
 - ✅ API documentation (OpenAPI) for health endpoints
 
 ## v0.5.0 — Distribution

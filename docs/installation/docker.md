@@ -1,20 +1,54 @@
 # Docker Installation
 
-> **Status: not yet shipped.** There is no `packaging/docker/` directory
-> in the current tree — no Dockerfile or compose files exist. The
-> documented commands below are the intended layout and will not run
-> until the packaging lands (tracked in ROADMAP.md).
+Container packaging lives in `packaging/docker/`:
 
-Planned layout:
-
-- `packaging/docker/Dockerfile` — self-contained image (noVNC desktop,
-  web terminal, health dashboard, Flask management UI)
+- `packaging/docker/Dockerfile` — self-contained Linux image (TigerVNC
+  desktop, noVNC, web terminal, health dashboard, Flask management UI),
+  with a `test` stage for the integration runner
 - `packaging/docker/compose.yml` — single-service deployment
 - `packaging/docker/compose.integration.yml` — integration-test overrides
   (a `test-runner` service gated behind the `test` Compose profile)
 
-For a working installation today, use bare-metal:
+> **Linux containers only.** The Windows adapter (UltraVNC, ACLs,
+> Windows Firewall) requires a Windows host and is not containerized.
 
-- [Linux installation](linux.md)
-- [Windows installation](windows.md)
-- [Upgrade guide](upgrade.md)
+## Run with Docker Compose
+
+```bash
+# From the repository root, with a configured .env
+cp .env.example .env   # set real passwords first
+docker compose -f packaging/docker/compose.yml --env-file .env up -d
+```
+
+The image runs the unified service manager in the foreground
+(`start --foreground`), which supervises all service PIDs. `init: true`
+is set so zombie children are reaped correctly, and resource bounds
+(`pids_limit`, `mem_limit`, `cpus`) contain runaway processes.
+
+Only port **443** is published: the nginx TLS reverse proxy fronts
+every backend, which binds to loopback inside the container (Zero
+Trust — no service is reachable without the authenticated gateway).
+Persistent state is stored in named volumes (`vncrs-config`,
+`vncrs-data`, `vncrs-logs`, `vncrs-run`).
+
+## Run the integration test suite in containers
+
+```bash
+docker compose \
+  -f packaging/docker/compose.yml \
+  -f packaging/docker/compose.integration.yml \
+  --profile test \
+  run --rm test-runner
+```
+
+The `test-runner` builds from the Dockerfile `test` stage (pytest +
+tests bundled) and runs the integration suite against the stack.
+
+## Notes
+
+- The `make docker-*` / `make demo` targets are intentionally omitted;
+  invoke `docker compose` directly.
+- For bare-metal installation, see:
+  - [Linux installation](linux.md)
+  - [Windows installation](windows.md)
+  - [Upgrade guide](upgrade.md)

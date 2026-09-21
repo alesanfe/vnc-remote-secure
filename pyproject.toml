@@ -112,4 +112,5 @@ python_files = ["test_*.py"]
 markers = [
     "security: security-focused tests (fuzz, adversarial)",
     "soak: long-running stability tests (deselected by default)",
+    "e2e: end-to-end tests that spawn real service subprocesses",
 ]

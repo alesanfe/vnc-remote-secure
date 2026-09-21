@@ -183,6 +183,39 @@ def _check_shared_state(checks):
     else:
         _warn(checks, 'state.backend',
               f'Unknown backend {backend!r} — falling back to memory')
+    # Detect silent degradation: SHARED_STATE_BACKEND=sqlite is set but
+    # SQLiteBackend init failed and get_backend() fell back to memory.
+    # Cross-process revocation, TOTP replay protection and single-use
+    # claims would silently become per-process.
+    if backend == 'sqlite':
+        try:
+            from vnc_remote_secure.security.shared_state import get_backend
+            actual = type(get_backend()).__name__
+            if actual == 'MemoryBackend':
+                _fail(checks, 'state.backend.effective',
+                      'SQLite backend failed to initialize — running on '
+                      'in-memory fallback. Revocations and single-use '
+                      'claims do NOT propagate across processes. '
+                      'Check logs for the SQLite init error.')
+            else:
+                _ok(checks, 'state.backend.effective',
+                    f'Effective backend: {actual}')
+        except Exception as e:  # noqa: BLE001 - probe is best-effort
+            _warn(checks, 'state.backend.effective',
+                  f'Could not probe effective backend: {e}')
+
+
+def _check_runtime_deps(checks):
+    """Optional-runtime dependencies whose absence silently disables features."""
+    try:
+        import psutil  # noqa: F401
+        _ok(checks, 'deps.psutil',
+            'psutil present — stale-process reaping enabled')
+    except ImportError:
+        _warn(checks, 'deps.psutil',
+              'psutil not installed — orphaned service processes are '
+              'not reaped on restart. Install with: '
+              'pip install "vnc-remote-secure[ops]"')
 
 
 def _check_firewall(checks):
@@ -342,6 +375,7 @@ def run_doctor(as_json: bool = False) -> dict:
     _check_services(checks)
     _check_firewall(checks)
     _check_shared_state(checks)
+    _check_runtime_deps(checks)
 
     # --- Summary ---
     counts = {'ok': 0, 'warn': 0, 'fail': 0, 'skip': 0}

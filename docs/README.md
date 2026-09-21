@@ -12,7 +12,7 @@
 ## Installation
 - [Linux](installation/linux.md) - Install on Linux/Raspberry Pi
 - [Windows](installation/windows.md) - Install on Windows
-- [Docker](installation/docker.md) - Docker packaging (planned, not yet shipped)
+- [Docker](installation/docker.md) - Docker packaging (Dockerfile + compose, Linux only)
 - [Upgrade](installation/upgrade.md) - Upgrade from previous versions
 - [Uninstall](installation/uninstall.md) - Remove VNC Remote Secure
 

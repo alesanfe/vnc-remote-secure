@@ -278,47 +278,26 @@ class AudioStreamServer:
         auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
         if auth and auth.lower().startswith('bearer '):
             bearer = auth[7:].strip()
-        if eph and not bearer and not cookie_value:
-            # Activated ephemeral session via the share-link cookie.
-            from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
-            from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
-            from vnc_remote_secure.security.http_auth import client_ip_from
-            from vnc_remote_secure.security.rate_limit import get_auth_limiter
-            peer_ip = client_ip_from(
+        # Unified auth: session cookie, bearer, or activated ephemeral
+        # cookie — all resolved by the gateway's single enforcement tree.
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        allowed, reason = check_websocket_upgrade(
+            origin=origin,
+            cookie_value=cookie_value,
+            bearer_token=bearer,
+            resource='audio',
+            required_permission='desktop:view',
+            client_ip=client_ip_from(
                 headers,
                 websocket.remote_address[0]
-                if websocket.remote_address else None)
-            if not check_origin(origin, get_allowed_origins()):
-                logger.warning("Audio WebSocket rejected: invalid origin")
-                get_auth_limiter().record_failure(f'ws:{peer_ip}')
-                await websocket.close(code=1008, reason='Invalid origin')
-                return
-            if not check_session_permission(
-                    eph, 'desktop:view', resource='audio',
-                    client_ip=peer_ip):
-                logger.warning("Audio WebSocket rejected: unauthorized")
-                get_auth_limiter().record_failure(f'ws:{peer_ip}')
-                await websocket.close(code=1008, reason='Unauthorized')
-                return
-            token = eph
-        else:
-            from vnc_remote_secure.security.http_auth import client_ip_from
-            allowed, reason = check_websocket_upgrade(
-                origin=origin,
-                cookie_value=cookie_value,
-                bearer_token=bearer,
-                resource='audio',
-                required_permission='desktop:view',
-                client_ip=client_ip_from(
-                    headers,
-                    websocket.remote_address[0]
-                    if websocket.remote_address else None),
-            )
-            if not allowed:
-                logger.warning("Audio WebSocket rejected: %s", reason)
-                await websocket.close(code=1008, reason=reason)
-                return
-            token = bearer or cookie_value
+                if websocket.remote_address else None),
+            ephemeral_cookie=eph,
+        )
+        if not allowed:
+            logger.warning("Audio WebSocket rejected: %s", reason)
+            await websocket.close(code=1008, reason=reason)
+            return
+        token = eph or bearer or cookie_value
         conn_id = register_websocket_connection(token, websocket.close, resource='audio')
         if conn_id is None:
             # Session revoked between validation and registration

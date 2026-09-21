@@ -106,32 +106,20 @@ def _authenticate_gamepad_connection(headers, websocket):
         headers,
         websocket.remote_address[0]
         if getattr(websocket, 'remote_address', None) else None)
-    if eph and not bearer and not cookie_value:
-        # Activated ephemeral session via the share-link cookie.
-        from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
-        from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
-        from vnc_remote_secure.security.rate_limit import get_auth_limiter
-        if not check_origin(origin, get_allowed_origins()):
-            get_auth_limiter().record_failure(f'ws:{peer_ip}')
-            return False, None, None, 'Invalid origin'
-        if not check_session_permission(
-                eph, 'desktop:control', resource='gamepad',
-                client_ip=peer_ip):
-            get_auth_limiter().record_failure(f'ws:{peer_ip}')
-            return False, None, None, 'Unauthorized'
-        token = eph
-    else:
-        allowed, reason = check_websocket_upgrade(
-            origin=origin,
-            cookie_value=cookie_value,
-            bearer_token=bearer,
-            resource='gamepad',
-            required_permission='desktop:control',
-            client_ip=peer_ip,
-        )
-        if not allowed:
-            return False, None, None, reason
-        token = bearer or cookie_value
+    # Unified auth: session cookie, bearer, or activated ephemeral
+    # cookie — resolved by the gateway's single enforcement tree.
+    allowed, reason = check_websocket_upgrade(
+        origin=origin,
+        cookie_value=cookie_value,
+        bearer_token=bearer,
+        resource='gamepad',
+        required_permission='desktop:control',
+        client_ip=peer_ip,
+        ephemeral_cookie=eph,
+    )
+    if not allowed:
+        return False, None, None, reason
+    token = eph or bearer or cookie_value
     conn_id = register_websocket_connection(token, websocket.close, resource='gamepad')
     if conn_id is None:
         # Session revoked between validation and registration

@@ -222,10 +222,18 @@ check: lint lint-python test-fast ## Run all quality checks (lint + fast tests)
 	@echo "$(GREEN)✓ All quality checks passed$(NC)"
 
 # ============================================================================
-# DOCKER — NOT YET SHIPPED
+# DOCKER
 # ============================================================================
-# Container packaging (packaging/docker/) is planned but does not exist
-# in the tree yet; see ROADMAP.md and docs/installation/docker.md.
+# Container packaging lives in packaging/docker/ (Dockerfile, compose.yml,
+# compose.integration.yml). Linux containers only — the Windows adapter
+# is not containerized. Build and run with:
+#   docker compose -f packaging/docker/compose.yml --env-file .env up -d
+# Integration tests run under the `test` Compose profile:
+#   docker compose -f packaging/docker/compose.yml \
+#       -f packaging/docker/compose.integration.yml --profile test \
+#       run --rm test-runner
+# The docker-* / demo make targets are intentionally omitted; use
+# `docker compose` directly.
 
 # ============================================================================
 # SERVICES (Linux/RPi) — canonical via vnc-remote CLI
@@ -418,8 +426,8 @@ git-pull: ## Pull from remote (current branch)
 # DEMO
 # ============================================================================
 
-# Demo target intentionally omitted (container packaging is not yet
-# shipped — see the DOCKER section above).
+# Demo target intentionally omitted: a containerized deployment is
+# available via packaging/docker/compose.yml (see DOCKER above).
 
 # ============================================================================
 # PHONY
