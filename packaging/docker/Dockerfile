@@ -40,12 +40,12 @@ COPY src/vnc_remote_secure/ /app/vnc_remote_secure/
 # NOTE: version specifiers must be quoted — bare `>=`/`<` would be parsed
 # by the shell as redirections.
 RUN pip install --no-cache-dir \
-        "Flask>=2.2,<4.0" \
-        "tornado>=6.2,<7.0" \
+        "Flask>=3.0.3,<4.0" \
+        "tornado>=6.4.2,<7.0" \
         "websockify>=0.10,<1.0" \
         "cryptography>=41.0,<46.0" \
         "websockets>=12.0,<17.0" \
-        "werkzeug>=3.0,<4.0" \
+        "werkzeug>=3.0.3,<4.0" \
         "pycryptodome>=3.19.0,<4.0"
 
 # --- Copy systemd units (informational; systemd not used in-container) -------
