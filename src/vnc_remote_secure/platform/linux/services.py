@@ -33,8 +33,21 @@ def install_service(name, unit_file, unit_content=None):
     _check_unit_name(name)
     if unit_content is not None:
         os.makedirs(os.path.dirname(unit_file), exist_ok=True)
-        with open(unit_file, 'w', encoding='utf-8') as f:
-            f.write(unit_content)
+        # Atomic write: a crash mid-write would leave a corrupt unit
+        # file that systemd then fails to parse on every reload.
+        import tempfile
+        fd, tmp = tempfile.mkstemp(
+            dir=os.path.dirname(unit_file), suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(unit_content)
+            os.replace(tmp, unit_file)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
     elif not os.path.exists(unit_file):
         raise ServiceError(f"Unit file not found: {unit_file}")
     result = run_cmd(
