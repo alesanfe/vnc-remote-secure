@@ -67,7 +67,18 @@ def client_ip_from(headers, peer_ip):
     load_env_file()
     trusted = os.environ.get('TRUSTED_PROXY', 'false').lower() in (
         'true', '1', 'yes')
-    if trusted and headers is not None:
+    # XFF is only meaningful when the request actually came through the
+    # trusted proxy. Honoring it for any peer lets a client that can
+    # reach a service port directly spoof its identity — rotating
+    # rate-limit keys and bypassing allowed_ip session binding. The
+    # peer must be loopback (nginx on the same host) or listed in
+    # TRUSTED_PROXY_IPS (comma-separated, e.g. an off-box proxy).
+    if trusted and headers is not None and peer_ip:
+        proxy_ips = {'127.0.0.1', '::1', 'localhost'}
+        extra = os.environ.get('TRUSTED_PROXY_IPS', '')
+        proxy_ips.update(p.strip() for p in extra.split(',') if p.strip())
+        if peer_ip not in proxy_ips:
+            return peer_ip
         get = getattr(headers, 'get', None)
         if callable(get):
             forwarded = get('X-Forwarded-For', '')
@@ -78,6 +89,19 @@ def client_ip_from(headers, peer_ip):
                 # controlled and the last is the trusted-proxy-set one.
                 return forwarded.split(',')[-1].strip()
     return peer_ip
+
+
+def _is_locked(limiter, client_ip):
+    """True when the client is locked out in ANY shared namespace.
+
+    ``attempt_login`` records failures under ``ip:{addr}`` while the
+    Basic-auth helpers historically used the bare address — a login
+    lockout therefore did not protect the Basic-auth surfaces that
+    verify the same credentials. Check both so one shared credential
+    gets one shared lockout budget.
+    """
+    return (limiter.is_locked(client_ip)
+            or limiter.is_locked(f'ip:{client_ip}'))
 
 
 def check_landing_auth(auth_header, client_ip=None):
@@ -116,7 +140,7 @@ def check_landing_auth(auth_header, client_ip=None):
     if client_ip:
         from vnc_remote_secure.security.rate_limit import get_auth_limiter
         limiter = get_auth_limiter()
-        if limiter.is_locked(client_ip):
+        if _is_locked(limiter, client_ip):
             return False
     ok = check_basic_auth(auth_header, 'admin', password)
     if limiter is not None:
@@ -136,9 +160,24 @@ def check_terminal_auth(auth_header, client_ip=None):
     # restrictions and per-action authorization).
     if auth_header.startswith('Bearer '):
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
-        token = auth_header[7:].strip()
+        # Same rate-limit gate as the Basic path below — without it the
+        # Bearer surface is an unthrottled check_permission oracle (and
+        # probes can burn a captured single-use token).
+        if client_ip:
+            from vnc_remote_secure.security.rate_limit import get_auth_limiter
+            limiter = get_auth_limiter()
+            if _is_locked(limiter, client_ip):
+                return False
+            ok = check_permission(
+                auth_header[7:].strip(), 'terminal:use', resource='terminal',
+                client_ip=client_ip)
+            if ok:
+                limiter.record_success(client_ip)
+            else:
+                limiter.record_failure(client_ip)
+            return ok
         return check_permission(
-            token, 'terminal:use', resource='terminal',
+            auth_header[7:].strip(), 'terminal:use', resource='terminal',
             client_ip=client_ip)
     from vnc_remote_secure.core.constants import DEFAULT_TTYD_USERNAME
     username = os.environ.get('TTYD_USERNAME', DEFAULT_TTYD_USERNAME)
@@ -163,7 +202,7 @@ def check_terminal_auth(auth_header, client_ip=None):
     if client_ip:
         from vnc_remote_secure.security.rate_limit import get_auth_limiter
         limiter = get_auth_limiter()
-        if limiter.is_locked(client_ip):
+        if _is_locked(limiter, client_ip):
             return False
     ok = check_basic_auth(auth_header, username, password)
     if limiter is not None:

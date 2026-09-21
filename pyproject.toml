@@ -52,6 +52,11 @@ dev = [
 linux = [
     "evdev>=1.0,<2.0",
 ]
+# Optional: enables orphan-process reaping in the service manager
+# (_reap_stale_service). Without it the stale-PID cleanup no-ops.
+ops = [
+    "psutil>=5.9,<7.0",
+]
 
 [project.scripts]
 vnc-remote = "vnc_remote_secure.cli:main"

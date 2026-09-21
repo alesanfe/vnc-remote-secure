@@ -116,9 +116,23 @@ def _pid_alive(pid: int) -> bool:
             return False
     try:
         os.kill(pid, 0)
-        return True
     except (OSError, ProcessLookupError):
         return False
+    # os.kill(pid, 0) succeeds on zombies, and our spawned children can
+    # sit as zombies until the next Popen triggers subprocess._cleanup —
+    # during that window a dead service would be reported as running and
+    # the watchdog would never restart it. Check /proc state directly.
+    try:
+        with open(f'/proc/{pid}/stat', 'r', encoding='ascii') as fh:
+            # comm may contain spaces/parens; state follows the last ')'.
+            stat = fh.read()
+            state = stat[stat.rfind(')') + 2]
+            if state == 'Z':
+                return False
+    except OSError:
+        # /proc unavailable (non-Linux POSIX) — fall back to kill result.
+        pass
+    return True
 
 
 def _kill_descendants(pid: int, depth: int = 0) -> None:
@@ -235,6 +249,12 @@ def _kill_pid(pid: int, timeout: float = 5.0,
             )
         except (OSError, subprocess.SubprocessError):
             return False
+        # taskkill returns before the process fully exits — without a
+        # settle wait a subsequent start can hit EADDRINUSE on the port
+        # the dying process still holds.
+        deadline = time.time() + timeout
+        while time.time() < deadline and _pid_alive(pid):
+            time.sleep(0.1)
     else:
         # Terminate children first — a dead parent (e.g. the audio
         # supervisor) would orphan grandchildren like ffmpeg, which
@@ -433,9 +453,19 @@ def _start_python_service(module: str, service_name: str,
 
     Returns the PID on success, None on failure.
     """
-    if _read_pid(service_name) and _pid_alive(_read_pid(service_name)):
-        logger.info("Service %s already running (PID %s)", service_name, _read_pid(service_name))
-        return _read_pid(service_name)
+    existing = _read_pid(service_name)
+    if existing and _pid_alive(existing):
+        if _pid_is_ours(existing, service_name) is False:
+            # Stale pid file pointing at a reused foreign PID — drop the
+            # record instead of reporting "already running" forever.
+            logger.warning(
+                "Service %s pid file points at foreign PID %d — "
+                "clearing stale record", service_name, existing)
+            _clear_pid(service_name)
+        else:
+            logger.info("Service %s already running (PID %s)",
+                        service_name, existing)
+            return existing
     # Pre-check: if the service port is already occupied, either an
     # orphaned copy of ours survived a crash (reap it) or a foreign
     # process owns it (fail loudly — never kill foreign processes).
@@ -752,21 +782,45 @@ def _start_nginx(config: dict) -> Optional[int]:
             ['systemctl', 'start', 'nginx'],
             capture_output=True, timeout=15,
         )
-        if res.returncode != 0:
-            # Fallback: try direct nginx binary
-            res = subprocess.run(
-                ['nginx'], capture_output=True, timeout=10,
-            )
         if res.returncode == 0:
-            # Find the nginx master PID
+            # Ask systemd for the unit's MainPID instead of pgrep —
+            # pgrep order is arbitrary and can adopt a worker or a
+            # foreign nginx for later SIGKILL.
+            try:
+                show = subprocess.run(
+                    ['systemctl', 'show', '-p', 'MainPID', '--value', 'nginx'],
+                    capture_output=True, text=True, timeout=5,
+                )
+                mpid = int(show.stdout.strip())
+                if mpid > 0:
+                    _write_pid('nginx', mpid)
+                    return mpid
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+            return None
+        # Fallback: try direct nginx binary
+        res = subprocess.run(
+            ['nginx'], capture_output=True, timeout=10,
+        )
+        if res.returncode == 0:
+            # Find the nginx master PID — ppid==1 distinguishes the
+            # daemonized master from its workers (ppid=master). pgrep
+            # order is arbitrary, so picking pids[0] could adopt a
+            # worker (or a foreign nginx) for later SIGKILL.
             try:
                 res = subprocess.run(
                     ['pgrep', '-x', 'nginx'], capture_output=True, text=True, timeout=5,
                 )
                 pids = [int(p) for p in res.stdout.split() if p.strip().isdigit()]
-                if pids:
-                    _write_pid('nginx', pids[0])
-                    return pids[0]
+                for pid in pids:
+                    try:
+                        with open(f'/proc/{pid}/stat', 'r', encoding='ascii') as fh:
+                            stat = fh.read()
+                        if int(stat[stat.rfind(')') + 2:].split()[1]) == 1:
+                            _write_pid('nginx', pid)
+                            return pid
+                    except (OSError, ValueError, IndexError):
+                        continue
             except (OSError, ValueError):
                 pass
         return None
@@ -779,7 +833,12 @@ def stop_all() -> dict:
     """Stop all managed services by PID. Returns a dict of service -> stopped_bool."""
     with _GlobalLock() as lock:
         if not lock.acquired:
-            logger.warning("Another instance holds the lock; cannot stop cleanly")
+            # Proceeding without the lock can kill services a concurrent
+            # start_all is mid-spawn on (PID written, port still binding)
+            # leaving a half-dead deployment — refuse instead.
+            logger.error("Another instance holds the lock; refusing to "
+                         "stop without it")
+            return {'error': 'lock held by another instance'}
         results = {}
         # Stop in reverse order of start.
         services = ['nginx', 'gamepad', 'audio',
@@ -832,15 +891,8 @@ def restart_all(config: dict = None) -> dict:
         return results
 
 
-def status_all() -> dict:
-    """Return real status of every managed service from PIDs.
-
-    Each entry includes ``running``, ``pid``, and ``port`` (when known)
-    so the health endpoints can report the documented schema.
-    """
-    from vnc_remote_secure.core.config import get_config
-
-    config = get_config()
+def _service_port_map(config: dict) -> dict:
+    """Return the service -> expected port map for status/watchdog probes."""
     # On Linux TigerVNC binds 5900+display regardless of an explicit
     # VNC_PORT — report the effective port so status agrees with the
     # doctor probe and the landing portal (same derivation as
@@ -852,7 +904,7 @@ def status_all() -> dict:
             vnc_port = _vnc_port(config.get('vnc_display', ':1'))
         except Exception:  # noqa: BLE001 - fall back to config value
             pass
-    port_map = {
+    return {
         'vnc': vnc_port,
         'terminal': config.get('ttyd_port'),
         'novnc': config.get('novnc_port'),
@@ -866,12 +918,42 @@ def status_all() -> dict:
             'NGINX_HTTPS_PORT', str(DEFAULT_NGINX_HTTPS_PORT)))
                   if config.get('nginx_enabled') else None),
     }
+
+
+def status_all() -> dict:
+    """Return real status of every managed service from PIDs.
+
+    Each entry includes ``running``, ``pid``, and ``port`` (when known)
+    so the health endpoints can report the documented schema.
+    """
+    from vnc_remote_secure.core.config import get_config
+
+    config = get_config()
+    # On Linux TigerVNC binds 5900+display regardless of an explicit
+    # VNC_PORT — report the effective port so status agrees with the
+    # doctor probe and the landing portal (same derivation as
+    # services/vnc._vnc_port and _start_websockify).
+    port_map = _service_port_map(config)
     services = list(port_map.keys())
     enabled = set(_enabled_services(config))
     result = {}
     for service in services:
         pid = _read_pid(service)
         alive = _pid_alive(pid) if pid else False
+        # PID reuse check: a stale pid file pointing at a foreign,
+        # still-living process must not report the service as running.
+        if alive and _pid_is_ours(pid, service) is False:
+            alive = False
+        port = port_map.get(service)
+        # A live PID is not enough: a hung service (deadlocked event
+        # loop, crashed acceptor) keeps the process alive while the
+        # listener is gone. Probe the port when known — but only for
+        # services this manager spawned; nginx may be system-managed.
+        if alive and port and service != 'nginx':
+            try:
+                alive = _port_accepting(port)
+            except Exception:  # noqa: BLE001 - probe is best-effort
+                pass
         entry = {
             'pid': pid,
             'running': alive,
@@ -880,7 +962,6 @@ def status_all() -> dict:
             # Intentionally disabled — report as such instead of
             # looking like a crashed service.
             entry['enabled'] = False
-        port = port_map.get(service)
         if port:
             entry['port'] = port
         result[service] = entry
@@ -940,10 +1021,21 @@ def watchdog_tick(config: dict = None) -> dict:
         return {}
 
     dead = []
+    port_map = _service_port_map(config)
     for service in _enabled_services(config):
         pid = _read_pid(service)
         if not pid or not _pid_alive(pid):
             dead.append(service)
+            continue
+        # A hung process (alive PID, dead listener) is as dead as a
+        # crashed one — the watchdog exists to catch exactly this.
+        port = port_map.get(service)
+        if port and service != 'nginx':
+            try:
+                if not _port_accepting(port):
+                    dead.append(service)
+            except Exception:  # noqa: BLE001 - probe is best-effort
+                pass
 
     global _last_watchdog_dead
     dead_set = set(dead)
@@ -968,6 +1060,12 @@ def watchdog_tick(config: dict = None) -> dict:
                 throttled.append(service)
                 continue
             _record_restart(service, now)
+            # A hung-but-alive service (dead listener, live PID) must be
+            # killed before respawn — otherwise it orphans and the next
+            # watchdog cycle finds it again.
+            pid = _read_pid(service)
+            if pid and _pid_alive(pid):
+                _kill_pid(pid, service=service)
             _clear_pid(service)
             results[service] = _start_service(service, config)
         if throttled:
@@ -1042,8 +1140,13 @@ def save_state() -> dict:
 
 
 def restore_state(state: dict) -> None:
-    """Restore service state (best-effort: re-reads PIDs)."""
+    """Restore service state (best-effort: re-reads PIDs).
+
+    Only records a PID when it still belongs to this deployment —
+    PID reuse between backup and restore would otherwise adopt a
+    foreign process into status output.
+    """
     pids = state.get('pids', {})
     for svc, pid in pids.items():
-        if pid and _pid_alive(pid):
+        if pid and _pid_alive(pid) and _pid_is_ours(pid, svc) is not False:
             _write_pid(svc, pid)

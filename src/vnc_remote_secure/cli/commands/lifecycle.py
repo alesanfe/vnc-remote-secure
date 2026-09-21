@@ -183,6 +183,9 @@ def cmd_stop(args):
 
     from vnc_remote_secure.core.service_manager import stop_all
     results = stop_all()
+    if 'error' in results:
+        print(f"Error: {results['error']}", file=sys.stderr)
+        return 1
     stopped = [name for name, ok in results.items() if ok]
     not_stopped = [name for name, ok in results.items() if not ok]
     if stopped:

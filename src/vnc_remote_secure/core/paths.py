@@ -278,7 +278,7 @@ def _repair_state_file_acls():
         # Skip transient/lock artifacts — only durable state files.
         if name.endswith(('.tmp', '.lock')):
             continue
-        grants = [f'*S-1-5-18:(M)', f'*S-1-5-32-544:(M)']
+        grants = ['*S-1-5-18:(M)', '*S-1-5-32-544:(M)']
         if user:
             grants.append(f'{user}:(M)')
         try:

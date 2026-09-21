@@ -699,6 +699,15 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 # Own process group so _kill_process_tree can SIGKILL
                 # the shell AND its children without hitting ours.
                 kwargs['start_new_session'] = True
+            # A previous command may still be running if two 'command'
+            # messages raced — overwriting current_process here would
+            # orphan it from interrupt/on_close cleanup.
+            prev = self.current_process
+            if prev is not None and prev.poll() is None:
+                try:
+                    prev.terminate()
+                except Exception:  # noqa: BLE001 - best-effort cleanup
+                    pass
             self.current_process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,

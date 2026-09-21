@@ -165,6 +165,13 @@ class LinuxAdapter(PlatformAdapter):
             from vnc_remote_secure.core.exceptions import ServiceError
             raise ServiceError("VNC server binary not found on PATH")
         cmd = [exe, display, '-geometry', geometry, '-depth', str(depth)]
+        # TigerVNC's wrapper daemonizes by default: it forks Xvnc and
+        # exits, so the PID the service manager records dies instantly
+        # and the real Xvnc escapes start/stop/status tracking. `-fg`
+        # keeps the wrapper in the foreground as Xvnc's parent, which
+        # restores correct PID lifecycle management.
+        if os.path.basename(exe).startswith('tigervncserver'):
+            cmd.append('-fg')
         # ADR-0002: when nginx is the single entry point the RFB port
         # must not listen on all interfaces — direct RFB is only
         # reachable through the loopback websockify bridge. Without

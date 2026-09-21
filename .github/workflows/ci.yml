@@ -157,13 +157,17 @@ jobs:
           python-version: '3.12'
       - name: Install Bandit
         run: pip install bandit
-      - name: Run Bandit
+      # Informational-only: findings are uploaded as artifacts but do not
+      # gate the pipeline. Bandit's medium/low findings include accepted
+      # patterns here (RFB DES is protocol-mandated; 0.0.0.0 binds are
+      # profile-driven); flip to gating once the backlog is triaged.
+      - name: Run Bandit (informational)
         run: |
           bandit -r src/vnc_remote_secure/ -f json -o bandit-report.json || true
           bandit -r src/vnc_remote_secure/ -ll || true
       - name: Install Semgrep
         run: pip install semgrep
-      - name: Run Semgrep
+      - name: Run Semgrep (informational)
         run: |
           semgrep scan --config=auto --error src/vnc_remote_secure/ || true
       - name: Upload Bandit report

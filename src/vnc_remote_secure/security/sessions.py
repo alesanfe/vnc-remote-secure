@@ -119,6 +119,21 @@ def verify_session_cookie(cookie_value: str) -> Optional[dict]:
     }
 
 
+def session_revocation_key(cookie_value: str) -> Optional[str]:
+    """Return a revocation key stable across cookie refreshes.
+
+    ``refresh_session_cookie`` re-signs the cookie every refresh window,
+    so the exact signed string is not a usable revocation key — marking
+    it would leave the refreshed (current) cookie valid. The
+    ``username:created`` pair is invariant across refreshes and unique
+    per login, so revocations keyed on it cover every re-issued value.
+    """
+    session = verify_session_cookie(cookie_value)
+    if session is None:
+        return None
+    return f"{session['username']}:{session['created']}"
+
+
 def refresh_session_cookie(cookie_value: str,
                            refresh_grace: int = 60) -> Optional[str]:
     """Return a re-signed cookie with an updated ``last_seen``.

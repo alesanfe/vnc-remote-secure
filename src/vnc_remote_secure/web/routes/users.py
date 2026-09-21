@@ -262,11 +262,24 @@ def logout():
     # until expiry.
     try:
         token = session.get('token', '')
+        # The cookie is re-signed on every refresh, so the client's live
+        # cookie value no longer equals session['token']. Revoke the
+        # stable username:created key — it kills the current cookie and
+        # every connection registered under the resolved session id.
+        from vnc_remote_secure.security.auth_gateway import (
+            _resolve_session_id,
+        )
+        from vnc_remote_secure.security.websocket_registry import (
+            revoke_session_connections,
+        )
         if token:
-            from vnc_remote_secure.security.websocket_registry import (
-                revoke_session_connections,
-            )
+            revoke_session_connections(_resolve_session_id(token))
             revoke_session_connections(token)
+        from flask import request as _req
+        live = _req.cookies.get('vnc_session', '')
+        if live and live != token:
+            revoke_session_connections(_resolve_session_id(live))
+            revoke_session_connections(live)
     except Exception:  # noqa: BLE001 - logout must not fail on revoke
         pass
     session.clear()

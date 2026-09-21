@@ -218,7 +218,7 @@ def compute_effective_config(
         'PUBLIC_', 'AUDIO_', 'GAMEPAD_', 'KEEP_',
         'FLASK_', 'RECOVERY_', 'SHOW_', 'LOG_', 'WEBTERM_',
         'USER_UI_', 'HEALTHCHECK_', 'VNC_REMOTE_',
-        'ALERTS_', 'ALERT_', 'MONITORING_',
+        'ALERTS_', 'ALERT_',
         'TEMP_', 'DISCORD_', 'FAIL2BAN_', 'CSP_', 'TRUSTED_',
         'SHARED_STATE_', 'ULTRAVNC_',
     )

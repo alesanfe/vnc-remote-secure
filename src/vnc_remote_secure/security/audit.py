@@ -49,8 +49,18 @@ def _audit_log_file() -> str:
     from vnc_remote_secure.core.paths import get_log_dir
     return os.path.join(get_log_dir(), 'audit.jsonl')
 
-# Rotation threshold (default 10 MB).
-_AUDIT_LOG_MAX_BYTES = int(os.environ.get('AUDIT_LOG_MAX_BYTES', str(10 * 1024 * 1024)))
+# Rotation threshold (default 10 MB). Resolved lazily — audit.py is
+# imported by the auth and startup paths, so a malformed env value must
+# not crash the process at import time (F-016 lazy-config pattern).
+_AUDIT_LOG_MAX_BYTES_DEFAULT = 10 * 1024 * 1024
+
+
+def _audit_log_max_bytes() -> int:
+    try:
+        return int(os.environ.get(
+            'AUDIT_LOG_MAX_BYTES', str(_AUDIT_LOG_MAX_BYTES_DEFAULT)))
+    except (ValueError, TypeError):
+        return _AUDIT_LOG_MAX_BYTES_DEFAULT
 
 # The genesis anchor hash — a fixed, well-known value that starts
 # every fresh audit chain. This is verified on startup to detect
@@ -184,7 +194,7 @@ def _maybe_rotate():
         size = path.stat().st_size
     except OSError:
         return
-    if size < _AUDIT_LOG_MAX_BYTES:
+    if size < _audit_log_max_bytes():
         return
     rotated = path.with_suffix('.jsonl.1')
     try:

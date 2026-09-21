@@ -61,34 +61,39 @@ def _service_ports():
     def _h(env, default='127.0.0.1'):
         host = (os.environ.get(env, '') or default).strip()
         return '127.0.0.1' if host in ('0.0.0.0', '::', '') else host
+
+    def _p(env, default):
+        # A malformed port env var must not crash every health request —
+        # fall back to the same default get_config() would use.
+        try:
+            return int(os.environ.get(env, str(default)))
+        except (ValueError, TypeError):
+            return default
+
     ports = {
         'vnc': ('127.0.0.1', _vnc_probe),
-        'novnc': (_h('NOVNC_HOST'),
-                  int(os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)))),
-        'terminal': (_h('TTYD_HOST'),
-                     int(os.environ.get('TTYD_PORT', str(DEFAULT_TTYD_PORT)))),
-        'landing': (_h('LANDING_HOST'),
-                    int(os.environ.get('LANDING_PORT', str(DEFAULT_LANDING_PORT)))),
+        'novnc': (_h('NOVNC_HOST'), _p('NOVNC_PORT', DEFAULT_NOVNC_PORT)),
+        'terminal': (_h('TTYD_HOST'), _p('TTYD_PORT', DEFAULT_TTYD_PORT)),
+        'landing': (_h('LANDING_HOST'), _p('LANDING_PORT', DEFAULT_LANDING_PORT)),
         # Internal WebSocket->RFB bridge (loopback only, always runs
         # alongside noVNC — _start_websockify binds 127.0.0.1).
-        'websockify': ('127.0.0.1',
-                       int(os.environ.get('NOVNC_WS_PORT', str(DEFAULT_NOVNC_WS_PORT)))),
+        'websockify': ('127.0.0.1', _p('NOVNC_WS_PORT', DEFAULT_NOVNC_WS_PORT)),
     }
     # Optional services are probed only when enabled, so a disabled
     # feature does not drag the aggregated status to 'degraded'.
     _on = ('true', '1', 'yes')
     if os.environ.get('HEALTH_WEB_ENABLED', 'true').lower() in _on:
         ports['health'] = (_h('HEALTH_WEB_HOST'),
-                           int(os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT))))
+                           _p('HEALTH_WEB_PORT', DEFAULT_HEALTH_PORT))
     if os.environ.get('USER_UI_ENABLED', 'false').lower() in _on:
         ports['user_ui'] = (_h('USER_UI_HOST'),
-                            int(os.environ.get('USER_UI_PORT', str(DEFAULT_USER_UI_PORT))))
+                            _p('USER_UI_PORT', DEFAULT_USER_UI_PORT))
     if os.environ.get('AUDIO_STREAM_ENABLED', 'false').lower() in _on:
         ports['audio'] = (_h('AUDIO_STREAM_HOST'),
-                          int(os.environ.get('AUDIO_STREAM_PORT', str(DEFAULT_AUDIO_STREAM_PORT))))
+                          _p('AUDIO_STREAM_PORT', DEFAULT_AUDIO_STREAM_PORT))
     if os.environ.get('GAMEPAD_ENABLED', 'false').lower() in _on:
         ports['gamepad'] = (_h('GAMEPAD_HOST'),
-                            int(os.environ.get('GAMEPAD_PORT', str(DEFAULT_GAMEPAD_PORT))))
+                            _p('GAMEPAD_PORT', DEFAULT_GAMEPAD_PORT))
     return ports
 
 

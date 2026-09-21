@@ -168,9 +168,23 @@ def _load_platform_defaults(project_root):
         for key, val in _parse_env_file(path):
             if key not in os.environ:
                 os.environ[key] = val
+                _DEFAULT_INJECTED[key] = val
 
 
 _ENV_LOADED = False
+# Keys (and the exact values) this process injected from
+# config/defaults/*.env or the system config.env. On a second
+# load_env_file() call they must not count as "real env" or they would
+# block the project .env from overriding them (precedence inversion).
+# Tracking the VALUE distinguishes "still our default" from a real env
+# var that later overwrote it — the latter must win again.
+_DEFAULT_INJECTED = {}
+
+
+def _is_injected_default(key: str) -> bool:
+    """True if ``key`` still holds a value we injected as a default."""
+    return (_DEFAULT_INJECTED.get(key) is not None
+            and os.environ.get(key) == _DEFAULT_INJECTED[key])
 
 
 def _system_env_path():
@@ -290,8 +304,11 @@ def load_env_file(env_path=None):
 
     # Snapshot the REAL environment before any defaults are merged in.
     # Keys present here must never be overridden by .env or defaults —
-    # even when the same key also appears in a defaults file.
-    real_env_keys = set(os.environ)
+    # even when the same key also appears in a defaults file. Keys that
+    # a previous load_env_file() call injected (and that still hold the
+    # injected value) do NOT count as real env — otherwise a reload
+    # with an explicit env_path would invert precedence (defaults > .env).
+    real_env_keys = {k for k in os.environ if not _is_injected_default(k)}
 
     project_root = _find_project_root()
     # Precedence (highest wins):
@@ -326,7 +343,9 @@ def load_env_file(env_path=None):
     #    the project .env (which outranks it).
     for key, val in system_env.items():
         if key not in real_env_keys and key not in proj_env:
-            os.environ[key] = val
+            if key not in os.environ or _is_injected_default(key):
+                os.environ[key] = val
+                _DEFAULT_INJECTED[key] = val
     # 3. Project .env — overrides system config and platform defaults
     #    but never real env vars.
     for key, val in proj_env.items():
@@ -553,12 +572,16 @@ def _get_landing_password():
 
 
 def _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_user_set,
-                             user_ui_password, landing_password):
+                             user_ui_password, landing_password,
+                             landing_user_set=False):
     """Validate user-provided passwords (generated ones are always strong).
 
     Validates VNC_PASSWORD, TTYD_PASSWD, USER_UI_PASSWORD, and
     LANDING_PASSWORD. Generated passwords are always strong; user-provided
-    ones may be weak, so only the latter are validated.
+    ones may be weak, so only the latter are validated. A generated
+    LANDING_PASSWORD must skip the weak-pattern check too — the random
+    16-char draw can legitimately contain a weak substring and would
+    crash get_config() on an unlucky roll.
     """
     from vnc_remote_secure.core.validation import validate_password
     if vnc_user_set:
@@ -567,7 +590,7 @@ def _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_use
         validate_password(ttyd_password, 'TTYD_PASSWD')
     if user_ui_password:
         validate_password(user_ui_password, 'USER_UI_PASSWORD')
-    if landing_password:
+    if landing_password and landing_user_set:
         validate_password(landing_password, 'LANDING_PASSWORD')
 
 
@@ -809,7 +832,11 @@ def _get_optional_features_config():
 
         # VNC display settings
         'vnc_geometry': os.environ.get('VNC_GEOMETRY', DEFAULT_VNC_GEOMETRY),
-        'vnc_depth': _safe_int('VNC_DEPTH', DEFAULT_VNC_DEPTH, 8, 32),
+        # Schema restricts VNC_DEPTH to {8,16,24,32} — the runtime must
+        # agree or `config validate` would reject values it accepts.
+        'vnc_depth': (lambda v: v if v in (8, 16, 24, 32)
+                      else DEFAULT_VNC_DEPTH)(
+                          _safe_int('VNC_DEPTH', DEFAULT_VNC_DEPTH, 8, 32)),
         'vnc_display': os.environ.get('VNC_DISPLAY', DEFAULT_VNC_DISPLAY),
 
         # nginx ports (for reverse proxy configuration)
@@ -902,7 +929,8 @@ def get_config():
 
     # Validate passwords when they are user-provided (not generated).
     _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_user_set,
-                             user_ui_password, landing_password)
+                             user_ui_password, landing_password,
+                             landing_user_set=_landing_user_set)
 
     # A user-set credential makes the persisted generated copy stale:
     # leaving it means deleting the env var later silently resurrects

@@ -33,6 +33,7 @@ import os
 import signal
 import socketserver
 import sys
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,11 @@ from vnc_remote_secure.core.constants import (
     DEFAULT_NOVNC_PORT,
     DEFAULT_NOVNC_WS_PORT,
 )
+
+# Idle budget for the WebSocket relay: no traffic in either direction
+# for this long closes the tunnel. VNC sessions are chatty in practice;
+# a dead peer is reaped instead of pinning a thread + upstream socket.
+_RELAY_IDLE_TIMEOUT = 300
 
 
 def _check_novnc_auth(headers, client_ip=None):
@@ -119,7 +125,8 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         send_security_headers(self)
         super().end_headers()
 
-    def do_GET(self):  # noqa: N802 - stdlib API
+    def _require_auth(self) -> bool:
+        """Run the auth gate; sends 401 and returns False on failure."""
         from vnc_remote_secure.security.http_auth import client_ip_from
         client_ip = client_ip_from(
             self.headers,
@@ -134,12 +141,24 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return False
+        return True
+
+    def do_GET(self):  # noqa: N802 - stdlib API
+        if not self._require_auth():
             return
         if self.path.split('?', 1)[0] == '/websockify' and \
                 'websocket' in self.headers.get('Upgrade', '').lower():
             self._proxy_websocket()
             return
         super().do_GET()
+
+    def do_HEAD(self):  # noqa: N802 - stdlib API
+        # HEAD must go through the same gate — otherwise directory
+        # listings and file metadata leak without authentication.
+        if not self._require_auth():
+            return
+        super().do_HEAD()
 
     def _proxy_websocket(self):
         """Relay the WebSocket upgrade to the loopback websockify bridge.
@@ -217,7 +236,20 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             # filter drops KeyEvent/PointerEvent/ClientCutText inside
             # the WebSocket stream so a modified client cannot send
             # input even though the UI hides the controls.
-            eph_tok = cookies.get('vnc_ephemeral')
+            # The ephemeral credential may arrive as the vnc_ephemeral
+            # cookie OR as a Bearer token — a Bearer-only path would
+            # bypass view-only enforcement entirely.
+            eph_tok = cookies.get('vnc_ephemeral') or ''
+            if not eph_tok and bearer:
+                try:
+                    from vnc_remote_secure.security.ephemeral_sessions import (
+                        verify_ephemeral_token,
+                    )
+                    payload = verify_ephemeral_token(bearer)
+                    if payload:
+                        eph_tok = payload['session_token']
+                except Exception:  # noqa: BLE001 - not an ephemeral bearer
+                    pass
             if eph_tok:
                 try:
                     from vnc_remote_secure.security.ephemeral_sessions import (
@@ -285,13 +317,40 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         # desynchronise the handshake state machine permanently.
         upstream_hdr_pending = rfb_filter is not None
         try:
-            upstream.sendall(request.encode('latin-1'))
+            # latin-1 can raise UnicodeEncodeError on exotic header
+            # values — encode failures are not OSError, so encode here
+            # first and let the except below catch both.
+            request_bytes = request.encode('latin-1')
+        except (UnicodeEncodeError, ValueError):
+            logger.debug("Unencodable upstream request; dropping relay")
+            try:
+                upstream.close()
+            except OSError:
+                pass
+            if conn_id:
+                try:
+                    from vnc_remote_secure.security.websocket_registry import unregister_connection
+                    unregister_connection(conn_id)
+                except Exception:  # noqa: BLE001
+                    pass
+            return
+        try:
+            upstream.sendall(request_bytes)
             self.close_connection = True
+            # Idle cap: a half-open TCP connection (client vanished
+            # without RST) must not pin this handler thread and the
+            # upstream socket forever — select's 60s tick is the probe,
+            # but only an absolute budget actually reaps zombies.
+            idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
             while True:
                 readable, _, _ = select.select(
                     [self.connection, upstream], [], [], 60)
                 if not readable:
+                    if time.monotonic() > idle_deadline:
+                        logger.debug("novnc relay idle timeout — closing")
+                        return
                     continue
+                idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
                 for sock in readable:
                     data = sock.recv(65536)
                     if not data:

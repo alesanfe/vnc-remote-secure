@@ -206,7 +206,7 @@
     },
     "HEALTHCHECK_ENABLED": {
       "type": "boolean",
-      "description": "Whether the periodic health check and auto-restart loop is enabled (Bash stack only)."
+      "description": "Whether the periodic health check and auto-restart loop drives the Python service-manager watchdog."
     },
     "HEALTHCHECK_INTERVAL": {
       "type": "integer",
@@ -284,7 +284,7 @@
         "FATAL",
         "CRITICAL"
       ],
-      "description": "Logging level for the Bash stack only; the Python runtime manages its own logging."
+      "description": "Logging level consumed by the Python runtime (core/logging.py)."
     },
     "MFA_REQUIRED": {
       "type": "boolean",
@@ -376,7 +376,7 @@
       "type": "integer",
       "minimum": 60,
       "default": 1800,
-      "description": "Session idle timeout in seconds (used by package UI and legacy Bash UI)."
+      "description": "Session idle timeout in seconds (used by the session cookie and Flask UI)."
     },
     "SESSION_MAX_LIFETIME": {
       "type": "integer",

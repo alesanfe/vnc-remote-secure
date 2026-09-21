@@ -7,6 +7,20 @@ read from the real system runtime directory.
 
 import pytest
 
+# Hypothesis deadlines flake under load (CI/loaded dev machines): a
+# 200ms per-example budget is a timing assertion, not a correctness
+# signal, and these tests exercise validators/parsers whose runtime
+# varies with system contention. Disable the deadline globally; the
+# per-test max_examples bounds still apply.
+try:
+    from hypothesis import HealthCheck, settings
+    settings.register_profile(
+        'vncrs', deadline=None,
+        suppress_health_check=[HealthCheck.too_slow])
+    settings.load_profile('vncrs')
+except ImportError:
+    pass
+
 
 @pytest.fixture(autouse=True)
 def _isolate_run_dir(monkeypatch, tmp_path):

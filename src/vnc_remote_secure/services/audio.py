@@ -117,6 +117,10 @@ class AudioStreamServer:
         self.ffmpeg_process = None
         self.clients = set()
         self._ffmpeg_lock = asyncio.Lock()
+        # Set while an ffmpeg process is running so audio_reader knows
+        # when there is a stdout pipe to drain. ffmpeg starts lazily on
+        # the first client, so the reader cannot just check once.
+        self._ffmpeg_running = asyncio.Event()
 
     async def start_ffmpeg(self):
         """Start ffmpeg process to capture audio."""
@@ -142,6 +146,7 @@ class AudioStreamServer:
                 stderr=subprocess.PIPE,
                 env=child_env,
             )
+            self._ffmpeg_running.set()
             logger.info("ffmpeg started (PID: %s)", self.ffmpeg_process.pid)
             return True
         except Exception as e:
@@ -167,18 +172,31 @@ class AudioStreamServer:
                 except asyncio.TimeoutError:
                     pass
             self.ffmpeg_process = None
+            self._ffmpeg_running.clear()
             logger.info("ffmpeg stopped")
 
     async def audio_reader(self):
-        """Read audio from ffmpeg stdout and broadcast to clients."""
-        if not self.ffmpeg_process:
-            return
+        """Read audio from ffmpeg stdout and broadcast to clients.
 
+        ffmpeg starts lazily when the first client connects, so this
+        task waits on ``_ffmpeg_running`` instead of returning when no
+        process exists yet — without that wait the pipe is never
+        drained and ffmpeg stalls on a full stdout buffer.
+        """
         restarts = 0
         max_restarts = 5
         while True:
-            data = await self.ffmpeg_process.stdout.read(4096)
+            await self._ffmpeg_running.wait()
+            proc = self.ffmpeg_process
+            if proc is None or proc.stdout is None:
+                self._ffmpeg_running.clear()
+                continue
+            data = await proc.stdout.read(4096)
             if not data:
+                if proc is not self.ffmpeg_process:
+                    # A different ffmpeg was started (or it was stopped)
+                    # since we captured proc — re-wait on the event.
+                    continue
                 # ffmpeg ended, try to restart — but bound the retries:
                 # a permanently broken capture would otherwise respawn
                 # ffmpeg every ~2s forever while a client is connected.
@@ -187,13 +205,19 @@ class AudioStreamServer:
                     logger.error(
                         "ffmpeg restarted %d times without producing "
                         "audio; giving up", max_restarts)
-                    break
+                    self._ffmpeg_running.clear()
+                    async with self._ffmpeg_lock:
+                        await self.stop_ffmpeg()
+                    continue
                 logger.warning("ffmpeg stream ended, restarting "
                                "(%d/%d)...", restarts, max_restarts)
                 await asyncio.sleep(2)
-                await self.start_ffmpeg()
-                if not self.ffmpeg_process:
-                    break
+                async with self._ffmpeg_lock:
+                    if self.ffmpeg_process is proc:
+                        self.ffmpeg_process = None
+                        self._ffmpeg_running.clear()
+                    if not self.ffmpeg_process:
+                        await self.start_ffmpeg()
                 continue
             restarts = 0  # healthy stream resets the counter
 
@@ -413,11 +437,19 @@ def main():
 
     server = AudioStreamServer(host, port, device or None, bitrate)
 
+    async def _main():
+        try:
+            await server.run()
+        finally:
+            # Stop ffmpeg on the SAME loop that created it — awaiting a
+            # subprocess from a fresh loop (asyncio.run after the first
+            # one closed) raises RuntimeError or hangs.
+            await server.stop_ffmpeg()
+
     try:
-        asyncio.run(server.run())
+        asyncio.run(_main())
     except KeyboardInterrupt:
         logger.info("Shutting down...")
-        asyncio.run(server.stop_ffmpeg())
 
 
 if __name__ == "__main__":

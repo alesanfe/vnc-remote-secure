@@ -779,6 +779,39 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         return True
 
+    def _require_portal_auth(self) -> bool:
+        """Ephemeral cookie or landing Basic-auth gate; sends 401 on failure."""
+        ephemeral_ok = self._valid_ephemeral_cookie()
+        if not ephemeral_ok and not check_landing_auth(
+                self.headers.get('Authorization', ''),
+                client_ip=client_ip_from(
+                    self.headers,
+                    self.client_address[0] if self.client_address else None)):
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Unauthorized', 401)
+            self.wfile.write(body.encode())
+            return False
+        return True
+
+    def do_HEAD(self):  # noqa: N802 - stdlib API
+        # HEAD must run the same gate — otherwise SimpleHTTPRequestHandler
+        # leaks file metadata (and directory listings under some CPython
+        # versions) without authentication.
+        if not self._require_portal_auth():
+            return
+        path = self.path.split('?', 1)[0]
+        if path in ('/', '/index.html', '/status.json',
+                    '/audio_receiver.html', '/gamepad.html'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_GET(self):
         # Ephemeral share links exchange the signed token for a cookie
         # before any auth check (the link itself is the credential).

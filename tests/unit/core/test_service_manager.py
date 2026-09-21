@@ -98,10 +98,35 @@ def test_status_all_clears_stale_pid(tmp_path, monkeypatch):
 def test_status_all_reports_live_pid(tmp_path, monkeypatch):
     """status_all reports a live PID as running."""
     monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))
+    # The pytest process is not a vnc_remote_secure service, and it does
+    # not listen on the VNC port — stub identity and port probes so the
+    # test exercises only PID liveness.
+    monkeypatch.setattr(sm, '_pid_is_ours', lambda *a, **k: True)
+    monkeypatch.setattr(sm, '_port_accepting', lambda *a, **k: True)
     sm._write_pid('vnc', os.getpid())
     status = sm.status_all()
     assert status['vnc']['running'] is True
     assert status['vnc']['pid'] == os.getpid()
+
+
+def test_status_all_dead_port_means_not_running(tmp_path, monkeypatch):
+    """A live PID whose port stopped accepting is reported not running."""
+    monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(sm, '_pid_is_ours', lambda *a, **k: True)
+    monkeypatch.setattr(sm, '_port_accepting', lambda *a, **k: False)
+    sm._write_pid('terminal', os.getpid())
+    status = sm.status_all()
+    assert status['terminal']['running'] is False
+
+
+def test_status_all_foreign_pid_means_not_running(tmp_path, monkeypatch):
+    """A pid file pointing at a foreign live process is not 'running'."""
+    monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(sm, '_pid_is_ours', lambda *a, **k: False)
+    monkeypatch.setattr(sm, '_port_accepting', lambda *a, **k: True)
+    sm._write_pid('landing', os.getpid())
+    status = sm.status_all()
+    assert status['landing']['running'] is False
 
 
 def test_status_all_vnc_port_display_derived_on_linux(tmp_path, monkeypatch):
@@ -217,6 +242,9 @@ def test_stop_all_does_not_touch_unrelated_pid(tmp_path, monkeypatch):
 def test_save_and_restore_state_roundtrip(tmp_path, monkeypatch):
     """save_state captures PIDs and restore_state recovers live ones."""
     monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))
+    # restore_state verifies the PID belongs to this deployment before
+    # adopting it — stub identity so the pytest process qualifies.
+    monkeypatch.setattr(sm, '_pid_is_ours', lambda *a, **k: True)
     sm._write_pid('vnc', os.getpid())
     state = sm.save_state()
     assert state['pids']['vnc'] == os.getpid()

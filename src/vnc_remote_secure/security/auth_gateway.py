@@ -314,6 +314,13 @@ def check_authenticated(
             return False, None
         session = verify_session_cookie(cookie_value)
         if session:
+            # The signed cookie string is re-issued on every refresh,
+            # so revocation is keyed on the stable username:created
+            # pair — check that too or a logged-out session's current
+            # (refreshed) cookie would keep working.
+            stable = f"{session['username']}:{session['created']}"
+            if is_revoked_shared(stable):
+                return False, None
             return True, session['username']
 
     # Fall back to bearer token
@@ -362,7 +369,8 @@ def check_websocket_upgrade(
     # upgrades from the same address.
     if client_ip and (
             limiter.is_locked(f'ws:{client_ip}')
-            or limiter.is_locked(client_ip)):
+            or limiter.is_locked(client_ip)
+            or limiter.is_locked(f'ip:{client_ip}')):
         return False, 'Rate limited'
 
     def _reject(reason: str) -> Tuple[bool, str]:
@@ -443,10 +451,13 @@ def register_websocket_connection(
 
 
 def _resolve_session_id(session_id: str) -> str:
-    """Resolve a signed token to its internal session token.
+    """Resolve a signed token to a stable internal session key.
 
-    If the input is already an internal token (not a signed token),
-    return it as-is.
+    Ephemeral signed tokens resolve to their internal session token.
+    Persistent session cookies resolve to the ``username:created``
+    revocation key so a logout kills every re-issued (refreshed)
+    cookie value and its live WebSocket connections — the raw signed
+    string changes on every refresh.
     """
     try:
         from vnc_remote_secure.security.ephemeral_sessions import (
@@ -457,6 +468,15 @@ def _resolve_session_id(session_id: str) -> str:
             return payload['session_token']
     except (ImportError, ValueError):
         logger.debug("Failed to resolve ephemeral session token", exc_info=True)
+    try:
+        from vnc_remote_secure.security.sessions import (
+            session_revocation_key,
+        )
+        key = session_revocation_key(session_id)
+        if key:
+            return key
+    except (ImportError, ValueError):
+        logger.debug("Failed to resolve session cookie key", exc_info=True)
     return session_id
 
 

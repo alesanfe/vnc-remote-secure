@@ -141,6 +141,13 @@ def create_ssl_context(cert_file=None, key_file=None):
     if not cert or not key:
         return None
     if not os.path.exists(cert) or not os.path.exists(key):
+        # Configured-but-missing cert under a hardened profile must
+        # abort, not silently serve plain HTTP.
+        profile = os.environ.get('VNC_REMOTE_PROFILE', 'development')
+        if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+            raise RuntimeError(
+                f"SSL cert/key configured but not found under profile "
+                f"'{profile}': {cert} / {key}")
         logger.debug("SSL cert/key not found: %s / %s", cert, key)
         return None
 
@@ -164,6 +171,15 @@ def create_ssl_context(cert_file=None, key_file=None):
         logger.info("SSL context loaded from %s", cert)
         return context
     except Exception as exc:
+        # Fail-open to plain HTTP would silently downgrade the whole
+        # deployment on a typo'd SSL_CERT or a permissions error. Under
+        # hardened profiles this must abort instead — same gate as the
+        # Flask-required check in web/application.py.
+        profile = os.environ.get('VNC_REMOTE_PROFILE', 'development')
+        if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+            raise RuntimeError(
+                f"SSL context failed to load under profile '{profile}': "
+                f"{exc} — refusing to downgrade to plain HTTP") from exc
         logger.warning("Failed to load SSL context: %s", exc)
         return None
 

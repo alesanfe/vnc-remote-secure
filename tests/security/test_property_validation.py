@@ -36,6 +36,10 @@ class TestPortValidation:
         result = validate_port(port)
         assert result
 
+    # deadline=None: validation is I/O-light but CI/loaded machines can
+    # exceed the default 200ms per-example budget — this is a flake, not
+    # a regression signal.
+    @settings(deadline=None)
     @given(st.integers(min_value=1, max_value=1023))
     def test_privileged_ports_warn_but_validate(self, port):
         # Privileged ports may warn but still validate (return truthy)

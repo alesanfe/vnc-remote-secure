@@ -909,7 +909,11 @@ def activate_ephemeral_session(signed_token: str,
         # client IP could still be *burned* by a different caller
         # (single-use DoS on the intended recipient), even though the
         # per-request check would later reject the attacker.
-        if session.allowed_ip and client_ip and \
+        # client_ip=None means "no caller context" (CLI/API paths) —
+        # allowed, the per-request check still enforces the binding.
+        # An empty STRING means a request resolved to no IP (suspicious,
+        # e.g. malformed XFF) — denied.
+        if session.allowed_ip and client_ip is not None and \
                 session.allowed_ip != client_ip:
             return None
         if session.single_use:
