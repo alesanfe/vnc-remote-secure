@@ -152,7 +152,20 @@ class AudioStreamServer:
         """Stop ffmpeg process."""
         if self.ffmpeg_process:
             self.ffmpeg_process.terminate()
-            await self.ffmpeg_process.wait()
+            try:
+                # A wedged encoder must not hang shutdown forever —
+                # escalate to kill after the grace period.
+                await asyncio.wait_for(self.ffmpeg_process.wait(), 5)
+            except asyncio.TimeoutError:
+                try:
+                    self.ffmpeg_process.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(
+                        self.ffmpeg_process.wait(), 5)
+                except asyncio.TimeoutError:
+                    pass
             self.ffmpeg_process = None
             logger.info("ffmpeg stopped")
 
@@ -161,16 +174,28 @@ class AudioStreamServer:
         if not self.ffmpeg_process:
             return
 
+        restarts = 0
+        max_restarts = 5
         while True:
             data = await self.ffmpeg_process.stdout.read(4096)
             if not data:
-                # ffmpeg ended, try to restart
-                logger.warning("ffmpeg stream ended, restarting...")
+                # ffmpeg ended, try to restart — but bound the retries:
+                # a permanently broken capture would otherwise respawn
+                # ffmpeg every ~2s forever while a client is connected.
+                restarts += 1
+                if restarts > max_restarts:
+                    logger.error(
+                        "ffmpeg restarted %d times without producing "
+                        "audio; giving up", max_restarts)
+                    break
+                logger.warning("ffmpeg stream ended, restarting "
+                               "(%d/%d)...", restarts, max_restarts)
                 await asyncio.sleep(2)
                 await self.start_ffmpeg()
                 if not self.ffmpeg_process:
                     break
                 continue
+            restarts = 0  # healthy stream resets the counter
 
             # Broadcast to all connected clients
             if self.clients:
