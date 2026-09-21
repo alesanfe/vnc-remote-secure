@@ -8,6 +8,10 @@ services:
     build:
       context: ../..
       dockerfile: packaging/docker/Dockerfile
+      # The Dockerfile's LAST stage is `test` (pytest runner) — without
+      # an explicit target `docker build`/compose produces the test
+      # image and the "production" container would run pytest.
+      target: base
     image: vnc-remote-secure:latest
     container_name: vnc-remote
     restart: unless-stopped

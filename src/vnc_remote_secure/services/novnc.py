@@ -30,6 +30,7 @@ Security model:
 import http.server
 import logging
 import os
+import select
 import signal
 import socketserver
 import sys
@@ -88,6 +89,72 @@ def _check_novnc_auth(headers, client_ip=None):
     return allowed, reason
 
 
+def relay_rfb_stream(client_sock, upstream, rfb_filter=None):
+    """Pump bytes between the client WS connection and the upstream
+    websockify bridge, applying ``rfb_filter`` when present.
+
+    Extracted from the request handler so the relay is unit-testable
+    over ``socket.socketpair()`` without spawning the service.
+
+    Details preserved from the handler implementation:
+    - The upstream bridge answers the relayed upgrade with its own
+      ``HTTP/1.1 101`` header block before WebSocket traffic begins.
+      Those bytes reach the client verbatim but must NOT enter the
+      RFB tracker's WS-frame parser — parsing HTTP as frames would
+      desynchronise the handshake state machine permanently.
+    - Idle cap: a half-open TCP connection (client vanished without
+      RST) must not pin this handler thread and the upstream socket
+      forever — select's 60s tick is the probe, but only an absolute
+      budget actually reaps zombies.
+    - ``rfb_filter.client_to_server`` returning ``None`` is a protocol
+      violation: fail closed by tearing down both sockets.
+
+    Returns when either side closes, errors, or the idle deadline is
+    exceeded. Caller owns socket cleanup.
+    """
+    upstream_hdr_pending = rfb_filter is not None
+    idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
+    while True:
+        readable, _, _ = select.select(
+            [client_sock, upstream], [], [], 60)
+        if not readable:
+            if time.monotonic() > idle_deadline:
+                logger.debug("novnc relay idle timeout — closing")
+                return
+            continue
+        idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
+        for sock in readable:
+            data = sock.recv(65536)
+            if not data:
+                return
+            if rfb_filter is not None:
+                if sock is client_sock:
+                    out = rfb_filter.client_to_server(data)
+                    if out is None:
+                        # Protocol violation / fail-closed:
+                        # tear the connection down rather than
+                        # relay unparseable input.
+                        return
+                    if out:
+                        upstream.sendall(out)
+                else:
+                    if upstream_hdr_pending:
+                        end = data.find(b'\r\n\r\n')
+                        if end >= 0:
+                            # Header block complete; only the
+                            # remainder is WebSocket traffic.
+                            rfb_filter.track_server(data[end + 4:])
+                            upstream_hdr_pending = False
+                        # else: still inside the 101 headers —
+                        # nothing reaches the tracker yet.
+                    else:
+                        rfb_filter.track_server(data)
+                    client_sock.sendall(data)
+                continue
+            peer = upstream if sock is client_sock else client_sock
+            peer.sendall(data)
+
+
 class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """SimpleHTTPRequestHandler that enforces auth before serving files."""
 
@@ -141,7 +208,6 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         connection is registered so revoking the session kills the
         stream immediately.
         """
-        import select
         import socket
 
         # CSWSH protection: the upgrade carries ambient credentials
@@ -281,12 +347,9 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         for key, val in self.headers.items():
             request += f"{key}: {val}\r\n"
         request += "\r\n"
-        # The upstream bridge answers the relayed upgrade with its own
-        # ``HTTP/1.1 101`` header block before WebSocket traffic begins.
-        # Those bytes reach the client verbatim but must NOT enter the
-        # RFB tracker's WS-frame parser — parsing HTTP as frames would
-        # desynchronise the handshake state machine permanently.
-        upstream_hdr_pending = rfb_filter is not None
+        # The upstream bridge's own ``HTTP/1.1 101`` header block is
+        # forwarded verbatim but skipped for the RFB tracker — handled
+        # inside relay_rfb_stream.
         try:
             # latin-1 can raise UnicodeEncodeError on exotic header
             # values — encode failures are not OSError, so encode here
@@ -308,51 +371,7 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         try:
             upstream.sendall(request_bytes)
             self.close_connection = True
-            # Idle cap: a half-open TCP connection (client vanished
-            # without RST) must not pin this handler thread and the
-            # upstream socket forever — select's 60s tick is the probe,
-            # but only an absolute budget actually reaps zombies.
-            idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
-            while True:
-                readable, _, _ = select.select(
-                    [self.connection, upstream], [], [], 60)
-                if not readable:
-                    if time.monotonic() > idle_deadline:
-                        logger.debug("novnc relay idle timeout — closing")
-                        return
-                    continue
-                idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
-                for sock in readable:
-                    data = sock.recv(65536)
-                    if not data:
-                        return
-                    if rfb_filter is not None:
-                        if sock is self.connection:
-                            out = rfb_filter.client_to_server(data)
-                            if out is None:
-                                # Protocol violation / fail-closed:
-                                # tear the connection down rather than
-                                # relay unparseable input.
-                                return
-                            if out:
-                                upstream.sendall(out)
-                        else:
-                            if upstream_hdr_pending:
-                                end = data.find(b'\r\n\r\n')
-                                if end >= 0:
-                                    # Header block complete; only the
-                                    # remainder is WebSocket traffic.
-                                    rfb_filter.track_server(
-                                        data[end + 4:])
-                                    upstream_hdr_pending = False
-                                # else: still inside the 101 headers —
-                                # nothing reaches the tracker yet.
-                            else:
-                                rfb_filter.track_server(data)
-                            self.connection.sendall(data)
-                        continue
-                    peer = upstream if sock is self.connection else self.connection
-                    peer.sendall(data)
+            relay_rfb_stream(self.connection, upstream, rfb_filter)
         except OSError:
             pass
         finally:

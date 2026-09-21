@@ -167,7 +167,11 @@ def _kill_descendants(pid: int, depth: int = 0) -> None:
 # Xvnc/winvnc, ttyd, ffmpeg) carry their own names. Used to verify a
 # recorded PID still belongs to the service before killing it.
 _SERVICE_PROC_NEEDLES = {
-    'vnc': ('vnc_remote_secure', 'Xvnc', 'x11vnc', 'winvnc', 'Xtigervnc'),
+    # 'tigervnc' covers both the tigervncserver wrapper (the -fg parent
+    # we track) and its Xtigervnc child; 'vncserver' is the fallback
+    # wrapper the adapter launches when tigervncserver is absent.
+    'vnc': ('vnc_remote_secure', 'Xvnc', 'x11vnc', 'winvnc',
+            'tigervnc', 'vncserver'),
     'terminal': ('vnc_remote_secure', 'ttyd'),
     'websockify': ('websockify',),
     'nginx': ('nginx',),
