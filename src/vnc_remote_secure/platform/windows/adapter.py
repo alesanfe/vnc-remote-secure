@@ -294,8 +294,13 @@ class WindowsAdapter(PlatformAdapter):
             overrides['LoopbackOnly'] = '1'
         if password:
             # ultravnc.ini ``passwd`` uses the classic vncpasswd
-            # format (8-byte padded password, fixed-key DES).
-            hex_pass = encrypt_vnc_password(password).hex().upper()
+            # format (8-byte padded password, fixed-key DES). UltraVNC
+            # reads it via GetPrivateProfileStruct(), which requires a
+            # trailing checksum byte = sum(data) & 0xFF appended to the
+            # hex string — without it the API fails and winvnc reports
+            # "no valid password enabled".
+            blob = encrypt_vnc_password(password)
+            hex_pass = blob.hex().upper() + f'{sum(blob) & 0xFF:02X}'
             overrides['passwd'] = hex_pass
             # passwd2 is UltraVNC's view-only password. Setting it
             # equal to passwd is deliberate: a *different* stale

@@ -195,15 +195,13 @@ class _ServerHandshake:
                 else:
                     self.state = 'serverinit'
             elif self.state == 'serverinit':
+                # ServerInit fixed part is 24 bytes INCLUDING the
+                # 4-byte name-length at offset 20 — read it before
+                # consuming the block, then expect ``name`` bytes.
                 if len(self.buf) < 24:
                     return
+                self._name_len = int.from_bytes(self.buf[20:24], 'big')
                 del self.buf[:24]
-                self.state = 'name'
-            elif self.state == 'name':
-                if len(self.buf) < 4:
-                    return
-                self._name_len = int.from_bytes(self.buf[:4], 'big')
-                del self.buf[:4]
                 self.state = 'name_data'
             elif self.state == 'name_data':
                 if len(self.buf) < self._name_len:
@@ -241,9 +239,10 @@ class RfbInputFilter:
         self._frag = bytearray()
         self._sfrag_op = None
         self._sfrag = bytearray()
-        # Client handshake: 'sectype' -> ['secresp'] -> 'clientinit'
+        # Client handshake: 'version'(12B echo) -> 'sectype'(1B)
+        #   -> ['secresp'(16B)] -> 'clientinit'(1B)
         #   -> 'wait_serverinit' -> 'messages'
-        self._cstate = 'sectype'
+        self._cstate = 'version'
         self._dead = False
 
     # ------------------------------------------------------------------
@@ -367,6 +366,11 @@ class RfbInputFilter:
 
     def _client_handshake(self):
         """Consume handshake bytes; returns count consumed, 0, or -1."""
+        if self._cstate == 'version':
+            if len(self._rfb) < 12:
+                return 0
+            self._cstate = 'sectype'
+            return 12
         if self._cstate == 'sectype':
             if len(self._rfb) < 1:
                 return 0

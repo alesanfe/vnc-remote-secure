@@ -91,13 +91,17 @@ def rfb_server_handshake() -> bytes:
             + b'\x01\x02'               # 1 security type: VncAuth(2)
             + secrets.token_bytes(16)   # challenge
             + b'\x00\x00\x00\x00'       # SecurityResult OK
-            + secrets.token_bytes(24)   # ServerInit fixed part
+            + secrets.token_bytes(20)   # ServerInit: fb + pixel-format
             + b'\x00\x00\x00\x03desk')  # name-len + name
 
 
 def rfb_client_handshake() -> bytes:
-    """Client handshake bytes for VncAuth: type + response + init."""
-    return b'\x02' + secrets.token_bytes(16) + b'\x01'
+    """Client handshake bytes for VncAuth: version echo + type +
+    challenge response + ClientInit."""
+    return (b'RFB 003.008\n'            # protocol version echo
+            + b'\x02'                  # chosen security type: VncAuth
+            + secrets.token_bytes(16)  # challenge response
+            + b'\x01')                 # ClientInit (shared)
 
 
 def key_event(key=0xFF0D) -> bytes:
@@ -173,8 +177,10 @@ class TestRfbInputFilter:
 
     def test_unknown_security_type_closes(self):
         f = RfbInputFilter()
+        # 12B version echo + unsupported security type 0x10
         out = f.client_to_server(
-            ws_client_frame(b'\x10' + secrets.token_bytes(4)))
+            ws_client_frame(b'RFB 003.008\n' + b'\x10'
+                            + secrets.token_bytes(4)))
         assert out is None
 
     def test_split_frame_reassembles(self):

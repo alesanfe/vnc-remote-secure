@@ -13,9 +13,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..
 from vnc_remote_secure.platform.windows.adapter import WindowsAdapter
 from vnc_remote_secure.vendor.d3des import encrypt_vnc_password
 
-# Real vector taken from a shipped ultravnc.ini: the plaintext
-# 'vnc12345' obfuscates to F50F904B11EE3F7C under the fixed VNC key.
-KNOWN_VECTOR = ('vnc12345', 'F50F904B11EE3F7C')
+# Real vector taken from a shipped ultravnc.ini/registry Password
+# value: the plaintext 'vnc12345' obfuscates to C688664E275EA400 under
+# the fixed VNC key. The earlier value F50F904B11EE3F7C came from this
+# project's own (double bit-reversed) encoder — UltraVNC rejects it.
+KNOWN_VECTOR = ('vnc12345', 'C688664E275EA400')
 
 
 def test_encrypt_vnc_password_matches_real_ini_vector():
@@ -36,7 +38,10 @@ def test_write_ultravnc_ini_creates_admin_section(tmp_path):
     assert 'AuthRequired=1' in text
     assert 'PortNumber=' in text
     assert 'HTTPPortNumber=' in text
-    assert f"passwd={encrypt_vnc_password('secret1').hex().upper()}" in text
+    blob = encrypt_vnc_password('secret1')
+    checksum = sum(blob) & 0xFF
+    # GetPrivateProfileStruct format: 8 hex bytes + 1 checksum byte.
+    assert f"passwd={blob.hex().upper()}{checksum:02X}" in text
 
 
 def test_write_ultravnc_ini_preserves_unmanaged_keys(tmp_path):

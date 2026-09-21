@@ -15,9 +15,13 @@ vnckey = [
 ]
 
 # Fixed key used to obfuscate stored VNC passwords (the ``vncpasswd``
-# file format and UltraVNC's ``ultravnc.ini`` ``passwd`` value). This
-# is the pre-bit-reversal form of the well-known VNC fixed key
-# 0xE84AD660C4721AE0 — ``deskey`` applies the reversal.
+# file format and UltraVNC's ``ultravnc.ini`` ``passwd`` value).
+# This is the EFFECTIVE DES key 0xE84AD660C4721AE0 — i.e. UltraVNC's
+# ``fixedkey`` {23,82,107,6,35,78,88,7} after the bit reversal that
+# the original VNC d3des ``deskey`` applies internally. When using
+# pycryptodome (which does NOT reverse key bits) the key must be used
+# as-is; passing it through ``deskey`` would reverse it a second time
+# and produce a blob UltraVNC cannot decrypt.
 VNC_PASSWD_FIXED_KEY = bytes(
     [0xE8, 0x4A, 0xD6, 0x60, 0xC4, 0x72, 0x1A, 0xE0])
 
@@ -64,5 +68,11 @@ def encrypt_vnc_password(password: str) -> bytes:
     password as its own key (a common mistake: that produces bytes no
     VNC server can match against the RFB challenge).
     """
+    if _DES is None:
+        raise ImportError(
+            "pycryptodome is required for VNC password encryption. "
+            "Install with: pip install pycryptodome"
+        )
     padded = password.encode('latin-1')[:8].ljust(8, b'\x00')
-    return desfunc(padded, deskey(VNC_PASSWD_FIXED_KEY, False))
+    cipher = _DES.new(VNC_PASSWD_FIXED_KEY, _DES.MODE_ECB)
+    return cipher.encrypt(padded)

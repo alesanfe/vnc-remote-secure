@@ -278,6 +278,12 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         for key, val in self.headers.items():
             request += f"{key}: {val}\r\n"
         request += "\r\n"
+        # The upstream bridge answers the relayed upgrade with its own
+        # ``HTTP/1.1 101`` header block before WebSocket traffic begins.
+        # Those bytes reach the client verbatim but must NOT enter the
+        # RFB tracker's WS-frame parser — parsing HTTP as frames would
+        # desynchronise the handshake state machine permanently.
+        upstream_hdr_pending = rfb_filter is not None
         try:
             upstream.sendall(request.encode('latin-1'))
             self.close_connection = True
@@ -301,7 +307,18 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                             if out:
                                 upstream.sendall(out)
                         else:
-                            rfb_filter.track_server(data)
+                            if upstream_hdr_pending:
+                                end = data.find(b'\r\n\r\n')
+                                if end >= 0:
+                                    # Header block complete; only the
+                                    # remainder is WebSocket traffic.
+                                    rfb_filter.track_server(
+                                        data[end + 4:])
+                                    upstream_hdr_pending = False
+                                # else: still inside the 101 headers —
+                                # nothing reaches the tracker yet.
+                            else:
+                                rfb_filter.track_server(data)
                             self.connection.sendall(data)
                         continue
                     peer = upstream if sock is self.connection else self.connection
