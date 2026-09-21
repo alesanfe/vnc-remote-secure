@@ -285,21 +285,26 @@ def _build_service_cards_html(services):
 
         features_html = ''
         for feat in svc.get('features', []):
-            features_html += f'<span class="feature-tag">{feat}</span>'
+            features_html += (
+                f'<span class="feature-tag">{html.escape(str(feat))}</span>')
 
         extra_link = ''
         if svc.get('url2'):
-            label = svc.get('url2_label', 'Link')
+            label = html.escape(str(svc.get('url2_label', 'Link')))
             extra_link = f'<a href="{svc["url2"]}" target="_blank" class="btn-sm {disabled}">{label}</a>'
 
+        # Escape every interpolated field: the names/descriptions are
+        # internal literals today, but the builder is a single choke
+        # point — escaping here keeps a future dynamic card from
+        # becoming reflected markup.
         cards_html += f"""
         <div class="service-card {status_text.lower()}" style="opacity:{opacity}">
-            <div class="service-icon">{svc['icon']}</div>
+            <div class="service-icon">{html.escape(str(svc['icon']))}</div>
             <div class="service-info">
-                <h3>{svc['name']}</h3>
-                <p>{svc['desc']}</p>
+                <h3>{html.escape(str(svc['name']))}</h3>
+                <p>{html.escape(str(svc['desc']))}</p>
                 <div class="features">{features_html}</div>
-                <span class="service-port">Port {svc['port']}</span>
+                <span class="service-port">Port {int(svc['port'])}</span>
             </div>
             <div class="service-action">
                 <span class="status-badge" style="background:{status_color}">{status_text}</span>

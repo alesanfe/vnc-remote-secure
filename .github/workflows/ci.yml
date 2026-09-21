@@ -83,14 +83,15 @@ jobs:
       - name: Run pytest
         # Coverage gate on one matrix leg only — measuring on every
         # OS×Python cell triples the upload surface for no signal.
-        # --cov-fail-under enforces the floor (measured baseline: 50%
-        # after the relay/users/terminal tests; raise as coverage
-        # improves — next targets: landing.py 17%, audio.py 21%).
+        # --cov-fail-under enforces the floor (measured baseline: 53%
+        # after the relay/users/terminal/landing/audio test rounds;
+        # raise as coverage improves — next targets: certificates.py
+        # 34%, landing.py 47%).
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: |
           python -m pytest tests/unit tests/integration tests/e2e tests/security -q \
             --cov=vnc_remote_secure --cov-report=term-missing \
-            --cov-report=xml:coverage.xml --cov-fail-under=50
+            --cov-report=xml:coverage.xml --cov-fail-under=53
       - name: Run pytest (no coverage gate)
         if: !(matrix.os == 'ubuntu-latest' && matrix.python == '3.12')
         run: |
