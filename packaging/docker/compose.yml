@@ -11,6 +11,14 @@ services:
     image: vnc-remote-secure:latest
     container_name: vnc-remote
     restart: unless-stopped
+    # init reaps zombie children — the service manager spawns short-lived
+    # subprocesses (websockify, ttyd, ffmpeg) and PID 1 python does not
+    # reap orphans, so they would accumulate over long uptimes.
+    init: true
+    # Prevent setuid/file-capability escalation inside the container.
+    # The runtime spawns no setuid helpers, so this is pure hardening.
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "443:443"
     # Liveness probe: /health/live is the unauthenticated probe
