@@ -71,7 +71,12 @@ def _download_file(url, target_path, name):
     """Download a file from URL to target path."""
     print(f"[DOWNLOAD] {name}: {url}")
     try:
-        urllib.request.urlretrieve(url, target_path)
+        # urlopen with an explicit timeout — urlretrieve() relies on the
+        # global socket timeout (unset here), so a stalled connection
+        # would hang CI/developer runs indefinitely.
+        with urllib.request.urlopen(url, timeout=120) as resp, \
+                open(target_path, 'wb') as out:
+            shutil.copyfileobj(resp, out)
     except Exception as e:
         print(f"[ERROR] {name}: download failed: {e}", file=sys.stderr)
         return False
