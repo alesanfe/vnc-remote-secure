@@ -488,12 +488,15 @@ def _start_python_service(module: str, service_name: str,
     # read .env themselves anyway).
     child_env = None
     if module == 'websockify':
+        # sanitized_child_env never returns None — an env=None fallback
+        # would leak every secret to an unauthenticated helper.
         try:
-            from vnc_remote_secure.security.redaction import SECRET_VARS
-            child_env = {k: v for k, v in os.environ.items()
-                         if k not in SECRET_VARS}
-        except Exception:  # noqa: BLE001 - env filtering is best-effort
-            child_env = None
+            from vnc_remote_secure.security.redaction import (
+                sanitized_child_env,
+            )
+            child_env = sanitized_child_env()
+        except Exception:  # noqa: BLE001 - import broken entirely
+            child_env = {'PATH': os.environ.get('PATH', '')}
     # Route service stdout/stderr to a per-service log file under the
     # canonical log dir — DEVNULL would silently discard every error
     # (import failures, bind errors, tracebacks) making a dead service

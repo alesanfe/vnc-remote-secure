@@ -226,8 +226,13 @@ def create_backup(output: Optional[str] = None) -> str:
         return output
 
     # Create the tar.gz to a temporary path first, then encrypt if needed.
+    # dereference=True stores the CONTENT of symlinked files (e.g. the
+    # Let's Encrypt links request_letsencrypt creates into
+    # /etc/letsencrypt) instead of link members — link members are
+    # rejected by restore's filter='data' and were a traversal gap on
+    # interpreters without it.
     tmp_tar = output if not _get_backup_key() else output + '.tmp'
-    with tarfile.open(tmp_tar, 'w:gz') as tar:
+    with tarfile.open(tmp_tar, 'w:gz', dereference=True) as tar:
         import io
         import json as _json
         # Format manifest: restore uses it to warn on incompatible or
@@ -365,6 +370,31 @@ def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
                     raise RuntimeError(
                         f"Unsafe path in backup archive: {member.name}"
                     )
+                # Link members: the name checks above only cover the
+                # member path — a symlink/hardlink TARGET can still
+                # point outside temp_dir. On interpreters where
+                # extractall(filter='data') is unavailable these members
+                # extract as live links that the copy phase then
+                # follows into the host filesystem. Validate the target
+                # the same way the name is validated.
+                if member.issym() or member.islnk():
+                    link_target = member.linkname or ''
+                    if os.path.isabs(link_target):
+                        raise RuntimeError(
+                            f"Unsafe link target in backup archive: "
+                            f"{member.name} -> {link_target}"
+                        )
+                    # Hardlink targets are names in the archive root;
+                    # symlink targets are relative to the link's dir.
+                    base = os.path.dirname(member_path) \
+                        if member.issym() else ''
+                    resolved = os.path.normpath(
+                        os.path.join(base, link_target))
+                    if resolved.startswith('..') or os.path.isabs(resolved):
+                        raise RuntimeError(
+                            f"Unsafe link target in backup archive: "
+                            f"{member.name} -> {link_target}"
+                        )
                 if member.size > _MAX_BACKUP_FILE_SIZE:
                     raise RuntimeError(
                         f"Backup member too large: {member.name} "

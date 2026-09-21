@@ -157,3 +157,27 @@ def get_secret_status() -> dict:
                 logger.debug("Failed to check generated credential", exc_info=True)
         status[name] = redact_value(name, val)
     return status
+
+
+def sanitized_child_env() -> dict:
+    """Return a copy of ``os.environ`` without credential variables.
+
+    For external helper processes (websockify, ffmpeg, the VNC server
+    binary) that perform no auth and need none of our secrets. On any
+    internal error this returns a minimal PATH/SYSTEM-only environment
+    instead of ``None`` - passing ``env=None`` to Popen would inherit
+    the FULL environment including every secret, which is the failure
+    this function exists to prevent.
+    """
+    import os as _os
+    try:
+        return {k: v for k, v in _os.environ.items()
+                if k not in SECRET_VARS}
+    except Exception:  # noqa: BLE001 - fail closed, not env=None
+        minimal = {}
+        for k in ('PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC',
+                  'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL'):
+            v = _os.environ.get(k)
+            if v:
+                minimal[k] = v
+        return minimal

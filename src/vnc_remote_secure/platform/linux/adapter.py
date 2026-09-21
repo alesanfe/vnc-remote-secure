@@ -190,13 +190,13 @@ class LinuxAdapter(PlatformAdapter):
         # The RFB server is an external binary that needs none of our
         # credentials — strip secret env vars like the service manager
         # does for websockify (password travels via -PasswordFile).
-        child_env = None
         try:
-            from vnc_remote_secure.security.redaction import SECRET_VARS
-            child_env = {k: v for k, v in os.environ.items()
-                         if k not in SECRET_VARS}
-        except Exception:  # noqa: BLE001 - env filtering is best-effort
-            child_env = None
+            from vnc_remote_secure.security.redaction import (
+                sanitized_child_env,
+            )
+            child_env = sanitized_child_env()
+        except Exception:  # noqa: BLE001 - import broken entirely
+            child_env = {'PATH': os.environ.get('PATH', '')}
         return subprocess.Popen(cmd, env=child_env)
 
     @staticmethod

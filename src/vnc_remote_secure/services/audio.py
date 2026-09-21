@@ -133,13 +133,13 @@ class AudioStreamServer:
             # ffmpeg is an external binary that needs none of our
             # credentials — strip secret env vars like the service
             # manager does for websockify.
-            child_env = None
             try:
-                from vnc_remote_secure.security.redaction import SECRET_VARS
-                child_env = {k: v for k, v in os.environ.items()
-                             if k not in SECRET_VARS}
-            except Exception:  # noqa: BLE001 - env filtering best-effort
-                child_env = None
+                from vnc_remote_secure.security.redaction import (
+                    sanitized_child_env,
+                )
+                child_env = sanitized_child_env()
+            except Exception:  # noqa: BLE001 - import broken entirely
+                child_env = {'PATH': os.environ.get('PATH', '')}
             self.ffmpeg_process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
