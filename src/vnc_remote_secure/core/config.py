@@ -101,8 +101,14 @@ def _parse_env_file(path):
                 # Remove surrounding quotes
                 if val and val[0] in '"\'' and val[-1] == val[0]:
                     val = val[1:-1]
-                # Skip shell command substitutions like $(whoami)
-                if val.startswith('$('):
+                # Skip shell command substitutions — `$(` ANYWHERE in
+                # the value (and backticks) evaluates when a wrapper
+                # does `source .env` (duckdns_update.sh, rpi wrapper).
+                # startswith() alone missed `FOO=x$(id)`.
+                if '$(' in val or '`' in val:
+                    logger.warning(
+                        "Skipping %s: value contains shell substitution",
+                        key)
                     continue
                 # Expand ${VAR} references from the current environment.
                 # Unknown variables expand to an empty string, mirroring
