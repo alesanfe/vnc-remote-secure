@@ -60,7 +60,21 @@ def cmd_restore(args):
         return 2
 
     if args.dry_run:
-        print(f"[DRY RUN] Would restore from {args.backup_file}")
+        # Real validation: decrypt, traverse-check and extract the
+        # archive without copying anything into place — "would
+        # restore" tells the operator nothing about restorability.
+        from vnc_remote_secure.core.backup import restore_backup
+        try:
+            ok = restore_backup(args.backup_file, dry_run=True)
+        except (FileNotFoundError, RuntimeError) as e:
+            print(f"[DRY RUN] Restore would fail: {e}", file=sys.stderr)
+            return 1
+        if not ok:
+            print("[DRY RUN] Restore would fail: see logs.",
+                  file=sys.stderr)
+            return 1
+        print(f"[DRY RUN] Backup validated — "
+              f"{args.backup_file} is restorable")
         return 0
 
     from vnc_remote_secure.core.backup import restore_backup

@@ -104,3 +104,7 @@ target-version = ["py311"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "security: security-focused tests (fuzz, adversarial)",
+    "soak: long-running stability tests (deselected by default)",
+]

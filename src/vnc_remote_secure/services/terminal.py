@@ -277,6 +277,51 @@ def _build_child_env():
     }
 
 
+def _restricted_user_prefix():
+    """Return argv prefix to drop privileges to ``WEBTERM_USER``.
+
+    When ``WEBTERM_USER`` names an existing account and this process
+    runs as root, terminal commands are spawned as that user instead
+    of the service account — the shell can no longer read the
+    service's secrets, PID files or other services' state. Prefers
+    ``setpriv`` (no PAM), falls back to ``runuser``. Returns ``None``
+    when privilege dropping is unavailable or not configured.
+    """
+    import pwd
+    import shutil as _shutil
+
+    user = os.environ.get('WEBTERM_USER', '').strip()
+    if not user:
+        return None
+    if os.geteuid() != 0:
+        logger.warning(
+            "WEBTERM_USER=%s ignored — not running as root; terminal "
+            "commands execute as the service user", user)
+        return None
+    try:
+        from vnc_remote_secure.core.validation import validate_username
+        validate_username(user)
+    except (ImportError, ValueError) as exc:
+        logger.warning("WEBTERM_USER rejected: %s", exc)
+        return None
+    try:
+        pw = pwd.getpwnam(user)
+    except KeyError:
+        logger.warning("WEBTERM_USER=%s does not exist — ignoring", user)
+        return None
+    setpriv = _shutil.which('setpriv')
+    if setpriv:
+        return [setpriv, '--reuid', str(pw.pw_uid),
+                '--regid', str(pw.pw_gid), '--clear-groups', '--']
+    runuser = _shutil.which('runuser')
+    if runuser:
+        return [runuser, '-u', user, '--']
+    logger.warning(
+        "WEBTERM_USER=%s configured but neither setpriv nor runuser "
+        "found — terminal runs as the service user", user)
+    return None
+
+
 def _build_subprocess_args(cmd, shell, cwd):
     """Build the subprocess argument list for the configured shell."""
     import shutil as _shutil
@@ -285,7 +330,8 @@ def _build_subprocess_args(cmd, shell, cwd):
         # sane fallback — cmd.exe does not exist here.
         resolved = (_shutil.which(shell) if shell else None) \
             or _shutil.which('bash') or '/bin/sh'
-        return [resolved, '-c', cmd]
+        prefix = _restricted_user_prefix() or []
+        return prefix + [resolved, '-c', cmd]
     if shell == 'powershell.exe':
         ps_exe = (_shutil.which('powershell.exe')
                   or _shutil.which('powershell')

@@ -37,6 +37,10 @@ _MAX_BACKUP_MEMBERS = 10000
 _MAX_BACKUP_FILE_SIZE = 512 * 1024 * 1024      # 512 MiB per member
 _MAX_BACKUP_TOTAL_SIZE = 2 * 1024 * 1024 * 1024  # 2 GiB uncompressed
 
+# Bumped when the archive layout changes incompatibly. Restore warns
+# (but still attempts) when a backup reports a newer format.
+_BACKUP_FORMAT_VERSION = 1
+
 
 def _get_backup_key(salt: bytes = None, iterations: int = 600000):
     """Return a Fernet key derived from BACKUP_PASSWORD, or None.
@@ -224,9 +228,25 @@ def create_backup(output: Optional[str] = None) -> str:
     # Create the tar.gz to a temporary path first, then encrypt if needed.
     tmp_tar = output if not _get_backup_key() else output + '.tmp'
     with tarfile.open(tmp_tar, 'w:gz') as tar:
-        # Include the service-manager state as a JSON file in the archive.
         import io
         import json as _json
+        # Format manifest: restore uses it to warn on incompatible or
+        # unexpectedly new backup formats instead of guessing.
+        try:
+            from vnc_remote_secure import __version__ as _app_ver
+        except Exception:  # noqa: BLE001
+            _app_ver = 'unknown'
+        manifest = {
+            'format_version': _BACKUP_FORMAT_VERSION,
+            'created': time.time(),
+            'app_version': _app_ver,
+        }
+        man_bytes = _json.dumps(manifest, indent=2).encode('utf-8')
+        man_info = tarfile.TarInfo(name='backup-manifest.json')
+        man_info.size = len(man_bytes)
+        man_info.mtime = time.time()
+        tar.addfile(man_info, io.BytesIO(man_bytes))
+        # Include the service-manager state as a JSON file in the archive.
         state_bytes = _json.dumps(state, indent=2).encode('utf-8')
         state_info = tarfile.TarInfo(name='service_state.json')
         state_info.size = len(state_bytes)
@@ -277,14 +297,19 @@ def create_backup(output: Optional[str] = None) -> str:
     return output
 
 
-def restore_backup(backup_file: str) -> bool:
+def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
     """Restore a backup tar.gz to the appropriate system locations.
 
     Args:
         backup_file: Path to the backup tar.gz file.
+        dry_run: When ``True``, fully decrypt, validate and extract the
+            archive but skip the copy phase — nothing on disk is
+            modified. Useful to verify a backup is restorable before
+            committing to it.
 
     Returns:
-        ``True`` if the restore completed successfully.
+        ``True`` if the restore (or the dry-run validation) completed
+        successfully.
     """
     if not os.path.isfile(backup_file):
         raise FileNotFoundError(f"Backup file not found: {backup_file}")
@@ -361,6 +386,34 @@ def restore_backup(backup_file: str) -> bool:
                 tar.extractall(temp_dir)
     except tarfile.TarError as e:
         raise RuntimeError(f"Failed to extract backup: {e}")
+
+    # Format manifest: warn (not fail) on a newer format — forward
+    # compatibility is best-effort; a missing manifest means the
+    # backup predates format versioning.
+    manifest_path = os.path.join(temp_dir, 'backup-manifest.json')
+    if os.path.isfile(manifest_path):
+        try:
+            import json as _json
+            with open(manifest_path, encoding='utf-8') as f:
+                manifest = _json.load(f)
+            fmt = int(manifest.get('format_version', 0))
+            if fmt > _BACKUP_FORMAT_VERSION:
+                logger.warning(
+                    "Backup format v%s is newer than supported v%s — "
+                    "restoring anyway, some members may be ignored",
+                    fmt, _BACKUP_FORMAT_VERSION)
+            else:
+                logger.info(
+                    "Backup format v%s (created by v%s)",
+                    fmt, manifest.get('app_version', 'unknown'))
+        except (ValueError, OSError) as e:
+            logger.warning("Unreadable backup manifest: %s", e)
+
+    if dry_run:
+        logger.info("Dry run: backup validated and extracted; "
+                    "no files were modified")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return True
 
     try:
         # Restore .env

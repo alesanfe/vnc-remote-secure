@@ -558,6 +558,10 @@
     "WEBTERM_SHELL": {
       "type": "string",
       "description": "Shell executable used by the web terminal."
+    },
+    "WEBTERM_USER": {
+      "type": "string",
+      "description": "Linux account terminal commands run as (privilege separation via setpriv/runuser; requires root)."
     }
   },
   "required": [],

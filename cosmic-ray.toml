@@ -1,0 +1,35 @@
+# Mutation testing configuration for cosmic-ray.
+#
+# Targets the modules where a mutated conditional could silently
+# weaken a security guarantee: auth, session, rate limiting, TOTP,
+# token validation, audit chain, RFB filtering.
+#
+# Usage:
+#   pip install cosmic-ray
+#   cosmic-ray init cosmic-ray.toml cr.sqlite
+#   cosmic-ray --verbose exec cosmic-ray.toml cr.sqlite
+#   cr-report cr.sqlite
+#
+# The goal is not a high mutation score per se — it is to find the
+# modules where tests still pass after a security-relevant
+# conditional is flipped.
+
+[cosmic-ray]
+module-path = "src/vnc_remote_secure"
+timeout = 30.0
+excluded-modules = [
+    "tests.*",
+    "vnc_remote_secure.vendor.*",
+    "vnc_remote_secure.native.*",
+    "vnc_remote_secure.cli.*",
+]
+
+[cosmic-ray.execution.engine]
+name = "local"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.test-runner]
+name = "pytest"
+args = "-q tests/unit tests/security --tb=short -x"

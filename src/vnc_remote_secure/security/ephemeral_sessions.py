@@ -658,10 +658,10 @@ def create_ephemeral_session(
         ttl_seconds: Time-to-live in seconds.
         single_use: If True, the session can only be used once.
         view_only: If True, restricts to view-only access — control
-            channels requiring ``desktop:control`` are rejected.
-            NOTE: RFB input inside the noVNC byte-transparent relay
-            is NOT filtered; see the limitation note in
-            ``services/novnc.py``.
+            channels requiring ``desktop:control`` are rejected, and
+            the noVNC WebSocket relay filters RFB input messages
+            (KeyEvent/PointerEvent/ClientCutText) at the protocol
+            layer via ``services/rfb_filter.py``.
         no_terminal: If True, terminal access is blocked.
         allowed_ip: Optional IP restriction.
         created_by: Username of the creator.
