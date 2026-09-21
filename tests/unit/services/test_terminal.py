@@ -139,6 +139,7 @@ def _ws_stub(tmp_path):
     """Minimal TerminalWebSocket double: no real socket, callbacks run
     inline so the test observes the final state synchronously."""
     from unittest.mock import MagicMock
+
     from vnc_remote_secure.services import terminal as term
     ws = object.__new__(term.TerminalWebSocket)
     ws.cwd = str(tmp_path)
@@ -159,6 +160,7 @@ def test_infinite_command_is_killed_by_timeout(tmp_path, monkeypatch):
     `tail -f`) bypass the timeout and buffer output forever. The
     incremental drain must kill them after CMD_TIMEOUT."""
     import time
+
     from vnc_remote_secure.services import terminal as term
     monkeypatch.setattr(term, 'DEFAULT_CMD_TIMEOUT', 1)
     ws = _ws_stub(tmp_path)
