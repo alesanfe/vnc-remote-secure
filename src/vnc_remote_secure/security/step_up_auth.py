@@ -55,24 +55,18 @@ SENSITIVE_ACTIONS: Set[str] = {
 
 
 class StepUpAuthManager:
-    """Tracks recent authentication times for step-up auth."""
+    """Tracks recent authentication times for step-up auth.
+
+    Auth times live in the shared-state backend so a login
+    recorded by the user-UI process satisfies step-up checks in
+    the terminal process — a purely in-memory dict would make
+    every cross-process sensitive action report "never
+    authenticated" and reject (the F-018 class of bug).
+    """
 
     _NS = 'step_up_auth_times'
 
     def __init__(self, default_max_age: int = 300):
-        """Initialize the manager.
-
-        Auth times live in the shared-state backend so a login
-        recorded by the user-UI process satisfies step-up checks in
-        the terminal process — a purely in-memory dict would make
-        every cross-process sensitive action report "never
-        authenticated" and reject (the F-018 class of bug).
-
-        Args:
-            default_max_age: Default max age (seconds) for step-up auth
-                validity. Actions requiring step-up auth must have been
-                authenticated within this window.
-        """
         self._auth_times: Dict[str, float] = {}  # process-local cache
         self._lock = threading.Lock()
         self.default_max_age = default_max_age

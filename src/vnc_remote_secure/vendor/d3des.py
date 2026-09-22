@@ -7,7 +7,7 @@ the actual DES encryption to pycryptodome.
 try:
     from Crypto.Cipher import DES as _DES
 except ImportError:
-    _DES = None
+    _DES = None  # type: ignore[assignment]
 
 # VNC fixed key (all zeros before bit reversal).
 vnckey = [

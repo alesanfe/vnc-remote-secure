@@ -126,10 +126,12 @@ def _validate_certificate(cert_path: str, key_path: str) -> list:
             cert_data = f.read()
         cert = x509.load_pem_x509_certificate(cert_data, default_backend())
 
-        # Check key size.
+        # Check key size. Ed25519/Ed448/X25519 keys have no `key_size`
+        # attribute — their security level is fixed and adequate, so a
+        # missing attribute skips the minimum-size check.
         public_key = cert.public_key()
-        key_size = public_key.key_size
-        if key_size < 2048:
+        key_size = getattr(public_key, 'key_size', None)
+        if key_size is not None and key_size < 2048:
             findings.append({
                 'severity': 'critical',
                 'message': f'Certificate key size is {key_size} bits, '
@@ -159,9 +161,17 @@ def _validate_certificate(cert_path: str, key_path: str) -> list:
                 key_data = f.read()
             key = serialization.load_pem_private_key(
                 key_data, password=None, backend=default_backend())
-            # Compare public numbers — if they match, key and cert are a pair.
-            cert_pub = cert.public_key().public_numbers()
-            key_pub = key.public_key().public_numbers()
+            # Compare public numbers — if they match, key and cert are
+            # a pair. Ed25519-family keys have no public_numbers(); for
+            # those, compare the raw public bytes instead.
+            def _pub_bytes(k):
+                if hasattr(k, 'public_numbers'):
+                    return repr(k.public_numbers())
+                return k.public_bytes(
+                    serialization.Encoding.Raw,
+                    serialization.PublicFormat.Raw)
+            cert_pub = _pub_bytes(cert.public_key())
+            key_pub = _pub_bytes(key.public_key())
             if cert_pub != key_pub:
                 findings.append({
                     'severity': 'critical',

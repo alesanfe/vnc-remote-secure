@@ -8,6 +8,7 @@ import logging
 import os
 import secrets
 import string
+from typing import Optional
 
 from vnc_remote_secure.core.constants import (
     DEFAULT_AUDIO_STREAM_PORT,
@@ -178,7 +179,7 @@ _ENV_LOADED = False
 # block the project .env from overriding them (precedence inversion).
 # Tracking the VALUE distinguishes "still our default" from a real env
 # var that later overwrote it — the latter must win again.
-_DEFAULT_INJECTED = {}
+_DEFAULT_INJECTED: dict = {}
 
 
 def _is_injected_default(key: str) -> bool:
@@ -594,7 +595,8 @@ def _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_use
         validate_password(landing_password, 'LANDING_PASSWORD')
 
 
-def _safe_int(env_name: str, default: int, minimum: int = None, maximum: int = None) -> int:
+def _safe_int(env_name: str, default: int, minimum: 'Optional[int]' = None,
+              maximum: 'Optional[int]' = None) -> int:
     """Parse an integer env var with a fallback and optional range check.
 
     Returns ``default`` when the env var is unset or not a valid integer.

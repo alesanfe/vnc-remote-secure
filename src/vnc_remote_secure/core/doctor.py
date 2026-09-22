@@ -410,7 +410,7 @@ def run_doctor(as_json: bool = False) -> dict:
     load_env_file()
     config = get_config()
 
-    checks = []
+    checks: list = []
 
     _check_config(checks, config)
     _check_directories(checks)

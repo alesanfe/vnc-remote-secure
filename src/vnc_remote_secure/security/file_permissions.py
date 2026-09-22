@@ -11,7 +11,7 @@ Usage:
 import logging
 import os
 import stat
-from typing import List
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def _check_windows_permissions(path: str) -> List[dict]:
     return findings
 
 
-def validate_secret_files(project_root: str = None) -> List[dict]:
+def validate_secret_files(project_root: Optional[str] = None) -> List[dict]:
     """Validate permissions of secret files.
 
     Args:

@@ -42,7 +42,7 @@ _MAX_BACKUP_TOTAL_SIZE = 2 * 1024 * 1024 * 1024  # 2 GiB uncompressed
 _BACKUP_FORMAT_VERSION = 1
 
 
-def _get_backup_key(salt: bytes = None, iterations: int = 600000):
+def _get_backup_key(salt: Optional[bytes] = None, iterations: int = 600000):
     """Return a Fernet key derived from BACKUP_PASSWORD, or None.
 
     PBKDF2-HMAC-SHA256 with a random per-backup salt — a bare
@@ -434,7 +434,9 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
             try:
                 tar.extractall(temp_dir, filter='data')
             except TypeError:
-                tar.extractall(temp_dir)
+                # Members were already validated above (names, links,
+                # sizes) — the fallback exists only for old Pythons.
+                tar.extractall(temp_dir)  # nosec B202
     except tarfile.TarError as e:
         raise RuntimeError(f"Failed to extract backup: {e}")
 
@@ -559,9 +561,9 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
                                             'instance.id',
                                             'shared_state.db'):
                             restored_secrets.append(os.path.join(root, item))
-            for f in restored_secrets:
-                if os.path.isfile(f):
-                    _restrict_key_permissions(f, writable=True)
+            for secret_path in restored_secrets:
+                if os.path.isfile(secret_path):
+                    _restrict_key_permissions(secret_path, writable=True)
         except Exception as e:  # noqa: BLE001
             logger.debug("Could not restrict restored file permissions: %s", e)
 

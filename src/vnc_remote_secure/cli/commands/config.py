@@ -126,8 +126,6 @@ def _config_migrate(args):
                     ln = ln.replace(val, val.replace(old, new), 1)
                 break
         out_lines.append(ln)
-    if not args.dry_run and changes:
-        content = '\n'.join(out_lines) + '\n'
     if not changes:
         print("No migrations needed — config is already up to date.")
         return 0
@@ -136,6 +134,7 @@ def _config_migrate(args):
         for c in changes:
             print(f"  {c['old']} -> {c['new']}: {c['message']}")
     else:
+        content = '\n'.join(out_lines) + '\n'
         # Atomic write: a crash mid-write of the .env in place would
         # lose every other variable — same treatment as
         # set_env_persistent().

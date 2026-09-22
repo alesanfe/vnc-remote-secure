@@ -86,7 +86,7 @@ def redact_dict(data: dict, show_fingerprint: bool = False) -> dict:
 
     Non-secret keys are returned unchanged.
     """
-    result = {}
+    result: dict = {}
     for key, value in data.items():
         if isinstance(value, dict):
             result[key] = redact_dict(value, show_fingerprint)

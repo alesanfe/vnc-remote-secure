@@ -26,7 +26,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from vnc_remote_secure.core.config import get_config, load_env_file
 from vnc_remote_secure.core.constants import (
@@ -180,7 +180,7 @@ _SERVICE_PROC_NEEDLES = {
 }
 
 
-def _pid_is_ours(pid: int, service: str = None) -> Optional[bool]:
+def _pid_is_ours(pid: int, service: Optional[str] = None) -> Optional[bool]:
     """Decide whether ``pid`` belongs to one of our service processes.
 
     Returns ``True`` (cmdline matches the service's needles), ``False``
@@ -191,7 +191,7 @@ def _pid_is_ours(pid: int, service: str = None) -> Optional[bool]:
     """
     if not pid or pid <= 0:
         return None
-    needles = _SERVICE_PROC_NEEDLES.get(service) or (
+    needles = _SERVICE_PROC_NEEDLES.get(service or '') or (
         'vnc_remote_secure', 'websockify')
 
     def _matches(cmdline: str) -> bool:
@@ -228,7 +228,7 @@ def _pid_is_ours(pid: int, service: str = None) -> Optional[bool]:
 
 
 def _kill_pid(pid: int, timeout: float = 5.0,
-              service: str = None, force: bool = False) -> bool:
+              service: Optional[str] = None, force: bool = False) -> bool:
     """Terminate a process by PID. Returns True if it stopped."""
     if not pid or pid <= 0:
         return True
@@ -291,7 +291,7 @@ def _kill_pid(pid: int, timeout: float = 5.0,
             time.sleep(0.1)
         if _pid_alive(pid):
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]  # POSIX-only branch
             except (OSError, ProcessLookupError):
                 pass
     stopped = not _pid_alive(pid)
@@ -517,6 +517,7 @@ def _start_python_service(module: str, service_name: str,
     # (import failures, bind errors, tracebacks) making a dead service
     # impossible to diagnose.
     from vnc_remote_secure.core.paths import get_log_dir
+    log_fh: Any
     try:
         os.makedirs(get_log_dir(), exist_ok=True)
         log_fh = open(  # noqa: SIM115 - fd lives with the child process
@@ -592,7 +593,7 @@ def _enabled_services(config: dict) -> list:
     return services
 
 
-def start_all(config: dict = None) -> dict:
+def start_all(config: Optional[dict] = None) -> dict:
     """Start all enabled services.
 
     Returns a dict mapping service name to PID (or None on failure).
@@ -883,7 +884,7 @@ def stop_all(force: bool = False) -> dict:
         return results
 
 
-def restart_all(config: dict = None) -> dict:
+def restart_all(config: Optional[dict] = None) -> dict:
     """Stop all services, clean up, then start them again.
 
     Holds the cross-process lock across both phases so a concurrent
@@ -969,7 +970,7 @@ def status_all() -> dict:
         alive = _pid_alive(pid) if pid else False
         # PID reuse check: a stale pid file pointing at a foreign,
         # still-living process must not report the service as running.
-        if alive and _pid_is_ours(pid, service) is False:
+        if alive and pid is not None and _pid_is_ours(pid, service) is False:
             alive = False
         port = port_map.get(service)
         # A live PID is not enough: a hung service (deadlocked event
@@ -1026,7 +1027,7 @@ def _record_restart(service: str, now: float) -> None:
     _restart_history.setdefault(service, []).append(now)
 
 
-def watchdog_tick(config: dict = None) -> dict:
+def watchdog_tick(config: Optional[dict] = None) -> dict:
     """One watchdog iteration over all enabled services.
 
     Checks every enabled service's recorded PID. When ``auto_restart``

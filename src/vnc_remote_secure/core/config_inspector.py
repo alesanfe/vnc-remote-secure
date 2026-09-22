@@ -195,7 +195,7 @@ def compute_effective_config(
     hardcoded_defaults = _get_hardcoded_defaults()
 
     # Collect all known variable names.
-    all_vars = set()
+    all_vars: set = set()
     all_vars.update(env_snapshot.keys())
     all_vars.update(env_file_values.keys())
     all_vars.update(profile_values.keys())
@@ -232,10 +232,10 @@ def compute_effective_config(
     }
 
     # Sort for deterministic output.
-    all_vars = sorted(all_vars)
+    sorted_vars = sorted(all_vars)
 
     result: List[Dict[str, str]] = []
-    for var in all_vars:
+    for var in sorted_vars:
         value, source = _resolve_var(
             var, env_snapshot, env_file_values, profile_values,
             platform_defaults, hardcoded_defaults, profile_name,

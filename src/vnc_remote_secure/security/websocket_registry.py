@@ -97,7 +97,7 @@ class WebSocketRegistry:
         self._next_id = 0
 
     def register(self, session_id: str, close_callback: CloseCallback,
-                 resource: Optional[str] = None) -> str:
+                 resource: Optional[str] = None) -> Optional[str]:
         """Register a new WebSocket connection.
 
         Args:
@@ -288,7 +288,7 @@ def reset_registry():
 
 
 def register_connection(session_id: str, close_callback: CloseCallback,
-                         resource: Optional[str] = None) -> str:
+                         resource: Optional[str] = None) -> Optional[str]:
     """Register a new WebSocket connection (convenience function)."""
     return get_registry().register(session_id, close_callback, resource)
 

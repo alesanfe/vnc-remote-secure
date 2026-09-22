@@ -156,6 +156,11 @@ def _ensure_ultravnc():
         return
 
     url = os.environ.get('ULTRAVNC_URL', _DEFAULT_ULTRAVNC_URL)
+    # Only HTTPS downloads — a file:// or http:// URL would silently
+    # bypass the checksum-verified TLS path below.
+    if not url.lower().startswith('https://'):
+        logger.error("Refusing non-HTTPS UltraVNC URL: %s", url)
+        return
     logger.info("UltraVNC not found; downloading from %s ...", url)
 
     try:
@@ -165,7 +170,7 @@ def _ensure_ultravnc():
             # hang install forever. Stream via urlopen instead.
             import shutil
             with urllib.request.urlopen(url, timeout=60) as resp, \
-                    open(zip_path, 'wb') as out:
+                    open(zip_path, 'wb') as out:  # nosec B310 - https enforced above
                 shutil.copyfileobj(resp, out)
             logger.info("Downloaded UltraVNC archive: %s", zip_path)
 

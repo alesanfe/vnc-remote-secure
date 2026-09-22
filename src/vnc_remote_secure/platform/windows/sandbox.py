@@ -54,7 +54,7 @@ _JobObjectExtendedLimitInformation = 9
 
 _appcontainer_sid = None          # PSID (c_void_p) — must stay alive
 _appcontainer_sid_str = None
-_granted_dirs = set()
+_granted_dirs: set = set()
 
 
 class _SECURITY_CAPABILITIES(ctypes.Structure):

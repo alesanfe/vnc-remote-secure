@@ -121,7 +121,7 @@ def get_allowed_origins() -> list:
         DEFAULT_USER_UI_PORT,
     )
     default_https = str(DEFAULT_NGINX_HTTPS_PORT)
-    origins = []
+    origins: list = []
     # Explicit configured origins
     configured = os.environ.get('ALLOWED_ORIGINS', '')
     if configured:
@@ -256,11 +256,12 @@ def attempt_login(
                         _inc_auth_counter('mfa_failure')
                         return False, 'Invalid MFA code.', None
                     used = candidate_hash
-                    remaining = [h for h in hashes if h != used]
+                    remaining_hashes = [h for h in hashes if h != used]
                     try:
                         from vnc_remote_secure.core.config import set_env_persistent
                         set_env_persistent(
-                            'RECOVERY_CODES_HASHES', ','.join(remaining))
+                            'RECOVERY_CODES_HASHES',
+                            ','.join(remaining_hashes))
                     except Exception:  # noqa: BLE001
                         logger.warning(
                             "Could not persist recovery-code removal; "
@@ -563,7 +564,8 @@ def register_websocket_connection(
     # Resolve signed token to internal token so revoke_session
     # (which uses the internal token) can find the connection.
     internal_id = _resolve_session_id(session_id)
-    return register_connection(internal_id, close_callback, resource)
+    return register_connection(
+        internal_id, close_callback, resource) or ''
 
 
 def _resolve_session_id(session_id: str) -> str:

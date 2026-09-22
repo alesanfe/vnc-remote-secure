@@ -66,6 +66,13 @@ def _redact_url(url):
 
 def _post_json(url, payload):
     """POST JSON to a webhook URL. Returns True on HTTP 2xx."""
+    # Webhook URLs are operator-configured, but restrict the scheme so a
+    # config mistake (or tampered .env) cannot turn the alerter into a
+    # file:// or gopher:// reader.
+    if not url.lower().startswith(('https://', 'http://')):
+        logger.warning("Webhook URL rejected — non-HTTP scheme: %s",
+                       _redact_url(url))
+        return False
     try:
         req = urllib.request.Request(
             url,
