@@ -22,7 +22,7 @@ def is_port_available(port, host='127.0.0.1'):
             s.connect((host, port))
         # Connection succeeded → something is listening → port NOT available
         return False
-    except (OSError, ConnectionRefusedError, socket.timeout):
+    except OSError:  # ConnectionRefusedError/TimeoutError subclass OSError
         # Nothing listening → port IS available
         return True
 

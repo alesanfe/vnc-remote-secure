@@ -37,7 +37,7 @@ import hashlib
 import logging
 import os
 import threading
-from typing import Callable, Dict, List, Optional, Set
+from collections.abc import Callable
 
 from vnc_remote_secure.core.constants import DEFAULT_SESSION_MAX_LIFETIME
 from vnc_remote_secure.security.shared_state import get_backend
@@ -68,8 +68,8 @@ class _ConnectionEntry:
 
     def __init__(self, conn_id: str, session_id: str,
                  close_callback: CloseCallback,
-                 resource: Optional[str] = None,
-                 created_at: Optional[float] = None,
+                 resource: str | None = None,
+                 created_at: float | None = None,
                  loop=None):
         self.conn_id = conn_id
         self.session_id = session_id
@@ -92,12 +92,12 @@ class WebSocketRegistry:
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._connections: Dict[str, _ConnectionEntry] = {}  # conn_id -> entry
-        self._by_session: Dict[str, Set[str]] = {}  # session_id -> {conn_ids}
+        self._connections: dict[str, _ConnectionEntry] = {}  # conn_id -> entry
+        self._by_session: dict[str, set[str]] = {}  # session_id -> {conn_ids}
         self._next_id = 0
 
     def register(self, session_id: str, close_callback: CloseCallback,
-                 resource: Optional[str] = None) -> Optional[str]:
+                 resource: str | None = None) -> str | None:
         """Register a new WebSocket connection.
 
         Args:
@@ -247,12 +247,12 @@ class WebSocketRegistry:
         with self._lock:
             return len(self._by_session.get(session_id, set()))
 
-    def get_active_sessions(self) -> List[str]:
+    def get_active_sessions(self) -> list[str]:
         """Return a list of session IDs with active connections."""
         with self._lock:
             return list(self._by_session.keys())
 
-    def get_connection_info(self, session_id: str) -> List[Dict]:
+    def get_connection_info(self, session_id: str) -> list[dict]:
         """Return connection info for a session (for diagnostics)."""
         with self._lock:
             conn_ids = self._by_session.get(session_id, set())
@@ -270,7 +270,7 @@ class WebSocketRegistry:
 
 
 # Global singleton (process-wide).
-_registry: Optional[WebSocketRegistry] = None
+_registry: WebSocketRegistry | None = None
 
 
 def get_registry() -> WebSocketRegistry:
@@ -288,7 +288,7 @@ def reset_registry():
 
 
 def register_connection(session_id: str, close_callback: CloseCallback,
-                         resource: Optional[str] = None) -> Optional[str]:
+                         resource: str | None = None) -> str | None:
     """Register a new WebSocket connection (convenience function)."""
     return get_registry().register(session_id, close_callback, resource)
 
@@ -328,7 +328,7 @@ def clear_revoked_shared(session_id: str):
 # below poll the shared namespace and run the local revoke path when
 # the mark appears.
 
-_watcher_tasks: Set = set()
+_watcher_tasks: set = set()
 
 
 def _sweep_revoked_session(session_id: str) -> bool:

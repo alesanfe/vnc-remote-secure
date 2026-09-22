@@ -13,7 +13,6 @@ import logging
 import os
 import secrets
 import time
-from typing import Optional
 
 from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.security.token_signing import (
@@ -46,9 +45,9 @@ def _get_env_int(name: str, default: int) -> int:
 
 def create_session_cookie(
     username: str,
-    csrf_token: Optional[str] = None,
-    idle_timeout: Optional[int] = None,
-    max_lifetime: Optional[int] = None,
+    csrf_token: str | None = None,
+    idle_timeout: int | None = None,
+    max_lifetime: int | None = None,
 ) -> dict:
     """Create a signed session cookie value and metadata.
 
@@ -75,7 +74,7 @@ def create_session_cookie(
     }
 
 
-def verify_session_cookie(cookie_value: str) -> Optional[dict]:
+def verify_session_cookie(cookie_value: str) -> dict | None:
     """Verify a session cookie and return session info if valid.
 
     Returns:
@@ -119,7 +118,7 @@ def verify_session_cookie(cookie_value: str) -> Optional[dict]:
     }
 
 
-def session_revocation_key(cookie_value: str) -> Optional[str]:
+def session_revocation_key(cookie_value: str) -> str | None:
     """Return a revocation key stable across cookie refreshes.
 
     ``refresh_session_cookie`` re-signs the cookie every refresh window,
@@ -135,7 +134,7 @@ def session_revocation_key(cookie_value: str) -> Optional[str]:
 
 
 def refresh_session_cookie(cookie_value: str,
-                           refresh_grace: int = 60) -> Optional[str]:
+                           refresh_grace: int = 60) -> str | None:
     """Return a re-signed cookie with an updated ``last_seen``.
 
     Callers that can emit ``Set-Cookie`` should attach the returned

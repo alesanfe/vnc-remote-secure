@@ -81,7 +81,7 @@ def create_app(config=None):
             )
             raise RuntimeError(
                 f"Flask is required for security profile '{profile}'. "
-                f"Install it with: pip install flask"
+                "Install it with: pip install flask"
             )
         return _create_fallback_app(config)
 
@@ -105,7 +105,7 @@ def create_app(config=None):
             # reports this, but we fail fast here to avoid a silently
             # insecure running instance.
             raise RuntimeError(
-                f"FLASK_SECRET_KEY is required for security profile "
+                "FLASK_SECRET_KEY is required for security profile "
                 f"'{profile}'. Set it in .env to a persistent random value."
             )
         # Development fallback: reuse the persisted auth secret
@@ -349,9 +349,10 @@ if __name__ == '__main__':
 
     load_env_file()
     parser = argparse.ArgumentParser(description='VNC Remote Secure Web UI')
-    parser.add_argument('--port', type=int,
-                        default=int(os.environ.get('USER_UI_PORT',
-                                                    str(DEFAULT_USER_UI_PORT))))
+    parser.add_argument(
+        '--port', type=int,
+        default=int(os.environ.get('USER_UI_PORT',
+                                   str(DEFAULT_USER_UI_PORT))))
     # Same resolution chain as config._env_host: USER_UI_HOST →
     # BIND_HOST → loopback — the documented BIND_HOST knob must
     # control this backend's binding too.

@@ -18,7 +18,6 @@ import logging
 import secrets
 import threading
 import time
-from typing import Optional
 
 from vnc_remote_secure.security.token_signing import (
     TOKEN_TYPE_EPHEMERAL,
@@ -50,7 +49,7 @@ def _get_instance_id() -> str:
         from vnc_remote_secure.core.paths import get_run_dir
         path = os.path.join(get_run_dir(), 'instance.id')
         if os.path.isfile(path):
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 saved = f.read().strip()
             if saved:
                 _INSTANCE_ID = saved
@@ -125,16 +124,16 @@ class EphemeralSession:
         self,
         token: str,
         role: str = 'viewer',
-        permissions: Optional[set] = None,
+        permissions: set | None = None,
         expires_at: float = 0,
         single_use: bool = False,
         view_only: bool = False,
         no_terminal: bool = False,
-        allowed_ip: Optional[str] = None,
+        allowed_ip: str | None = None,
         created_by: str = 'admin',
-        resource: Optional[str] = None,
-        instance_id: Optional[str] = None,
-        nonce: Optional[str] = None,
+        resource: str | None = None,
+        instance_id: str | None = None,
+        nonce: str | None = None,
         max_uses: int = 0,
     ):
         self.token = token
@@ -156,8 +155,8 @@ class EphemeralSession:
         self.max_uses = max_uses  # 0 = unlimited
         self.use_count = 0
 
-    def is_valid(self, client_ip: Optional[str] = None,
-                 resource: Optional[str] = None) -> bool:
+    def is_valid(self, client_ip: str | None = None,
+                 resource: str | None = None) -> bool:
         """Check if this session is still valid.
 
         Args:
@@ -188,7 +187,7 @@ class EphemeralSession:
             return False
         return True
 
-    def has_permission(self, perm: str, resource: Optional[str] = None) -> bool:
+    def has_permission(self, perm: str, resource: str | None = None) -> bool:
         """Check if this session grants a specific permission.
 
         Args:
@@ -292,7 +291,7 @@ def create_ephemeral_token(session: EphemeralSession) -> str:
     return sign_token(TOKEN_TYPE_EPHEMERAL, payload)
 
 
-def verify_ephemeral_token(token: str) -> Optional[dict]:
+def verify_ephemeral_token(token: str) -> dict | None:
     """Verify an ephemeral token signature.
 
     Returns the parsed payload if valid, None otherwise.
@@ -351,7 +350,7 @@ class SessionStore:
         except OSError:
             pass
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 for token, sdata in data.items():
@@ -403,7 +402,7 @@ class SessionStore:
             # disk copy into our in-memory sessions before serialising.
             if os.path.exists(path):
                 try:
-                    with open(path, 'r', encoding='utf-8') as f:
+                    with open(path, encoding='utf-8') as f:
                         disk = json.load(f)
                     if isinstance(disk, dict):
                         now = time.time()
@@ -482,9 +481,9 @@ class SessionStore:
         single_use: bool = False,
         view_only: bool = False,
         no_terminal: bool = False,
-        allowed_ip: Optional[str] = None,
+        allowed_ip: str | None = None,
         created_by: str = 'admin',
-        resource: Optional[str] = None,
+        resource: str | None = None,
         max_uses: int = 0,
     ) -> tuple:
         """Create a new ephemeral session.
@@ -525,7 +524,7 @@ class SessionStore:
             pass
         return session, signed
 
-    def get(self, token: str) -> Optional[EphemeralSession]:
+    def get(self, token: str) -> EphemeralSession | None:
         """Retrieve a session by its token.
 
         On a cache miss the persistence file is reloaded: sessions
@@ -546,8 +545,8 @@ class SessionStore:
             session.revoked = True
         return session
 
-    def validate(self, signed_token: str, client_ip: Optional[str] = None,
-                 resource: Optional[str] = None) -> Optional[EphemeralSession]:
+    def validate(self, signed_token: str, client_ip: str | None = None,
+                 resource: str | None = None) -> EphemeralSession | None:
         """Validate a signed token and return the session if valid.
 
         Args:
@@ -615,7 +614,7 @@ class SessionStore:
 
 
 # Global session store
-_store: Optional[SessionStore] = None
+_store: SessionStore | None = None
 
 
 def get_session_store() -> SessionStore:
@@ -631,8 +630,8 @@ def get_session_store() -> SessionStore:
 # ---------------------------------------------------------------------------
 
 def check_permission(signed_token: str, permission: str,
-                     resource: Optional[str] = None,
-                     client_ip: Optional[str] = None) -> bool:
+                     resource: str | None = None,
+                     client_ip: str | None = None) -> bool:
     """Check if a signed token's session has the given permission.
 
     This is the per-action authorization check. It verifies:
@@ -769,7 +768,7 @@ def revoke_session(signed_token: str) -> bool:
         # of the internal token) to the real token before revoking.
         import hashlib
         store._load_if_changed()
-        for real_token, session in store._sessions.items():
+        for real_token, _session in store._sessions.items():
             if (hashlib.sha256(real_token.encode()).hexdigest()[:12]
                     == signed_token.strip()):
                 token = real_token
@@ -909,7 +908,7 @@ def consume_ephemeral_session(signed_token: str) -> bool:
 
 
 def activate_ephemeral_session(signed_token: str,
-                               client_ip: Optional[str] = None) -> Optional[str]:
+                               client_ip: str | None = None) -> str | None:
     """Exchange a share-link token for its internal session token.
 
     This is the entry point of the browser flow: the landing page hands
@@ -991,8 +990,8 @@ def activate_ephemeral_session(signed_token: str,
 def check_session_permission(
     internal_token: str,
     permission: str,
-    resource: Optional[str] = None,
-    client_ip: Optional[str] = None,
+    resource: str | None = None,
+    client_ip: str | None = None,
 ) -> bool:
     """Check a permission on an *activated* session by internal token.
 

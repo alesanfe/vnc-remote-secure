@@ -105,7 +105,9 @@ def index():
     template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
     index_path = os.path.join(template_dir, 'index.html')
     if os.path.exists(index_path):
-        return render_template('index.html', config=config, csrf_token=session.get('csrf_token', ''))
+        return render_template(
+            'index.html', config=config,
+            csrf_token=session.get('csrf_token', ''))
     # Fallback minimal page.
     return (
         '<!DOCTYPE html><html><head><title>VNC Remote Secure</title></head>'

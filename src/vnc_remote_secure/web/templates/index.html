@@ -1,6 +1,7 @@
-<!DOCTYPE html>
-<html>
+﻿<!DOCTYPE html>
+<html lang="en">
 <head>
+    <meta name="description" content="VNC Remote Secure — secure browser-based remote access">
     <title>VNC Remote - Dashboard</title>
     <style>
         body { font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px; }
@@ -12,7 +13,7 @@
     <h1>VNC Remote - User Management Dashboard</h1>
     <div class="menu">
         <a href="{{ url_for('users.users') }}">Manage Users</a>
-        <form method="POST" action="{{ url_for('users.logout') }}" style="display:inline;">
+        <form method="post" action="{{ url_for('users.logout') }}" style="display:inline;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit">Logout</button>
         </form>

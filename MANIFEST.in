@@ -54,7 +54,10 @@ recursive-include packaging *
 recursive-include tools *.py
 
 # Documentation
-recursive-include docs *.md
+recursive-include docs *.md *.yaml
+
+# Helper scripts (release/maintenance utilities)
+recursive-include scripts *.sh *.py *.ps1
 
 # Tests (so downstream packagers can run them)
-recursive-include tests *.py *.sh *.ps1
+recursive-include tests *.py *.sh *.ps1 *.js

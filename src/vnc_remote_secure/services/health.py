@@ -1,4 +1,4 @@
-"""Health check service for VNC Remote Secure.
+﻿"""Health check service for VNC Remote Secure.
 
 Provides a lightweight HTTP health endpoint and helper functions to
 query the status of all managed services. The HTTP server uses only the
@@ -370,7 +370,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body.encode('utf-8'))
 
     def log_message(self, fmt, *args):  # noqa: D401 - route stdlib logs to logger
-        logger.info("%s - %s", self.client_address[0], fmt % args)
+        logger.info("%s - %s", self.client_address[0],
+                    fmt % args)  # noqa: PIE803 - fmt%args is the stdlib log format
 
 
 def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST, ssl_context=None):

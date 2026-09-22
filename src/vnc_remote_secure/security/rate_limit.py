@@ -11,7 +11,6 @@ the previous single-process behaviour.
 """
 import os
 import time
-from typing import Optional
 
 from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.security.shared_state import get_backend
@@ -35,9 +34,9 @@ class RateLimiter:
 
     def __init__(
         self,
-        max_attempts: Optional[int] = None,
-        lockout_seconds: Optional[int] = None,
-        window_seconds: Optional[int] = None,
+        max_attempts: int | None = None,
+        lockout_seconds: int | None = None,
+        window_seconds: int | None = None,
     ):
         load_env_file()
         self.max_attempts = max_attempts or int(

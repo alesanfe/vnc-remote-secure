@@ -31,7 +31,6 @@ Usage:
 import logging
 import threading
 import time
-from typing import Dict, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ logger = logging.getLogger(__name__)
 # are CLI-only: the operator already holds a local shell, so a web
 # session step-up has no enforcement surface there. ``file_transfer``
 # has no implementation at all.
-SENSITIVE_ACTIONS: Set[str] = {
+SENSITIVE_ACTIONS: set[str] = {
     'open_terminal',
     'create_admin',
     'delete_admin',
@@ -67,11 +66,11 @@ class StepUpAuthManager:
     _NS = 'step_up_auth_times'
 
     def __init__(self, default_max_age: int = 300):
-        self._auth_times: Dict[str, float] = {}  # process-local cache
+        self._auth_times: dict[str, float] = {}  # process-local cache
         self._lock = threading.Lock()
         self.default_max_age = default_max_age
 
-    def _backend_get(self, username: str) -> Optional[float]:
+    def _backend_get(self, username: str) -> float | None:
         """Read the auth time from the shared backend."""
         try:
             from vnc_remote_secure.security.shared_state import get_backend
@@ -80,7 +79,7 @@ class StepUpAuthManager:
         except Exception:  # noqa: BLE001 - backend must not break auth
             return self._auth_times.get(username)
 
-    def record_auth_time(self, username: str, auth_time: Optional[float] = None):
+    def record_auth_time(self, username: str, auth_time: float | None = None):
         """Record that a user has authenticated.
 
         Args:
@@ -98,7 +97,7 @@ class StepUpAuthManager:
             pass
         logger.debug('Step-up auth recorded for user: %s', username)
 
-    def needs_step_up(self, username: str, max_age: Optional[int] = None) -> bool:
+    def needs_step_up(self, username: str, max_age: int | None = None) -> bool:
         """Check if a user needs to re-authenticate.
 
         Args:
@@ -115,7 +114,7 @@ class StepUpAuthManager:
             return True  # Never authenticated
         return (time.time() - last_auth) > age
 
-    def get_auth_age(self, username: str) -> Optional[float]:
+    def get_auth_age(self, username: str) -> float | None:
         """Return the age (seconds) of the last authentication.
 
         Returns None if the user has never authenticated.
@@ -125,7 +124,7 @@ class StepUpAuthManager:
             return None
         return time.time() - last_auth
 
-    def clear(self, username: Optional[str] = None):
+    def clear(self, username: str | None = None):
         """Clear auth time for a user (or all users if None)."""
         with self._lock:
             if username:
@@ -153,7 +152,7 @@ class StepUpAuthManager:
 
 
 # Global singleton.
-_manager: Optional[StepUpAuthManager] = None
+_manager: StepUpAuthManager | None = None
 
 
 def get_step_up_manager() -> StepUpAuthManager:
@@ -164,18 +163,18 @@ def get_step_up_manager() -> StepUpAuthManager:
     return _manager
 
 
-def record_auth_time(username: str, auth_time: Optional[float] = None):
+def record_auth_time(username: str, auth_time: float | None = None):
     """Record that a user has authenticated (convenience function)."""
     get_step_up_manager().record_auth_time(username, auth_time)
 
 
-def needs_step_up(username: str, max_age: Optional[int] = None) -> bool:
+def needs_step_up(username: str, max_age: int | None = None) -> bool:
     """Check if a user needs step-up auth (convenience function)."""
     return get_step_up_manager().needs_step_up(username, max_age)
 
 
 def require_step_up(username: str, action: str,
-                    max_age: Optional[int] = None) -> Optional[str]:
+                    max_age: int | None = None) -> str | None:
     """Check if a sensitive action requires step-up auth.
 
     Args:
@@ -196,6 +195,6 @@ def require_step_up(username: str, action: str,
         )
         return (
             f'Re-authentication required for action: {action}. '
-            f'Please log in again or provide MFA.'
+            'Please log in again or provide MFA.'
         )
     return None

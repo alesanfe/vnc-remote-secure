@@ -18,7 +18,6 @@ import os
 import shutil
 import tarfile
 import time
-from typing import Optional
 
 from vnc_remote_secure.core.paths import (
     find_project_root,
@@ -42,7 +41,7 @@ _MAX_BACKUP_TOTAL_SIZE = 2 * 1024 * 1024 * 1024  # 2 GiB uncompressed
 _BACKUP_FORMAT_VERSION = 1
 
 
-def _get_backup_key(salt: Optional[bytes] = None, iterations: int = 600000):
+def _get_backup_key(salt: bytes | None = None, iterations: int = 600000):
     """Return a Fernet key derived from BACKUP_PASSWORD, or None.
 
     PBKDF2-HMAC-SHA256 with a random per-backup salt — a bare
@@ -188,7 +187,7 @@ def _collect_paths() -> list:
     return paths
 
 
-def create_backup(output: Optional[str] = None) -> str:
+def create_backup(output: str | None = None) -> str:
     """Create a tar.gz backup of configuration and certificates.
 
     Also saves the current service-manager state (PIDs) so it can be
@@ -284,7 +283,7 @@ def create_backup(output: Optional[str] = None) -> str:
             except OSError:
                 pass
             raise RuntimeError(
-                f"Backup encryption failed — no plaintext backup was "
+                "Backup encryption failed — no plaintext backup was "
                 f"kept: {e}") from e
     else:
         logger.warning(
@@ -375,7 +374,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
             members = tar.getmembers()
             if len(members) > _MAX_BACKUP_MEMBERS:
                 raise RuntimeError(
-                    f"Backup has too many entries "
+                    "Backup has too many entries "
                     f"({len(members)} > {_MAX_BACKUP_MEMBERS})"
                 )
             total_size = 0
@@ -402,7 +401,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
                     link_target = member.linkname or ''
                     if os.path.isabs(link_target):
                         raise RuntimeError(
-                            f"Unsafe link target in backup archive: "
+                            "Unsafe link target in backup archive: "
                             f"{member.name} -> {link_target}"
                         )
                     # Hardlink targets are names in the archive root;
@@ -413,7 +412,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
                         os.path.join(base, link_target))
                     if resolved.startswith('..') or os.path.isabs(resolved):
                         raise RuntimeError(
-                            f"Unsafe link target in backup archive: "
+                            "Unsafe link target in backup archive: "
                             f"{member.name} -> {link_target}"
                         )
                 if member.size > _MAX_BACKUP_FILE_SIZE:
@@ -424,7 +423,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
                 total_size += member.size
             if total_size > _MAX_BACKUP_TOTAL_SIZE:
                 raise RuntimeError(
-                    f"Backup uncompressed size too large "
+                    "Backup uncompressed size too large "
                     f"({total_size} > {_MAX_BACKUP_TOTAL_SIZE})"
                 )
             # 'data' filter additionally blocks symlink/hardlink members
@@ -531,7 +530,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
             state_file = os.path.join(temp_dir, 'service_state.json')
             if os.path.isfile(state_file):
                 import json
-                with open(state_file, 'r', encoding='utf-8') as f:
+                with open(state_file, encoding='utf-8') as f:
                     state = json.load(f)
                 restore_state(state)
         except Exception as e:

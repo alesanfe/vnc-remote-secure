@@ -160,3 +160,5 @@ webterm_*.log
 _verify_syntax.sh
 _run_tests.sh
 _test_pw.sh
+
+dist_lint/

@@ -24,7 +24,6 @@ Legacy aliases (backwards-compatible):
 """
 import logging
 import os
-from typing import Optional
 
 from vnc_remote_secure.core.constants import (
     DEFAULT_LANDING_PORT,
@@ -156,7 +155,7 @@ def resolve_profile() -> str:
     return _PROFILE_ALIASES.get(name, name)
 
 
-def get_profile_config(profile: Optional[str] = None) -> dict:
+def get_profile_config(profile: str | None = None) -> dict:
     """Return the configuration dict for a profile.
 
     Falls back to 'development' if the requested profile doesn't exist.
@@ -171,7 +170,7 @@ def get_profile_config(profile: Optional[str] = None) -> dict:
     return PROFILES[name].copy()
 
 
-def locked_vars_for(profile: Optional[str] = None) -> dict:
+def locked_vars_for(profile: str | None = None) -> dict:
     """Return the env vars a hardened profile force-enforces.
 
     This is the single source of truth for the lock set used by
@@ -221,7 +220,7 @@ def locked_vars_for(profile: Optional[str] = None) -> dict:
     return locked
 
 
-def apply_profile(profile: Optional[str] = None, overwrite: bool = False):
+def apply_profile(profile: str | None = None, overwrite: bool = False):
     """Apply a security profile to the current process environment.
 
     Sets env vars from the profile. Existing env vars are preserved

@@ -16,7 +16,6 @@ Error responses follow a structured schema:
 import json
 import logging
 import uuid
-from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +40,10 @@ ERROR_CODES = {
 def error_json(
     message: str,
     status_code: int = 500,
-    detail: Optional[str] = None,
-    code: Optional[str] = None,
-    request_id: Optional[str] = None,
-) -> Tuple[str, int]:
+    detail: str | None = None,
+    code: str | None = None,
+    request_id: str | None = None,
+) -> tuple[str, int]:
     """Return a JSON error response tuple for Flask/http.server handlers.
 
     Returns (body_string, status_code) where body_string is a JSON
@@ -71,9 +70,9 @@ def log_exception(exc, context: str = ''):
 def error_json_response(
     message: str,
     status_code: int = 400,
-    detail: Optional[str] = None,
-    code: Optional[str] = None,
-    request_id: Optional[str] = None,
+    detail: str | None = None,
+    code: str | None = None,
+    request_id: str | None = None,
 ):
     """Flask-compatible JSON error response.
 
@@ -94,9 +93,9 @@ def error_json_response(
 def structured_error(
     code: str,
     message: str,
-    detail: Optional[str] = None,
-    request_id: Optional[str] = None,
-) -> Tuple[str, int]:
+    detail: str | None = None,
+    request_id: str | None = None,
+) -> tuple[str, int]:
     """Create a structured error using a registered error code.
 
     Looks up the HTTP status code from :data:`ERROR_CODES` and delegates

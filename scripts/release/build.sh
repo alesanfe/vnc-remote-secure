@@ -28,7 +28,7 @@ echo "=== Building VNC Remote Secure v${VERSION} ==="
 
 # Clean previous builds (best-effort: stale egg-info may be locked
 # by an editable install — build regenerates it anyway)
-rm -rf dist/ build/ *.egg-info src/*.egg-info 2>/dev/null || true
+rm -rf dist/ build/ ./*.egg-info src/*.egg-info 2>/dev/null || true
 
 # Build Python package
 "$PY" -m build
@@ -36,7 +36,7 @@ rm -rf dist/ build/ *.egg-info src/*.egg-info 2>/dev/null || true
 # Generate checksums
 if [ -d dist/ ]; then
     cd dist/
-    sha256sum * > SHA256SUMS.txt
+    sha256sum -- * > SHA256SUMS.txt
     cd ..
     echo "Checksums generated: dist/SHA256SUMS.txt"
 fi

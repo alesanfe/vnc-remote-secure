@@ -33,7 +33,7 @@ def _apply_no_ssl(args) -> bool:
     # defeated by the profile lock further down.
     profile = _PROFILE_ALIASES.get(get_profile(), get_profile())
     if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
-        print(f"Error: --no-ssl is incompatible with security profile "
+        print("Error: --no-ssl is incompatible with security profile "
               f"'{profile}' (TLS is mandatory).", file=sys.stderr)
         return False
     os.environ['TLS_ENABLED'] = 'false'

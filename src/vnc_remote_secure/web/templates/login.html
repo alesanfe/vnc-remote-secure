@@ -1,6 +1,7 @@
-<!DOCTYPE html>
-<html>
+﻿<!DOCTYPE html>
+<html lang="en">
 <head>
+    <meta name="description" content="VNC Remote Secure — secure browser-based remote access">
     <title>VNC Remote - Login</title>
     <style>
         body { font-family: Arial; max-width: 400px; margin: 100px auto; padding: 20px; }
@@ -19,7 +20,7 @@
         {% endif %}
     {% endwith %}
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form method="POST">
+    <form method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="text" name="username" placeholder="Username" required>
         <input type="password" name="password" placeholder="Password" required>

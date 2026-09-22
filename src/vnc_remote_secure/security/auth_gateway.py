@@ -13,7 +13,6 @@ standalone HTTP handler pre-check by the stdlib-based services.
 """
 import logging
 import os
-from typing import Optional, Tuple
 
 from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.core.exceptions import SecurityError
@@ -187,7 +186,7 @@ def attempt_login(
     password: str,
     totp_code: str = '',
     client_ip: str = 'unknown',
-) -> Tuple[bool, str, Optional[dict]]:
+) -> tuple[bool, str, dict | None]:
     """Attempt a login with password + optional MFA.
 
     Returns:
@@ -302,7 +301,7 @@ def attempt_login(
 def check_authenticated(
     cookie_value: str,
     bearer_token: str = '',
-) -> Tuple[bool, Optional[str]]:
+) -> tuple[bool, str | None]:
     """Check if a request is authenticated via cookie or bearer token.
 
     Returns:
@@ -361,7 +360,7 @@ def authorize_request(
     resource: str = '',
     required_permission: str = '',
     client_ip: str = '',
-) -> Tuple[bool, str, Optional[str]]:
+) -> tuple[bool, str, str | None]:
     """Unified credential→session→permission→rate-limit decision.
 
     This is THE single token-credential enforcement tree — every
@@ -447,7 +446,7 @@ def check_websocket_upgrade(
     required_permission: str = '',
     client_ip: str = '',
     ephemeral_cookie: str = '',
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Validate a WebSocket upgrade request.
 
     Enforces Origin validation AND authentication AND authorization
@@ -474,7 +473,7 @@ def check_websocket_upgrade(
     if client_ip and is_client_locked(client_ip):
         return False, 'Rate limited'
 
-    def _reject(reason: str) -> Tuple[bool, str]:
+    def _reject(reason: str) -> tuple[bool, str]:
         # Count rejected upgrades against the same limiter as auth
         # attempts — otherwise the WebSocket endpoint becomes a
         # lockout-free credential oracle.
@@ -608,7 +607,7 @@ def check_permission_for_action(
     bearer_token: str,
     permission: str,
     client_ip: str = '',
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Check if a token has a specific permission for an action.
 
     This is the per-action authorization check that must be called

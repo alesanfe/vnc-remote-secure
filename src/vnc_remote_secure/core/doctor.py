@@ -393,7 +393,7 @@ def _check_services(checks):
         else:
             _fail(checks, 'ports.nginx',
                   f'NGINX_ENABLED=true but nothing listens on {ngx_port} '
-                  f'— the public entry point is down')
+                  '— the public entry point is down')
 
 
 def run_doctor(as_json: bool = False) -> dict:

@@ -1,0 +1,1 @@
+Third-party software licenses. See the corresponding text in src/vnc_remote_secure/third_party/licenses/ for each bundled component.`n

@@ -16,7 +16,7 @@ def configure_firewall(port, protocol='tcp'):
         f"New-NetFirewallRule -DisplayName '{rule_name}' "
         f"-Direction Inbound -Protocol {protocol} "
         f"-LocalPort {port} -Action Allow -Profile Private,Domain "
-        f"-ErrorAction SilentlyContinue"
+        "-ErrorAction SilentlyContinue"
     )
     result = run_powershell(ps_script)
     return result.returncode == 0

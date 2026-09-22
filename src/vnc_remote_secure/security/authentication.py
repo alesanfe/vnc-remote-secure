@@ -57,7 +57,7 @@ def _get_secret():
         # Try to load a previously persisted secret.
         path = _secret_file_path()
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 _cached_secret = f.read().strip()
             # Keys written before the ACL hardening existed may still
             # be world-readable — re-restrict on load (once per process,
@@ -68,7 +68,7 @@ def _get_secret():
                     _restrict_key_permissions(path, writable=True)
                 except Exception:  # noqa: BLE001
                     pass
-        except (OSError, IOError) as exc:
+        except OSError as exc:
             logger.debug("Could not read persisted auth secret at %s: %s", path, exc, exc_info=True)
         if not _cached_secret:
             _cached_secret = secrets.token_hex(32)

@@ -6,7 +6,6 @@ display in the operational dashboard.
 """
 import logging
 import os
-from typing import List
 
 from vnc_remote_secure.core.config import load_env_file
 
@@ -283,7 +282,7 @@ def calculate_posture() -> dict:
         - ``blocking_findings``: list of critical findings that block deployment
     """
     load_env_file()
-    findings: List[dict] = []
+    findings: list[dict] = []
 
     # Run each category of checks, appending findings.
     _check_tls_posture(findings)

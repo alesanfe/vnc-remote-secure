@@ -755,11 +755,11 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-store')
             self.end_headers()
             self.wfile.write(
-                '<!doctype html><meta charset="utf-8">'
-                '<title>Open session</title>'
-                '<p><a href="'.encode()
+                b'<!doctype html><meta charset="utf-8">'
+                b'<title>Open session</title>'
+                b'<p><a href="'
                 + escape(self.path, quote=True).encode()
-                + '">Click to open the shared session</a></p>'.encode())
+                + b'">Click to open the shared session</a></p>')
             return True
         from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
         # Forwarded-aware like check_session_permission: behind a
@@ -962,7 +962,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(f'Template {template_name} not found'.encode())
                 return
-            with open(template_path, 'r', encoding='utf-8') as f:
+            with open(template_path, encoding='utf-8') as f:
                 content = f.read()
             # Minimal Jinja2 substitution for port variables. The env
             # values land verbatim in the page — coerce to int so a

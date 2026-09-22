@@ -12,7 +12,6 @@ responses. These headers protect against common web vulnerabilities:
 - ``X-XSS-Protection``: Legacy XSS protection (for older browsers)
 """
 import os
-from typing import Dict
 
 # Default security headers applied to all responses.
 DEFAULT_SECURITY_HEADERS = {
@@ -58,7 +57,7 @@ def _safe_header_value(value: str, fallback: str) -> str:
     return fallback
 
 
-def get_security_headers(tls_enabled: bool = True) -> Dict:
+def get_security_headers(tls_enabled: bool = True) -> dict:
     """Return the security headers to apply to a response.
 
     Args:

@@ -11,7 +11,6 @@ Usage:
 import logging
 import os
 import stat
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ def _is_windows() -> bool:
     return os.name == 'nt'
 
 
-def _check_unix_permissions(path: str) -> List[dict]:
+def _check_unix_permissions(path: str) -> list[dict]:
     """Check file permissions on Unix-like systems."""
     findings = []
     try:
@@ -73,7 +72,7 @@ def _check_unix_permissions(path: str) -> List[dict]:
     return findings
 
 
-def _check_windows_permissions(path: str) -> List[dict]:
+def _check_windows_permissions(path: str) -> list[dict]:
     """Check file permissions on Windows via icacls."""
     findings = []
     try:
@@ -111,7 +110,7 @@ def _check_windows_permissions(path: str) -> List[dict]:
     return findings
 
 
-def validate_secret_files(project_root: Optional[str] = None) -> List[dict]:
+def validate_secret_files(project_root: str | None = None) -> list[dict]:
     """Validate permissions of secret files.
 
     Args:

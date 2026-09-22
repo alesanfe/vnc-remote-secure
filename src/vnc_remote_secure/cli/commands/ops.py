@@ -73,7 +73,7 @@ def cmd_restore(args):
             print("[DRY RUN] Restore would fail: see logs.",
                   file=sys.stderr)
             return 1
-        print(f"[DRY RUN] Backup validated — "
+        print("[DRY RUN] Backup validated — "
               f"{args.backup_file} is restorable")
         return 0
 

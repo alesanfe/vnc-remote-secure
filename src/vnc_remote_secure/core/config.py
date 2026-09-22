@@ -89,7 +89,7 @@ def _is_tls_enabled_env() -> bool:
 def _parse_env_file(path):
     """Parse a .env-style file and yield (key, value) pairs."""
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith('#'):

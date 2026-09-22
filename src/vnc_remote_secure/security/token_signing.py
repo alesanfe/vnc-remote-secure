@@ -16,7 +16,6 @@ strip it and substitute a different type.
 """
 import hashlib
 import hmac
-from typing import Optional
 
 # Type tags. Adding a new token type requires a new tag here so that
 # existing verifiers reject unknown types.
@@ -50,7 +49,7 @@ def sign_token(token_type: str, payload: str) -> str:
     return f"{token_type}:{payload}.{sig}"
 
 
-def verify_token(token_type: str, token: str) -> Optional[str]:
+def verify_token(token_type: str, token: str) -> str | None:
     """Verify a signed token and return the payload if valid.
 
     Args:

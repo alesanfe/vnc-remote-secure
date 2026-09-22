@@ -16,7 +16,10 @@ from vnc_remote_secure.core.constants import (
 )
 
 # Pre-compiled regular expressions (kept module-level for reuse).
-_DOMAIN_RE = re.compile(
+# The domain pattern uses nested quantifiers, but validate_domain()
+# rejects input longer than 253 chars before matching, so worst-case
+# backtracking is bounded and cannot be abused for ReDoS.
+_DOMAIN_RE = re.compile(  # noqa: DUO138 - input length-capped at caller
     r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'
     r'(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$'
 )

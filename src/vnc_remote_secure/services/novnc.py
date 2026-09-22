@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """noVNC static file server with session validation.
 
 Serves the noVNC web client and enforces authentication before any
@@ -409,7 +409,8 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     pass
 
     def log_message(self, fmt, *args):  # noqa: D401
-        logger.info("%s - %s", self.client_address[0], fmt % args)
+        logger.info("%s - %s", self.client_address[0],
+                    fmt % args)  # noqa: PIE803 - fmt%args is the stdlib log format
 
 
 def main():

@@ -135,7 +135,7 @@ def _validate_certificate(cert_path: str, key_path: str) -> list:
             findings.append({
                 'severity': 'critical',
                 'message': f'Certificate key size is {key_size} bits, '
-                           f'minimum 2048 required',
+                           'minimum 2048 required',
             })
 
         # Check expiry.

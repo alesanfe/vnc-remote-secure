@@ -30,7 +30,6 @@ import stat
 import threading
 import time
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +239,7 @@ def audit_log(
     ip: str = 'unknown',
     result: str = 'success',
     detail: str = '',
-    extra: Optional[dict] = None,
+    extra: dict | None = None,
 ) -> dict:
     """Write a structured audit log entry.
 
@@ -363,7 +362,7 @@ def verify_chain() -> tuple:
     return True, f'Chain intact ({len(lines)} entries)'
 
 
-def get_audit_entries(limit: int = 100, event: Optional[str] = None) -> list:
+def get_audit_entries(limit: int = 100, event: str | None = None) -> list:
     """Read recent audit log entries.
 
     Args:

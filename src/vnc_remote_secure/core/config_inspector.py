@@ -12,7 +12,6 @@ Layers (in priority order, first match wins):
 """
 import logging
 import os
-from typing import Dict, List, Optional, Tuple
 
 from vnc_remote_secure.core.constants import (
     DEFAULT_BIND_HOST,
@@ -43,7 +42,7 @@ LOCKED_VARS = {
 }
 
 
-def _resolve_profile_name(env_snapshot: Dict[str, str]) -> str:
+def _resolve_profile_name(env_snapshot: dict[str, str]) -> str:
     """Resolve the effective profile from a snapshot of env vars.
 
     Mirrors ``security.profiles.resolve_profile()`` but against the
@@ -59,7 +58,7 @@ def _resolve_profile_name(env_snapshot: Dict[str, str]) -> str:
     return _PROFILE_ALIASES.get(name, name)
 
 
-def _locked_vars_for_profile(profile_name: str) -> Dict[str, str]:
+def _locked_vars_for_profile(profile_name: str) -> dict[str, str]:
     """Return the runtime lock set for ``profile_name``.
 
     Delegates to ``security.profiles.locked_vars_for`` so the inspector
@@ -75,7 +74,7 @@ def _locked_vars_for_profile(profile_name: str) -> Dict[str, str]:
         return LOCKED_VARS
 
 
-def _get_platform_defaults() -> Dict[str, str]:
+def _get_platform_defaults() -> dict[str, str]:
     """Return the platform-aware default values.
 
     Reads ``config/defaults/common.env`` AND
@@ -99,7 +98,7 @@ def _get_platform_defaults() -> Dict[str, str]:
         os.path.dirname(__file__), '..', 'config', 'defaults'))
     for defaults_dir in candidates:
         if defaults_dir and os.path.isdir(defaults_dir):
-            merged: Dict[str, str] = {}
+            merged: dict[str, str] = {}
             for name in ('common.env', platform_file):
                 path = os.path.join(defaults_dir, name)
                 if os.path.isfile(path):
@@ -109,7 +108,7 @@ def _get_platform_defaults() -> Dict[str, str]:
     return {}
 
 
-def _get_hardcoded_defaults() -> Dict[str, str]:
+def _get_hardcoded_defaults() -> dict[str, str]:
     """Return hardcoded default values from constants."""
     return {
         'BIND_HOST': DEFAULT_BIND_HOST,
@@ -132,7 +131,7 @@ _SERVICE_HOST_VARS = {
 }
 
 
-def _get_profile_values(profile_name: str) -> Dict[str, str]:
+def _get_profile_values(profile_name: str) -> dict[str, str]:
     """Return the values set by a security profile."""
     resolved = _PROFILE_ALIASES.get(profile_name, profile_name)
     profile = PROFILES.get(resolved, {})
@@ -147,9 +146,9 @@ def _redact_value(name: str, value: str) -> str:
 
 
 def compute_effective_config(
-    env_snapshot: Optional[Dict[str, str]] = None,
-    profile_name: Optional[str] = None,
-) -> List[Dict[str, str]]:
+    env_snapshot: dict[str, str] | None = None,
+    profile_name: str | None = None,
+) -> list[dict[str, str]]:
     """Compute the effective configuration with provenance.
 
     Args:
@@ -169,12 +168,12 @@ def compute_effective_config(
         profile_name = _resolve_profile_name(env_snapshot)
 
     # Load .env file values (without overriding existing env vars).
-    env_file_values: Dict[str, str] = {}
+    env_file_values: dict[str, str] = {}
     from vnc_remote_secure.core.paths import find_project_root
     env_path = os.path.join(find_project_root(), '.env')
     if os.path.exists(env_path):
         try:
-            with open(env_path, 'r', encoding='utf-8') as f:
+            with open(env_path, encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith('#') or '=' not in line:
@@ -234,7 +233,7 @@ def compute_effective_config(
     # Sort for deterministic output.
     sorted_vars = sorted(all_vars)
 
-    result: List[Dict[str, str]] = []
+    result: list[dict[str, str]] = []
     for var in sorted_vars:
         value, source = _resolve_var(
             var, env_snapshot, env_file_values, profile_values,
@@ -251,13 +250,13 @@ def compute_effective_config(
 
 def _resolve_var(
     var: str,
-    env_snapshot: Dict[str, str],
-    env_file_values: Dict[str, str],
-    profile_values: Dict[str, str],
-    platform_defaults: Dict[str, str],
-    hardcoded_defaults: Dict[str, str],
+    env_snapshot: dict[str, str],
+    env_file_values: dict[str, str],
+    profile_values: dict[str, str],
+    platform_defaults: dict[str, str],
+    hardcoded_defaults: dict[str, str],
     profile_name: str,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Resolve a single variable to its effective value and source."""
     locked = _locked_vars_for_profile(profile_name)
 
@@ -306,9 +305,9 @@ def _resolve_var(
 
 
 def validate_config(
-    env_snapshot: Optional[Dict[str, str]] = None,
-    profile_name: Optional[str] = None,
-) -> List[Dict[str, str]]:
+    env_snapshot: dict[str, str] | None = None,
+    profile_name: str | None = None,
+) -> list[dict[str, str]]:
     """Validate the effective configuration for contradictions.
 
     Returns:
@@ -319,7 +318,7 @@ def validate_config(
     if profile_name is None:
         profile_name = _resolve_profile_name(env_snapshot)
 
-    findings: List[Dict[str, str]] = []
+    findings: list[dict[str, str]] = []
     effective = compute_effective_config(env_snapshot, profile_name)
     effective_dict = {e['name']: e['value'] for e in effective}
 
@@ -471,9 +470,9 @@ def validate_config(
 
 
 def diff_configs(
-    config_a: List[Dict[str, str]],
-    config_b: List[Dict[str, str]],
-) -> List[Dict[str, str]]:
+    config_a: list[dict[str, str]],
+    config_b: list[dict[str, str]],
+) -> list[dict[str, str]]:
     """Diff two effective configs.
 
     Args:

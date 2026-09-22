@@ -65,7 +65,7 @@ def user_exists(username):
     """Return ``True`` if ``username`` exists as a local user."""
     ps_script = (
         f"if (Get-LocalUser -Name '{_ps_escape(username)}' -ErrorAction SilentlyContinue) "
-        f"{{ 'yes' }} else {{ 'no' }}"
+        "{ 'yes' } else { 'no' }"
     )
     result = run_powershell(ps_script)
     return result.stdout.strip().lower() == 'yes'
@@ -134,7 +134,7 @@ def restrict_user(username):
     # The correct cmdlet is Remove-LocalGroupMember (not Remove-LocalUserFromGroup).
     ps_script = (
         f"Remove-LocalGroupMember -Group 'Users' -Member '{_ps_escape(username)}' "
-        f"-ErrorAction SilentlyContinue"
+        "-ErrorAction SilentlyContinue"
     )
     run_powershell(ps_script)
     # Even if group removal fails, the user was created with a random

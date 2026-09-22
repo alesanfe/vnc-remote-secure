@@ -48,6 +48,7 @@ def _require_session():
         return None, redirect(url_for('users.login'))
     return username, None
 
+
 users_bp = Blueprint('users', __name__)
 
 
@@ -475,6 +476,9 @@ def api_users():
     _user, err = _require_session()
     if err is not None:
         return err
+    if not _user:
+        # Authenticated but no resolvable username — fail closed.
+        return json_error('Authentication required', 401)
 
     if request.method == 'GET':
         return _api_users_get()

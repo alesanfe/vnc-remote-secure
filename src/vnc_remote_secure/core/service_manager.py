@@ -26,7 +26,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Any, Optional
+from typing import Any
 
 from vnc_remote_secure.core.config import get_config, load_env_file
 from vnc_remote_secure.core.constants import (
@@ -78,12 +78,12 @@ def _write_pid(service: str, pid: int) -> None:
         raise
 
 
-def _read_pid(service: str) -> Optional[int]:
+def _read_pid(service: str) -> int | None:
     path = _pid_file(service)
     if not os.path.exists(path):
         return None
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             return int(f.read().strip())
     except (ValueError, OSError):
         return None
@@ -117,14 +117,14 @@ def _pid_alive(pid: int) -> bool:
             return False
     try:
         os.kill(pid, 0)
-    except (OSError, ProcessLookupError):
+    except OSError:  # ProcessLookupError subclasses OSError
         return False
     # os.kill(pid, 0) succeeds on zombies, and our spawned children can
     # sit as zombies until the next Popen triggers subprocess._cleanup —
     # during that window a dead service would be reported as running and
     # the watchdog would never restart it. Check /proc state directly.
     try:
-        with open(f'/proc/{pid}/stat', 'r', encoding='ascii') as fh:
+        with open(f'/proc/{pid}/stat', encoding='ascii') as fh:
             # comm may contain spaces/parens; state follows the last ')'.
             stat = fh.read()
             state = stat[stat.rfind(')') + 2]
@@ -159,7 +159,7 @@ def _kill_descendants(pid: int, depth: int = 0) -> None:
         _kill_descendants(child, depth + 1)
         try:
             os.kill(child, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
+        except OSError:  # ProcessLookupError subclasses OSError
             pass
 
 
@@ -180,7 +180,7 @@ _SERVICE_PROC_NEEDLES = {
 }
 
 
-def _pid_is_ours(pid: int, service: Optional[str] = None) -> Optional[bool]:
+def _pid_is_ours(pid: int, service: str | None = None) -> bool | None:
     """Decide whether ``pid`` belongs to one of our service processes.
 
     Returns ``True`` (cmdline matches the service's needles), ``False``
@@ -209,7 +209,7 @@ def _pid_is_ours(pid: int, service: Optional[str] = None) -> Optional[bool]:
             # wmic missing on newer Windows — fall back to PowerShell.
             res = run_cmd(
                 ['powershell', '-NoProfile', '-Command',
-                 f"(Get-CimInstance Win32_Process -Filter "
+                 "(Get-CimInstance Win32_Process -Filter "
                  f"'ProcessId={pid}').CommandLine"],
                 capture_output=True, text=True, timeout=10,
             )
@@ -228,7 +228,7 @@ def _pid_is_ours(pid: int, service: Optional[str] = None) -> Optional[bool]:
 
 
 def _kill_pid(pid: int, timeout: float = 5.0,
-              service: Optional[str] = None, force: bool = False) -> bool:
+              service: str | None = None, force: bool = False) -> bool:
     """Terminate a process by PID. Returns True if it stopped."""
     if not pid or pid <= 0:
         return True
@@ -281,7 +281,7 @@ def _kill_pid(pid: int, timeout: float = 5.0,
         _kill_descendants(pid)
         try:
             os.kill(pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
+        except OSError:  # ProcessLookupError subclasses OSError
             _clear_pid_by_value(pid)
             return True
         deadline = time.time() + timeout
@@ -292,7 +292,7 @@ def _kill_pid(pid: int, timeout: float = 5.0,
         if _pid_alive(pid):
             try:
                 os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]  # POSIX-only branch
-            except (OSError, ProcessLookupError):
+            except OSError:  # ProcessLookupError subclasses OSError
                 pass
     stopped = not _pid_alive(pid)
     if stopped:
@@ -309,7 +309,7 @@ def _clear_pid_by_value(pid: int) -> None:
             continue
         path = os.path.join(_pid_dir(), fname)
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 matches = f.read().strip() == str(pid)
             # Close the file before removing it: on Windows an open
             # file cannot be deleted (WinError 32).
@@ -340,7 +340,7 @@ class _GlobalLock:
                 self._fh.seek(0)
                 msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
                 self._locked = True
-            except (OSError, IOError):
+            except OSError:
                 # Could not acquire — another instance holds it.
                 self._fh.close()
                 self._fh = None
@@ -350,7 +350,7 @@ class _GlobalLock:
             try:
                 fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 self._locked = True
-            except (OSError, IOError):
+            except OSError:
                 self._fh.close()
                 self._fh = None
                 self._locked = False
@@ -364,13 +364,13 @@ class _GlobalLock:
                     try:
                         self._fh.seek(0)
                         msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
-                    except (OSError, IOError):
+                    except OSError:
                         pass
                 else:
                     import fcntl
                     try:
                         fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
-                    except (OSError, IOError):
+                    except OSError:
                         pass
             self._fh.close()
             self._fh = None
@@ -466,8 +466,8 @@ def _reap_stale_service(module: str, service_name: str, port: int):
 
 
 def _start_python_service(module: str, service_name: str,
-                          extra_args: Optional[list] = None,
-                          port: Optional[int] = None) -> Optional[int]:
+                          extra_args: list | None = None,
+                          port: int | None = None) -> int | None:
     """Start a Python service module as a subprocess and record its PID.
 
     Returns the PID on success, None on failure.
@@ -593,7 +593,7 @@ def _enabled_services(config: dict) -> list:
     return services
 
 
-def start_all(config: Optional[dict] = None) -> dict:
+def start_all(config: dict | None = None) -> dict:
     """Start all enabled services.
 
     Returns a dict mapping service name to PID (or None on failure).
@@ -647,7 +647,7 @@ _SERVICE_PORT_KEYS = {
 }
 
 
-def _start_service(service: str, config: dict) -> Optional[int]:
+def _start_service(service: str, config: dict) -> int | None:
     """Start a single service by name. Returns PID or None."""
     port_key = _SERVICE_PORT_KEYS.get(service)
     port = config.get(port_key) if port_key else None
@@ -680,7 +680,7 @@ def _start_service(service: str, config: dict) -> Optional[int]:
     return None
 
 
-def _start_vnc(config: dict) -> Optional[int]:
+def _start_vnc(config: dict) -> int | None:
     """Start the VNC server via the platform adapter."""
     from vnc_remote_secure.services.vnc import start_vnc
     display = config.get('vnc_display', ':1')
@@ -708,7 +708,7 @@ def _start_vnc(config: dict) -> Optional[int]:
         return None
 
 
-def _start_terminal(config: dict) -> Optional[int]:
+def _start_terminal(config: dict) -> int | None:
     """Start the web terminal.
 
     On Linux, prefer the Python Tornado terminal (services.terminal) so
@@ -720,7 +720,7 @@ def _start_terminal(config: dict) -> Optional[int]:
         port=config.get('ttyd_port'))
 
 
-def _resolve_novnc_dir() -> Optional[str]:
+def _resolve_novnc_dir() -> str | None:
     """Locate the noVNC static assets directory.
 
     Resolution order: ``NOVNC_DIR`` env var, then ``<project_root>/novnc``
@@ -739,7 +739,7 @@ def _resolve_novnc_dir() -> Optional[str]:
     return None
 
 
-def _start_novnc(config: dict) -> Optional[int]:
+def _start_novnc(config: dict) -> int | None:
     """Start the noVNC static server.
 
     The Python services.novnc serves static files; websockify is started
@@ -758,7 +758,7 @@ def _start_novnc(config: dict) -> Optional[int]:
         port=config.get('novnc_port'))
 
 
-def _start_websockify(config: dict) -> Optional[int]:
+def _start_websockify(config: dict) -> int | None:
     """Start the WebSocket→RFB bridge on loopback.
 
     ``websockify`` listens on ``NOVNC_WS_PORT`` (default 5700, loopback
@@ -795,7 +795,7 @@ def _start_websockify(config: dict) -> Optional[int]:
     )
 
 
-def _start_nginx(config: dict) -> Optional[int]:
+def _start_nginx(config: dict) -> int | None:
     """Start nginx via systemctl (Linux) or the platform adapter."""
     if is_windows():
         logger.info("nginx not supported on Windows via service manager; skipping")
@@ -837,7 +837,7 @@ def _start_nginx(config: dict) -> Optional[int]:
                 pids = [int(p) for p in res.stdout.split() if p.strip().isdigit()]
                 for pid in pids:
                     try:
-                        with open(f'/proc/{pid}/stat', 'r', encoding='ascii') as fh:
+                        with open(f'/proc/{pid}/stat', encoding='ascii') as fh:
                             stat = fh.read()
                         if int(stat[stat.rfind(')') + 2:].split()[1]) == 1:
                             _write_pid('nginx', pid)
@@ -884,7 +884,7 @@ def stop_all(force: bool = False) -> dict:
         return results
 
 
-def restart_all(config: Optional[dict] = None) -> dict:
+def restart_all(config: dict | None = None) -> dict:
     """Stop all services, clean up, then start them again.
 
     Holds the cross-process lock across both phases so a concurrent
@@ -1027,7 +1027,7 @@ def _record_restart(service: str, now: float) -> None:
     _restart_history.setdefault(service, []).append(now)
 
 
-def watchdog_tick(config: Optional[dict] = None) -> dict:
+def watchdog_tick(config: dict | None = None) -> dict:
     """One watchdog iteration over all enabled services.
 
     Checks every enabled service's recorded PID. When ``auto_restart``

@@ -146,7 +146,7 @@ def create_ssl_context(cert_file=None, key_file=None):
         profile = os.environ.get('VNC_REMOTE_PROFILE', 'development')
         if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
             raise RuntimeError(
-                f"SSL cert/key configured but not found under profile "
+                "SSL cert/key configured but not found under profile "
                 f"'{profile}': {cert} / {key}")
         logger.debug("SSL cert/key not found: %s / %s", cert, key)
         return None
@@ -277,9 +277,9 @@ def generate_self_signed(cert_path, key_path, common_name='vnc-remote-secure',
         .issuer_name(issuer)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+        .not_valid_before(datetime.datetime.now(datetime.UTC))
         .not_valid_after(
-            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days_valid)
+            datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=days_valid)
         )
         .add_extension(
             x509.SubjectAlternativeName(san_entries), critical=False,

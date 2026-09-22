@@ -18,7 +18,8 @@
 set -e
 
 cd "$(dirname "$0")"
-export PROJECT_DIR="$(pwd)"
+PROJECT_DIR="$(pwd)"
+export PROJECT_DIR
 export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 # Forward to the unified Python CLI *of this checkout* — NOT a

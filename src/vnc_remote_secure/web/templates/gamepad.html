@@ -1,6 +1,7 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta name="description" content="VNC Remote Secure — secure browser-based remote access">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VNC Remote - Gamepad</title>
@@ -80,9 +81,9 @@
         <div id="status" class="status disconnected">Disconnected</div>
 
         <div class="controls">
-            <button id="connectBtn" onclick="connectGamepad()">Connect</button>
-            <button id="disconnectBtn" onclick="disconnectGamepad()" disabled>Disconnect</button>
-            <button id="scanBtn" onclick="scanGamepads()">Scan for Gamepads</button>
+            <button type="button" id="connectBtn" onclick="connectGamepad()">Connect</button>
+            <button type="button" id="disconnectBtn" onclick="disconnectGamepad()" disabled>Disconnect</button>
+            <button type="button" id="scanBtn" onclick="scanGamepads()">Scan for Gamepads</button>
         </div>
 
         <div class="gamepad-info">

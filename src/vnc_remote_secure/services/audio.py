@@ -165,7 +165,7 @@ class AudioStreamServer:
                 # A wedged encoder must not hang shutdown forever —
                 # escalate to kill after the grace period.
                 await asyncio.wait_for(self.ffmpeg_process.wait(), 5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 try:
                     self.ffmpeg_process.kill()
                 except ProcessLookupError:
@@ -173,7 +173,7 @@ class AudioStreamServer:
                 try:
                     await asyncio.wait_for(
                         self.ffmpeg_process.wait(), 5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
             self.ffmpeg_process = None
             self._ffmpeg_running.clear()

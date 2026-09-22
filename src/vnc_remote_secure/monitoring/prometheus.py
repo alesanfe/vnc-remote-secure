@@ -12,13 +12,12 @@ Metrics include:
 """
 import logging
 import time
-from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
 # In-memory metrics store (simple counters and gauges).
-_counters: Dict[str, Dict[str, int]] = {}
-_gauges: Dict[str, Dict[str, float]] = {}
+_counters: dict[str, dict[str, int]] = {}
+_gauges: dict[str, dict[str, float]] = {}
 
 # Process start time — recorded at module import (≈ service boot) so the
 # vnc_remote_process_start_time gauge reports the actual start, not the
@@ -61,9 +60,9 @@ def set_gauge(name: str, value: float, labels: str = ''):
         pass
 
 
-def _shared_counters() -> Dict[str, Dict[str, int]]:
+def _shared_counters() -> dict[str, dict[str, int]]:
     """Counters merged from the shared backend (cross-process)."""
-    merged: Dict[str, Dict[str, int]] = {}
+    merged: dict[str, dict[str, int]] = {}
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         backend = get_backend()
@@ -85,14 +84,14 @@ def _shared_counters() -> Dict[str, Dict[str, int]]:
     return merged
 
 
-def _shared_gauges() -> Dict[str, Dict[str, float]]:
+def _shared_gauges() -> dict[str, dict[str, float]]:
     """Gauges merged from the shared backend (cross-process).
 
     ``set_gauge`` mirrors every write into the shared store — reading
     only ``_gauges`` here would silently drop gauges set by other
     service processes, the same class of bug the counters had.
     """
-    merged: Dict[str, Dict[str, float]] = {}
+    merged: dict[str, dict[str, float]] = {}
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         backend = get_backend()
@@ -123,7 +122,7 @@ def render_metrics() -> str:
     Returns:
         A string suitable for the ``/metrics`` endpoint response body.
     """
-    lines: List[str] = []
+    lines: list[str] = []
     gauges = _shared_gauges()
 
     # --- Service status gauge ---

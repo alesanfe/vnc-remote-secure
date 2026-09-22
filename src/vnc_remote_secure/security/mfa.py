@@ -10,7 +10,6 @@ import os
 import secrets
 import struct
 import time
-from typing import Optional
 
 from vnc_remote_secure.core.config import load_env_file
 
@@ -128,7 +127,7 @@ def _claim_step(secret: str, step: int) -> bool:
         return False
 
 
-def verify_totp(secret: str, code: str, timestamp: Optional[int] = None) -> bool:
+def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
     """Verify a TOTP code against the secret.
 
     Allows a window of +/- TOTP_WINDOW steps to account for clock drift.

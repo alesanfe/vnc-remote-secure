@@ -27,7 +27,6 @@ import os
 import sqlite3
 import threading
 import time
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,7 @@ class StateBackend:
         raise NotImplementedError
 
     def set_if_absent(self, namespace: str, key: str, value,
-                      ttl_seconds: Optional[float] = None) -> bool:
+                      ttl_seconds: float | None = None) -> bool:
         """Atomically set ``namespace:key`` only when it is absent.
 
         Returns ``True`` when the value was written, ``False`` when a
@@ -74,7 +73,7 @@ class StateBackend:
         raise NotImplementedError
 
     def increment(self, namespace: str, key: str, amount: int = 1,
-                  ttl_seconds: Optional[float] = None) -> int:
+                  ttl_seconds: float | None = None) -> int:
         """Atomically increment ``namespace:key`` by ``amount``.
 
         When ``ttl_seconds`` is provided the entry's expiry is set
@@ -122,7 +121,7 @@ class MemoryBackend(StateBackend):
             self._store[nk] = (value, time.time() + ttl_seconds)
 
     def set_if_absent(self, namespace: str, key: str, value,
-                      ttl_seconds: Optional[float] = None) -> bool:
+                      ttl_seconds: float | None = None) -> bool:
         nk = (namespace, key)
         with self._lock:
             entry = self._store.get(nk)
@@ -149,7 +148,7 @@ class MemoryBackend(StateBackend):
             return result
 
     def increment(self, namespace: str, key: str, amount: int = 1,
-                  ttl_seconds: Optional[float] = None) -> int:
+                  ttl_seconds: float | None = None) -> int:
         nk = (namespace, key)
         with self._lock:
             entry = self._store.get(nk)
@@ -279,7 +278,7 @@ class SQLiteBackend(StateBackend):
             )
 
     def set_if_absent(self, namespace: str, key: str, value,
-                      ttl_seconds: Optional[float] = None) -> bool:
+                      ttl_seconds: float | None = None) -> bool:
         """Atomic test-and-set for single-use claims.
 
         ``INSERT OR IGNORE`` returns 0 rows on conflict; an expired
@@ -332,7 +331,7 @@ class SQLiteBackend(StateBackend):
         return result
 
     def increment(self, namespace: str, key: str, amount: int = 1,
-                  ttl_seconds: Optional[float] = None) -> int:
+                  ttl_seconds: float | None = None) -> int:
         """Atomically increment a counter.
 
         Uses ``INSERT ... ON CONFLICT DO UPDATE`` so the read-modify-write
@@ -385,7 +384,7 @@ class SQLiteBackend(StateBackend):
 # Backend selection
 # ---------------------------------------------------------------------------
 
-_backend: Optional[StateBackend] = None
+_backend: StateBackend | None = None
 
 
 def _default_sqlite_path() -> str:

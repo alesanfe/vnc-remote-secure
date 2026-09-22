@@ -89,7 +89,7 @@ def _config_migrate(args):
     if not os.path.exists(env_path):
         print("No .env file found.")
         return 1
-    with open(env_path, 'r', encoding='utf-8') as f:
+    with open(env_path, encoding='utf-8') as f:
         lines = f.read().splitlines()
 
     # Key-aware migration: a plain substring replace would corrupt

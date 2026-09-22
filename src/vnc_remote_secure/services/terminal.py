@@ -76,6 +76,7 @@ else:
         'netsh', 'sc', 'wmic', 'chkdsk', 'format', 'label', 'subst',
     ]
 
+
 def _html_page() -> str:
     """Return the terminal HTML page.
 
@@ -86,8 +87,6 @@ def _html_page() -> str:
     from importlib import resources
     return resources.files('vnc_remote_secure').joinpath(
         'static/terminal.html').read_text(encoding='utf-8')
-
-
 
 
 class MainHandler(tornado.web.RequestHandler):
@@ -572,7 +571,9 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         logger.info("Client connected from %s", self.request.remote_ip)
 
         self.write_message("\x1b[36m\r\n  VNC Remote Secure - Web Terminal\r\n\x1b[0m")
-        self.write_message(f"\x1b[90m  Shell: {_config()['webterm_shell']} | OS: {os.name}\r\n\x1b[0m")
+        self.write_message(
+            f"\x1b[90m  Shell: {_config()['webterm_shell']} | "
+            f"OS: {os.name}\r\n\x1b[0m")
         self.write_message(f"\x1b[90m  Working directory: {self.cwd}\r\n\x1b[0m")
         self.write_message("\x1b[90m  Type 'help' for commands, 'exit' to disconnect.\r\n\x1b[0m")
         self.write_message("\r\n")
@@ -904,7 +905,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 if truncated:
                     text += '\r\n\x1b[33m[output truncated at 1MB]\x1b[0m\r\n'
                 if timed_out:
-                    text += (f"\r\n\x1b[33m[command timed out after "
+                    text += ("\r\n\x1b[33m[command timed out after "
                              f"{CMD_TIMEOUT}s]\x1b[0m\r\n")
                 ioloop.add_callback(self._send_output, text)
                 ioloop.add_callback(
@@ -1052,9 +1053,13 @@ def main():
     # applies (see MainHandler.set_default_headers).
     app._vnc_tls_enabled = ssl_options is not None
 
-    app.listen(_config()['ttyd_port'], _config()['ttyd_host'], ssl_options=ssl_options)
-    logger.info("Web Terminal running on %s:%s", _config()['ttyd_host'], _config()['ttyd_port'])
-    logger.info("URL: %s://127.0.0.1:%s", 'https' if ssl_options else 'http', _config()['ttyd_port'])
+    app.listen(_config()['ttyd_port'], _config()['ttyd_host'],
+               ssl_options=ssl_options)
+    logger.info("Web Terminal running on %s:%s",
+                _config()['ttyd_host'], _config()['ttyd_port'])
+    logger.info("URL: %s://127.0.0.1:%s",
+                'https' if ssl_options else 'http',
+                _config()['ttyd_port'])
     logger.info("Auth: %s:***", _config()['ttyd_username'])
     logger.info("Shell: %s", _config()['webterm_shell'])
 

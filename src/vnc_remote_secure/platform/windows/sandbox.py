@@ -199,7 +199,7 @@ def _get_sid():
         hr = derive(_APP_CONTAINER_NAME, ctypes.byref(sid))
         if hr != 0:  # HRESULT S_OK == 0
             raise OSError(
-                f"DeriveAppContainerSidFromAppContainerName failed: "
+                "DeriveAppContainerSidFromAppContainerName failed: "
                 f"HRESULT {hr:#010x}")
     else:
         create = host.CreateAppContainerProfile

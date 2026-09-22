@@ -1,0 +1,19 @@
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 alesanfe"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "src/vnc_remote_secure/vendor/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Various (see file headers and third_party/licenses/)"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "src/vnc_remote_secure/third_party/licenses/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Respective upstream projects"
+SPDX-License-Identifier = "LicenseRef-Proprietary"

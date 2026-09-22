@@ -247,13 +247,13 @@ def ensure_dirs():
                 raise RuntimeError(
                     f"Runtime dir {run_dir} is owned by uid "
                     f"{st.st_uid}, not {os.geteuid()} — refusing to "
-                    f"start on possibly-squatted /tmp state. Set "
-                    f"XDG_RUNTIME_DIR (e.g. via systemd/logind) and "
-                    f"remove the foreign directory.")
+                    "start on possibly-squatted /tmp state. Set "
+                    "XDG_RUNTIME_DIR (e.g. via systemd/logind) and "
+                    "remove the foreign directory.")
             if not os.path.isdir(run_dir):
                 raise RuntimeError(
                     f"Runtime dir {run_dir} exists but is not a "
-                    f"directory — refusing to use it.")
+                    "directory — refusing to use it.")
         except AttributeError:
             pass
     # run/ssl/config hold secrets (session stores, auth_secret.key,

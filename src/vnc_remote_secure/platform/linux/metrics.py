@@ -14,7 +14,7 @@ def get_os_display_name():
     Returns ``None`` if the file is missing or cannot be parsed.
     """
     try:
-        with open('/etc/os-release', 'r', encoding='utf-8') as f:
+        with open('/etc/os-release', encoding='utf-8') as f:
             for line in f:
                 if line.startswith('PRETTY_NAME='):
                     return line.split('=', 1)[1].strip().strip('"')
@@ -42,7 +42,7 @@ def get_system_metrics():
 
     # CPU load average (descriptive) and CPU usage percentage
     try:
-        with open('/proc/loadavg', 'r', encoding='utf-8') as f:
+        with open('/proc/loadavg', encoding='utf-8') as f:
             metrics['cpu'] = f"Load: {f.readline().split()[0]}"
     except FileNotFoundError:
         pass
@@ -52,7 +52,7 @@ def get_system_metrics():
     try:
         # Sample /proc/stat twice to compute idle delta -> usage %
         def _cpu_idle_sample():
-            with open('/proc/stat', 'r', encoding='utf-8') as f:
+            with open('/proc/stat', encoding='utf-8') as f:
                 line = f.readline()
             parts = line.split()
             # user, nice, system, idle, iowait, irq, softirq, steal, ...
@@ -109,7 +109,7 @@ def get_system_metrics():
 
     # Uptime
     try:
-        with open('/proc/uptime', 'r', encoding='utf-8') as f:
+        with open('/proc/uptime', encoding='utf-8') as f:
             uptime_seconds = float(f.readline().split()[0])
             hours = int(uptime_seconds // 3600)
             minutes = int((uptime_seconds % 3600) // 60)
