@@ -97,3 +97,47 @@ class TestListBackups:
         _make_tar(str(tmp_path / 'backup_ok.tar.gz'))
         backups = backup_mod.list_backups()
         assert len(backups) == 1
+
+
+class TestArchiveLimits:
+    """Tar-bomb guards: member count, per-file size, total size."""
+
+    def _tar_with_many_members(self, path, count):
+        import io
+        with tarfile.open(path, 'w:gz') as tar:
+            for i in range(count):
+                info = tarfile.TarInfo(name=f'f{i}.txt')
+                data = b'x'
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+
+    def test_member_count_cap_rejects(self, tmp_path, monkeypatch):
+        """More members than _MAX_BACKUP_MEMBERS must abort extraction."""
+        from vnc_remote_secure.core import backup
+        monkeypatch.setattr(backup, '_MAX_BACKUP_MEMBERS', 5)
+        f = tmp_path / 'bomb.tar.gz'
+        self._tar_with_many_members(str(f), 10)
+        monkeypatch.setattr(backup, 'get_run_dir',
+                            lambda: str(tmp_path / 'run'))
+        with pytest.raises(RuntimeError, match='too many entries'):
+            backup.restore_backup(str(f))
+
+    def test_oversize_member_rejected(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.core import backup
+        monkeypatch.setattr(backup, '_MAX_BACKUP_FILE_SIZE', 4)
+        f = tmp_path / 'big.tar.gz'
+        _make_tar(str(f))  # members carry >4 bytes of data each
+        monkeypatch.setattr(backup, 'get_run_dir',
+                            lambda: str(tmp_path / 'run'))
+        with pytest.raises(RuntimeError, match='too large'):
+            backup.restore_backup(str(f))
+
+    def test_total_size_cap_rejects(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.core import backup
+        monkeypatch.setattr(backup, '_MAX_BACKUP_TOTAL_SIZE', 8)
+        f = tmp_path / 'total.tar.gz'
+        _make_tar(str(f), members=('a.txt', 'b.txt', 'c.txt', 'd.txt'))
+        monkeypatch.setattr(backup, 'get_run_dir',
+                            lambda: str(tmp_path / 'run'))
+        with pytest.raises(RuntimeError, match='uncompressed size'):
+            backup.restore_backup(str(f))
