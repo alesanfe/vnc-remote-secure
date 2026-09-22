@@ -153,6 +153,8 @@ def test_stop_ffmpeg_escalates_to_kill_on_hang():
 def test_stop_ffmpeg_noop_without_process():
     srv = _server()
     asyncio.run(srv.stop_ffmpeg())  # must not raise
+    assert srv.ffmpeg_process is None
+    assert not srv._ffmpeg_running.is_set()
 
 
 # ---------------------------------------------------------------------------

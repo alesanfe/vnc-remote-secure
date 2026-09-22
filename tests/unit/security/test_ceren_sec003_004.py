@@ -289,8 +289,9 @@ class TestRevocationClosesWebSockets:
         Condición límite: no hay conexiones activas.
         """
         signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
-        # No WebSocket registered
-        revoke_session(signed)  # Should not raise
+        # No WebSocket registered — revocation must still succeed and
+        # mark the session revoked.
+        assert revoke_session(signed) is True
 
     @pytest.mark.usefixtures('_fresh_registry')
     def test_close_callback_exception_does_not_crash(self, fresh_store):

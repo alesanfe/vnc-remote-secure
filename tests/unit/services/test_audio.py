@@ -16,11 +16,13 @@ class _FakeAdapter:
     def __init__(self, input_args=None, devices_output=""):
         self._input_args = input_args or ["-f", "alsa", "-i", "default"]
         self._devices_output = devices_output
+        self.list_devices_called_with = []
 
     def get_audio_capture_cmd(self, ffmpeg, device, bitrate):
         return self._input_args
 
     def list_audio_devices(self, ffmpeg):
+        self.list_devices_called_with.append(ffmpeg)
         if self._devices_output:
             import logging
             logging.getLogger(__name__).info("%s", self._devices_output)
@@ -131,9 +133,8 @@ def test_list_audio_devices_no_ffmpeg(monkeypatch, caplog):
 def test_list_audio_devices_uses_adapter(monkeypatch, caplog):
     """list_audio_devices delegates to the platform adapter."""
     monkeypatch.setattr(audio, 'find_ffmpeg', lambda: "ffmpeg")
-    _patch_adapter(
-        monkeypatch,
-        _FakeAdapter(devices_output="hw:0 (ALSA capture device)")
-    )
+    adapter = _FakeAdapter(devices_output="hw:0 (ALSA capture device)")
+    _patch_adapter(monkeypatch, adapter)
     audio.list_audio_devices()
-    # Should not raise; adapter output is logged via logger.info
+    # The resolved ffmpeg path must reach the adapter's device listing.
+    assert adapter.list_devices_called_with == ["ffmpeg"]

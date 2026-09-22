@@ -94,3 +94,88 @@ class TestLogin:
         verified = verify_session_cookie(token)
         assert verified is not None
         assert verified['username'] == 'alice'
+
+
+from vnc_remote_secure.security.auth_gateway import authorize_request
+
+
+class TestAuthorizeRequest:
+    """authorize_request: the single credential enforcement tree."""
+
+    def _no_limiter(self, monkeypatch):
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.rate_limit.get_auth_limiter",
+            lambda: None, raising=False)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.auth_gateway.get_auth_limiter",
+            lambda: None)
+
+    def test_rejects_when_no_credentials(self, monkeypatch):
+        self._no_limiter(monkeypatch)
+        allowed, reason, ident = authorize_request()
+        assert allowed is False
+        assert 'required' in reason.lower()
+        assert ident is None
+
+    def test_operator_cookie_allowed(self, monkeypatch):
+        self._no_limiter(monkeypatch)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.auth_gateway.check_authenticated",
+            lambda c, b: (True, 'admin'))
+        allowed, reason, ident = authorize_request(cookie_value='sess')
+        assert allowed is True
+        assert ident == 'sess'
+
+    def test_operator_failure_rejected(self, monkeypatch):
+        self._no_limiter(monkeypatch)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.auth_gateway.check_authenticated",
+            lambda c, b: (False, None))
+        allowed, reason, ident = authorize_request(cookie_value='bad')
+        assert allowed is False
+        assert ident is None
+
+    def test_ephemeral_cookie_with_permission(self, monkeypatch):
+        self._no_limiter(monkeypatch)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.ephemeral_sessions.check_session_permission",
+            lambda tok, perm, **kw: tok == 'eph' and perm == 'view',
+            raising=False)
+        allowed, reason, ident = authorize_request(
+            ephemeral_cookie='eph', required_permission='view')
+        assert allowed is True
+        assert ident == 'eph'
+
+    def test_stale_ephemeral_alone_rejected(self, monkeypatch):
+        self._no_limiter(monkeypatch)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.ephemeral_sessions.check_session_permission",
+            lambda *a, **k: False, raising=False)
+        allowed, reason, ident = authorize_request(ephemeral_cookie='stale')
+        assert allowed is False
+
+    def test_stale_ephemeral_does_not_block_valid_cookie(self, monkeypatch):
+        self._no_limiter(monkeypatch)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.ephemeral_sessions.check_session_permission",
+            lambda *a, **k: False, raising=False)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.auth_gateway.check_authenticated",
+            lambda c, b: (True, 'admin'))
+        allowed, reason, ident = authorize_request(
+            ephemeral_cookie='stale', cookie_value='sess')
+        assert allowed is True
+        assert ident == 'sess'
+
+    def test_ephemeral_bearer_permission(self, monkeypatch):
+        self._no_limiter(monkeypatch)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.ephemeral_sessions.check_permission",
+            lambda tok, perm, **kw: True, raising=False)
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.auth_gateway.check_authenticated",
+            lambda c, b: (False, None))
+        allowed, reason, ident = authorize_request(
+            bearer_token='tok', required_permission='desktop:view')
+        assert allowed is True
+        assert ident == 'tok'

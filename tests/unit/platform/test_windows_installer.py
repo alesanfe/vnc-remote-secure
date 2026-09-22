@@ -92,6 +92,7 @@ def test_ensure_ultravnc_noop_when_present(monkeypatch, tmp_path):
         raise AssertionError("should not download when UltraVNC present")
     monkeypatch.setattr(installer.urllib.request, 'urlopen', _fail)
     installer._ensure_ultravnc()
+    assert not (tmp_path / 'UltraVNC').exists()
 
 
 def test_ensure_ultravnc_downloads_and_extracts(monkeypatch, tmp_path):
@@ -169,8 +170,11 @@ def test_ensure_ultravnc_handles_download_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(installer.urllib.request, 'urlopen', _raise)
     monkeypatch.setattr(installer.tempfile, 'TemporaryDirectory',
                         lambda: _TmpCtx(tmp_path))
-    # Should not raise.
+    # Should not raise and must not leave a half-installed binary or
+    # ULTRAVNC_PATH pointing at a missing file.
     installer._ensure_ultravnc()
+    assert 'ULTRAVNC_PATH' not in os.environ
+    assert not (tmp_path / 'UltraVNC' / 'winvnc.exe').exists()
 
 
 class _TmpCtx:

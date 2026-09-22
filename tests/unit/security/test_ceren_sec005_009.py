@@ -283,10 +283,11 @@ class TestPublicHardenedBlocksInsecureStartup:
         """
         monkeypatch.setenv('BACKEND_BIND_HOST', '0.0.0.0')
         monkeypatch.setenv('SECURITY_PROFILE', 'development')
-        apply_profile('development', overwrite=True)
-        # Development should not override the user's choice
-        # (or if it does, it should be documented)
-        # This test verifies the behavior is different from hardened.
+        # overwrite=False: operator-set vars win over profile defaults —
+        # and development is not hardened, so BACKEND_BIND_HOST is not
+        # in locked_vars (unlike public-hardened, which forces 127.0.0.1).
+        apply_profile('development')
+        assert os.environ.get('BACKEND_BIND_HOST') == '0.0.0.0'
 
     def test_config_validate_reports_missing_flask_secret(self, monkeypatch):
         """Contrato: config validate reporta FLASK_SECRET_KEY ausente en hardened.

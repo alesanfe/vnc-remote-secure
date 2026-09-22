@@ -69,7 +69,7 @@ class TestDomainValidation:
     def test_domain_does_not_crash(self, domain):
         # Should not raise unexpected exceptions (ValidationError is OK)
         try:
-            validate_domain(domain)
+            assert validate_domain(domain) in (True, False, 1)
         except ValidationError:
             pass
 
@@ -77,7 +77,7 @@ class TestDomainValidation:
     @settings(max_examples=50)
     def test_arbitrary_text_does_not_crash(self, text):
         try:
-            validate_domain(text)
+            assert validate_domain(text) in (True, False, 1)
         except ValidationError:
             pass
 
@@ -90,7 +90,7 @@ class TestEmailValidation:
     @settings(max_examples=50)
     def test_email_does_not_crash(self, email):
         try:
-            validate_email(email)
+            assert validate_email(email) in (True, False, 1)
         except ValidationError:
             pass
 
@@ -114,7 +114,7 @@ class TestUsernameValidation:
     @settings(max_examples=50)
     def test_username_does_not_crash(self, username):
         try:
-            validate_username(username)
+            assert validate_username(username) in (True, False, 1)
         except ValidationError:
             pass
 
@@ -136,7 +136,7 @@ class TestPasswordStrength:
     @settings(max_examples=50)
     def test_password_does_not_crash(self, pwd):
         try:
-            validate_password(pwd)
+            assert validate_password(pwd) in (True, False, 1)
         except ValidationError:
             pass
 

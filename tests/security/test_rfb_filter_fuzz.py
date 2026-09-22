@@ -37,9 +37,11 @@ def test_filter_never_crashes_on_arbitrary_bytes(blob):
     """Arbitrary client bytes must not raise — only bytes or None."""
     f = RfbInputFilter()
     try:
-        f.client_to_server(blob)
+        out = f.client_to_server(blob)
     except Exception as exc:  # noqa: BLE001 - the invariant IS no-raise
         pytest.fail(f"filter raised on arbitrary input: {exc!r}")
+    # Output contract: bytes forwarded or None when dropped — nothing else.
+    assert out is None or isinstance(out, bytes)
 
 
 @pytest.mark.security

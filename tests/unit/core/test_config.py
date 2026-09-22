@@ -95,3 +95,72 @@ def test_get_config_hosts_are_strings():
     config = get_config()
     assert isinstance(config['health_host'], str)
     assert isinstance(config['landing_host'], str)
+
+
+from vnc_remote_secure.core import config as _cfg
+
+
+class TestSetEnvPersistent:
+    """set_env_persistent: atomic env-file rewrite + process env."""
+
+    def _setup(self, tmp_path, monkeypatch, content):
+        env = tmp_path / '.env'
+        env.write_text(content, encoding='utf-8')
+        monkeypatch.setattr(_cfg, '_find_project_root',
+                            lambda: str(tmp_path))
+        monkeypatch.setattr(_cfg, '_system_env_path',
+                            lambda: str(tmp_path / 'nope.env'))
+        # set_env_persistent writes os.environ directly (not via
+        # monkeypatch) — pre-mark the keys so teardown restores them.
+        for k in ('VNC_PASSWORD', 'NEW_KEY', 'PERSISTED_X', 'ROT'):
+            monkeypatch.delenv(k, raising=False)
+        return env
+
+    def test_rewrites_existing_key(self, tmp_path, monkeypatch):
+        env = self._setup(tmp_path, monkeypatch,
+                          'A=1\nVNC_PASSWORD=old\n# comment\n')
+        monkeypatch.delenv('ROTATE_ME', raising=False)
+        assert _cfg.set_env_persistent('VNC_PASSWORD', 'new') is True
+        text = env.read_text(encoding='utf-8')
+        assert 'VNC_PASSWORD=new' in text
+        assert 'VNC_PASSWORD=old' not in text
+        assert '# comment' in text
+        assert 'A=1' in text
+
+    def test_appends_missing_key(self, tmp_path, monkeypatch):
+        env = self._setup(tmp_path, monkeypatch, 'A=1\n')
+        assert _cfg.set_env_persistent('NEW_KEY', 'v') is True
+        assert 'NEW_KEY=v' in env.read_text(encoding='utf-8')
+
+    def test_rejects_crlf_value(self, tmp_path, monkeypatch):
+        env = self._setup(tmp_path, monkeypatch, 'A=1\n')
+        assert _cfg.set_env_persistent('A', 'x\r\nEVIL=1') is False
+        assert 'EVIL' not in env.read_text(encoding='utf-8')
+
+    def test_rejects_bad_name(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch, 'A=1\n')
+        assert _cfg.set_env_persistent('BAD=NAME', 'v') is False
+        assert _cfg.set_env_persistent('', 'v') is False
+
+    def test_updates_process_env(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch, 'A=1\n')
+        monkeypatch.delenv('PERSISTED_X', raising=False)
+        assert _cfg.set_env_persistent('PERSISTED_X', 'yes') is True
+        assert os.environ.get('PERSISTED_X') == 'yes'
+
+    def test_prefers_file_holding_key(self, tmp_path, monkeypatch):
+        """When the system env file already holds the key, it wins."""
+        proj = tmp_path / 'proj'
+        sysd = tmp_path / 'sys'
+        proj.mkdir()
+        sysd.mkdir()
+        (proj / '.env').write_text('A=1\n', encoding='utf-8')
+        sysenv = sysd / 'config.env'
+        sysenv.write_text('ROT=old\n', encoding='utf-8')
+        monkeypatch.setattr(_cfg, '_find_project_root',
+                            lambda: str(proj))
+        monkeypatch.setattr(_cfg, '_system_env_path',
+                            lambda: str(sysenv))
+        assert _cfg.set_env_persistent('ROT', 'new') is True
+        assert 'ROT=new' in sysenv.read_text(encoding='utf-8')
+        assert 'ROT' not in (proj / '.env').read_text(encoding='utf-8')
