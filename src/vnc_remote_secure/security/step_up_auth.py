@@ -66,6 +66,7 @@ class StepUpAuthManager:
     _NS = 'step_up_auth_times'
 
     def __init__(self, default_max_age: int = 300):
+        """Init."""
         self._auth_times: dict[str, float] = {}  # process-local cache
         self._lock = threading.Lock()
         self.default_max_age = default_max_age

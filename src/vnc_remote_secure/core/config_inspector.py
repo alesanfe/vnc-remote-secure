@@ -339,32 +339,31 @@ def validate_config(
     tls_enabled = effective_dict.get('TLS_ENABLED', 'true')
     tls_off = (disable_ssl in ('true', '1', 'yes')
                or tls_enabled.lower() not in ('true', '1', 'yes'))
-    if profile_name in ('public-hardened', 'private-overlay', 'trusted-lan'):
-        if tls_off:
-            findings.append({
-                'severity': 'critical',
-                'message': f'TLS disabled (TLS_ENABLED={tls_enabled}, '
-                           f'DISABLE_SSL={disable_ssl or "unset"}) in profile '
-                           f'{profile_name} — TLS required',
-            })
+    if profile_name in ('public-hardened', 'private-overlay', 'trusted-lan') and tls_off:
+        findings.append({
+            'severity': 'critical',
+            'message': f'TLS disabled (TLS_ENABLED={tls_enabled}, '
+                       f'DISABLE_SSL={disable_ssl or "unset"}) in profile '
+                       f'{profile_name} — TLS required',
+        })
 
     # Check: MFA required in public-hardened and private-overlay.
     mfa_required = effective_dict.get('MFA_REQUIRED', 'false')
-    if profile_name in ('public-hardened', 'private-overlay'):
-        if mfa_required.lower() not in ('true', '1', 'yes'):
-            findings.append({
-                'severity': 'critical',
-                'message': f'MFA_REQUIRED={mfa_required} in profile {profile_name} — MFA required',
-            })
+    if (profile_name in ('public-hardened', 'private-overlay')
+            and mfa_required.lower() not in ('true', '1', 'yes')):
+        findings.append({
+            'severity': 'critical',
+            'message': f'MFA_REQUIRED={mfa_required} in profile {profile_name} — MFA required',
+        })
 
     # Check: nginx enabled in non-development profiles.
     nginx_enabled = effective_dict.get('NGINX_ENABLED', 'false')
-    if profile_name in ('public-hardened', 'private-overlay', 'trusted-lan'):
-        if nginx_enabled.lower() not in ('true', '1', 'yes'):
-            findings.append({
-                'severity': 'critical',
-                'message': f'NGINX_ENABLED={nginx_enabled} in profile {profile_name} — reverse proxy required',
-            })
+    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
+            and nginx_enabled.lower() not in ('true', '1', 'yes')):
+        findings.append({
+            'severity': 'critical',
+            'message': f'NGINX_ENABLED={nginx_enabled} in profile {profile_name} — reverse proxy required',
+        })
 
     # Check: FLASK_SECRET_KEY set in non-development profiles. The
     # persisted auth_secret.key fallback only applies in development —
@@ -373,12 +372,12 @@ def validate_config(
     # blocker (and doctor's secrets.flask_key, which treats the
     # persisted file as 'Set' for dev-mode state).
     flask_secret = env_snapshot.get('FLASK_SECRET_KEY', '').strip()
-    if profile_name in ('public-hardened', 'private-overlay', 'trusted-lan'):
-        if not flask_secret:
-            findings.append({
-                'severity': 'critical',
-                'message': 'FLASK_SECRET_KEY not set — sessions invalidated on restart',
-            })
+    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
+            and not flask_secret):
+        findings.append({
+            'severity': 'critical',
+            'message': 'FLASK_SECRET_KEY not set — sessions invalidated on restart',
+        })
 
     # Check: VNC_PASSWORD not empty. The runtime auto-generates and
     # persists a credential to <run_dir>/generated_credentials.env

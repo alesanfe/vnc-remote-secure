@@ -212,7 +212,7 @@ def create_parser():
         'verify', help='Verify audit chain or backup integrity')
     _add_common_args(p_verify)
     p_verify_sub = p_verify.add_subparsers(dest='verify_action',
-                                         required=True)
+                                           required=True)
     p_vaudit = p_verify_sub.add_parser(
         'audit', help='Verify the hash-chained audit log')
     _add_common_args(p_vaudit, suppress_defaults=True)

@@ -36,7 +36,7 @@ while IFS= read -r f; do
     fi
 done < <(collect_sh)
 
-# shellcheck may exist but be broken (e.g. an npm shim without node) —
+# The linter may exist but be broken (e.g. an npm shim without node) —
 # verify it can actually run before trusting its exit codes.
 _shellcheck_ok() {
     command -v shellcheck >/dev/null 2>&1 && \

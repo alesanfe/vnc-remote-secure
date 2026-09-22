@@ -11,8 +11,11 @@ __all__ = ['__version__']
 
 
 def _source_tree_version():
-    """Read the version from pyproject.toml when running from a source
-    checkout (the package is not pip-installed)."""
+    """Read the version from pyproject.toml.
+
+    Used when running from a source checkout (the package is not
+    pip-installed).
+    """
     import tomllib  # stdlib in Python 3.11+
 
     pyproject = os.path.join(

@@ -91,8 +91,8 @@ def _create_runtime_user(username: str, password: str) -> str | None:
         if not get_adapter().create_runtime_user(username):
             return 'User creation failed'
         _set_platform_user_password(username, password)
-    except Exception as exc:
-        logger.error("User creation failed: %s", exc, exc_info=True)
+    except Exception:
+        logger.exception("User creation failed:")
         return 'User creation failed'
     return None
 
@@ -114,8 +114,8 @@ def _delete_runtime_user(username: str) -> str | None:
 
         if not get_adapter().remove_runtime_user(username):
             return 'User deletion failed'
-    except Exception as exc:
-        logger.error("User deletion failed: %s", exc, exc_info=True)
+    except Exception:
+        logger.exception("User deletion failed:")
         return 'User deletion failed'
     return None
 
@@ -378,8 +378,8 @@ def delete_user(username):
     try:
         from vnc_remote_secure.platform.base import get_adapter
         deleted = get_adapter().remove_runtime_user(username)
-    except Exception as exc:
-        logger.error("User deletion failed: %s", exc, exc_info=True)
+    except Exception:
+        logger.exception("User deletion failed:")
         deleted = False
     _audit_user_action('user_delete', actor, username, ok=bool(deleted))
     if not deleted:
@@ -459,8 +459,8 @@ def _api_users_delete(request, session, username):
         from vnc_remote_secure.platform.base import get_adapter
         if not get_adapter().remove_runtime_user(username):
             return json_error('User deletion failed', 500)
-    except Exception as exc:
-        logger.error("User deletion failed: %s", exc, exc_info=True)
+    except Exception:
+        logger.exception("User deletion failed:")
         return json_error('User deletion failed', 500)
     return jsonify({'status': 'deleted', 'username': username})
 
@@ -496,8 +496,8 @@ def api_users():
         if step_up_err:
             return json_error(step_up_err, 403)
         data = request.get_json(silent=True)
-        username = sanitize_input((data or {}).get('username', '')) \
-            if isinstance(data, dict) else ''
+        username = (sanitize_input((data or {}).get('username', ''))
+                    if isinstance(data, dict) else '')
         result = _api_users_post(request, session)
         status_ok = result[1] < 400 if isinstance(result, tuple) else True
         _audit_user_action('user_create', _user, username, ok=status_ok)
@@ -515,3 +515,5 @@ def api_users():
         status_ok = result[1] < 400 if isinstance(result, tuple) else True
         _audit_user_action('user_delete', _user, username, ok=status_ok)
         return result
+
+    return json_error('Method not allowed', 405)

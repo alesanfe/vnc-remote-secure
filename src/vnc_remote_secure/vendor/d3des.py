@@ -5,7 +5,8 @@ reversed. This module provides the VNC-specific key handling and delegates
 the actual DES encryption to pycryptodome.
 """
 try:
-    from Crypto.Cipher import DES as _DES
+    # nosec rationale: VNC protocol requires DES
+    from Crypto.Cipher import DES as _DES  # nosec B413
 except ImportError:
     _DES = None  # type: ignore[assignment]
 
@@ -56,7 +57,8 @@ def desfunc(data, subkeys):
             "Install with: pip install pycryptodome"
         )
     key, _decrypt = subkeys
-    cipher = _DES.new(key, _DES.MODE_ECB)
+    # nosec rationale: VNC protocol requires DES/ECB
+    cipher = _DES.new(key, _DES.MODE_ECB)  # nosec B304
     return cipher.encrypt(data)
 
 
@@ -74,5 +76,6 @@ def encrypt_vnc_password(password: str) -> bytes:
             "Install with: pip install pycryptodome"
         )
     padded = password.encode('latin-1')[:8].ljust(8, b'\x00')
-    cipher = _DES.new(VNC_PASSWD_FIXED_KEY, _DES.MODE_ECB)
+    # nosec rationale: VNC protocol requires DES/ECB
+    cipher = _DES.new(VNC_PASSWD_FIXED_KEY, _DES.MODE_ECB)  # nosec B304
     return cipher.encrypt(padded)

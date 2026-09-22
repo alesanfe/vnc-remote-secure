@@ -21,6 +21,7 @@ The backend is selected via the ``SHARED_STATE_BACKEND`` env var
 This module is intentionally dependency-free (uses only the standard
 library) so it works on every platform without additional packages.
 """
+import contextlib
 import json
 import logging
 import os
@@ -90,10 +91,12 @@ class MemoryBackend(StateBackend):
     """In-memory backend (single-process/test scenarios)."""
 
     def __init__(self):
+        """Init."""
         self._store: dict = {}  # (namespace, key) -> (value, expires_at or None)
         self._lock = threading.Lock()
 
     def get(self, namespace: str, key: str):
+        """Get."""
         nk = (namespace, key)
         with self._lock:
             entry = self._store.get(nk)
@@ -106,22 +109,26 @@ class MemoryBackend(StateBackend):
             return value
 
     def set(self, namespace: str, key: str, value):
+        """Set."""
         nk = (namespace, key)
         with self._lock:
             self._store[nk] = (value, None)
 
     def delete(self, namespace: str, key: str):
+        """Delete."""
         nk = (namespace, key)
         with self._lock:
             self._store.pop(nk, None)
 
     def set_ttl(self, namespace: str, key: str, value, ttl_seconds: float):
+        """Set ttl."""
         nk = (namespace, key)
         with self._lock:
             self._store[nk] = (value, time.time() + ttl_seconds)
 
     def set_if_absent(self, namespace: str, key: str, value,
                       ttl_seconds: float | None = None) -> bool:
+        """Set if absent."""
         nk = (namespace, key)
         with self._lock:
             entry = self._store.get(nk)
@@ -134,6 +141,7 @@ class MemoryBackend(StateBackend):
             return True
 
     def list_keys(self, namespace: str, prefix: str = '') -> list:
+        """List keys."""
         with self._lock:
             now = time.time()
             result = []
@@ -149,6 +157,7 @@ class MemoryBackend(StateBackend):
 
     def increment(self, namespace: str, key: str, amount: int = 1,
                   ttl_seconds: float | None = None) -> int:
+        """Increment."""
         nk = (namespace, key)
         with self._lock:
             entry = self._store.get(nk)
@@ -171,6 +180,7 @@ class MemoryBackend(StateBackend):
             return new_val
 
     def close(self):
+        """Close."""
         with self._lock:
             self._store.clear()
 
@@ -184,6 +194,7 @@ class SQLiteBackend(StateBackend):
     """
 
     def __init__(self, db_path: str):
+        """Init."""
         self._db_path = db_path
         # dirname() is '' for a bare filename (SHARED_STATE_DB_PATH=
         # "state.db") — makedirs('') raises FileNotFoundError.
@@ -211,10 +222,8 @@ class SQLiteBackend(StateBackend):
                 if os.path.exists(sidecar):
                     _restrict_key_permissions(sidecar, writable=True)
         except Exception:  # noqa: BLE001
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(db_path, 0o600)
-            except OSError:
-                pass
         self._conn.execute(
             'CREATE TABLE IF NOT EXISTS state ('
             '  namespace TEXT NOT NULL,'
@@ -240,6 +249,7 @@ class SQLiteBackend(StateBackend):
             return raw
 
     def get(self, namespace: str, key: str):
+        """Get."""
         with self._lock:
             row = self._conn.execute(
                 'SELECT value, expires_at FROM state WHERE namespace=? AND key=?',
@@ -254,6 +264,7 @@ class SQLiteBackend(StateBackend):
         return self._deserialise(raw)
 
     def set(self, namespace: str, key: str, value):
+        """Set."""
         with self._lock:
             self._conn.execute(
                 'INSERT OR REPLACE INTO state (namespace, key, value, expires_at) '
@@ -262,6 +273,7 @@ class SQLiteBackend(StateBackend):
             )
 
     def delete(self, namespace: str, key: str):
+        """Delete."""
         with self._lock:
             self._conn.execute(
                 'DELETE FROM state WHERE namespace=? AND key=?',
@@ -269,6 +281,7 @@ class SQLiteBackend(StateBackend):
             )
 
     def set_ttl(self, namespace: str, key: str, value, ttl_seconds: float):
+        """Set ttl."""
         with self._lock:
             self._conn.execute(
                 'INSERT OR REPLACE INTO state (namespace, key, value, expires_at) '
@@ -302,6 +315,7 @@ class SQLiteBackend(StateBackend):
             return cur.rowcount == 1
 
     def list_keys(self, namespace: str, prefix: str = '') -> list:
+        """List keys."""
         now = time.time()
         with self._lock:
             if prefix:
@@ -376,6 +390,7 @@ class SQLiteBackend(StateBackend):
             return val if isinstance(val, int) else 0
 
     def close(self):
+        """Close."""
         with self._lock:
             self._conn.close()
 
@@ -415,7 +430,7 @@ def get_backend() -> StateBackend:
             # the process (500 on login, health, terminal). Degrade to
             # the in-memory backend and scream loudly — single-use and
             # revocation guarantees become single-process until fixed.
-            logger.error(
+            logger.exception(
                 "Shared state sqlite backend failed (%s); falling back "
                 "to in-memory state — cross-process single-use and "
                 "revocation guarantees are degraded until this is fixed",

@@ -4,6 +4,7 @@ Generates self-signed certificates, validates existing certificates,
 and reports their expiry dates. Uses the ``cryptography`` library when
 available; falls back to the ``openssl`` CLI otherwise.
 """
+import contextlib
 import datetime
 import logging
 import os
@@ -163,10 +164,8 @@ def create_ssl_context(cert_file=None, key_file=None):
         except Exception:  # noqa: BLE001 - fallback to a sane default
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.minimum_version = ssl.TLSVersion.TLSv1_2
-            try:
+            with contextlib.suppress(AttributeError):
                 context.options |= ssl.OP_NO_COMPRESSION
-            except AttributeError:
-                pass
         context.load_cert_chain(cert, key)
         logger.info("SSL context loaded from %s", cert)
         return context

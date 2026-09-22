@@ -7,15 +7,16 @@ def detect_platform():
     system = platform.system().lower()
     if system == 'windows':
         return 'windows'
-    elif system == 'darwin':
+    if system == 'darwin':
         return 'macos'
-    else:
-        return 'linux'
+    return 'linux'
 
 
 def is_windows():
+    """Is windows."""
     return detect_platform() == 'windows'
 
 
 def is_linux():
+    """Is linux."""
     return detect_platform() == 'linux'

@@ -14,6 +14,7 @@ class LinuxInputInjector:
     """Inject input events on Linux using uinput (via evdev)."""
 
     def __init__(self):
+        """Init."""
         self.uinput = None
         self.available = False
         try:
@@ -73,6 +74,7 @@ class LinuxInputInjector:
         return list(self._axis_map().values())
 
     def create_device(self):
+        """Create device."""
         if not self.available:
             return False
         try:
@@ -84,12 +86,13 @@ class LinuxInputInjector:
                 name="VNC Remote Virtual Gamepad"
             )
             return True
-        except Exception as e:
-            logger.error("Failed to create uinput device: %s", e)
-            logger.error("  Ensure uinput is accessible: sudo chmod 0666 /dev/uinput")
+        except Exception:
+            logger.exception("Failed to create uinput device:")
+            logger.exception("  Ensure uinput is accessible: sudo chmod 0666 /dev/uinput")
             return False
 
     def inject_button(self, button, value):
+        """Inject button."""
         if not self.uinput:
             return
         # Whitelist: the client supplies a button NAME (``button_N``)
@@ -112,6 +115,7 @@ class LinuxInputInjector:
             pass
 
     def inject_axis(self, axis, value):
+        """Inject axis."""
         if not self.uinput:
             return
         code = self._axis_map().get(str(axis))
@@ -132,6 +136,7 @@ class LinuxInputInjector:
             pass
 
     def close(self):
+        """Close."""
         if self.uinput:
             self.uinput.close()
             self.uinput = None

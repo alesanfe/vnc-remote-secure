@@ -1,0 +1,7 @@
+[darglint]
+# The project documents behaviour in prose docstrings rather than
+# per-parameter sections. "Missing section" codes are disabled, but the
+# mismatch codes (wrong/extra/stale parameter names) still run.
+strictness = short
+docstring_style = google
+ignore = DAR101,DAR102,DAR201,DAR202,DAR301,DAR401,DAR402

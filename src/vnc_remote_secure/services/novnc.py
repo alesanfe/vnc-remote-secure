@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """noVNC static file server with session validation.
 
 Serves the noVNC web client and enforces authentication before any
@@ -27,6 +27,7 @@ Security model:
     cannot bypass the gateway. Setting SERVE_NOVNC_HOST=0.0.0.0 is
     discouraged and logged as a warning.
 """
+import contextlib
 import http.server
 import logging
 import os
@@ -89,7 +90,8 @@ def _check_novnc_auth(headers, client_ip=None):
 
 
 def relay_rfb_stream(client_sock, upstream, rfb_filter=None):
-    """Pump bytes between the client WS connection and the upstream
+    """Pump bytes between the client WS connection and the upstream.
+
     websockify bridge, applying ``rfb_filter`` when present.
 
     Extracted from the request handler so the relay is unit-testable
@@ -323,16 +325,13 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     rfb_filter = None
             if token:
                 from vnc_remote_secure.security.websocket_registry import register_connection
+
                 def _close():
                     for s in (self.connection, upstream):
-                        try:
+                        with contextlib.suppress(OSError):
                             s.shutdown(socket.SHUT_RDWR)
-                        except OSError:
-                            pass
-                        try:
+                        with contextlib.suppress(OSError):
                             s.close()
-                        except OSError:
-                            pass
                 conn_id = register_connection(
                     token, _close, resource='desktop')
                 if conn_id is not None:
@@ -352,10 +351,8 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(
                         b'{"error":"Session revoked","status":403}')
-                    try:
+                    with contextlib.suppress(OSError):
                         upstream.close()
-                    except OSError:
-                        pass
                     return
         except Exception:  # noqa: BLE001 - registration is best-effort
             conn_id = None
@@ -373,12 +370,10 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             # values — encode failures are not OSError, so encode here
             # first and let the except below catch both.
             request_bytes = request.encode('latin-1')
-        except (UnicodeEncodeError, ValueError):
+        except ValueError:  # UnicodeEncodeError subclasses ValueError
             logger.debug("Unencodable upstream request; dropping relay")
-            try:
+            with contextlib.suppress(OSError):
                 upstream.close()
-            except OSError:
-                pass
             if conn_id:
                 try:
                     from vnc_remote_secure.security.websocket_registry import unregister_connection
@@ -397,10 +392,8 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         except OSError:
             pass
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 upstream.close()
-            except OSError:
-                pass
             if conn_id:
                 try:
                     from vnc_remote_secure.security.websocket_registry import unregister_connection
@@ -432,7 +425,7 @@ def main():
         port = int(sys.argv[2]) if len(sys.argv) > 2 else int(
             os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)))
     except ValueError:
-        logger.error("Invalid port '%s'", sys.argv[2])
+        logger.exception("Invalid port '%s'", sys.argv[2])
         sys.exit(1)
 
     if not os.path.isdir(novnc_dir):
@@ -452,7 +445,8 @@ def main():
             or os.environ.get('NOVNC_HOST', '').strip()
             or os.environ.get('BIND_HOST', '').strip()
             or DEFAULT_BIND_HOST)
-    if host == '0.0.0.0':
+    # nosec rationale: detection, not a bind
+    if host == '0.0.0.0':  # nosec B104
         logger.warning("SERVE_NOVNC_HOST=0.0.0.0 exposes noVNC directly; "
                        "use a reverse proxy instead")
 

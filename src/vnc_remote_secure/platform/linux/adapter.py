@@ -25,6 +25,7 @@ class LinuxAdapter(PlatformAdapter):
     """Linux-specific platform operations."""
 
     def get_platform_info(self):
+        """Get platform info."""
         return {
             'platform': 'linux',
             'service_manager': 'systemd',

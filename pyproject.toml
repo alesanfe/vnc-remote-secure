@@ -79,6 +79,16 @@ markers = [
   "e2e: end-to-end tests that spawn real service subprocesses"
 ]
 
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# Optional/platform-specific dependencies without published type stubs.
+module = ["evdev", "psutil", "waitress"]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -114,3 +124,65 @@ vnc_remote_secure = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.flake8]
+# flake8 runs ONLY the plugin rules ruff does not already cover.
+# Base pycodestyle/pyflakes/mccabe + isort/quotes/commas are owned by
+# ruff ([tool.ruff] above) — enabling both produces duplicates.
+max-line-length = 110
+extend-ignore = [
+    "E501", "W505",                 # ruff owns line length/whitespace
+    "Q000", "Q001", "Q002", "Q003", # quotes — project uses double
+    "C812", "C815", "C818", "C819", # trailing commas — ruff
+    "I001", "I003", "I004", "I005", # isort — lazy imports are intentional
+    "NQA102", "NQA103", "NQA104",   # noqa codes target ruff, not flake8
+    "WPS",                          # wemake styleguide — not adopted
+    "DAR", "DCO",                   # Args/Returns — pydoclint is canonical
+    "FNE", "ANN", "PD005", "FMT", "FA100",  # opinionated plugins
+    "H101", "H102", "H104", "H105", "H106", "H201", "H202", "H204",
+    "H205", "H301", "H306", "H401", "H403", "H404", "H405", "H501",
+    "H601", "H702", "H803", "H903", "H904", "H905",  # hacking plugin
+    "CM001", "CCR001", "C101", "CFQ", "CCE",         # complexity — xenon
+    "A003", "A005",
+    # pathlib preference — codebase intentionally mixes os.path/Path
+    "PL100", "PL101", "PL103", "PL105", "PL107", "PL108", "PL109",
+    "PL110", "PL111", "PL112", "PL113", "PL116", "PL117", "PL118",
+    "PL119", "PL120", "PL123",
+    "E800",  # eradicate: section comments flagged as code
+    # --- reviewed during the 2024 lint sweep; not actionable here ---
+    "PIE786", "PIE799", "PIE790",  # broad-except is the documented policy
+    "T201", "T000",               # print/TODO are legitimate in a CLI tool
+    "G200", "G201", "G100",       # logging style — exception() already used
+    "LOG005", "LOG014",
+    "TRY003", "TRY101", "TRY202", "TRY300", "TRY301", "TRY401",
+    "VNE",                        # variables-names pedantry
+    "U100", "U101",               # framework callback signatures
+    "R504", "R505", "R503", "R100",  # flake8-return pedantry (singletons)
+    "S",                          # bandit rules — standalone bandit is canonical
+    "N400", "N8",                 # backslash continuations + Win32 API names
+    "DOC301", "LN001", "LN002",   # docstring/length plugins
+    "SCS100", "SCS109",           # secure-coding-style preference
+    "ISC004",                     # implicit concat style
+    "SIM105",                     # remaining suppress() candidates are noqa'd
+    "E402",                       # lazy imports are a deliberate pattern
+]
+per-file-ignores = [
+    "src/vnc_remote_secure/vendor/*: S, DUO, SIM, TRY, PIE, DTZ, B, N8",
+    "src/vnc_remote_secure/third_party/*: ALL",
+]
+exclude = [
+    ".git", "__pycache__", ".venv", "venv", "build", "dist", "dist_lint",
+    "node_modules", "novnc", "docs/reports", ".idea",
+]
+
+# darglint config lives in .darglint (it does not read pyproject.toml);
+# pydocstyle runs clean with its defaults.
+
+[tool.interrogate]
+# Docstring coverage gate — pydocstyle handles style, this counts presence.
+fail-under = 80
+verbose = 0
+quiet = false
+exclude = ["docs", "tests", "build", "dist", "node_modules", "novnc"]
+ignore-init-method = true
+ignore-private = true

@@ -5,6 +5,7 @@ Firewall rules for the service ports, generates self-signed SSL
 certificates when none are present, and provisions UltraVNC if it
 is not already installed.
 """
+import contextlib
 import logging
 import os
 import shutil
@@ -47,9 +48,11 @@ def _is_elevated():
 
 
 def _find_ultravnc():
-    """Locate winvnc.exe in PATH, ULTRAVNC_PATH, the default install
+    """Locate winvnc.exe in PATH, ULTRAVNC_PATH, the default install.
+
     dir, or the project ``bin/ultravnc`` download directory (populated
-    by ``tools/download_dependencies.py``)."""
+    by ``tools/download_dependencies.py``).
+    """
     # 1. Explicit path from environment.
     env_path = os.environ.get('ULTRAVNC_PATH', '')
     if env_path and os.path.isfile(env_path):
@@ -69,7 +72,7 @@ def _find_ultravnc():
     except Exception:  # noqa: BLE001 - fall back to CWD search
         root = os.getcwd()
     arch = 'x64' if os.environ.get('PROCESSOR_ARCHITECTURE',
-                                  'AMD64').upper() != 'X86' else 'x86'
+                                   'AMD64').upper() != 'X86' else 'x86'
     for sub in (arch, 'x64', 'x86', ''):
         candidate = os.path.join(
             root, 'bin', 'ultravnc', sub, 'winvnc.exe')
@@ -143,7 +146,7 @@ def _verify_winvnc_hash(winvnc_path):
 
 
 def _ensure_ultravnc():
-    """Ensure UltraVNC is available; download and install if missing.
+    r"""Ensure UltraVNC is available; download and install if missing.
 
     Downloads the portable zip from the official UltraVNC release,
     extracts it to ``%ProgramFiles%\\UltraVNC``, and sets
@@ -169,8 +172,9 @@ def _ensure_ultravnc():
             # urlretrieve() has no timeout — a stalled mirror would
             # hang install forever. Stream via urlopen instead.
             import shutil
-            with urllib.request.urlopen(url, timeout=60) as resp, \
-                    open(zip_path, 'wb') as out:  # nosec B310 - https enforced above
+            # nosec rationale: HTTPS enforced by _validate_download_url
+            with (urllib.request.urlopen(url, timeout=60) as resp,  # nosec B310
+                    open(zip_path, 'wb') as out):
                 shutil.copyfileobj(resp, out)
             logger.info("Downloaded UltraVNC archive: %s", zip_path)
 
@@ -226,10 +230,8 @@ def _ensure_ultravnc():
                     "ULTRAVNC_PATH.",
                     winvnc,
                 )
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(winvnc)
-                except OSError:
-                    pass
         else:
             logger.warning(
                 "UltraVNC archive extracted but winvnc.exe not found at %s. "
@@ -246,7 +248,7 @@ def _ensure_ultravnc():
 
 
 def _copy_package_to_programdata():
-    """Copy the Python package into %ProgramData%\\VncRemoteSecure\\src.
+    r"""Copy the Python package into %ProgramData%\\VncRemoteSecure\\src.
 
     The ``service-run.py`` launcher registered as the service binary
     puts ``%ProgramData%\\VncRemoteSecure\\src`` on ``sys.path`` so the
@@ -297,10 +299,8 @@ def _copy_package_to_programdata():
                 from vnc_remote_secure.security.certificates import _restrict_key_permissions
                 _restrict_key_permissions(cfg_dst, writable=True)
             except Exception:  # noqa: BLE001
-                try:
+                with contextlib.suppress(OSError):
                     os.chmod(cfg_dst, 0o600)
-                except OSError:
-                    pass
             logger.info("Config seeded at %s (edit and set secrets)",
                         cfg_dst)
     except OSError as exc:

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 Shared configuration loader for VNC Remote Secure Python components.
+
 Reads .env file and provides environment variables with secure defaults.
 NEVER hardcode credentials - always read from environment or .env file.
 """
+import contextlib
 import logging
 import os
 import secrets
@@ -183,7 +185,7 @@ _DEFAULT_INJECTED: dict = {}
 
 
 def _is_injected_default(key: str) -> bool:
-    """True if ``key`` still holds a value we injected as a default."""
+    """Return True if ``key`` still holds a value we injected as a default."""
     return (_DEFAULT_INJECTED.get(key) is not None
             and os.environ.get(key) == _DEFAULT_INJECTED[key])
 
@@ -250,11 +252,11 @@ def set_env_persistent(name: str, value: str) -> bool:
     out, found = [], False
     for ln in lines:
         stripped = ln.strip()
-        if stripped and not stripped.startswith('#') and '=' in ln:
-            if ln.split('=', 1)[0].strip() == name:
-                out.append(f'{name}={value}')
-                found = True
-                continue
+        if (stripped and not stripped.startswith('#') and '=' in ln
+                and ln.split('=', 1)[0].strip() == name):
+            out.append(f'{name}={value}')
+            found = True
+            continue
         out.append(ln)
     if not found:
         out.append(f'{name}={value}')
@@ -270,15 +272,11 @@ def set_env_persistent(name: str, value: str) -> bool:
                 f.write('\n'.join(out) + '\n')
             os.replace(tmp, env_path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(env_path, 0o600)
-        except OSError:
-            pass
     except OSError:
         return False
     os.environ[name] = value
@@ -286,7 +284,7 @@ def set_env_persistent(name: str, value: str) -> bool:
 
 
 def load_env_file(env_path=None):
-    """Load .env file into os.environ.
+    r"""Load .env file into os.environ.
 
     Precedence (highest wins):
         real env > project ``.env`` > system ``config.env``
@@ -343,10 +341,10 @@ def load_env_file(env_path=None):
     # 2. System config.env — fills keys absent from real env AND from
     #    the project .env (which outranks it).
     for key, val in system_env.items():
-        if key not in real_env_keys and key not in proj_env:
-            if key not in os.environ or _is_injected_default(key):
-                os.environ[key] = val
-                _DEFAULT_INJECTED[key] = val
+        if (key not in real_env_keys and key not in proj_env
+                and (key not in os.environ or _is_injected_default(key))):
+            os.environ[key] = val
+            _DEFAULT_INJECTED[key] = val
     # 3. Project .env — overrides system config and platform defaults
     #    but never real env vars.
     for key, val in proj_env.items():
@@ -441,15 +439,11 @@ def _persist_generated_credential(name, value):
             os.chmod(tmp, 0o600)
             os.replace(tmp, cred_file)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(cred_file, 0o600)
-        except OSError:
-            pass
         logger.warning(
             "%s not set; generated a random password — stored in %s "
             "(owner-only). Set it explicitly in .env to control it.",
@@ -492,10 +486,8 @@ def _remove_generated_credential(name):
             os.chmod(tmp, 0o600)
             os.replace(tmp, cred_file)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
     except Exception:  # noqa: BLE001 - best-effort cleanup
         pass

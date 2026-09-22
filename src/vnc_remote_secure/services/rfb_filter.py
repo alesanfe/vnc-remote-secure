@@ -235,6 +235,7 @@ class RfbInputFilter:
 
     def __init__(self, allow_clipboard: bool = False,
                  allow_control: bool = False):
+        """Init."""
         self.allow_clipboard = allow_clipboard
         self.allow_control = allow_control
         self._ws_cbuf = bytearray()   # raw client WS bytes

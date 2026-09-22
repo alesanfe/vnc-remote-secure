@@ -3,13 +3,15 @@
 This module is consumed by the Windows platform adapter to provide a
 platform-specific injector for the gamepad forwarding service. Keeping the
 injector in the platform layer avoids circular imports between
-``services.gamepad`` and ``platform.*.adapter``"""
+``services.gamepad`` and ``platform.*.adapter``
+"""
 
 
 class WindowsInputInjector:
     """Inject input events on Windows using SendInput (ctypes)."""
 
     def __init__(self):
+        """Init."""
         self.available = True
         # Map gamepad buttons to virtual key codes
         self.key_map = {
@@ -24,6 +26,7 @@ class WindowsInputInjector:
         }
 
     def inject_button(self, button_code, value):
+        """Inject button."""
         import ctypes
         from ctypes import wintypes
 
@@ -64,6 +67,7 @@ class WindowsInputInjector:
         ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
 
     def inject_axis(self, axis, value):
+        """Inject axis."""
         # On Windows, map left stick to mouse movement
         import ctypes
         from ctypes import wintypes
@@ -114,4 +118,5 @@ class WindowsInputInjector:
         ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
 
     def close(self):
+        """Close."""
         pass  # Nothing to clean up on Windows

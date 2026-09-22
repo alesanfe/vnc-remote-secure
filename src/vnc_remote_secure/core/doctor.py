@@ -32,7 +32,8 @@ def _check_port(host: str, port: int) -> bool:
     A wildcard bind (``0.0.0.0``/``::``) covers loopback too — connecting
     to the wildcard address itself is unreliable on Windows.
     """
-    if host in ('0.0.0.0', '::', ''):
+    # nosec rationale: detection, not a bind
+    if host in ('0.0.0.0', '::', ''):  # nosec B104
         host = '127.0.0.1'
     # Delegate to the shared probe — it selects AF_INET6 for IPv6
     # literal hosts, which a hardcoded AF_INET socket cannot reach.
@@ -265,7 +266,7 @@ def _check_terminal_isolation(checks):
                   'Could not verify AppContainer sandbox availability')
         return
     try:
-        euid = os.geteuid()  # type: ignore[attr-defined]
+        euid = os.geteuid()
     except AttributeError:
         return
     webterm_user = os.environ.get('WEBTERM_USER', '').strip()
@@ -471,12 +472,11 @@ def run_doctor(as_json: bool = False) -> dict:
     for c in checks:
         counts[c['status']] += 1
 
-    result = {
+    return {
         'checks': checks,
         'summary': counts,
         'healthy': counts['fail'] == 0,
     }
-    return result
 
 
 def format_doctor(result: dict) -> str:

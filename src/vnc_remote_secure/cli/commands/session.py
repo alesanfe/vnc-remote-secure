@@ -20,15 +20,17 @@ def _parse_duration(s: str) -> int:
     if s and s[-1] in units:
         try:
             value = int(s[:-1])
-        except ValueError:
-            raise SystemExit(f"Invalid duration: {s!r} (expected e.g. 30m, 2h)")
+        except ValueError as exc:
+            raise SystemExit(
+                f"Invalid duration: {s!r} (expected e.g. 30m, 2h)") from exc
         if value <= 0:
             raise SystemExit(f"Duration must be positive: {s!r}")
         return value * units[s[-1]]
     try:
         value = int(s)
-    except ValueError:
-        raise SystemExit(f"Invalid duration: {s!r} (expected e.g. 30m, 2h)")
+    except ValueError as exc:
+        raise SystemExit(
+            f"Invalid duration: {s!r} (expected e.g. 30m, 2h)") from exc
     if value <= 0:
         raise SystemExit(f"Duration must be positive: {s!r}")
     return value
@@ -180,7 +182,7 @@ def cmd_session(args):
         # would emit a duplicate event per session.
         return 0
 
-    elif args.session_action == 'list':
+    if args.session_action == 'list':
         sessions = store.list_active()
         if args.json:
             print(json.dumps(sessions, indent=2))
@@ -189,9 +191,9 @@ def cmd_session(args):
                 print("No active sessions.")
             else:
                 print(f"Active sessions ({len(sessions)}):")
-                import datetime
+                import time
                 for s in sessions:
-                    remaining = int(s['expires_at'] - datetime.datetime.now().timestamp())
+                    remaining = int(s['expires_at'] - time.time())
                     print(f"  id={s.get('token_id', '?')} role={s['role']} "
                           f"expires_in={max(remaining, 0)}s "
                           f"view_only={s['view_only']} single_use={s['single_use']} "
@@ -200,7 +202,7 @@ def cmd_session(args):
                           f"ip={s.get('allowed_ip') or '*'}")
         return 0
 
-    elif args.session_action == 'revoke':
+    if args.session_action == 'revoke':
         # Accept the token either positionally (natural form:
         # ``vnc-remote session revoke <token>``) or via --token.
         token = getattr(args, 'token', None) or getattr(args, 'token_pos', None)
@@ -219,9 +221,8 @@ def cmd_session(args):
         if ok:
             print("Session revoked.")
             return 0
-        else:
-            print("Session not found.")
-            return 1
+        print("Session not found.")
+        return 1
 
     print(f"Unknown session action: {args.session_action}")
     return 1

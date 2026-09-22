@@ -1,4 +1,5 @@
 """systemd service management for Linux."""
+import contextlib
 import os
 import re
 
@@ -43,10 +44,8 @@ def install_service(name, unit_file, unit_content=None):
                 f.write(unit_content)
             os.replace(tmp, unit_file)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
     elif not os.path.exists(unit_file):
         raise ServiceError(f"Unit file not found: {unit_file}")

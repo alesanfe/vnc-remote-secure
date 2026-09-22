@@ -1,4 +1,4 @@
-﻿"""Unit tests for web.application module."""
+"""Unit tests for web.application module."""
 import os
 import sys
 

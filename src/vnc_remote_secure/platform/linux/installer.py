@@ -178,9 +178,11 @@ def _configure_nginx(project_root):
     _default_hsts = 'max-age=31536000; includeSubDomains'
 
     def _safe_header(value):
-        """Return ``value`` safe to embed in a quoted nginx header
+        """Return ``value`` safe to embed in a quoted nginx header.
+
         directive — CR/LF and raw double quotes are stripped (same
-        contract as http_headers._safe_header_value)."""
+        contract as http_headers._safe_header_value).
+        """
         cleaned = ''.join(
             ch for ch in str(value) if ch not in '\r\n"').strip()
         return cleaned or _default_hsts
@@ -195,9 +197,9 @@ def _configure_nginx(project_root):
         'SSL_CERT': os.environ.get('SSL_CERT', os.path.join(get_ssl_dir(), 'fullchain.pem')),
         'SSL_KEY': os.environ.get('SSL_KEY', os.path.join(get_ssl_dir(), 'privkey.pem')),
         'NGINX_HTTP_PORT': str(config.get('nginx_http_port',
-                                         DEFAULT_NGINX_HTTP_PORT)),
+                                          DEFAULT_NGINX_HTTP_PORT)),
         'NGINX_HTTPS_PORT': str(config.get('nginx_https_port',
-                                          DEFAULT_NGINX_HTTPS_PORT)),
+                                           DEFAULT_NGINX_HTTPS_PORT)),
         'NOVNC_HOST': _host('SERVE_NOVNC_HOST', 'NOVNC_HOST', 'BIND_HOST'),
         'NOVNC_PORT': str(config.get('novnc_port', DEFAULT_NOVNC_PORT)),
         'TTYD_HOST': _host('TTYD_HOST', 'BIND_HOST'),
@@ -221,7 +223,7 @@ def _configure_nginx(project_root):
         'LANDING_PORT': str(config.get('landing_port', DEFAULT_LANDING_PORT)),
         'AUDIO_STREAM_HOST': _host('AUDIO_STREAM_HOST', 'BIND_HOST'),
         'AUDIO_STREAM_PORT': str(config.get('audio_stream_port',
-                                           DEFAULT_AUDIO_STREAM_PORT)),
+                                            DEFAULT_AUDIO_STREAM_PORT)),
         'GAMEPAD_HOST': _host('GAMEPAD_HOST', 'BIND_HOST'),
         'GAMEPAD_PORT': str(config.get('gamepad_port', DEFAULT_GAMEPAD_PORT)),
     }

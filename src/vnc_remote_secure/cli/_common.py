@@ -26,7 +26,7 @@ def _audit_cli(event: str, result: str, detail: str = ''):
         audit_log(
             event,
             user=os.environ.get('USERNAME')
-                 or os.environ.get('USER', 'admin'),
+            or os.environ.get('USER', 'admin'),
             result=result,
             detail=detail,
         )

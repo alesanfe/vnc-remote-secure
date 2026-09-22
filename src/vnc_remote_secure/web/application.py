@@ -32,8 +32,10 @@ def _safe_cookie_name(name) -> str:
 
 
 def _resolved_tls(config) -> bool:
-    """True when TLS will actually be active: flag enabled AND a cert
-    pair resolvable via the same discovery the services use."""
+    """Return True when TLS will actually be active: flag enabled AND a cert.
+
+    pair resolvable via the same discovery the services use.
+    """
     if not config.get('tls_enabled'):
         return False
     try:
@@ -63,7 +65,7 @@ def create_app(config=None):
 
     try:
         from flask import Flask
-    except ImportError:
+    except ImportError as exc:
         # In non-development profiles, Flask is required. The fallback
         # app lacks security features (no session middleware, no
         # after_request hooks, no blueprint auth). Legacy aliases
@@ -73,7 +75,7 @@ def create_app(config=None):
         from vnc_remote_secure.security.profiles import resolve_profile
         profile = resolve_profile()
         if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
-            logger.error(
+            logger.exception(
                 "Flask is not installed but profile '%s' requires it. "
                 "The fallback http.server app lacks security features. "
                 "Install Flask: pip install flask",
@@ -82,7 +84,7 @@ def create_app(config=None):
             raise RuntimeError(
                 f"Flask is required for security profile '{profile}'. "
                 "Install it with: pip install flask"
-            )
+            ) from exc
         return _create_fallback_app(config)
 
     app = Flask(
@@ -242,9 +244,11 @@ class SimpleWebApp:
     """
 
     def __init__(self, config):
+        """Init."""
         self.config = config
 
     def __call__(self, environ, start_response):
+        """Call."""
         path = environ.get('PATH_INFO', '/')
         auth_header = environ.get('HTTP_AUTHORIZATION', '')
         # Apply the same security headers the Flask app emits via

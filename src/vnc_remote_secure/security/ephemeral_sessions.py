@@ -14,6 +14,7 @@ Token signing is delegated to ``security.token_signing`` so that
 ephemeral tokens and persistent session cookies share a single
 signing mechanism while remaining type-separated.
 """
+import contextlib
 import logging
 import secrets
 import threading
@@ -53,7 +54,7 @@ def _get_instance_id() -> str:
                 saved = f.read().strip()
             if saved:
                 _INSTANCE_ID = saved
-                return _INSTANCE_ID
+                return saved
         os.makedirs(os.path.dirname(path), exist_ok=True)
         _INSTANCE_ID = f'srv_{secrets.token_hex(4)}'
         import tempfile
@@ -64,10 +65,8 @@ def _get_instance_id() -> str:
                 f.write(_INSTANCE_ID)
             os.replace(tmp, path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
         try:
             from vnc_remote_secure.security.certificates import (
@@ -75,10 +74,8 @@ def _get_instance_id() -> str:
             )
             _restrict_key_permissions(path, writable=True)
         except Exception:  # noqa: BLE001 - ACL hardening is best-effort
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(path, 0o600)
-            except OSError:
-                pass
     except Exception:  # noqa: BLE001 - fall back to process-local id
         _INSTANCE_ID = f'srv_{secrets.token_hex(4)}'
     return _INSTANCE_ID
@@ -136,6 +133,7 @@ class EphemeralSession:
         nonce: str | None = None,
         max_uses: int = 0,
     ):
+        """Init."""
         self.token = token
         self.role = role
         self.permissions = permissions or ROLES.get(role, {PERM_VIEW})
@@ -183,9 +181,8 @@ class EphemeralSession:
             return False
         # Deployment binding: a token issued by a different deployment
         # (different persisted instance.id) must not authenticate here.
-        if self.instance_id and self.instance_id != _get_instance_id():
-            return False
-        return True
+        return not (self.instance_id
+                    and self.instance_id != _get_instance_id())
 
     def has_permission(self, perm: str, resource: str | None = None) -> bool:
         """Check if this session grants a specific permission.
@@ -324,6 +321,7 @@ class SessionStore:
     """
 
     def __init__(self):
+        """Init."""
         self._sessions: dict = {}  # token -> EphemeralSession
         self._cleanup_interval = 300  # 5 min
         self._lock = threading.Lock()
@@ -345,10 +343,8 @@ class SessionStore:
         if not os.path.exists(path):
             self._last_mtime = 0.0
             return
-        try:
+        with contextlib.suppress(OSError):
             self._last_mtime = os.path.getmtime(path)
-        except OSError:
-            pass
         try:
             with open(path, encoding='utf-8') as f:
                 data = json.load(f)
@@ -445,15 +441,11 @@ class SessionStore:
                     json.dump(data, f, indent=2)
                 os.replace(tmp, path)
             except BaseException:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(tmp)
-                except OSError:
-                    pass
                 raise
-            try:
+            with contextlib.suppress(OSError):
                 self._last_mtime = os.path.getmtime(path)
-            except OSError:
-                pass
             # The file contains live session tokens — anyone who can
             # read it can hijack every active share session. Restrict
             # to owner-only (os.chmod alone is a no-op on Windows).
@@ -461,18 +453,16 @@ class SessionStore:
                 from vnc_remote_secure.security.certificates import _restrict_key_permissions
                 _restrict_key_permissions(path, writable=True)
             except Exception:  # noqa: BLE001
-                try:
+                with contextlib.suppress(OSError):
                     os.chmod(path, 0o600)
-                except OSError:
-                    pass
         except OSError as exc:
             if raise_on_error:
                 raise RuntimeError(
                     f"Failed to persist ephemeral sessions: {exc}") from exc
-            logger.error(
-                "Failed to persist ephemeral sessions: %s — state "
+            logger.exception(
+                "Failed to persist ephemeral sessions — state "
                 "changes (revocation, use counts) will not survive "
-                "this process", exc)
+                "this process")
 
     def create(
         self,
@@ -807,7 +797,7 @@ def _mark_revoked_shared(token: str, expires_at: float) -> None:
 
 
 def _is_revoked_shared(token: str) -> bool:
-    """True when the token was revoked in any process via the backend."""
+    """Return True when the token was revoked in any process via the backend."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         return bool(get_backend().get(_NS_EPH_REVOKED, token))
@@ -831,10 +821,9 @@ def _claim_consumed(token: str, expires_at: float) -> bool:
         ttl = max(60.0, expires_at - time.time())
         return bool(get_backend().set_if_absent(
             'ephemeral_consumed', token, True, ttl))
-    except Exception as exc:  # noqa: BLE001 - fail closed
-        logger.error(
-            "Ephemeral claim backend unavailable — denying claim: %s",
-            exc)
+    except Exception:  # noqa: BLE001 - fail closed
+        logger.exception(
+            "Ephemeral claim backend unavailable — denying claim")
         return False
 
 
@@ -857,10 +846,9 @@ def _claim_use(token: str, max_uses: int, expires_at: float) -> bool:
         new_count = get_backend().increment(
             'ephemeral_uses', token, 1, ttl_seconds=ttl)
         return new_count is not None and int(new_count) <= max_uses
-    except Exception as exc:  # noqa: BLE001 - fail closed
-        logger.error(
-            "Multi-use claim backend unavailable — denying claim: %s",
-            exc)
+    except Exception:  # noqa: BLE001 - fail closed
+        logger.exception(
+            "Multi-use claim backend unavailable — denying claim")
         return False
 
 
@@ -903,8 +891,7 @@ def consume_ephemeral_session(signed_token: str) -> bool:
             session.revoke()
             store._save()
             return True  # Return inside lock to prevent race.
-        else:
-            return True  # Multi-use: valid, return inside lock.
+        return True  # Multi-use: valid, return inside lock.
 
 
 def activate_ephemeral_session(signed_token: str,
@@ -970,12 +957,12 @@ def activate_ephemeral_session(signed_token: str,
             # stop two services activating the same link at once.
             if not _claim_consumed(token, session.expires_at):
                 return None
-        elif session.max_uses > 0:
-            # Multi-use: the local read-modify-write of use_count races
-            # across processes — claim one use via the shared-state
-            # atomic increment and reject when the budget is exhausted.
-            if not _claim_use(token, session.max_uses, session.expires_at):
-                return None
+        elif (session.max_uses > 0
+                # Multi-use: the local read-modify-write of use_count races
+                # across processes — claim one use via the shared-state
+                # atomic increment and reject when the budget is exhausted.
+                and not _claim_use(token, session.max_uses, session.expires_at)):
+            return None
         session.mark_used()
         store._save()
         try:

@@ -92,7 +92,7 @@ def client_ip_from(headers, peer_ip):
 
 
 def _is_locked(limiter, client_ip):
-    """True when the client is locked out in ANY shared namespace.
+    """Return True when the client is locked out in ANY shared namespace.
 
     ``attempt_login`` records failures under ``ip:{addr}`` while the
     Basic-auth helpers historically used the bare address — a login
@@ -152,7 +152,8 @@ def check_landing_auth(auth_header, client_ip=None):
 
 
 def check_terminal_auth(auth_header, client_ip=None):
-    """Check terminal auth using ``TTYD_USERNAME`` / ``TTYD_PASSWD`` or
+    """Check terminal auth using ``TTYD_USERNAME`` / ``TTYD_PASSWD`` or.
+
     an ephemeral Bearer token with the ``terminal:use`` permission.
     """
     load_env_file()
@@ -214,13 +215,13 @@ def check_terminal_auth(auth_header, client_ip=None):
 
 
 def _loopback_bind(host: str) -> bool:
-    """True when ``host`` resolves to a loopback-only bind."""
+    """Return True when ``host`` resolves to a loopback-only bind."""
     return (host or '').strip() in (
         '127.0.0.1', '::1', 'localhost', '127.0.0.0/8')
 
 
 def _loopback_peer(client_ip) -> bool:
-    """True when the request's socket peer is loopback."""
+    """Return True when the request's socket peer is loopback."""
     import ipaddress
     try:
         return ipaddress.ip_address(

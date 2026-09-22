@@ -51,6 +51,7 @@ def _redact(session_id: str) -> str:
         return '<empty>'
     return hashlib.sha256(session_id.encode()).hexdigest()[:12]
 
+
 # Shared-state namespace for cross-process revocation propagation.
 _NS_REVOKED = 'websocket_revoked_sessions'
 
@@ -91,6 +92,7 @@ class WebSocketRegistry:
     """
 
     def __init__(self):
+        """Init."""
         self._lock = threading.Lock()
         self._connections: dict[str, _ConnectionEntry] = {}  # conn_id -> entry
         self._by_session: dict[str, set[str]] = {}  # session_id -> {conn_ids}
@@ -288,7 +290,7 @@ def reset_registry():
 
 
 def register_connection(session_id: str, close_callback: CloseCallback,
-                         resource: str | None = None) -> str | None:
+                        resource: str | None = None) -> str | None:
     """Register a new WebSocket connection (convenience function)."""
     return get_registry().register(session_id, close_callback, resource)
 

@@ -244,6 +244,6 @@ def fix_secret_file_permissions(path: str) -> bool:
     try:
         os.chmod(path, 0o600)
         return True
-    except OSError as e:
-        logger.error("Could not fix permissions for %s: %s", path, e)
+    except OSError:
+        logger.exception("Could not fix permissions for %s:", path)
         return False

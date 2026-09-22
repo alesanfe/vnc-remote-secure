@@ -76,7 +76,7 @@ def verify_token(token_type: str, token: str) -> str | None:
     secret = _get_secret()
     signed_material = f"{token_type}:{payload}"
     expected_sig = hmac.new(secret, signed_material.encode('utf-8'),
-                           hashlib.sha256).hexdigest()
+                            hashlib.sha256).hexdigest()
     # The token is client-controlled — a non-ASCII sig makes
     # compare_digest(str, str) raise TypeError instead of failing
     # closed. Encode both sides to bytes.

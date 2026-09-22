@@ -164,6 +164,7 @@ def _validate_certificate(cert_path: str, key_path: str) -> list:
             # Compare public numbers — if they match, key and cert are
             # a pair. Ed25519-family keys have no public_numbers(); for
             # those, compare the raw public bytes instead.
+
             def _pub_bytes(k):
                 if hasattr(k, 'public_numbers'):
                     return repr(k.public_numbers())

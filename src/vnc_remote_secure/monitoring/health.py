@@ -20,12 +20,11 @@ def _get_platform_metrics():
         except ImportError:
             return {}
         return get_system_metrics()
-    else:
-        try:
-            from vnc_remote_secure.platform.linux.metrics import get_system_metrics
-        except ImportError:
-            return {}
-        return get_system_metrics()
+    try:
+        from vnc_remote_secure.platform.linux.metrics import get_system_metrics
+    except ImportError:
+        return {}
+    return get_system_metrics()
 
 
 def get_system_health():

@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import sys
+from pathlib import Path
 
 from vnc_remote_secure.cli._common import _audit_cli, _find_project_root
 
@@ -27,7 +28,7 @@ def cmd_secrets(args):
                 print(f"  {name}: {val}")
         return 0
 
-    elif args.secrets_action == 'rotate':
+    if args.secrets_action == 'rotate':
         # Any env-var credential can be rotated — the mechanism is
         # identical (generate strong value, persist to .env).
         rotatable = {
@@ -52,7 +53,7 @@ def cmd_secrets(args):
         while True:
             new_val = ''.join(secrets_mod.choice(chars) for _ in range(length))
             if (any(c.isupper() for c in new_val) and any(c.islower() for c in new_val)
-                and any(c.isdigit() for c in new_val) and any(c in '!@%^&*' for c in new_val)):
+                    and any(c.isdigit() for c in new_val) and any(c in '!@%^&*' for c in new_val)):
                 break
 
         # Persist the rotation into the project .env — setting only
@@ -74,7 +75,7 @@ def cmd_secrets(args):
             sys_env and os.path.isfile(sys_env)
             and any(
                 ln.split('=', 1)[0].strip() == name and not ln.strip().startswith('#')
-                for ln in open(sys_env, encoding='utf-8').read().splitlines()
+                for ln in Path(sys_env).read_text(encoding='utf-8').splitlines()
                 if '=' in ln)
         ) else os.path.join(_find_project_root(), '.env')
         # The explicit value now lives in .env — drop the stale
@@ -110,14 +111,14 @@ def cmd_secrets(args):
                    f'fp={hashlib.sha256(new_val.encode()).hexdigest()[:8]}')
         return 0
 
-    elif args.secrets_action == 'redact':
+    if args.secrets_action == 'redact':
         if not args.secret_name:
             print("Error: --name required")
             return 1
         print(f"{args.secret_name}: {redact_env(args.secret_name, show_fingerprint=True)}")
         return 0
 
-    elif args.secrets_action == 'check':
+    if args.secrets_action == 'check':
         # Validate TLS config and secret file permissions.
         findings = []
         try:

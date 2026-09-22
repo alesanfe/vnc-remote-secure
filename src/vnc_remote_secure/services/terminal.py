@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Web Terminal server using tornado + xterm.js.
+
 Canonical web terminal on both platforms (replaced ttyd; ConPTY has
 issues on Windows 11 25H2).
 
@@ -45,6 +46,8 @@ from vnc_remote_secure.core.config import load_env_file
 load_env_file()
 
 # Configuration - credentials read from environment, never hardcoded
+from contextlib import suppress
+
 from vnc_remote_secure.core.constants import (
     DEFAULT_CMD_TIMEOUT,
     DEFAULT_MAX_OUTPUT,
@@ -52,9 +55,10 @@ from vnc_remote_secure.core.constants import (
 
 
 def _config():
-    """Lazy config accessor — reads get_config() on each call so .env changes take effect."""
+    """Return the runtime config lazily so .env changes take effect on each call."""
     from vnc_remote_secure.core.config import get_config
     return get_config()
+
 
 # Common commands for tab completion (no duplicates)
 if os.name == 'posix':
@@ -90,7 +94,10 @@ def _html_page() -> str:
 
 
 class MainHandler(tornado.web.RequestHandler):
+    """Main Handler."""
+
     def set_default_headers(self):
+        """Set default headers."""
         from vnc_remote_secure.security.http_headers import get_security_headers
         # HSTS only when this app was started with an SSL context —
         # main() stores it so per-request handlers don't rebuild it.
@@ -117,7 +124,7 @@ class MainHandler(tornado.web.RequestHandler):
             self.set_header(name, value)
 
     def _ephemeral_authorized(self) -> bool:
-        """True when the vnc_ephemeral cookie grants terminal access."""
+        """Return True when the vnc_ephemeral cookie grants terminal access."""
         cookie = self.request.headers.get('Cookie', '')
         eph = ''
         for part in cookie.split(';'):
@@ -131,10 +138,11 @@ class MainHandler(tornado.web.RequestHandler):
         return check_session_permission(
             eph, 'terminal:use', resource='terminal',
             client_ip=client_ip_from(
-                    self.request.headers, self.request.remote_ip))
+                self.request.headers, self.request.remote_ip))
 
     def _session_authorized(self) -> bool:
-        """True when a valid ``vnc_session`` cookie authenticates the
+        """Return True when a valid ``vnc_session`` cookie authenticates the.
+
         request — the WebSocket upgrade already accepts the session
         cookie, so the page must too or a portal-authenticated user is
         double-challenged with Basic credentials the WS does not need.
@@ -152,6 +160,7 @@ class MainHandler(tornado.web.RequestHandler):
         return False
 
     def get(self):
+        """Get."""
         auth = self.request.headers.get('Authorization', '')
         if not (self._ephemeral_authorized()
                 or self._session_authorized()
@@ -435,13 +444,11 @@ def _kill_process_tree(proc):
             import signal
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
+            except OSError:  # ProcessLookupError/PermissionError subclass OSError
                 proc.kill()
     except Exception:  # noqa: BLE001 - kill is best-effort
-        try:
+        with suppress(Exception):
             proc.kill()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def _help_text():
@@ -490,6 +497,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         return _is_origin_allowed(origin)
 
     def open(self):
+        """Open."""
         auth = self.request.headers.get('Authorization', '')
         # First, try ephemeral session token (Bearer) via auth_gateway
         # so that revocation and per-action permissions are enforced.
@@ -620,6 +628,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self.write_message(prompt)
 
     def on_message(self, message):
+        """On message."""
         try:
             msg = json.loads(message)
         except (json.JSONDecodeError, TypeError) as exc:
@@ -677,7 +686,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 try:
                     allowed = any(re.fullmatch(p, cmd) for p in patterns)
                 except re.error:
-                    logger.error(
+                    logger.exception(
                         "Invalid TERMINAL_COMMAND_ALLOWLIST regex — "
                         "denying command")
                     allowed = False
@@ -798,10 +807,8 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             # orphan it from interrupt/on_close cleanup.
             prev = self.current_process
             if prev is not None and prev.poll() is None:
-                try:
+                with suppress(Exception):  # best-effort cleanup
                     prev.terminate()
-                except Exception:  # noqa: BLE001 - best-effort cleanup
-                    pass
             # Windows: spawn inside an AppContainer when enabled —
             # the shell then cannot read the user profile holding the
             # service secrets (F-035 mitigation). 'auto' falls back to
@@ -884,10 +891,8 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 except subprocess.TimeoutExpired:
                     timed_out = True
                     _kill_process_tree(proc)
-                    try:
+                    with suppress(Exception):  # best-effort reap
                         proc.wait(timeout=5)
-                    except Exception:  # noqa: BLE001 - best-effort reap
-                        pass
                 t_out.join(timeout=5)
                 t_err.join(timeout=5)
 
@@ -931,7 +936,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 self.write_message('\r\n')
 
     def _after_command(self, cmd, returncode):
-        """Called after command completes."""
+        """Send final output after the command completes."""
         # Handle cd command
         parts = cmd.strip().split()
         if parts and parts[0].lower() == 'cd':
@@ -1001,6 +1006,7 @@ class XtermStaticHandler(tornado.web.StaticFileHandler):
                 self.request.headers, self.request.remote_ip))
 
     async def get(self, path, include_body=True):
+        """Get."""
         if not self._authorized():
             from vnc_remote_secure.core.errors import error_json
             body, status = error_json('Unauthorized', 401)
@@ -1031,6 +1037,7 @@ def _xterm_static_dir() -> str:
 
 
 def make_app():
+    """Make app."""
     return tornado.web.Application([
         (r'/', MainHandler),
         (r'/ws', TerminalWebSocket),
@@ -1040,6 +1047,7 @@ def make_app():
 
 
 def main():
+    """Start the web terminal server."""
     app = make_app()
     TerminalWebSocket.main_ioloop = tornado.ioloop.IOLoop.current()
 

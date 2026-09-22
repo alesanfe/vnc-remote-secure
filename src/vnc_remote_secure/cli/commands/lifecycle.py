@@ -1,8 +1,11 @@
-"""Lifecycle commands: install, start, stop, restart, status, service,
-uninstall."""
+"""Lifecycle commands: install, start, stop, restart, status, service.
+
+uninstall.
+"""
 import json
 import os
 import sys
+from contextlib import suppress
 
 from vnc_remote_secure.cli._common import (
     _audit_cli,
@@ -138,6 +141,7 @@ def cmd_start(args):
         interval = int(config.get('healthcheck_interval', 30) or 30)
         last_check = time.monotonic()
         import signal as _sig
+
         def _term(_signum, _frame):
             # SIGTERM (systemd stop / docker stop / SCM) — the default
             # handler kills the supervisor mid-loop, orphaning the
@@ -145,10 +149,9 @@ def cmd_start(args):
             # same cleanup path runs.
             raise KeyboardInterrupt
         for _name in ('SIGTERM', 'SIGINT'):
-            try:
+            with suppress(AttributeError, ValueError, OSError):
+                # e.g. no SIGTERM on Windows console main thread
                 _sig.signal(getattr(_sig, _name), _term)
-            except (AttributeError, ValueError, OSError):
-                pass  # e.g. no SIGTERM on Windows console main thread
         try:
             while True:
                 time.sleep(1)
@@ -253,7 +256,7 @@ def cmd_status(args):
             else:
                 running = 'yes' if info.get('running') else 'no'
                 port = 'up' if port_health.get(name) else 'down'
-            print(f"{name:<12} {str(pid):<8} {running:<8} {port}")
+            print(f"{name:<12} {pid!s:<8} {running:<8} {port}")
     running_count = sum(1 for s in results.values() if s.get('running'))
     return 0 if running_count else 1
 

@@ -34,6 +34,7 @@ import msvcrt
 import os
 import subprocess
 import tempfile
+from contextlib import suppress
 from ctypes import wintypes
 
 logger = logging.getLogger(__name__)
@@ -122,8 +123,10 @@ class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
 
 
 def _proto():
-    """Declare ctypes prototypes — without them, 64-bit HANDLEs and
-    pointers passed positionally are truncated to c_int."""
+    """Declare ctypes prototypes — without them, 64-bit HANDLEs and.
+
+    pointers passed positionally are truncated to c_int.
+    """
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel32.InitializeProcThreadAttributeList.argtypes = [
         ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
@@ -259,6 +262,7 @@ class SandboxedProcess:
     """Minimal Popen-compatible wrapper around an AppContainer child."""
 
     def __init__(self, pid, h_process, h_job, stdout_f, stderr_f):
+        """Init."""
         self.pid = pid
         self._h_process = h_process
         self._h_job = h_job
@@ -269,6 +273,7 @@ class SandboxedProcess:
         self._kernel32 = _proto()
 
     def poll(self):
+        """Poll."""
         if self.returncode is not None:
             return self.returncode
         rc = self._kernel32.WaitForSingleObject(self._h_process, 0)
@@ -280,6 +285,7 @@ class SandboxedProcess:
         return self.returncode
 
     def wait(self, timeout=None):
+        """Wait."""
         ms = 0xFFFFFFFF if timeout is None else int(timeout * 1000)
         rc = self._kernel32.WaitForSingleObject(self._h_process, ms)
         if rc == _WAIT_TIMEOUT:
@@ -291,6 +297,7 @@ class SandboxedProcess:
         return self.returncode
 
     def terminate(self):
+        """Terminate."""
         # The job has KILL_ON_JOB_CLOSE semantics — terminating the job
         # kills the whole tree the sandboxed shell spawned, which plain
         # TerminateProcess on the root would orphan.
@@ -300,15 +307,15 @@ class SandboxedProcess:
             self._kernel32.TerminateProcess(self._h_process, 1)
 
     def kill(self):
+        """Kill."""
         self.terminate()
 
     def __del__(self):
+        """Del."""
         for h in (self._h_process, self._h_job):
             if h:
-                try:
+                with suppress(Exception):  # GC path is best-effort
                     self._kernel32.CloseHandle(h)
-                except Exception:  # noqa: BLE001 - GC path
-                    pass
 
 
 def _inheritable_handle(fd):
@@ -334,7 +341,9 @@ def spawn_sandboxed(args, cwd=None, env=None):
     # needed (and adding one is rejected with ERROR_NOT_SUPPORTED).
     r_out, w_out = os.pipe()
     r_err, w_err = os.pipe()
-    stdin_f = open(os.devnull, 'rb')
+    # SIM115: the fd must stay open until CreateProcessW returns — it is
+    # closed in the finally below; a `with` block would be wrong here.
+    stdin_f = open(os.devnull, 'rb')  # noqa: SIM115
     h_stdin = _inheritable_handle(stdin_f.fileno())
     h_stdout = _inheritable_handle(w_out)
     h_stderr = _inheritable_handle(w_err)

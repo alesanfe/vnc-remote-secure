@@ -38,6 +38,7 @@ class RateLimiter:
         lockout_seconds: int | None = None,
         window_seconds: int | None = None,
     ):
+        """Init."""
         load_env_file()
         self.max_attempts = max_attempts or int(
             os.environ.get('AUTH_MAX_ATTEMPTS', str(DEFAULT_MAX_ATTEMPTS))
@@ -183,7 +184,7 @@ def _general_attempt_count(ip, window_seconds):
 
 def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
                      window_seconds=DEFAULT_GENERAL_WINDOW_SECONDS):
-    """Check whether ``ip`` is within the allowed request rate.
+    r"""Check whether ``ip`` is within the allowed request rate.
 
     Records the current attempt and returns ``True`` if allowed,
     ``False`` if rate-limited.

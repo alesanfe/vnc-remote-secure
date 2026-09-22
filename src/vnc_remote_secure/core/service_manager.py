@@ -20,12 +20,14 @@ The manager is platform-aware: on Linux it uses ``flock`` for the
 global lock and ``kill`` by PID; on Windows it uses a ``msvcrt.locking``
 lock and ``taskkill /PID``.
 """
+import contextlib
 import logging
 import os
 import signal
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from typing import Any
 
 from vnc_remote_secure.core.config import get_config, load_env_file
@@ -71,10 +73,8 @@ def _write_pid(service: str, pid: int) -> None:
             f.write(str(pid))
         os.replace(tmp, path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
 
 
@@ -157,10 +157,8 @@ def _kill_descendants(pid: int, depth: int = 0) -> None:
             continue
         child = int(line)
         _kill_descendants(child, depth + 1)
-        try:
+        with suppress(OSError):  # ProcessLookupError subclasses OSError
             os.kill(child, signal.SIGTERM)
-        except OSError:  # ProcessLookupError subclasses OSError
-            pass
 
 
 # Process-name needles per service: most services are python modules
@@ -290,10 +288,9 @@ def _kill_pid(pid: int, timeout: float = 5.0,
                 break
             time.sleep(0.1)
         if _pid_alive(pid):
-            try:
-                os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]  # POSIX-only branch
-            except OSError:  # ProcessLookupError subclasses OSError
-                pass
+            # ProcessLookupError subclasses OSError; POSIX-only branch
+            with suppress(OSError):
+                os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]
     stopped = not _pid_alive(pid)
     if stopped:
         _clear_pid_by_value(pid)
@@ -368,10 +365,8 @@ class _GlobalLock:
                         pass
                 else:
                     import fcntl
-                    try:
+                    with contextlib.suppress(OSError):
                         fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
-                    except OSError:
-                        pass
             self._fh.close()
             self._fh = None
             self._locked = False
@@ -382,7 +377,7 @@ class _GlobalLock:
 
 
 def _port_in_use(port: int, host: str = '127.0.0.1') -> bool:
-    """True if ``host:port`` is held by another socket.
+    """Return True if ``host:port`` is held by another socket.
 
     Uses a bind probe, not connect_ex: connecting consumes a backlog
     slot on the listener and a listener with a full backlog returns
@@ -412,7 +407,7 @@ def _port_in_use(port: int, host: str = '127.0.0.1') -> bool:
 
 
 def _port_accepting(port: int, host: str = '127.0.0.1') -> bool:
-    """True if a live listener accepts TCP connections on ``port``.
+    """Return True if a live listener accepts TCP connections on ``port``.
 
     Used by the post-start verification: the child must not only hold
     the port but actually accept — this distinguishes a bound service
@@ -533,8 +528,8 @@ def _start_python_service(module: str, service_name: str,
             stdin=subprocess.DEVNULL,
             env=child_env,
         )
-    except OSError as e:
-        logger.error("Failed to start %s: %s", service_name, e)
+    except OSError:
+        logger.exception("Failed to start %s:", service_name)
         return None
     # Post-start verification: a process that is alive but never bound
     # its port (EADDRINUSE inside, import error that caught itself)
@@ -697,14 +692,14 @@ def _start_vnc(config: dict) -> int | None:
                 # An unrecorded PID orphans the process — stop() would
                 # never find it. Kill the spawn we just made so the
                 # reported failure matches reality.
-                logger.error(
+                logger.exception(
                     "VNC started (PID %s) but pid-file write failed "
                     "(%s) — terminating the orphan", pid, e)
                 _kill_pid(pid, service='vnc', force=True)
                 return None
         return pid
-    except Exception as e:
-        logger.error("Failed to start VNC: %s", e, exc_info=True)
+    except Exception:
+        logger.exception("Failed to start VNC:")
         return None
 
 
@@ -847,8 +842,8 @@ def _start_nginx(config: dict) -> int | None:
             except (OSError, ValueError):
                 pass
         return None
-    except (OSError, subprocess.SubprocessError) as e:
-        logger.error("Failed to start nginx: %s", e, exc_info=True)
+    except (OSError, subprocess.SubprocessError):
+        logger.exception("Failed to start nginx:")
         return None
 
 
@@ -944,7 +939,7 @@ def _service_port_map(config: dict) -> dict:
         'gamepad': config.get('gamepad_port'),
         'nginx': (int(os.environ.get(
             'NGINX_HTTPS_PORT', str(DEFAULT_NGINX_HTTPS_PORT)))
-                  if config.get('nginx_enabled') else None),
+            if config.get('nginx_enabled') else None),
     }
 
 
@@ -978,10 +973,9 @@ def status_all() -> dict:
         # listener is gone. Probe the port when known — but only for
         # services this manager spawned; nginx may be system-managed.
         if alive and port and service != 'nginx':
-            try:
+            # probe is best-effort
+            with suppress(Exception):
                 alive = _port_accepting(port)
-            except Exception:  # noqa: BLE001 - probe is best-effort
-                pass
         entry = {
             'pid': pid,
             'running': alive,
@@ -1016,7 +1010,7 @@ _last_throttled: set = set()
 
 
 def _restart_allowed(service: str, now: float) -> bool:
-    """True if ``service`` may be auto-restarted (rate-limited)."""
+    """Return True if ``service`` may be auto-restarted (rate-limited)."""
     hist = [t for t in _restart_history.get(service, [])
             if now - t < _RESTART_WINDOW_S]
     _restart_history[service] = hist

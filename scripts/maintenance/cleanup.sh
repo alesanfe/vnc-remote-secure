@@ -80,12 +80,14 @@ fi
 echo -e "\n${YELLOW}💾 Backup Cleanup${NC}"
 BACKUP_DIR="$PROJECT_DIR/backups"
 if [[ -d "$BACKUP_DIR" ]]; then
+    # shellcheck disable=SC2012  # controlled filenames; ls -t sorts by mtime
     backup_count=$(ls -1 "$BACKUP_DIR"/backup_*.tar.gz 2>/dev/null | wc -l)
     echo -e "${BLUE}Current backups: $backup_count${NC}"
     
     if [[ $backup_count -gt 3 ]]; then
         if confirm_action "Remove old backups (keep last 3)?"; then
             # Use a subshell to avoid changing the working directory
+            # shellcheck disable=SC2012  # ls -t = mtime order, controlled names
             (cd "$BACKUP_DIR" && ls -t backup_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm)
             echo -e "${GREEN}✅ Old backups removed${NC}"
         fi

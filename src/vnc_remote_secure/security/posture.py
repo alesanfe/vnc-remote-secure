@@ -110,6 +110,7 @@ def _check_auth_posture(findings):
             and any(c.islower() for c in p)
             and any(c.isdigit() for c in p)
         )
+
     def _cred(name):
         value = _env_val(name)
         if not value:

@@ -1,4 +1,5 @@
 """``config`` command: show-effective, validate, diff, migrate."""
+import contextlib
 import json
 import os
 
@@ -146,10 +147,8 @@ def _config_migrate(args):
                 f.write(content)
             os.replace(tmp, env_path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
         print("Applied migrations:")
         for c in changes:
@@ -158,7 +157,7 @@ def _config_migrate(args):
 
 
 def cmd_config(args):
-    """Configuration management (show-effective, validate, diff, migrate)."""
+    """Manage configuration (show-effective, validate, diff, migrate)."""
     from vnc_remote_secure.core.config import load_env_file
 
     load_env_file()

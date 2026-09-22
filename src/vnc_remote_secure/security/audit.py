@@ -33,8 +33,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 def _audit_log_file() -> str:
-    """Return the audit log path, resolved lazily.
+    r"""Return the audit log path, resolved lazily.
 
     Uses the canonical platform log directory (``core.paths.get_log_dir``)
     instead of a package-relative ``logs/`` so the file lands under
@@ -48,6 +49,7 @@ def _audit_log_file() -> str:
     from vnc_remote_secure.core.paths import get_log_dir
     return os.path.join(get_log_dir(), 'audit.jsonl')
 
+
 # Rotation threshold (default 10 MB). Resolved lazily — audit.py is
 # imported by the auth and startup paths, so a malformed env value must
 # not crash the process at import time (F-016 lazy-config pattern).
@@ -60,6 +62,7 @@ def _audit_log_max_bytes() -> int:
             'AUDIT_LOG_MAX_BYTES', str(_AUDIT_LOG_MAX_BYTES_DEFAULT)))
     except (ValueError, TypeError):
         return _AUDIT_LOG_MAX_BYTES_DEFAULT
+
 
 # The genesis anchor hash — a fixed, well-known value that starts
 # every fresh audit chain. This is verified on startup to detect
@@ -132,10 +135,8 @@ def _set_secure_perms(path):
         return
     except Exception:  # noqa: BLE001
         pass
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(str(path), stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
 
 
 @contextlib.contextmanager
@@ -298,8 +299,8 @@ def audit_log(
             with open(path, 'a', encoding='utf-8') as f:
                 f.write(line)
             _set_secure_perms(path)
-        except Exception as e:
-            logger.error("Failed to write audit log: %s", e)
+        except Exception:
+            logger.exception("Failed to write audit log:")
 
         # Optional mirror sink: append the same line to a second,
         # independently-controlled path (a mounted network share or
@@ -316,8 +317,8 @@ def audit_log(
                 mpath.parent.mkdir(parents=True, exist_ok=True)
                 with open(mpath, 'a', encoding='utf-8') as mf:
                     mf.write(line)
-            except Exception as e:
-                logger.error("Failed to write audit mirror: %s", e)
+            except Exception:
+                logger.exception("Failed to write audit mirror:")
 
     # Also log at INFO level for console visibility.
     logger.info(

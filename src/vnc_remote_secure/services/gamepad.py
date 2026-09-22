@@ -148,20 +148,23 @@ def _process_gamepad_message(server, msg_data, websocket):
         server.injector.inject_button(button, value)
         return None
 
-    elif event_type == "axis":
+    if event_type == "axis":
         axis = msg_data.get("axis")
         value = msg_data.get("value", 0.0)
         server.injector.inject_axis(axis, value)
         return None
 
-    elif event_type == "ping":
+    if event_type == "ping":
         return {"type": "pong"}
 
     return None
 
 
 class GamepadServer:
+    """Gamepad Server."""
+
     def __init__(self, host, port):
+        """Init."""
         self.host = host
         self.port = port
         self.injector = None
@@ -216,23 +219,22 @@ class GamepadServer:
             return
 
         # Create virtual device if the injector supports it (Linux uinput)
-        if hasattr(self.injector, 'create_device'):
-            if not self.injector.create_device():
-                await websocket.send(json.dumps({
-                    "type": "error",
-                    "message": "Failed to create virtual input device"
-                }))
-                await websocket.close()
-                self.clients.discard(websocket)
-                # Unregister like the unavailable-injector branch above —
-                # otherwise the registry keeps a stale entry whose close
-                # callback points at a dead websocket until revocation.
-                try:
-                    unregister_websocket_connection(conn_id)
-                except (KeyError, ImportError):
-                    logger.debug("Failed to unregister gamepad connection",
-                                 exc_info=True)
-                return
+        if hasattr(self.injector, 'create_device') and not self.injector.create_device():
+            await websocket.send(json.dumps({
+                "type": "error",
+                "message": "Failed to create virtual input device"
+            }))
+            await websocket.close()
+            self.clients.discard(websocket)
+            # Unregister like the unavailable-injector branch above —
+            # otherwise the registry keeps a stale entry whose close
+            # callback points at a dead websocket until revocation.
+            try:
+                unregister_websocket_connection(conn_id)
+            except (KeyError, ImportError):
+                logger.debug("Failed to unregister gamepad connection",
+                             exc_info=True)
+            return
 
         await websocket.send(json.dumps({
             "type": "connected",
@@ -267,6 +269,7 @@ class GamepadServer:
                     self.injector.uinput = None
 
     async def run(self):
+        """Run."""
         # Optional TLS via shared SSL context builder.
         from vnc_remote_secure.security.certificates import create_ssl_context
         ssl_ctx = create_ssl_context()
@@ -295,6 +298,7 @@ class GamepadServer:
 
 
 def main():
+    """Start the gamepad forwarding server."""
     from vnc_remote_secure.core.config import load_env_file
     load_env_file()
     parser = argparse.ArgumentParser(description="Gamepad Forwarding Server")

@@ -75,7 +75,8 @@ PROFILES = {
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
         'BACKEND_BIND_HOST': '127.0.0.1',
-        'PUBLIC_BIND_HOST': '0.0.0.0',
+        # nosec rationale: public profile default
+        'PUBLIC_BIND_HOST': '0.0.0.0',  # nosec B104
         'HEALTH_WEB_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'true',
         # nginx is the public entry — backends may trust its
@@ -91,7 +92,8 @@ PROFILES = {
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
         'BACKEND_BIND_HOST': '127.0.0.1',
-        'PUBLIC_BIND_HOST': '0.0.0.0',
+        # nosec rationale: public profile default
+        'PUBLIC_BIND_HOST': '0.0.0.0',  # nosec B104
         'HEALTH_WEB_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'true',
         'TRUSTED_PROXY': 'true',
@@ -105,7 +107,8 @@ PROFILES = {
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
         'BACKEND_BIND_HOST': '127.0.0.1',
-        'PUBLIC_BIND_HOST': '0.0.0.0',
+        # nosec rationale: public profile default
+        'PUBLIC_BIND_HOST': '0.0.0.0',  # nosec B104
         'HEALTH_WEB_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'true',
         'TRUSTED_PROXY': 'true',
@@ -277,7 +280,8 @@ def validate_profile_consistency() -> list:
     nginx = os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes')
     mfa = os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes')
 
-    if not tls and bind == '0.0.0.0' and not nginx:
+    # nosec rationale: detection, not a bind
+    if not tls and bind == '0.0.0.0' and not nginx:  # nosec B104
         warnings.append(
             'TLS disabled but services bind to 0.0.0.0 without nginx. '
             'Internal services are exposed without encryption.'
@@ -329,7 +333,8 @@ def get_blocking_findings() -> list:
     nginx = os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes')
 
     # Backends must NEVER bind to 0.0.0.0 — only nginx may.
-    if bind == '0.0.0.0':
+    # nosec rationale: detection, not a bind
+    if bind == '0.0.0.0':  # nosec B104
         blockers.append({
             'code': 'BACKEND_PUBLIC_BIND',
             'message': (

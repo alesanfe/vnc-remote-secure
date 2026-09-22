@@ -1,4 +1,6 @@
 """Windows ACL and user management via PowerShell."""
+import contextlib
+
 from ._powershell import run_powershell
 
 
@@ -109,10 +111,8 @@ def list_users():
         if sid_str:
             parts = sid_str.split('-')
             if parts:
-                try:
+                with contextlib.suppress(ValueError):
                     uid = int(parts[-1])
-                except ValueError:
-                    pass
         users.append({'username': name, 'uid': uid, 'home': ''})
     return users
 

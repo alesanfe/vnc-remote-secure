@@ -1,4 +1,4 @@
-﻿"""Health check service for VNC Remote Secure.
+"""Health check service for VNC Remote Secure.
 
 Provides a lightweight HTTP health endpoint and helper functions to
 query the status of all managed services. The HTTP server uses only the
@@ -58,9 +58,11 @@ def _service_ports():
     # so probing everything on loopback reports a LAN-bound service as
     # down forever (aggregate 'degraded'). Wildcard binds are probed on
     # loopback — connecting to '0.0.0.0' is unreliable on Windows.
+
     def _h(env, default='127.0.0.1'):
         host = (os.environ.get(env, '') or default).strip()
-        return '127.0.0.1' if host in ('0.0.0.0', '::', '') else host
+        # nosec rationale: detection
+        return '127.0.0.1' if host in ('0.0.0.0', '::', '') else host  # nosec B104
 
     def _p(env, default):
         # A malformed port env var must not crash every health request —
@@ -173,8 +175,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
         path = self.path.split('?', 1)[0]
         if path in ('/health', '/health_status', '/health_status.json'):
             if not check_health_auth(self.headers.get('Authorization', ''),
-                              peer_ip=self.client_address[0]
-                              if self.client_address else None):
+                                     peer_ip=self.client_address[0]
+                                     if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -226,8 +228,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             # so the deployment cannot serve all traffic (matches the
             # Flask blueprint, which requires all services listening).
             if not check_health_auth(self.headers.get('Authorization', ''),
-                              peer_ip=self.client_address[0]
-                              if self.client_address else None):
+                                     peer_ip=self.client_address[0]
+                                     if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -246,8 +248,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
         elif path == '/health/services':
             # Per-service status with PID and port details.
             if not check_health_auth(self.headers.get('Authorization', ''),
-                              peer_ip=self.client_address[0]
-                              if self.client_address else None):
+                                     peer_ip=self.client_address[0]
+                                     if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -264,8 +266,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path == '/health/all':
             if not check_health_auth(self.headers.get('Authorization', ''),
-                              peer_ip=self.client_address[0]
-                              if self.client_address else None):
+                                     peer_ip=self.client_address[0]
+                                     if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -294,8 +296,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             # Prometheus scrape endpoint — lives on the health port so
             # external monitoring does not depend on the optional user UI.
             if not check_health_auth(self.headers.get('Authorization', ''),
-                              peer_ip=self.client_address[0]
-                              if self.client_address else None):
+                                     peer_ip=self.client_address[0]
+                                     if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -312,8 +314,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body.encode('utf-8'))
         elif path == '/audit':
             if not check_health_auth(self.headers.get('Authorization', ''),
-                              peer_ip=self.client_address[0]
-                              if self.client_address else None):
+                                     peer_ip=self.client_address[0]
+                                     if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')
@@ -345,8 +347,8 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path == '/audit/verify':
             if not check_health_auth(self.headers.get('Authorization', ''),
-                              peer_ip=self.client_address[0]
-                              if self.client_address else None):
+                                     peer_ip=self.client_address[0]
+                                     if self.client_address else None):
                 body, _ = error_json('Unauthorized', 401)
                 self.send_response(401)
                 self.send_header('Content-Type', 'application/json')

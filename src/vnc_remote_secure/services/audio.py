@@ -26,6 +26,7 @@ Environment variables:
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -75,8 +76,8 @@ def list_audio_devices():
     try:
         from vnc_remote_secure.platform.base import get_adapter
         get_adapter().list_audio_devices(ffmpeg)
-    except Exception as e:
-        logger.error("Error listing devices: %s", e)
+    except Exception:
+        logger.exception("Error listing devices:")
 
     logger.info("\nSet AUDIO_DEVICE=<name> in .env to use a specific device.")
 
@@ -97,7 +98,7 @@ def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
             device = ":0"
         input_args = ["-f", "avfoundation", "-i", device]
 
-    cmd = [
+    return [
         ffmpeg,
         "-loglevel", "error",  # Suppress verbose output
         *input_args,
@@ -107,13 +108,12 @@ def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
         "pipe:1"  # Output to stdout
     ]
 
-    return cmd
-
 
 class AudioStreamServer:
     """WebSocket server that streams audio to connected clients."""
 
     def __init__(self, host, port, device, bitrate):
+        """Init."""
         self.host = host
         self.port = port
         self.device = device
@@ -153,8 +153,8 @@ class AudioStreamServer:
             self._ffmpeg_running.set()
             logger.info("ffmpeg started (PID: %s)", self.ffmpeg_process.pid)
             return True
-        except Exception as e:
-            logger.error("Failed to start ffmpeg: %s", e)
+        except Exception:
+            logger.exception("Failed to start ffmpeg:")
             return False
 
     async def stop_ffmpeg(self):
@@ -166,15 +166,11 @@ class AudioStreamServer:
                 # escalate to kill after the grace period.
                 await asyncio.wait_for(self.ffmpeg_process.wait(), 5)
             except TimeoutError:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     self.ffmpeg_process.kill()
-                except ProcessLookupError:
-                    pass
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(
                         self.ffmpeg_process.wait(), 5)
-                except TimeoutError:
-                    pass
             self.ffmpeg_process = None
             self._ffmpeg_running.clear()
             logger.info("ffmpeg stopped")
@@ -253,15 +249,11 @@ class AudioStreamServer:
         # the deprecated legacy protocol used request_headers and very
         # old versions connection.handler.request.
         headers = {}
-        try:
+        with contextlib.suppress(AttributeError, OSError):
             headers = websocket.request.headers
-        except (AttributeError, OSError):
-            pass
         if not headers:
-            try:
+            with contextlib.suppress(AttributeError, OSError):
                 headers = websocket.request_headers
-            except (AttributeError, OSError):
-                pass
         if not headers:
             try:
                 headers = websocket.handler.request.headers
@@ -323,20 +315,19 @@ class AudioStreamServer:
 
         # Start ffmpeg if not running
         async with self._ffmpeg_lock:
-            if not self.ffmpeg_process:
-                if not await self.start_ffmpeg():
-                    await websocket.close(code=1011, reason="Audio capture failed")
-                    self.clients.discard(websocket)
-                    # Unregister like the finally block below — this
-                    # early return happens before the try/finally, so
-                    # without it the registry keeps a stale entry whose
-                    # close callback points at a dead websocket.
-                    try:
-                        unregister_websocket_connection(conn_id)
-                    except (KeyError, ImportError):
-                        logger.debug("Failed to unregister audio connection",
-                                     exc_info=True)
-                    return
+            if not self.ffmpeg_process and not await self.start_ffmpeg():
+                await websocket.close(code=1011, reason="Audio capture failed")
+                self.clients.discard(websocket)
+                # Unregister like the finally block below — this
+                # early return happens before the try/finally, so
+                # without it the registry keeps a stale entry whose
+                # close callback points at a dead websocket.
+                try:
+                    unregister_websocket_connection(conn_id)
+                except (KeyError, ImportError):
+                    logger.debug("Failed to unregister audio connection",
+                                 exc_info=True)
+                return
 
         try:
             # Keep connection alive; client sends periodic pings
@@ -405,6 +396,7 @@ class AudioStreamServer:
 
 
 def main():
+    """Start the audio streaming server."""
     from vnc_remote_secure.core.config import load_env_file
     load_env_file()
     parser = argparse.ArgumentParser(description="Audio Stream Server")

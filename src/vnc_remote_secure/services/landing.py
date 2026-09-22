@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Landing page server for VNC Remote Secure.
+
 Serves a portal page that links to all available services
 and shows real-time system status.
 Runs on port 8000 (or LANDING_PORT env var).
@@ -36,8 +37,9 @@ from vnc_remote_secure.core.constants import (
 
 load_env_file()
 
+
 def _config():
-    """Lazy config accessor — reads get_config() on each call so .env changes take effect."""
+    """Return the runtime config lazily so .env changes take effect on each call."""
     from vnc_remote_secure.core.config import get_config
     return get_config()
 
@@ -57,7 +59,8 @@ def check_port(port, host='127.0.0.1'):
     bind (``0.0.0.0``/``::``) covers loopback too, and connecting to
     the wildcard address itself is unreliable on Windows.
     """
-    if host in ('0.0.0.0', '::', ''):
+    # nosec rationale: detection, not a bind
+    if host in ('0.0.0.0', '::', ''):  # nosec B104
         host = '127.0.0.1'
     # Delegate to the shared probe — it selects AF_INET6 for IPv6
     # literal hosts, which a hardcoded AF_INET socket cannot reach.
@@ -343,7 +346,7 @@ def _build_vnc_direct_html(lan_ips, vnc_rfb_running):
     vnc_direct_status = 'ONLINE' if vnc_rfb_running else 'OFFLINE'
     vnc_direct_color = '#4caf50' if vnc_rfb_running else '#f44336'
     vnc_direct_opacity = '1' if vnc_rfb_running else '0.5'
-    vnc_direct_html = f"""
+    return f"""
     <div class="service-card info-card" style="opacity:{vnc_direct_opacity}">
         <div class="service-icon">📡</div>
         <div class="service-info">
@@ -364,13 +367,12 @@ def _build_vnc_direct_html(lan_ips, vnc_rfb_running):
             </div>
         </div>
     </div>"""
-    return vnc_direct_html
 
 
 def _build_metrics_html(metrics):
     """Build the system metrics bar HTML."""
     # System metrics bar
-    metrics_html = f"""
+    return f"""
     <div class="metrics-bar">
         <div class="metric-item">
             <span class="metric-icon">💻</span>
@@ -403,7 +405,6 @@ def _build_metrics_html(metrics):
             <span class="metric-value">{html.escape(metrics['disk'])}</span>
         </div>
     </div>"""
-    return metrics_html
 
 
 def _build_lan_html(lan_ips, protocol, external_base=None):
@@ -456,7 +457,7 @@ def _build_credentials_html():
     """Build the credentials section HTML."""
     # Credentials section - NOT showing actual passwords for security
     # Users must check the launcher output or .env file
-    creds_html = """
+    return """
     <div class="credentials">
         <h2>🔐 Credenciales de Acceso</h2>
         <p class="section-desc">Por seguridad, las credenciales no se muestran en esta página.
@@ -480,7 +481,6 @@ def _build_credentials_html():
             </div>
         </div>
     </div>"""
-    return creds_html
 
 
 def _build_features_section(use_ssl, is_windows):
@@ -516,7 +516,7 @@ def _build_features_section(use_ssl, is_windows):
         except Exception:  # noqa: BLE001 - fall back to config port
             pass
 
-    features_section = f"""
+    return f"""
     <div class="features-section">
         <h2>✨ ¿Qué puedes hacer?</h2>
         <div class="feature-cards">
@@ -548,7 +548,6 @@ def _build_features_section(use_ssl, is_windows):
             </div>
         </div>
     </div>"""
-    return features_section
 
 
 def _build_firewall_html(is_windows, use_ssl):
@@ -697,8 +696,10 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None):
 
 
 class LandingHandler(http.server.SimpleHTTPRequestHandler):
+    """Landing Handler."""
 
     def end_headers(self):
+        """End headers."""
         from vnc_remote_secure.security.http_headers import send_security_headers
         send_security_headers(self)
         super().end_headers()
@@ -713,7 +714,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         return ''
 
     def _valid_ephemeral_cookie(self) -> bool:
-        """True when the client holds an activated ephemeral session."""
+        """Return True when the client holds an activated ephemeral session."""
         internal = self._ephemeral_cookie()
         if not internal:
             return False
@@ -822,6 +823,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         return True
 
     def do_HEAD(self):  # noqa: N802 - stdlib API
+        """Serve HEAD requests through the same auth gate as GET."""
         # HEAD must run the same gate — otherwise SimpleHTTPRequestHandler
         # leaks file metadata (and directory listings under some CPython
         # versions) without authentication.
@@ -838,6 +840,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
+        """Do GET."""
         # Ephemeral share links exchange the signed token for a cookie
         # before any auth check (the link itself is the credential).
         if self._handle_session_exchange():
@@ -969,6 +972,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             # malformed AUDIO_STREAM_PORT/GAMEPAD_PORT cannot inject
             # markup or break the URL.
             import re
+
             def _port_env(name, default):
                 try:
                     return str(int(os.environ.get(name, default)))
@@ -995,6 +999,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             # containing quotes or markup would be reflected XSS on an
             # authenticated endpoint. Constrain to a strict hostname
             # character set and fall back to loopback on anything else.
+
             def _safe_host(raw):
                 if re.fullmatch(r'[A-Za-z0-9.\-:\[\]]{1,253}', raw or ''):
                     return raw
@@ -1079,6 +1084,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body.encode())
 
     def setup(self):
+        """Set up the request (bounded header-read window)."""
         super().setup()
         # Slowloris guard: bound the pre-auth header-read window.
         from vnc_remote_secure.services.bounded_server import (
@@ -1087,6 +1093,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         install_read_timeout(self)
 
     def log_message(self, fmt, *args):
+        """Log message."""
         # Route stdlib access logs to the module logger instead of
         # discarding — but NEVER verbatim: the request line carries
         # the share-link token (``GET /?session=<signed>``), which
@@ -1098,6 +1105,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
+    """Start the landing page server."""
     from vnc_remote_secure.security.certificates import create_ssl_context
     ssl_options = create_ssl_context(_config()['ssl_cert'], _config()['ssl_key'])
 

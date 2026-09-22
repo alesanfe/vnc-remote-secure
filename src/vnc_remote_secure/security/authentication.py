@@ -8,6 +8,7 @@ Token signing is delegated to ``security.token_signing`` so that all
 signed tokens (bearer, session cookie, ephemeral) share a single
 signing mechanism while remaining type-separated.
 """
+import contextlib
 import hmac
 import logging
 import os
@@ -84,10 +85,8 @@ def _get_secret():
                         f.write(_cached_secret)
                     os.replace(tmp, path)
                 except BaseException:
-                    try:
+                    with contextlib.suppress(OSError):
                         os.unlink(tmp)
-                    except OSError:
-                        pass
                     raise
                 # The file signs every bearer/session/ephemeral token —
                 # it must be owner-only like a private key, or any
@@ -96,10 +95,8 @@ def _get_secret():
                     from vnc_remote_secure.security.certificates import _restrict_key_permissions
                     _restrict_key_permissions(path, writable=True)
                 except Exception:  # noqa: BLE001
-                    try:
+                    with contextlib.suppress(OSError):
                         os.chmod(path, 0o600)
-                    except OSError:
-                        pass
             except OSError as exc:
                 logger.warning("Could not persist auth secret at %s: %s", path, exc, exc_info=True)
     return _cached_secret.encode('utf-8')
@@ -198,8 +195,8 @@ def validate_session_token(token):
     username, expiry_str = payload.rsplit(':', 1)
     try:
         expiry = int(expiry_str)
-    except ValueError:
-        raise SecurityError("Invalid token expiry")
+    except ValueError as exc:
+        raise SecurityError("Invalid token expiry") from exc
     if time.time() > expiry:
         raise SecurityError("Token expired")
     return username

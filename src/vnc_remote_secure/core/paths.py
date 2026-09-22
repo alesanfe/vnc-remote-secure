@@ -1,4 +1,4 @@
-"""Path resolution utilities for VNC Remote Secure.
+r"""Path resolution utilities for VNC Remote Secure.
 
 Provides platform-aware directory locations for configuration, data,
 logs, runtime state, and SSL certificates.
@@ -18,6 +18,7 @@ under an MSIX-packaged interpreter (Store Python), where
 ``%LOCALAPPDATA%`` is virtualized per package and would split shared
 state between interpreters.
 """
+import contextlib
 import os
 
 from vnc_remote_secure.platform.detection import is_windows
@@ -54,7 +55,7 @@ def _is_elevated_windows() -> bool:
 
 
 def _is_msix_packaged() -> bool:
-    """Return True when running under an MSIX-packaged interpreter.
+    r"""Return True when running under an MSIX-packaged interpreter.
 
     Microsoft Store Python (and other packaged interpreters) get file
     system virtualization: writes to ``%LOCALAPPDATA%`` are redirected
@@ -79,7 +80,7 @@ def _is_msix_packaged() -> bool:
 
 
 def _win_base():
-    """Return the Windows base directory for app state.
+    r"""Return the Windows base directory for app state.
 
     Elevated processes (the installed Windows Service runs as SYSTEM,
     and the installer/CLI run elevated) use ``ProgramData`` — the
@@ -176,7 +177,8 @@ def get_run_dir():
     xdg_runtime = os.environ.get('XDG_RUNTIME_DIR')
     if xdg_runtime:
         return os.path.join(xdg_runtime, _APP_DIR_NAME)
-    return os.path.join('/tmp', _APP_DIR_NAME)
+    # nosec rationale: runtime dir, perms hardened by callers
+    return os.path.join('/tmp', _APP_DIR_NAME)  # nosec B108
 
 
 def get_ssl_dir():
@@ -187,7 +189,8 @@ def get_ssl_dir():
 
 
 def _restrict_dir(path):
-    """Restrict a directory to owner-only access (POSIX) or
+    """Restrict a directory to owner-only access (POSIX) or.
+
     owner+SYSTEM+Administrators (Windows).
 
     The run/ssl directories hold session stores, signing secrets and
@@ -218,10 +221,8 @@ def _restrict_dir(path):
         except (OSError, subprocess.SubprocessError):
             pass
     else:
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(path, 0o700)
-        except OSError:
-            pass
 
 
 def ensure_dirs():

@@ -16,6 +16,7 @@ here:
   relay enforces its own idle timeout.
 """
 
+import contextlib
 import http.server
 import socketserver
 import threading
@@ -50,12 +51,16 @@ class _BoundedMixin:
 
 class BoundedThreadingTCPServer(_BoundedMixin,
                                 socketserver.ThreadingTCPServer):
+    """Bounded Threading TCPServer."""
+
     daemon_threads = True
     allow_reuse_address = True
 
 
 class BoundedThreadingHTTPServer(_BoundedMixin,
                                  http.server.ThreadingHTTPServer):
+    """Bounded Threading HTTPServer."""
+
     daemon_threads = True
 
 
@@ -67,7 +72,5 @@ def install_read_timeout(handler, seconds=READ_TIMEOUT_SECONDS):
     keep-alive idle gap. Failures are ignored — a socket that cannot
     take a timeout is still usable.
     """
-    try:
+    with contextlib.suppress(OSError):
         handler.connection.settimeout(seconds)
-    except OSError:
-        pass

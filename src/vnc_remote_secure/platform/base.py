@@ -74,6 +74,5 @@ def get_adapter():
     if system == 'windows':
         from vnc_remote_secure.platform.windows.adapter import WindowsAdapter
         return WindowsAdapter()
-    else:
-        from vnc_remote_secure.platform.linux.adapter import LinuxAdapter
-        return LinuxAdapter()
+    from vnc_remote_secure.platform.linux.adapter import LinuxAdapter
+    return LinuxAdapter()

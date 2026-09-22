@@ -9,6 +9,7 @@ Handles:
 - Event Log integration
 - Paths: ProgramFiles, ProgramData
 """
+import contextlib
 import logging
 import os
 import socket
@@ -25,6 +26,7 @@ class WindowsAdapter(PlatformAdapter):
     """Windows-specific platform operations."""
 
     def get_platform_info(self):
+        """Get platform info."""
         return {
             'platform': 'windows',
             'service_manager': 'Windows Services',
@@ -117,7 +119,7 @@ class WindowsAdapter(PlatformAdapter):
         return create_restricted_user(username)
 
     def remove_runtime_user(self, username):
-        """Remove a local Windows user and best-effort delete the profile.
+        r"""Remove a local Windows user and best-effort delete the profile.
 
         ``Remove-LocalUser`` only removes the account; the user profile
         directory (``C:\\Users\\<name>``) is left behind. We attempt to
@@ -361,10 +363,8 @@ class WindowsAdapter(PlatformAdapter):
                 fh.write('\n'.join(out) + '\n')
             os.replace(tmp, ini_path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
 
     def get_audio_capture_cmd(self, ffmpeg, device, bitrate):
@@ -382,8 +382,8 @@ class WindowsAdapter(PlatformAdapter):
             )
             # ffmpeg outputs device list to stderr
             logger.info("%s", result.stderr)
-        except Exception as e:
-            logger.error("Error listing devices: %s", e)
+        except Exception:
+            logger.exception("Error listing devices:")
 
     def create_gamepad_injector(self):
         """Return a WindowsInputInjector (or None if unavailable)."""

@@ -117,13 +117,13 @@ def _claim_step(secret: str, step: int) -> bool:
         ttl = (TOTP_WINDOW * 2 + 1) * TOTP_INTERVAL * 2
         return bool(get_backend().set_if_absent(
             'mfa_used_steps', f'{sid}:{step}', True, ttl))
-    except Exception as exc:  # noqa: BLE001 - fail closed
+    except Exception:  # noqa: BLE001 - fail closed
         # Backend down and the step is within the drift window but
         # above _last_step (the last-step check passed). Returning True
         # here would allow a code captured and replayed within its
         # window across two processes — deny instead.
-        logger.error(
-            "TOTP step claim backend unavailable — denying: %s", exc)
+        logger.exception(
+            "TOTP step claim backend unavailable — denying")
         return False
 
 

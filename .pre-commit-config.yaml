@@ -93,3 +93,43 @@ repos:
     hooks:
       - id: yamllint
         args: ["-d", "{rules: {line-length: disable}}"]
+
+  # ============================================================================
+  # Extended linting (verified during the 2024 linter sweep)
+  # ============================================================================
+  - repo: local
+    hooks:
+      - id: bandit
+        name: Bandit security scan
+        entry: python -m bandit -q -r
+        language: system
+        files: ^src/.*\.py$
+        pass_filenames: false
+        args: []
+
+      - id: pydocstyle
+        name: pydocstyle (PEP 257)
+        entry: python -m pydocstyle
+        language: system
+        files: ^src/.*\.py$
+        pass_filenames: false
+
+      - id: codespell
+        name: codespell
+        entry: codespell --ignore-words-list="nd,recomend,uptodate,potencial,requiere,ignora,comando,funcional,hace,viceversa" -S "*.min.js,docs/reports/*,third_party/*,node_modules/*,novnc/*"
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: validate-pyproject
+        name: Validate pyproject.toml
+        entry: validate-pyproject pyproject.toml
+        language: system
+        files: pyproject\.toml$
+
+      - id: darglint
+        name: darglint docstring check
+        entry: python -m darglint -v 2
+        language: system
+        files: ^src/.*\.py$
+        pass_filenames: false

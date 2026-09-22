@@ -12,12 +12,14 @@ When ``BACKUP_PASSWORD`` is unset, backups remain plaintext (with a
 warning logged).
 """
 import base64
+import contextlib
 import hashlib
 import logging
 import os
 import shutil
 import tarfile
 import time
+from contextlib import suppress
 
 from vnc_remote_secure.core.paths import (
     find_project_root,
@@ -124,10 +126,8 @@ def _backup_dir() -> str:
     # directory must not be group/world-accessible on POSIX. On
     # Windows chmod only toggles the read-only flag, so this is a
     # no-op there and the dir inherits the project ACL.
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(d, 0o700)
-    except OSError:
-        pass
     return d
 
 
@@ -146,10 +146,10 @@ def _collect_paths() -> list:
     # .env and the config/ directory, and easy to miss.
     from vnc_remote_secure.platform.detection import is_windows
     sys_cfg = (os.path.join(
-                   os.environ.get('ProgramData', r'C:\ProgramData'),
-                   'VncRemoteSecure', 'config.env')
-               if is_windows()
-               else '/etc/vnc-remote-secure/config.env')
+        os.environ.get('ProgramData', r'C:\ProgramData'),
+        'VncRemoteSecure', 'config.env')
+        if is_windows()
+        else '/etc/vnc-remote-secure/config.env')
     if os.path.isfile(sys_cfg):
         paths.append((sys_cfg, 'system-config.env'))
 
@@ -268,20 +268,16 @@ def create_backup(output: str | None = None) -> str:
             os.unlink(tmp_tar)
             # The archive contains secrets even when encrypted —
             # owner-only read like every other credential file.
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(output, 0o600)
-            except OSError:
-                pass
             logger.info("Encrypted backup created: %s", output)
         except Exception as e:
             # The operator asked for encryption by setting
             # BACKUP_PASSWORD — leaving a plaintext archive of secrets
             # behind would silently defeat that intent. Fail loudly
             # and remove the unencrypted intermediate instead.
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_tar)
-            except OSError:
-                pass
             raise RuntimeError(
                 "Backup encryption failed — no plaintext backup was "
                 f"kept: {e}") from e
@@ -293,10 +289,8 @@ def create_backup(output: str | None = None) -> str:
         # Owner-only: the plaintext archive holds .env, SSL keys and
         # the auth signing secret — the default umask would leave it
         # world-readable on Linux.
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(output, 0o600)
-        except OSError:
-            pass
         logger.info("Backup created: %s", output)
     return output
 
@@ -328,10 +322,8 @@ def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir)
     os.makedirs(temp_dir, exist_ok=True)
-    try:
+    with suppress(OSError):
         os.chmod(temp_dir, 0o700)  # POSIX; no-op semantics on Windows
-    except OSError:
-        pass
 
     try:
         return _restore_from_temp(backup_file, temp_dir, project_root,
@@ -437,7 +429,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
                 # sizes) — the fallback exists only for old Pythons.
                 tar.extractall(temp_dir)  # nosec B202
     except tarfile.TarError as e:
-        raise RuntimeError(f"Failed to extract backup: {e}")
+        raise RuntimeError(f"Failed to extract backup: {e}") from e
 
     # Format manifest: warn (not fail) on a newer format — forward
     # compatibility is best-effort; a missing manifest means the
@@ -478,10 +470,10 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
         if os.path.isfile(sys_cfg_src):
             from vnc_remote_secure.platform.detection import is_windows
             sys_cfg_dst = (os.path.join(
-                               os.environ.get('ProgramData', r'C:\ProgramData'),
-                               'VncRemoteSecure', 'config.env')
-                           if is_windows()
-                           else '/etc/vnc-remote-secure/config.env')
+                os.environ.get('ProgramData', r'C:\ProgramData'),
+                'VncRemoteSecure', 'config.env')
+                if is_windows()
+                else '/etc/vnc-remote-secure/config.env')
             try:
                 os.makedirs(os.path.dirname(sys_cfg_dst), exist_ok=True)
                 shutil.copy2(sys_cfg_src, sys_cfg_dst)
@@ -566,9 +558,9 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
         except Exception as e:  # noqa: BLE001
             logger.debug("Could not restrict restored file permissions: %s", e)
 
-    except OSError as e:
-        logger.error("Restore failed: %s — partial files may have been "
-                     "copied; check permissions on the target directories.", e)
+    except OSError:
+        logger.exception("Restore failed — partial files may have been "
+                         "copied; check permissions on the target directories.")
         return False
     logger.info("Backup restored from: %s", backup_file)
     return True
@@ -627,7 +619,5 @@ def verify_backup(backup_file: str) -> tuple:
         return False, f'Archive corrupt: {e}', -1
     finally:
         if tmp:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass

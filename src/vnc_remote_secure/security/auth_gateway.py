@@ -78,10 +78,9 @@ def _claim_recovery_code(code_hash: str) -> bool:
         from vnc_remote_secure.security.shared_state import get_backend
         return bool(get_backend().set_if_absent(
             _NS_USED_RECOVERY, code_hash, True, 30 * 86400))
-    except Exception as exc:  # noqa: BLE001 - fail closed
-        logger.error(
-            "Recovery-code claim backend unavailable — denying: %s",
-            exc)
+    except Exception:  # noqa: BLE001 - fail closed
+        logger.exception(
+            "Recovery-code claim backend unavailable — denying")
         return False
 
 
@@ -340,7 +339,7 @@ def check_authenticated(
 
 
 def is_client_locked(client_ip: str) -> bool:
-    """True when ``client_ip`` is locked out in ANY limiter namespace.
+    """Return True when ``client_ip`` is locked out in ANY limiter namespace.
 
     The login flow records failures under ``ip:{addr}``, WebSocket
     rejections under ``ws:{addr}``, and the basic-auth helpers use the
@@ -420,12 +419,11 @@ def authorize_request(
         return False, 'Authentication required', None
 
     # 2. Ephemeral Bearer token (per-action authorization).
-    if bearer_token and required_permission:
-        if check_permission(
-                bearer_token, required_permission,
-                resource=resource or None,
-                client_ip=client_ip or None):
-            return True, 'OK', bearer_token
+    if bearer_token and required_permission and check_permission(
+            bearer_token, required_permission,
+            resource=resource or None,
+            client_ip=client_ip or None):
+        return True, 'OK', bearer_token
 
     # 3. Operator session (cookie or session bearer).
     allowed, _user = check_authenticated(cookie_value, bearer_token)
@@ -644,5 +642,3 @@ def revoke_session_live(token: str) -> bool:
     """
     from vnc_remote_secure.security.ephemeral_sessions import revoke_session
     return revoke_session(token)
-
-

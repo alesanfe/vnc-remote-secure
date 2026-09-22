@@ -9,7 +9,7 @@ from vnc_remote_secure.cli._parser import create_parser
 
 
 def main():
-    """Main entry point."""
+    """Run the CLI entry point."""
     parser = create_parser()
     args = parser.parse_args()
 
