@@ -110,6 +110,17 @@ def redact_text(text: str) -> str:
     result = text
     for var_name in SECRET_VARS:
         value = os.environ.get(var_name, '')
+        if not value:
+            # Persisted generated credentials (run/generated_credentials.env)
+            # are secrets too — a generated VNC_PASSWORD appearing in an
+            # audit detail would otherwise land in the log verbatim.
+            try:
+                from vnc_remote_secure.core.config import (
+                    _load_generated_credential,
+                )
+                value = _load_generated_credential(var_name) or ''
+            except Exception:  # noqa: BLE001 - scrub is best-effort
+                value = ''
         if value and len(value) >= 4 and value in result:
             result = result.replace(value, '[REDACTED]')
     return result

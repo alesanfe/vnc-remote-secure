@@ -97,3 +97,35 @@ class TestGetSecretStatus:
         for val in status.values():
             assert val in ('configured', 'empty')
             assert len(val) <= 12  # 'configured' is 10 chars
+
+
+class TestRedactTextGeneratedCreds:
+    """Persisted generated credentials must also be scrubbed — audit
+    details can contain a generated VNC_PASSWORD not present in env."""
+
+    def test_generated_credential_redacted(self, tmp_path, monkeypatch):
+        monkeypatch.delenv('VNC_PASSWORD', raising=False)
+        cred = tmp_path / 'generated_credentials.env'
+        cred.write_text('VNC_PASSWORD=Gen3ratedPass!\n', encoding='utf-8')
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.config._load_generated_credential',
+            lambda name: 'Gen3ratedPass!' if name == 'VNC_PASSWORD' else '',
+            raising=False)
+        text = 'login attempt with Gen3ratedPass! failed'
+        assert 'Gen3ratedPass!' not in redact_text(text)
+        assert '[REDACTED]' in redact_text(text)
+
+    def test_env_secret_still_redacted(self, monkeypatch):
+        monkeypatch.setenv('VNC_PASSWORD', 'EnvSecret99')
+        assert 'EnvSecret99' not in redact_text('using EnvSecret99 here')
+
+    def test_lookup_failure_still_scrubs_env(self, monkeypatch):
+        """A broken generated-credential lookup must not skip env vars."""
+        monkeypatch.setenv('TTYD_PASSWD', 'TermSecret77')
+
+        def _boom(name):
+            raise OSError('disk gone')
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.config._load_generated_credential',
+            _boom, raising=False)
+        assert 'TermSecret77' not in redact_text('auth TermSecret77 ok')
