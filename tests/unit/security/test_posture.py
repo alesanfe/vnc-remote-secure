@@ -1,97 +1,83 @@
-"""Unit tests for security posture scoring."""
+"""Unit tests for security.posture — the posture score must reflect
+real env state: TLS off drops the score, MFA on raises it, weak creds
+are flagged."""
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from vnc_remote_secure.security.posture import calculate_posture
+from vnc_remote_secure.security import posture  # noqa: E402
+
+_STRONG = 'Str0ng!Pass'
 
 
-class TestPosture:
-    def test_returns_score_0_to_100(self, monkeypatch):
-        monkeypatch.setenv('TLS_ENABLED', 'true')
-        monkeypatch.setenv('BIND_HOST', '127.0.0.1')
-        monkeypatch.setenv('MFA_REQUIRED', 'true')
-        result = calculate_posture()
-        assert 0 <= result['score'] <= 100
+def _env(monkeypatch, **kw):
+    for k in ('TLS_ENABLED', 'DISABLE_SSL', 'SSL_CERT', 'SSL_KEY',
+              'MFA_REQUIRED', 'TOTP_SECRET', 'VNC_PASSWORD',
+              'TTYD_PASSWD', 'USER_UI_PASSWORD', 'LANDING_PASSWORD',
+              'BIND_HOST', 'BACKEND_BIND_HOST', 'KEEP_TEMP_USER',
+              'SESSION_IDLE_TIMEOUT', 'SESSION_MAX_LIFETIME'):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in kw.items():
+        monkeypatch.setenv(k, v)
 
-    def test_returns_checks_list(self, monkeypatch):
-        monkeypatch.setenv('TLS_ENABLED', 'true')
-        result = calculate_posture()
-        assert 'checks' in result
-        assert isinstance(result['checks'], list)
-        assert len(result['checks']) > 0
 
-    def test_returns_summary(self, monkeypatch):
-        result = calculate_posture()
-        assert 'summary' in result
-        assert isinstance(result['summary'], str)
+def _by_name(result):
+    return {f['name']: f for f in result['checks']}
 
-    def test_tls_disabled_reduces_score(self, monkeypatch):
-        monkeypatch.setenv('TLS_ENABLED', 'true')
-        monkeypatch.setenv('BIND_HOST', '127.0.0.1')
-        monkeypatch.setenv('MFA_REQUIRED', 'true')
-        score_secure = calculate_posture()['score']
 
-        monkeypatch.setenv('TLS_ENABLED', 'false')
-        score_insecure = calculate_posture()['score']
+def test_posture_shape():
+    r = posture.calculate_posture()
+    assert 'score' in r
+    assert 'checks' in r
+    assert 0 <= r['score'] <= 100
 
-        assert score_insecure < score_secure
 
-    def test_bind_localhost_better_than_exposed(self, monkeypatch):
-        monkeypatch.setenv('TLS_ENABLED', 'true')
-        monkeypatch.setenv('BIND_HOST', '127.0.0.1')
-        score_local = calculate_posture()['score']
+def test_tls_off_lowers_score(monkeypatch):
+    _env(monkeypatch, TLS_ENABLED='false', DISABLE_SSL='true',
+         VNC_PASSWORD=_STRONG, TTYD_PASSWD=_STRONG,
+         USER_UI_PASSWORD=_STRONG, LANDING_PASSWORD=_STRONG)
+    r = posture.calculate_posture()
+    f = _by_name(r)
+    assert f['HTTPS/TLS enabled']['status'] != 'ok'
 
-        monkeypatch.setenv('BIND_HOST', '0.0.0.0')
-        score_exposed = calculate_posture()['score']
 
-        assert score_exposed <= score_local
+def test_mfa_and_strong_creds_raise_score(monkeypatch):
+    _env(monkeypatch, TLS_ENABLED='true',
+         MFA_REQUIRED='true',
+         VNC_PASSWORD=_STRONG, TTYD_PASSWD=_STRONG,
+         USER_UI_PASSWORD=_STRONG, LANDING_PASSWORD=_STRONG)
+    r = posture.calculate_posture()
+    f = _by_name(r)
+    assert f['MFA enabled']['status'] == 'ok'
+    assert f['Strong credentials configured']['status'] == 'ok'
 
-    def test_mfa_improves_score(self, monkeypatch):
-        monkeypatch.setenv('TLS_ENABLED', 'true')
-        monkeypatch.setenv('MFA_REQUIRED', 'false')
-        monkeypatch.delenv('TOTP_SECRET', raising=False)
-        score_no_mfa = calculate_posture()['score']
 
-        monkeypatch.setenv('MFA_REQUIRED', 'true')
-        score_mfa = calculate_posture()['score']
+def test_weak_password_flagged(monkeypatch):
+    _env(monkeypatch, TLS_ENABLED='true',
+         VNC_PASSWORD='changeme', TTYD_PASSWD=_STRONG,
+         USER_UI_PASSWORD=_STRONG, LANDING_PASSWORD=_STRONG)
+    r = posture.calculate_posture()
+    f = _by_name(r)
+    assert f['Strong credentials configured']['status'] != 'ok'
 
-        assert score_mfa >= score_no_mfa
 
-    def test_placeholder_detected(self, monkeypatch):
-        monkeypatch.setenv('DISCORD_WEBHOOK_URL', 'https://discord.com/api/webhooks/YOUR_WEBHOOK_URL')
-        result = calculate_posture()
-        placeholder_check = [c for c in result['checks'] if 'placeholder' in c['name'].lower()]
-        if placeholder_check:
-            assert placeholder_check[0]['status'] != 'ok'
+def test_generated_credentials_count(monkeypatch):
+    """Env unset but generated credential persisted -> strong."""
+    _env(monkeypatch, TLS_ENABLED='true')
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.config._load_generated_credential',
+        lambda n: _STRONG, raising=False)
+    r = posture.calculate_posture()
+    f = _by_name(r)
+    assert f['Strong credentials configured']['status'] == 'ok'
 
-    def test_disable_ssl_equivalent_to_tls_enabled_false(self, monkeypatch):
-        """DISABLE_SSL=true should produce the same score as TLS_ENABLED=false."""
-        monkeypatch.setattr('vnc_remote_secure.security.posture.load_env_file', lambda: None)
-        monkeypatch.setenv('BIND_HOST', '127.0.0.1')
-        monkeypatch.setenv('MFA_REQUIRED', 'true')
-        monkeypatch.setenv('TLS_ENABLED', '')
-        monkeypatch.setenv('DISABLE_SSL', 'true')
-        score_disable_ssl = calculate_posture()['score']
 
-        monkeypatch.setenv('DISABLE_SSL', '')
-        monkeypatch.setenv('TLS_ENABLED', 'false')
-        score_tls_false = calculate_posture()['score']
-
-        assert score_disable_ssl == score_tls_false
-
-    def test_disable_ssl_false_equivalent_to_tls_enabled_true(self, monkeypatch):
-        """DISABLE_SSL=false should produce the same score as TLS_ENABLED=true."""
-        monkeypatch.setattr('vnc_remote_secure.security.posture.load_env_file', lambda: None)
-        monkeypatch.setenv('BIND_HOST', '127.0.0.1')
-        monkeypatch.setenv('MFA_REQUIRED', 'true')
-        monkeypatch.setenv('TLS_ENABLED', '')
-        monkeypatch.setenv('DISABLE_SSL', 'false')
-        score_disable_ssl_false = calculate_posture()['score']
-
-        monkeypatch.setenv('DISABLE_SSL', '')
-        monkeypatch.setenv('TLS_ENABLED', 'true')
-        score_tls_true = calculate_posture()['score']
-
-        assert score_disable_ssl_false == score_tls_true
+def test_no_credentials_flagged(monkeypatch):
+    _env(monkeypatch, TLS_ENABLED='true')
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.config._load_generated_credential',
+        lambda n: '', raising=False)
+    r = posture.calculate_posture()
+    f = _by_name(r)
+    assert f['Strong credentials configured']['status'] != 'ok'

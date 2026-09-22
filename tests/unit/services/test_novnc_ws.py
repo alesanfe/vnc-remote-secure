@@ -141,3 +141,81 @@ class TestProxyWebsocketGate:
         h._proxy_websocket()
         assert relayed == []
         assert not h._ws_error.called
+
+
+class TestRelayCleanup:
+    """conn_id must be unregistered on EVERY relay exit — a stale
+    registry entry keeps a dead socket's close callback alive and
+    prevents revocation propagation."""
+
+    def _setup(self, monkeypatch, unreg):
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
+            lambda: ['https://ok.example'], raising=False)
+        import socket as _s
+        upstream = type('U', (), {'close': lambda self: None,
+                                  'sendall': lambda self, b: None})()
+        monkeypatch.setattr(_s, 'create_connection',
+                            lambda *a, **k: upstream)
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.'
+            '_AuthedSimpleHTTPRequestHandler._register_ws',
+            lambda *a, **k: 'conn_7')
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.'
+            '_AuthedSimpleHTTPRequestHandler._ephemeral_token',
+            lambda *a, **k: 'tok', raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.websocket_registry.'
+            'unregister_connection',
+            lambda cid: unreg.append(cid))
+        return upstream
+
+    def test_unregister_on_relay_end(self, monkeypatch):
+        unreg = []
+        self._setup(monkeypatch, unreg)
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.relay_rfb_stream',
+            lambda *a: None)
+        h = TestProxyWebsocketGate()._handler(monkeypatch, headers={
+            'Origin': 'https://ok.example',
+            'Cookie': 'vnc_session=tok'})
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.'
+            '_AuthedSimpleHTTPRequestHandler._authenticate',
+            lambda *a, **k: (True, 'tok'), raising=False)
+        h._proxy_websocket()
+        assert unreg == ['conn_7']
+
+    def test_unregister_on_relay_oserror(self, monkeypatch):
+        unreg = []
+        self._setup(monkeypatch, unreg)
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.relay_rfb_stream',
+            lambda *a: (_ for _ in ()).throw(OSError('reset')))
+        h = TestProxyWebsocketGate()._handler(monkeypatch, headers={
+            'Origin': 'https://ok.example',
+            'Cookie': 'vnc_session=tok'})
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.'
+            '_AuthedSimpleHTTPRequestHandler._authenticate',
+            lambda *a, **k: (True, 'tok'), raising=False)
+        h._proxy_websocket()
+        assert unreg == ['conn_7']
+
+    def test_unregister_on_header_encode_failure(self, monkeypatch):
+        """A header value unencodable in latin-1 must close upstream
+        AND unregister — not leak the registration."""
+        unreg = []
+        self._setup(monkeypatch, unreg)
+        h = TestProxyWebsocketGate()._handler(monkeypatch, headers={
+            'Origin': 'https://ok.example',
+            'Cookie': 'vnc_session=tok',
+            'X-Bad': '\u20ac',  # euro sign — not latin-1
+        })
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.'
+            '_AuthedSimpleHTTPRequestHandler._authenticate',
+            lambda *a, **k: (True, 'tok'), raising=False)
+        h._proxy_websocket()
+        assert unreg == ['conn_7']

@@ -406,3 +406,63 @@ class TestGatewayReject:
             lambda *a, **kw: None, raising=False)
         ws = self._ws_stub()
         assert ws._authenticate() is False
+
+
+class TestOnCloseCleanup:
+    """on_close must unregister the ws connection AND kill the child
+    process — a socket drop must never orphan a shell."""
+
+    def test_close_unregisters_and_terminates(self):
+        from unittest.mock import MagicMock
+        from vnc_remote_secure.services import terminal as term
+        ws = object.__new__(term.TerminalWebSocket)
+        ws._ws_conn_id = 'ws_7'
+        proc = MagicMock()
+        ws.current_process = proc
+        calls = []
+        from unittest import mock
+        with mock.patch(
+                'vnc_remote_secure.security.auth_gateway.'
+                'unregister_websocket_connection',
+                lambda cid: calls.append(cid)):
+            ws.on_close()
+        assert calls == ['ws_7']
+        assert ws._ws_conn_id is None
+        proc.terminate.assert_called_once()
+        assert ws.current_process is None
+
+    def test_close_without_conn_id_no_crash(self):
+        """Sockets rejected during open() have no _ws_conn_id —
+        on_close must not raise."""
+        from vnc_remote_secure.services import terminal as term
+        ws = object.__new__(term.TerminalWebSocket)
+        ws.current_process = None
+        ws.on_close()
+
+
+class TestInterrupt:
+    def test_interrupt_terminates_running_process(self):
+        import json
+        from unittest.mock import MagicMock
+        from vnc_remote_secure.services import terminal as term
+        ws = object.__new__(term.TerminalWebSocket)
+        ws.write_message = MagicMock()
+        ws._send_prompt = MagicMock()
+        ws._set_busy = MagicMock()
+        proc = MagicMock()
+        proc.poll.return_value = None  # still running
+        ws.current_process = proc
+        ws.on_message(json.dumps({'type': 'interrupt'}))
+        proc.terminate.assert_called_once()
+
+    def test_interrupt_no_process_just_prompt(self):
+        import json
+        from unittest.mock import MagicMock
+        from vnc_remote_secure.services import terminal as term
+        ws = object.__new__(term.TerminalWebSocket)
+        ws.write_message = MagicMock()
+        ws._send_prompt = MagicMock()
+        ws._set_busy = MagicMock()
+        ws.current_process = None
+        ws.on_message(json.dumps({'type': 'interrupt'}))
+        ws._send_prompt.assert_called_once()

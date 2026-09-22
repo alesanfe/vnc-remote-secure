@@ -170,3 +170,47 @@ class TestAudioToctouRevoke:
         asyncio.run(server.handle_client(ws))
         # Strict: the revoked-session path MUST close with 1008.
         assert ws.closed_with == (1008, 'Session revoked')
+
+
+class TestAudioFfmpegFailure:
+    """start_ffmpeg failing must close 1011 and unregister the
+    connection — a dead capture must not leave an open, registered
+    socket."""
+
+    def test_ffmpeg_fail_closes_1011_unregisters(self, monkeypatch):
+        import asyncio
+        from vnc_remote_secure.services import audio
+        unreg = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
+            lambda *a, **kw: 'conn_1', raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.unregister_websocket_connection',
+            lambda cid: unreg.append(cid), raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.websocket_registry.'
+            'start_revocation_watcher', lambda t: None, raising=False)
+
+        class _WS:
+            remote_address = ('127.0.0.1', 1)
+            request_headers = {}
+            closed_with = None
+
+            async def close(self, code=None, reason=None):
+                self.closed_with = (code, reason)
+
+            async def send(self, m):
+                pass
+
+        ws = _WS()
+        server = audio.AudioStreamServer('127.0.0.1', 0, None, 128)
+        server._ffmpeg_lock = asyncio.Lock()
+        from unittest import mock
+        with mock.patch.object(server, '_authenticate_ws',
+                               new=mock.AsyncMock(return_value='tok')), \
+             mock.patch.object(server, 'start_ffmpeg',
+                               new=mock.AsyncMock(return_value=False)):
+            asyncio.run(server.handle_client(ws))
+        assert ws.closed_with == (1011, 'Audio capture failed')
+        assert 'conn_1' in unreg
+        assert ws not in server.clients

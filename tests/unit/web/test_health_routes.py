@@ -180,3 +180,69 @@ def test_health_all_500_on_failure(client, monkeypatch):
     monkeypatch.setattr(health_mod, 'get_all_health', boom)
     resp = client.get('/health/all', headers=AUTH)
     assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# /health/services, /health/all, /audit boundaries
+# ---------------------------------------------------------------------------
+
+def test_services_returns_status_all(client, monkeypatch):
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.service_manager.status_all',
+        lambda: {'vnc': {'running': True, 'pid': 1}}, raising=False)
+    resp = client.get('/health/services', headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.get_json()['vnc']['running'] is True
+
+
+def test_audit_limit_clamped_low(client, monkeypatch):
+    """limit<=0 must clamp to 1 — a zero/negative limit must not
+    return the whole log or crash."""
+    seen = {}
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.audit.get_audit_entries',
+        lambda limit, event=None: seen.update(
+            {'limit': limit, 'event': event}) or [])
+    resp = client.get('/audit?limit=-5', headers=AUTH)
+    assert resp.status_code == 200
+    assert seen['limit'] == 1
+
+
+def test_audit_limit_clamped_high(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.audit.get_audit_entries',
+        lambda limit, event=None: seen.update({'limit': limit}) or [])
+    client.get('/audit?limit=99999', headers=AUTH)
+    assert seen['limit'] == 1000
+
+
+def test_audit_event_filter_forwarded(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.audit.get_audit_entries',
+        lambda limit, event=None: seen.update({'event': event}) or [])
+    client.get('/audit?event=login', headers=AUTH)
+    assert seen['event'] == 'login'
+
+
+def test_audit_verify_reports_tamper(client, monkeypatch):
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.audit.verify_chain',
+        lambda: (False, 'chain broken at entry 5'))
+    resp = client.get('/audit/verify', headers=AUTH)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['intact'] is False
+    assert 'broken' in body['message']
+
+
+def test_unknown_status_maps_503(client, monkeypatch):
+    """Any non-ok/degraded status (e.g. 'unknown') is not-ready -> 503
+    on /health and not-ready on /health/ready."""
+    monkeypatch.setattr(
+        health_mod, 'get_health_status',
+        lambda: {'status': 'unknown', 'services_up': 0,
+                 'services_total': 3, 'services': {}})
+    resp = client.get('/health', headers=AUTH)
+    assert resp.status_code == 503

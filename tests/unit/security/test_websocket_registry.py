@@ -215,3 +215,44 @@ class TestImmediateRevocationFlow:
 
         # Simulate: client tries to reconnect — no active connections.
         assert reg.get_active_count('ses_123') == 0
+
+
+class TestCloseCallbackFailures:
+    """A close callback that raises must not abort the revocation of
+    the session's OTHER connections or corrupt the registry."""
+
+    def test_raising_callback_others_still_closed(self):
+        from vnc_remote_secure.security.websocket_registry import (
+            WebSocketRegistry)
+        reg = WebSocketRegistry()
+        closed = []
+        reg.register('s1', lambda: closed.append('a'), resource='vnc')
+        reg.register('s1',
+                     lambda: (_ for _ in ()).throw(RuntimeError('boom')),
+                     resource='vnc')
+        reg.register('s1', lambda: closed.append('c'), resource='vnc')
+        n = reg.revoke_session('s1')
+        # Both healthy callbacks fired; the raising one reported False.
+        assert n == 2
+        assert sorted(closed) == ['a', 'c']
+        # Registry fully drained for the session.
+        assert reg.get_active_count('s1') == 0
+
+    def test_revoke_marks_session_revoked_shared(self):
+        """revoke_session must write the shared-state marker so other
+        processes reject the session too (real backend)."""
+        from vnc_remote_secure.security import websocket_registry as wsr
+        reg = wsr.WebSocketRegistry()
+        sid = 's9-shared-marker'
+        reg.register(sid, lambda: True, resource='vnc')
+        try:
+            reg.revoke_session(sid)
+            assert wsr.is_revoked_shared(sid) is True
+        finally:
+            wsr.clear_revoked_shared(sid)
+
+    def test_unregister_unknown_conn_id_noop(self):
+        from vnc_remote_secure.security.websocket_registry import (
+            WebSocketRegistry)
+        reg = WebSocketRegistry()
+        reg.unregister('ghost')  # must not raise

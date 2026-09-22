@@ -38,6 +38,19 @@ from vnc_remote_secure.core.constants import (
 load_env_file()
 
 
+def _safe_ws_host(raw: str) -> str:
+    r"""Constrain a Host/X-Forwarded-Host value to a strict hostname set.
+
+    These headers land inside JS string literals in rendered pages —
+    anything outside ``[A-Za-z0-9.:\\-\\[\\]]`` (quotes, markup) falls
+    back to loopback so a crafted header cannot become reflected XSS.
+    """
+    import re
+    if re.fullmatch(r'[A-Za-z0-9.\-:\[\]]{1,253}', raw or ''):
+        return raw
+    return '127.0.0.1'
+
+
 def _config():
     """Return the runtime config lazily so .env changes take effect on each call."""
     from vnc_remote_secure.core.config import get_config
@@ -999,12 +1012,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             # containing quotes or markup would be reflected XSS on an
             # authenticated endpoint. Constrain to a strict hostname
             # character set and fall back to loopback on anything else.
-
-            def _safe_host(raw):
-                if re.fullmatch(r'[A-Za-z0-9.\-:\[\]]{1,253}', raw or ''):
-                    return raw
-                return '127.0.0.1'
-            fhost = _safe_host(fhost)
+            fhost = _safe_ws_host(fhost)
             if trusted and fhost != '127.0.0.1' and self.headers.get(
                     'X-Forwarded-Host'):
                 ws_scheme = 'wss' if fproto == 'https' else 'ws'
@@ -1014,7 +1022,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                 import ssl as _ssl
                 ws_scheme = ('wss' if isinstance(self.connection, _ssl.SSLSocket)
                              else 'ws')
-                host = _safe_host(
+                host = _safe_ws_host(
                     self.headers.get('Host', '127.0.0.1').split(':')[0].strip())
                 audio_ws_url = f'{ws_scheme}://{host}:{audio_port}/'
                 gamepad_ws_url = f'{ws_scheme}://{host}:{gamepad_port}/'

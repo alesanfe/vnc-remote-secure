@@ -166,3 +166,69 @@ def test_logout_expires_both_session_cookies():
     expired = [c for c in cookies if 'Max-Age=0' in c]
     assert any('vnc_session=' in c for c in expired)
     assert any('vnc_ephemeral=' in c for c in expired)
+
+
+class TestHardenedProfileGuards:
+    """Fallback app + ephemeral secret must be refused in hardened
+    profiles — otherwise a missing dep silently downgrades security."""
+
+    @pytest.mark.parametrize(
+        'profile', ['public-hardened', 'private-overlay', 'trusted-lan'])
+    def test_hardened_profile_requires_flask_secret(
+            self, monkeypatch, profile):
+        pytest.importorskip('flask')
+        monkeypatch.setenv('SECURITY_PROFILE', profile)
+        monkeypatch.delenv('FLASK_SECRET_KEY', raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.authentication._get_secret',
+            lambda: b'', raising=False)
+        with pytest.raises(RuntimeError, match='FLASK_SECRET_KEY'):
+            create_app({})
+
+    def test_development_profile_allows_persisted_secret(
+            self, monkeypatch, tmp_path):
+        pytest.importorskip('flask')
+        monkeypatch.setenv('SECURITY_PROFILE', 'development')
+        monkeypatch.delenv('FLASK_SECRET_KEY', raising=False)
+        app = create_app({})
+        assert app.secret_key  # persisted auth secret reused
+
+
+class TestCookieNameValidation:
+    def test_malicious_cookie_name_sanitized(self, monkeypatch):
+        pytest.importorskip('flask')
+        monkeypatch.delenv('SECURITY_PROFILE', raising=False)
+        monkeypatch.setenv('SESSION_COOKIE_NAME',
+                           'x; Secure\r\nSet-Cookie: evil=1')
+        app = create_app({})
+        name = app.config['SESSION_COOKIE_NAME']
+        assert ';' not in name
+        assert '\r' not in name
+        assert '\n' not in name
+
+    def test_valid_cookie_name_preserved(self, monkeypatch):
+        pytest.importorskip('flask')
+        monkeypatch.delenv('SECURITY_PROFILE', raising=False)
+        monkeypatch.setenv('SESSION_COOKIE_NAME', 'my_sess-1')
+        app = create_app({})
+        assert app.config['SESSION_COOKIE_NAME'] == 'my_sess-1'
+
+
+class TestSecurityHeadersAndLimits:
+    def test_security_headers_present(self, monkeypatch):
+        pytest.importorskip('flask')
+        monkeypatch.delenv('SECURITY_PROFILE', raising=False)
+        app = create_app({})
+        c = app.test_client()
+        resp = c.get('/health')
+        assert resp.headers.get('X-Content-Type-Options') == 'nosniff'
+        assert 'Content-Security-Policy' in resp.headers
+
+    def test_oversized_body_rejected_413(self, monkeypatch):
+        pytest.importorskip('flask')
+        monkeypatch.delenv('SECURITY_PROFILE', raising=False)
+        app = create_app({})
+        app.config['MAX_CONTENT_LENGTH'] = 16
+        c = app.test_client()
+        resp = c.post('/login', data={'x': 'y' * 100})
+        assert resp.status_code == 413

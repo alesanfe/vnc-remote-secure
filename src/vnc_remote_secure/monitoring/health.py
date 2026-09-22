@@ -13,18 +13,23 @@ logger = logging.getLogger(__name__)
 
 
 def _get_platform_metrics():
-    """Delegate system metrics collection to the platform adapter."""
-    if platform.system() == 'Windows':
-        try:
-            from vnc_remote_secure.platform.windows.metrics import get_system_metrics
-        except ImportError:
-            return {}
-        return get_system_metrics()
+    """Delegate system metrics collection to the platform adapter.
+
+    Best-effort: a metrics collection failure (WMI query failed,
+    /proc unreadable) must degrade to empty metrics — never crash the
+    health endpoint that exists to report problems.
+    """
     try:
-        from vnc_remote_secure.platform.linux.metrics import get_system_metrics
-    except ImportError:
+        if platform.system() == 'Windows':
+            from vnc_remote_secure.platform.windows.metrics import (
+                get_system_metrics)
+        else:
+            from vnc_remote_secure.platform.linux.metrics import (
+                get_system_metrics)
+        return get_system_metrics()
+    except Exception:  # noqa: BLE001 - health checks are best-effort
+        logger.debug("Platform metrics unavailable", exc_info=True)
         return {}
-    return get_system_metrics()
 
 
 def get_system_health():

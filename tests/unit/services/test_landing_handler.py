@@ -225,3 +225,103 @@ def test_log_message_redacts_session_token(server, caplog):
     _req(server, '/?session=SECRETTOKEN123', headers=_auth_headers())
     joined = ' '.join(r.getMessage() for r in caplog.records)
     assert 'SECRETTOKEN123' not in joined
+
+
+class TestHostHeaderXss:
+    """Host / X-Forwarded-Host must never reach the rendered page
+    verbatim — reflected XSS on authenticated endpoints."""
+
+    def test_safe_ws_host_passes_valid(self):
+        from vnc_remote_secure.services.landing import _safe_ws_host
+        assert _safe_ws_host('vnc.example.com') == 'vnc.example.com'
+        assert _safe_ws_host('127.0.0.1:8000') == '127.0.0.1:8000'
+        assert _safe_ws_host('[::1]') == '[::1]'
+
+    def test_safe_ws_host_rejects_xss(self):
+        from vnc_remote_secure.services.landing import _safe_ws_host
+        for evil in ('"><script>alert(1)</script>',
+                     "x'onload='alert(1)", 'a\nb', 'a;b', 'a b', ''):
+            assert _safe_ws_host(evil) == '127.0.0.1', evil
+
+    def test_landing_page_ignores_malicious_forwarded_host(
+            self, monkeypatch):
+        """A crafted X-Forwarded-Host must not appear in the HTML."""
+        from vnc_remote_secure.services import landing
+        monkeypatch.setattr(landing, 'check_port', lambda *a, **k: False)
+        monkeypatch.setattr(landing, 'get_system_metrics',
+                            lambda: {'hostname': 'h', 'os': 'os', 'uptime': 'u', 'cpu': 'c', 'memory': 'm', 'disk': 'd'})
+        page = landing.generate_landing_page(
+            forwarded_host='"><script>alert(1)</script>',
+            forwarded_proto='https')
+        assert '<script>alert(1)' not in page
+        assert '"><script' not in page
+
+    def test_forwarded_host_valid_used_in_links(self, monkeypatch):
+        from vnc_remote_secure.services import landing
+        monkeypatch.setattr(landing, 'check_port', lambda *a, **k: False)
+        monkeypatch.setattr(landing, 'get_system_metrics',
+                            lambda: {'hostname': 'h', 'os': 'os', 'uptime': 'u', 'cpu': 'c', 'memory': 'm', 'disk': 'd'})
+        page = landing.generate_landing_page(
+            forwarded_host='vnc.example.com', forwarded_proto='https')
+        assert 'https://vnc.example.com/vnc/vnc.html' in page
+
+
+class TestExchangeSecureCookie:
+    """The vnc_ephemeral cookie must be Secure over TLS — both via
+    X-Forwarded-Proto (trusted proxy) and direct TLS sockets."""
+
+    def _handler(self):
+        from unittest.mock import MagicMock
+        from vnc_remote_secure.services.landing import LandingHandler
+        h = object.__new__(LandingHandler)
+        h.path = '/?session=tok'
+        h.headers = {}
+        h.client_address = ('127.0.0.1', 1)
+        h.connection = MagicMock()
+        h.wfile = MagicMock()
+        h.send_response = MagicMock()
+        h.send_header = MagicMock()
+        h.end_headers = MagicMock()
+        return h
+
+    def test_secure_flag_when_forwarded_https(self, monkeypatch):
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        h = self._handler()
+        h.headers = {'X-Forwarded-Proto': 'https'}
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'activate_ephemeral_session',
+            lambda t, client_ip=None: 'inner', raising=False)
+        h._handle_session_exchange()
+        cookie = [c for c in h.send_header.call_args_list
+                  if c[0][0] == 'Set-Cookie'][0][0][1]
+        assert 'Secure' in cookie
+
+    def test_no_secure_flag_plain_http(self, monkeypatch):
+        """Plain HTTP must NOT mark the cookie Secure — the browser
+        would never return it."""
+        monkeypatch.delenv('TRUSTED_PROXY', raising=False)
+        h = self._handler()
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'activate_ephemeral_session',
+            lambda t, client_ip=None: 'inner', raising=False)
+        h._handle_session_exchange()
+        cookie = [c for c in h.send_header.call_args_list
+                  if c[0][0] == 'Set-Cookie'][0][0][1]
+        assert 'Secure' not in cookie
+
+    def test_forwarded_proto_ignored_without_trust(self, monkeypatch):
+        """X-Forwarded-Proto=https on an UNTRUSTED direct connection
+        must not set Secure — header spoofing would strip the cookie."""
+        monkeypatch.delenv('TRUSTED_PROXY', raising=False)
+        h = self._handler()
+        h.headers = {'X-Forwarded-Proto': 'https'}
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'activate_ephemeral_session',
+            lambda t, client_ip=None: 'inner', raising=False)
+        h._handle_session_exchange()
+        cookie = [c for c in h.send_header.call_args_list
+                  if c[0][0] == 'Set-Cookie'][0][0][1]
+        assert 'Secure' not in cookie

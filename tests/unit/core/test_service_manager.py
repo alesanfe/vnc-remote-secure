@@ -276,3 +276,76 @@ def test_watchdog_restart_throttled_after_limit(tmp_path, monkeypatch):
         sm.watchdog_tick(cfg)
     assert len(calls) == sm._RESTART_MAX
     assert 'vnc' in sm._last_throttled
+
+
+class TestPidIdentityGuards:
+    """PID-reuse protection: a recycled PID belonging to a foreign
+    process must never be killed."""
+
+    def test_kill_refuses_unverified_pid(self, monkeypatch):
+        from vnc_remote_secure.core import service_manager as sm
+        monkeypatch.setattr(sm, '_pid_alive', lambda p: True)
+        monkeypatch.setattr(sm, '_pid_is_ours', lambda p, s=None: None)
+        killed = []
+        monkeypatch.setattr(sm.os, 'kill',
+                            lambda p, sig: killed.append(p))
+        monkeypatch.setattr(sm, 'run_cmd',
+                            lambda *a, **k: None)
+        assert sm._kill_pid(4321) is False
+        assert killed == []
+
+    def test_kill_drops_foreign_pid_without_killing(self, monkeypatch):
+        """identity=False (PID reuse) -> record cleared, no signal sent."""
+        from vnc_remote_secure.core import service_manager as sm
+        monkeypatch.setattr(sm, '_pid_alive', lambda p: True)
+        monkeypatch.setattr(sm, '_pid_is_ours', lambda p, s=None: False)
+        cleared = []
+        monkeypatch.setattr(sm, '_clear_pid_by_value',
+                            lambda p: cleared.append(p))
+        killed = []
+        monkeypatch.setattr(sm.os, 'kill',
+                            lambda p, sig: killed.append(p))
+        monkeypatch.setattr(sm, 'run_cmd', lambda *a, **k: None)
+        assert sm._kill_pid(4321) is True
+        assert cleared == [4321]
+        assert killed == []
+
+    def test_kill_unknown_identity_with_force_proceeds(self, monkeypatch):
+        from vnc_remote_secure.core import service_manager as sm
+        monkeypatch.setattr(sm, '_pid_alive',
+                            lambda p: True)
+        monkeypatch.setattr(sm, '_pid_is_ours', lambda p, s=None: None)
+        monkeypatch.setattr(sm, '_kill_descendants', lambda p: None)
+        killed = []
+        monkeypatch.setattr(sm.os, 'kill',
+                            lambda p, sig: killed.append(p))
+        # Process dies on first check after SIGTERM.
+        alive = [True]
+
+        def _alive(p):
+            return alive[0] and not killed
+
+        monkeypatch.setattr(sm, '_pid_alive', _alive)
+        monkeypatch.setattr(sm, 'is_windows', lambda: False)
+        monkeypatch.setattr(sm, '_clear_pid_by_value', lambda p: None)
+        assert sm._kill_pid(4321, timeout=0.2, force=True) is True
+        assert killed  # SIGTERM sent
+
+    def test_pid_alive_windows_exact_match(self, monkeypatch):
+        """tasklist CSV match must be exact — pid 12 must not match
+        a row for pid 12345."""
+        from vnc_remote_secure.core import service_manager as sm
+        monkeypatch.setattr(sm, 'is_windows', lambda: True)
+
+        class R:
+            stdout = '"python.exe","12345","Services","0","1 K"'
+
+        monkeypatch.setattr(sm, 'run_cmd', lambda *a, **k: R())
+        assert sm._pid_alive(12) is False
+        assert sm._pid_alive(12345) is True
+
+    def test_pid_is_ours_needles(self, monkeypatch):
+        from vnc_remote_secure.core import service_manager as sm
+        monkeypatch.setattr(sm, 'is_windows', lambda: False)
+        # /proc read fails -> None (unknown), never False.
+        assert sm._pid_is_ours(999999999) is None

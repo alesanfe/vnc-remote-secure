@@ -236,3 +236,57 @@ class TestEnsureUltravncSecurity:
         with pytest.raises(RuntimeError, match='Unsafe path'):
             installer._ensure_ultravnc()
         assert not (tmp_path / 'evil.exe').exists()
+
+
+class TestWinvncHashVerification:
+    """_verify_winvnc_hash: hash match/mismatch/missing-pin matrix."""
+
+    def _call(self, monkeypatch, tmp_path, manifest=None, data=b'exe'):
+        import json
+        import vnc_remote_secure
+        mdir = tmp_path / 'third_party' / 'manifests'
+        mdir.mkdir(parents=True)
+        if manifest is not None:
+            (mdir / 'ultravnc.json').write_text(json.dumps(manifest))
+        monkeypatch.setattr(
+            vnc_remote_secure, '__file__', str(tmp_path / 'pkg' / '__init__.py'))
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.paths.find_project_root',
+            lambda: str(tmp_path / 'noroot'), raising=False)
+        pkgdir = tmp_path / 'pkg'
+        pkgdir.mkdir(exist_ok=True)
+        realmdir = pkgdir / 'third_party' / 'manifests'
+        realmdir.mkdir(parents=True, exist_ok=True)
+        if manifest is not None:
+            (realmdir / 'ultravnc.json').write_text(json.dumps(manifest))
+        winvnc = tmp_path / 'winvnc.exe'
+        winvnc.write_bytes(data)
+        from vnc_remote_secure.platform.windows.installer import (
+            _verify_winvnc_hash)
+        return _verify_winvnc_hash(str(winvnc))
+
+    def test_matching_hash_accepted(self, monkeypatch, tmp_path):
+        import hashlib
+        digest = hashlib.sha256(b'exe').hexdigest()
+        assert self._call(monkeypatch, tmp_path,
+                          manifest={'sha256': digest}) is True
+
+    def test_wrong_hash_rejected(self, monkeypatch, tmp_path):
+        assert self._call(monkeypatch, tmp_path,
+                          manifest={'sha256': 'f' * 64}) is False
+
+    def test_missing_pin_fails_closed(self, monkeypatch, tmp_path):
+        """sha256 'TBD' must refuse — installing an unverified binary
+        trusts the download path completely."""
+        monkeypatch.delenv('ULTRAVNC_ALLOW_UNVERIFIED', raising=False)
+        assert self._call(monkeypatch, tmp_path,
+                          manifest={'sha256': 'TBD'}) is False
+
+    def test_missing_pin_optout_env(self, monkeypatch, tmp_path):
+        monkeypatch.setenv('ULTRAVNC_ALLOW_UNVERIFIED', '1')
+        assert self._call(monkeypatch, tmp_path,
+                          manifest={'sha256': 'TBD'}) is True
+
+    def test_no_manifest_fails_closed(self, monkeypatch, tmp_path):
+        monkeypatch.delenv('ULTRAVNC_ALLOW_UNVERIFIED', raising=False)
+        assert self._call(monkeypatch, tmp_path, manifest=None) is False

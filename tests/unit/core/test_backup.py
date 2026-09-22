@@ -207,3 +207,69 @@ class TestBackupEdgeCases:
                             lambda: str(tmp_path / 'proj'))
         # dry_run validates + extracts but skips copy — must not raise.
         assert backup.restore_backup(str(f), dry_run=True) is True
+
+
+class TestRestoreNegativePaths:
+    def test_missing_backup_raises(self, tmp_path):
+        from vnc_remote_secure.core import backup
+        with pytest.raises(FileNotFoundError):
+            backup.restore_backup(str(tmp_path / 'nope.tar.gz'))
+
+    def test_encrypted_without_password_raises(self, tmp_path,
+                                               monkeypatch):
+        """An .enc.tar.gz with no BACKUP_PASSWORD must fail — never
+        silently skip decryption."""
+        from vnc_remote_secure.core import backup
+        f = tmp_path / 'b.enc.tar.gz'
+        f.write_bytes(b'x' * 100)
+        monkeypatch.delenv('BACKUP_PASSWORD', raising=False)
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path / 'proj'))
+        with pytest.raises(RuntimeError, match='BACKUP_PASSWORD'):
+            backup.restore_backup(str(f), dry_run=True)
+
+    def test_truncated_encrypted_fails(self, tmp_path, monkeypatch):
+        """A truncated encrypted backup must fail with a clean error,
+        not a crash mid-restore."""
+        pytest.importorskip('cryptography')
+        from vnc_remote_secure.core import backup
+        f = tmp_path / 'b.enc.tar.gz'
+        f.write_bytes(b'x' * 40)  # < _SALT_LEN
+        monkeypatch.setenv('BACKUP_PASSWORD', 'pw123456')
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path / 'proj'))
+        from cryptography.fernet import InvalidToken
+        with pytest.raises((RuntimeError, ValueError, InvalidToken)):
+            backup.restore_backup(str(f), dry_run=True)
+        # No plaintext leftover in temp dir.
+        assert not (tmp_path / 'proj').exists() or \
+            not list((tmp_path / 'proj').rglob('*.tar.gz'))
+
+    def test_encryption_failure_leaves_no_plaintext(self, tmp_path,
+                                                    monkeypatch):
+        """If _encrypt_file fails, the plaintext tar must be deleted —
+        never left next to the broken .enc."""
+        pytest.importorskip('cryptography')
+        from vnc_remote_secure.core import backup
+        data_dir = tmp_path / 'data'
+        data_dir.mkdir(exist_ok=True)
+        (data_dir / 'x.txt').write_text('secret')
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path))
+        monkeypatch.setattr(backup, '_collect_paths',
+                            lambda: [(str(data_dir), 'data')])
+        monkeypatch.setattr(backup, '_backup_dir',
+                            lambda: str(tmp_path / 'backups'))
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.service_manager.save_state',
+            lambda: {'pids': {}, 'timestamp': 0}, raising=False)
+        monkeypatch.setenv('BACKUP_PASSWORD', 'pw123456')
+        monkeypatch.setattr(
+            backup, '_encrypt_file',
+            lambda *a: (_ for _ in ()).throw(RuntimeError('fernet')))
+        with pytest.raises(RuntimeError, match='fernet'):
+            backup.create_backup(str(tmp_path / 'out.enc.tar.gz'))
+        # No plaintext tar may remain anywhere under tmp_path.
+        plains = [x for x in tmp_path.rglob('*.tar.gz')
+                  if not x.name.endswith('.enc.tar.gz')]
+        assert plains == []

@@ -278,3 +278,70 @@ def test_handle_client_toctou_revoke_closes(monkeypatch):
     assert ws.closed is True
     assert ws.close_code == 1008
     assert injector.device_created is False
+
+
+class TestDeviceCreationFailure:
+    """injector.create_device() -> False must error+close+unregister —
+    a socket that cannot inject input must not stay registered."""
+
+    def test_device_failure_closes_and_unregisters(self, monkeypatch):
+        class _FailInjector(_FakeInjector):
+            def create_device(self):
+                return False
+
+        _patch_adapter(monkeypatch, _FailInjector())
+        unreg = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.gamepad.'
+            '_authenticate_gamepad_connection',
+            lambda h, w: (True, 'tok', 'conn_9', ''), raising=False)
+        # unregister is imported inside handle_client — patch the
+        # source module so the local import picks up the stub.
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.'
+            'unregister_websocket_connection',
+            lambda cid: unreg.append(cid), raising=False)
+        server = gamepad.GamepadServer('127.0.0.1', 7788)
+
+        class _WS:
+            remote_address = ('127.0.0.1', 1)
+            request_headers = {}
+            sent = []
+            closed = False
+
+            async def send(self, m):
+                self.sent.append(m)
+
+            async def close(self, code=None, reason=None):
+                self.closed = True
+
+        ws = _WS()
+        _run(server.handle_client(ws))
+        assert ws.closed is True
+        assert ws not in server.clients
+        assert 'conn_9' in unreg
+        body = json.loads(ws.sent[0])
+        assert body['type'] == 'error'
+
+
+class TestUnknownMessageType:
+    def test_unknown_type_ignored(self, monkeypatch):
+        """An unknown message type must be a no-op — never crash or
+        inject input."""
+        injector = _FakeInjector()
+        _patch_adapter(monkeypatch, injector)
+        server = gamepad.GamepadServer('127.0.0.1', 7788)
+        server.injector = injector
+        # Feed an unknown event through the per-message dispatcher.
+        handler = None
+        for name in dir(server):
+            if 'handle' in name and 'client' not in name:
+                m = getattr(server, name)
+                if callable(m):
+                    handler = m
+                    break
+        if handler is None:
+            pytest.skip('no per-message handler exposed')
+        handler({'type': 'does-not-exist'})
+        assert not injector.buttons
+        assert not injector.axes
