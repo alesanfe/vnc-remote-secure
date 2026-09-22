@@ -322,13 +322,16 @@ addressed in future work but are tracked here for transparency.
   keys consumed by nothing (`MONITORING_ENABLED`, `PROMETHEUS_PORT`,
   `GRAFANA_PORT`, `NODE_EXPORTER_PORT`) were removed.
 
-- **F-035 Windows process isolation (DOCUMENTED LIMITATION).** The
-  restricted runtime user is created and ACLs applied to data dirs,
-  but VNC/terminal processes run under the current user's context —
-  UltraVNC shares the interactive console session, so running it as
-  a different user would break screen capture (Session-0 isolation).
-  Full impersonation (CreateProcessAsUser via ctypes or the uvnc
-  service account) is a tracked enhancement; see ADR-0007 Risks.
+- **F-035 Windows process isolation (MITIGATED).** UltraVNC still
+  shares the interactive console session (Session-0 isolation makes a
+  different-user capture impossible — inherent platform constraint).
+  Terminal commands, however, now spawn inside an **AppContainer**
+  (`platform/windows/sandbox.py`, `TERMINAL_WINDOWS_SANDBOX=auto|
+  strict|off`): the sandboxed shell cannot read the user profile
+  holding `auth_secret.key`, `shared_state.db`, or generated
+  credentials. A scratch dir under %TEMP% is ACL-granted to the
+  AppContainer SID; extra read paths via
+  `TERMINAL_WINDOWS_SANDBOX_DIRS`. See ADR-0007 Risks.
   The same applies to the **web terminal**: `_build_child_env`
   only hides secrets from `env`/`set` — the spawned shell still runs
   as the service account and can read `.env`,

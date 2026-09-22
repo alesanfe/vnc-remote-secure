@@ -165,9 +165,11 @@ def test_infinite_command_is_killed_by_timeout(tmp_path, monkeypatch):
     monkeypatch.setattr(term, 'DEFAULT_CMD_TIMEOUT', 1)
     ws = _ws_stub(tmp_path)
     t0 = time.monotonic()
-    # Quote-free long-running command (cmd.exe quote handling is too
-    # fragile to rely on for the test itself).
-    sleeper = ('ping -n 60 127.0.0.1' if os.name == 'nt'
+    # Long-running command that also works inside the AppContainer
+    # sandbox (ping is blocked: ICMP needs a network capability the
+    # sandboxed shell lacks; Start-Sleep needs nothing external).
+    sleeper = ('powershell -NoProfile -NonInteractive -Command '
+               'Start-Sleep 60' if os.name == 'nt'
                else 'sleep 60')
     ws._execute_command(sleeper)
     # The drain thread is daemonised; give it a moment past timeout.

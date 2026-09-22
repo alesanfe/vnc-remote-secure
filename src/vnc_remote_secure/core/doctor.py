@@ -244,11 +244,25 @@ def _check_terminal_isolation(checks):
     defence: it masks the secret dirs from the spawned shell.
     """
     if sys.platform == 'win32':
-        _warn(checks, 'terminal.isolation',
-              'Windows terminal/VNC processes share the interactive '
-              'user session (F-035) — a terminal shell can read the '
-              'service data dir. Restrict terminal access or set '
-              'TERMINAL_COMMAND_ALLOWLIST')
+        try:
+            from vnc_remote_secure.platform.windows.sandbox import _get_sid, sandbox_mode
+            mode = sandbox_mode()
+            if mode == 'off':
+                _warn(checks, 'terminal.isolation',
+                      'TERMINAL_WINDOWS_SANDBOX=off — terminal shells '
+                      'can read the service data dir (auth_secret.key, '
+                      'shared_state.db)')
+            elif _get_sid() is not None:
+                _ok(checks, 'terminal.isolation',
+                    f'AppContainer sandbox ({mode}) — terminal shells '
+                    'cannot read the user profile or service secrets')
+            else:
+                _warn(checks, 'terminal.isolation',
+                      'AppContainer SID derivation failed — terminal '
+                      'shells run unsandboxed')
+        except Exception:  # noqa: BLE001 - probe is best-effort
+            _warn(checks, 'terminal.isolation',
+                  'Could not verify AppContainer sandbox availability')
         return
     try:
         euid = os.geteuid()  # type: ignore[attr-defined]

@@ -566,6 +566,15 @@
     "TERMINAL_COMMAND_ALLOWLIST": {
       "type": "string",
       "description": "Comma-separated regexes; when set, only matching commands may run in the web terminal (defense-in-depth when privilege drop is unavailable)."
+    },
+    "TERMINAL_WINDOWS_SANDBOX": {
+      "type": "string",
+      "enum": ["auto", "strict", "off"],
+      "description": "Windows terminal sandbox: AppContainer isolation for spawned shells (auto=fallback on failure, strict=fail closed, off=disabled)."
+    },
+    "TERMINAL_WINDOWS_SANDBOX_DIRS": {
+      "type": "string",
+      "description": "Semicolon-separated directories granted read access to sandboxed terminal commands on Windows."
     }
   },
   "required": [],

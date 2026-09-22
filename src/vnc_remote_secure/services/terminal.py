@@ -778,10 +778,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             # NOTE: this only hides secrets from the environment — the
             # shell still runs as the service account, which owns
             # .env, <run_dir>/auth_secret.key and the session stores.
-            # Real isolation requires WEBTERM_USER (POSIX, see
-            # _restricted_user_prefix); on Windows there is no
-            # privilege-drop path (documented limitation, AGENTS.md
-            # F-035).
+            # Real isolation: WEBTERM_USER uid drop or the bwrap
+            # filesystem sandbox on POSIX (see _restricted_user_prefix
+            # / _sandbox_prefix); AppContainer on Windows (see
+            # platform/windows/sandbox.py, TERMINAL_WINDOWS_SANDBOX).
             child_env = _build_child_env()
             # CREATE_NO_WINDOW is Windows-only; on Linux the attribute does
             # not exist and passing it raises AttributeError.
@@ -801,15 +801,36 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                     prev.terminate()
                 except Exception:  # noqa: BLE001 - best-effort cleanup
                     pass
-            self.current_process = subprocess.Popen(
-                args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,
-                cwd=self.cwd,
-                env=child_env,
-                **kwargs
-            )
+            # Windows: spawn inside an AppContainer when enabled —
+            # the shell then cannot read the user profile holding the
+            # service secrets (F-035 mitigation). 'auto' falls back to
+            # an unsandboxed spawn on failure; 'strict' propagates;
+            # 'off' skips the sandbox entirely.
+            proc = None
+            if sys.platform == 'win32':
+                from vnc_remote_secure.platform.windows.sandbox import sandbox_mode, spawn_sandboxed
+                mode = sandbox_mode()
+                if mode != 'off':
+                    try:
+                        proc = spawn_sandboxed(
+                            args, cwd=self.cwd, env=child_env)
+                    except Exception as e:  # noqa: BLE001
+                        if mode == 'strict':
+                            raise
+                        logger.warning(
+                            "AppContainer spawn failed (%s) — terminal "
+                            "command runs unsandboxed", e)
+            if proc is None:
+                proc = subprocess.Popen(
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,
+                    cwd=self.cwd,
+                    env=child_env,
+                    **kwargs
+                )
+            self.current_process = proc
         except Exception as e:
             log_exception(e, 'Web Terminal subprocess start')
             self.write_message(f"\x1b[31mError: {e}\x1b[0m\r\n")
