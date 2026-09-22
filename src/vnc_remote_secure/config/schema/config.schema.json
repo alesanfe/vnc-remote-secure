@@ -562,6 +562,10 @@
     "WEBTERM_USER": {
       "type": "string",
       "description": "Linux account terminal commands run as (privilege separation via setpriv/runuser; requires root)."
+    },
+    "TERMINAL_COMMAND_ALLOWLIST": {
+      "type": "string",
+      "description": "Comma-separated regexes; when set, only matching commands may run in the web terminal (defense-in-depth when privilege drop is unavailable)."
     }
   },
   "required": [],

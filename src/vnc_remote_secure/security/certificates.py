@@ -303,12 +303,20 @@ def generate_self_signed(cert_path, key_path, common_name='vnc-remote-secure',
 
 def _generate_via_openssl(cert_path, key_path, common_name, days_valid):
     """Generate a certificate using the openssl CLI as a fallback."""
+    # '/' inside the CN would inject extra RDN fields into -subj
+    # (/CN=x/O=evil); '=' escapes into the value's attribute name.
+    # Strip subject-syntax characters rather than escaping — openssl
+    # escaping rules differ across versions and configs.
+    import re
+    safe_cn = re.sub(r'[/=+\\\r\n\t]', '', str(common_name)).strip()
+    if not safe_cn:
+        raise ValueError("common_name contains no usable characters")
     cmd = [
         'openssl', 'req', '-x509', '-nodes', '-days', str(days_valid),
         '-newkey', 'rsa:2048',
         '-keyout', key_path,
         '-out', cert_path,
-        '-subj', f'/CN={common_name}',
+        '-subj', f'/CN={safe_cn}',
     ]
     result = run_cmd(cmd, capture_output=True)
     if result.returncode != 0:

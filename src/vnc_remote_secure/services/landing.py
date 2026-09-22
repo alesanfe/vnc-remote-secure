@@ -740,6 +740,27 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         signed = (query.get('session') or [''])[0]
         if not signed:
             return False
+        # Link scanners and browser prefetchers hit the activation URL
+        # without user intent — each GET burns a use (single-use links
+        # die before the recipient ever opens them). Prefetch requests
+        # carry Sec-Purpose/Purpose hints; respond with an interstitial
+        # so only a real navigation consumes the token.
+        purpose = ' '.join(
+            self.headers.get(h, '')
+            for h in ('Sec-Purpose', 'Purpose', 'X-Moz')).lower()
+        if 'prefetch' in purpose or 'preview' in purpose:
+            from html import escape
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(
+                '<!doctype html><meta charset="utf-8">'
+                '<title>Open session</title>'
+                '<p><a href="'.encode()
+                + escape(self.path, quote=True).encode()
+                + '">Click to open the shared session</a></p>'.encode())
+            return True
         from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
         # Forwarded-aware like check_session_permission: behind a
         # trusted proxy the peer is 127.0.0.1, so an allowed_ip-bound

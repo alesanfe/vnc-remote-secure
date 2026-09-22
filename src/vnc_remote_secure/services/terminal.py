@@ -413,6 +413,9 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
     """Command executor terminal - runs each command as a subprocess."""
 
     main_ioloop = None
+    # Terminal commands are short JSON envelopes — a multi-MB frame is
+    # only a memory-exhaustion attempt (Tornado default is 10 MiB).
+    max_message_size = 64 * 1024
 
     def check_origin(self, origin):
         """Reject WebSocket connections from unknown origins (prevents CSWSH)."""
@@ -589,6 +592,32 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 self._send_prompt()
                 self._set_busy(False)
                 return
+
+            # TERMINAL_COMMAND_ALLOWLIST: comma-separated regexes. When
+            # set, only matching commands may spawn — a defense-in-depth
+            # knob for deployments where the shell cannot drop
+            # privileges (non-root service user) and terminal access
+            # should be scoped to a few diagnostics commands.
+            allowlist = os.environ.get(
+                'TERMINAL_COMMAND_ALLOWLIST', '').strip()
+            if allowlist:
+                import re
+                patterns = [p.strip() for p in allowlist.split(',')
+                            if p.strip()]
+                try:
+                    allowed = any(re.fullmatch(p, cmd) for p in patterns)
+                except re.error:
+                    logger.error(
+                        "Invalid TERMINAL_COMMAND_ALLOWLIST regex — "
+                        "denying command")
+                    allowed = False
+                if not allowed:
+                    self.write_message(
+                        '\r\n\x1b[31mCommand not allowed by '
+                        'TERMINAL_COMMAND_ALLOWLIST\x1b[0m\r\n')
+                    self._send_prompt()
+                    self._set_busy(False)
+                    return
 
             self._execute_command(cmd)
 
