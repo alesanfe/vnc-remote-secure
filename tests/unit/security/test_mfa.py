@@ -163,3 +163,28 @@ class TestMFAConfig:
         monkeypatch.delenv('TOTP_SECRET', raising=False)
         monkeypatch.setenv('MFA_REQUIRED', 'true')
         assert mfa_required_for_login()
+
+
+class TestTotpStepClaim:
+    """_claim_step: the cross-process atomic replay barrier."""
+
+    def test_same_step_claimed_once(self):
+        from vnc_remote_secure.security.mfa import _claim_step
+        secret = generate_totp_secret()
+        step = int(time.time() // 30)
+        assert _claim_step(secret, step) is True
+        assert _claim_step(secret, step) is False  # replay denied
+
+    def test_different_step_allowed(self):
+        from vnc_remote_secure.security.mfa import _claim_step
+        secret = generate_totp_secret()
+        step = int(time.time() // 30)
+        assert _claim_step(secret, step + 5000) is True
+        assert _claim_step(secret, step + 5001) is True
+
+    def test_different_secret_same_step_allowed(self):
+        """Different users share timesteps — claim key is per-secret."""
+        from vnc_remote_secure.security.mfa import _claim_step
+        step = int(time.time() // 30) + 9000
+        assert _claim_step('AAAA', step) is True
+        assert _claim_step('BBBB', step) is True

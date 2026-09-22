@@ -194,3 +194,116 @@ def test_fast_command_returns_output(tmp_path, monkeypatch):
     ws._after_command.assert_called_once()
     texts = ''.join(c.args[0] for c in ws._send_output.call_args_list)
     assert 'hello-world-42' in texts
+
+
+def test_open_enforces_step_up_for_operator_session(tmp_path, monkeypatch):
+    """Step-up failure must close the socket BEFORE registration.
+
+    Without this the open_terminal sensitive action loses its re-auth
+    gate entirely — a stolen operator session cookie opens a shell.
+    """
+    from unittest.mock import MagicMock
+
+    from vnc_remote_secure.services import terminal as term
+
+    ws = object.__new__(term.TerminalWebSocket)
+    ws.request = MagicMock()
+    ws.request.headers = {
+        'Cookie': 'vnc_session=op-sess',
+        'Origin': 'http://127.0.0.1:8000',
+        'Authorization': '',
+    }
+    ws.request.remote_ip = '127.0.0.1'
+    closed = []
+    ws.close = MagicMock(
+        side_effect=lambda code=None, reason=None: closed.append(
+            (code, reason)))
+    ws.write_message = MagicMock()
+    ws._send_prompt = MagicMock()
+
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+        lambda **kw: (True, 'OK'), raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_authenticated',
+        lambda c, b: (True, 'admin'), raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.step_up_auth.require_step_up',
+        lambda user, action: 'step-up required', raising=False)
+
+    assert ws._authenticate() is False
+    assert closed
+    assert closed[0][0] == 1008
+    assert 'step-up' in closed[0][1]
+
+
+def test_open_step_up_pass_registers_connection(tmp_path, monkeypatch):
+    """A passing step-up proceeds to registry + watcher."""
+    from unittest.mock import MagicMock
+
+    from vnc_remote_secure.services import terminal as term
+
+    ws = object.__new__(term.TerminalWebSocket)
+    ws.request = MagicMock()
+    ws.request.headers = {
+        'Cookie': 'vnc_session=op-sess',
+        'Origin': 'http://127.0.0.1:8000',
+        'Authorization': '',
+    }
+    ws.request.remote_ip = '127.0.0.1'
+    ws.close = MagicMock()
+
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+        lambda **kw: (True, 'OK'), raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_authenticated',
+        lambda c, b: (True, 'admin'), raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.step_up_auth.require_step_up',
+        lambda user, action: None, raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
+        lambda *a, **kw: 42, raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.websocket_registry.start_revocation_watcher',
+        lambda *a, **kw: None, raising=False)
+
+    assert ws._authenticate() is True
+    assert ws._ws_conn_id == 42
+
+
+def test_open_ephemeral_only_skips_step_up(tmp_path, monkeypatch):
+    """Ephemeral-only credential has no operator username — no step-up."""
+    from unittest.mock import MagicMock
+
+    from vnc_remote_secure.services import terminal as term
+
+    ws = object.__new__(term.TerminalWebSocket)
+    ws.request = MagicMock()
+    ws.request.headers = {
+        'Cookie': 'vnc_ephemeral=eph-tok',
+        'Origin': 'http://127.0.0.1:8000',
+        'Authorization': '',
+    }
+    ws.request.remote_ip = '127.0.0.1'
+    ws.close = MagicMock()
+
+    step_up_calls = []
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+        lambda **kw: (True, 'OK'), raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.step_up_auth.require_step_up',
+        lambda *a: step_up_calls.append(a) or 'should not run',
+        raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
+        lambda *a, **kw: 7, raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.websocket_registry.start_revocation_watcher',
+        lambda *a, **kw: None, raising=False)
+
+    assert ws._authenticate() is True
+    assert step_up_calls == []
+    assert ws._ws_conn_id == 7
