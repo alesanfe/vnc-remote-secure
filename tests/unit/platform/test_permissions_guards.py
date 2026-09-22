@@ -41,7 +41,9 @@ class TestLinuxUsernameGuard:
         with patch.object(linux_perms, 'run_cmd',
                           side_effect=lambda cmd, **kw: seen.append(cmd) or _FakeResult()):
             assert linux_perms.remove_user('remote') is True
-        assert seen and '--' in seen[0] and 'remote' in seen[0]
+        assert seen
+        assert '--' in seen[0]
+        assert 'remote' in seen[0]
 
     def test_set_user_password_rejects_flag_injection(self):
         calls = []

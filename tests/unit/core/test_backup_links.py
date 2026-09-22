@@ -24,8 +24,8 @@ def _tar_with_symlink(path, link_name, link_target):
 
 
 class TestBackupDereferencesLinks:
-    def test_symlinked_ssl_file_stored_as_content(self, tmp_path,
-                                                monkeypatch):
+    def test_symlinked_ssl_file_stored_as_content(
+            self, tmp_path, monkeypatch):
         """A symlink inside the SSL dir must land in the archive as a
         regular file with the target's bytes — not a SYMTYPE member
         that restore's filter='data' rejects."""

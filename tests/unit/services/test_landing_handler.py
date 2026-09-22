@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-import vnc_remote_secure.services.landing as landing  # noqa: E402
+from vnc_remote_secure.services import landing  # noqa: E402
 
 
 @pytest.fixture

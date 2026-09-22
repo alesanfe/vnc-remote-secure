@@ -128,7 +128,7 @@ class TestWebSocketRegistry:
         results = []
 
         def worker():
-            for i in range(20):
+            for _i in range(20):
                 conn_id = reg.register('ses_1', lambda: True)
                 results.append(conn_id)
 

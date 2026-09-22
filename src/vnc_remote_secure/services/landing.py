@@ -59,7 +59,7 @@ def check_port(port, host='127.0.0.1'):
     bind (``0.0.0.0``/``::``) covers loopback too, and connecting to
     the wildcard address itself is unreliable on Windows.
     """
-    # nosec rationale: detection, not a bind
+    # justification: detection, not a bind
     if host in ('0.0.0.0', '::', ''):  # nosec B104
         host = '127.0.0.1'
     # Delegate to the shared probe — it selects AF_INET6 for IPv6
@@ -1092,7 +1092,8 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         )
         install_read_timeout(self)
 
-    def log_message(self, fmt, *args):
+    def log_message(self, format, *args):  # noqa: A002 - stdlib signature
+        # pylint: disable=redefined-builtin
         """Log message."""
         # Route stdlib access logs to the module logger instead of
         # discarding — but NEVER verbatim: the request line carries
@@ -1100,7 +1101,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         # would otherwise sit replayable in landing.log.
         import re as _re
         line = _re.sub(r'session=[^&\s"]+', 'session=<redacted>',
-                       fmt % args)
+                       format % args)
         logger.info("%s - %s", self.client_address[0], line)
 
 

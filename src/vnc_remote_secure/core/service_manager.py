@@ -290,7 +290,7 @@ def _kill_pid(pid: int, timeout: float = 5.0,
         if _pid_alive(pid):
             # ProcessLookupError subclasses OSError; POSIX-only branch
             with suppress(OSError):
-                os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]
+                os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]  # pylint: disable=no-member
     stopped = not _pid_alive(pid)
     if stopped:
         _clear_pid_by_value(pid)
@@ -343,7 +343,7 @@ class _GlobalLock:
                 self._fh = None
                 self._locked = False
         else:
-            import fcntl
+            import fcntl  # pylint: disable=import-error
             try:
                 fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 self._locked = True
@@ -364,7 +364,7 @@ class _GlobalLock:
                     except OSError:
                         pass
                 else:
-                    import fcntl
+                    import fcntl  # pylint: disable=import-error
                     with contextlib.suppress(OSError):
                         fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
             self._fh.close()
@@ -949,8 +949,6 @@ def status_all() -> dict:
     Each entry includes ``running``, ``pid``, and ``port`` (when known)
     so the health endpoints can report the documented schema.
     """
-    from vnc_remote_secure.core.config import get_config
-
     config = get_config()
     # On Linux TigerVNC binds 5900+display regardless of an explicit
     # VNC_PORT — report the effective port so status agrees with the
@@ -1074,8 +1072,7 @@ def watchdog_tick(config: dict | None = None) -> dict:
 
     results = {}
     if auto:
-        import time as _time
-        now = _time.monotonic()
+        now = time.monotonic()
         throttled = []
         for service in dead:
             if not _restart_allowed(service, now):

@@ -27,6 +27,7 @@ from vnc_remote_secure.security.http_auth import (
 # Constants used by terminal.py
 # ---------------------------------------------------------------------------
 
+
 def test_terminal_default_port_is_int():
     """DEFAULT_TTYD_PORT is a valid integer port."""
     assert isinstance(DEFAULT_TTYD_PORT, int)

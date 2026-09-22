@@ -205,7 +205,7 @@ def get_recommended_ssl_context() -> ssl.SSLContext:
     ctx.minimum_version = MIN_TLS_VERSION
     ctx.options |= ssl.OP_NO_COMPRESSION
     ctx.options |= ssl.OP_SINGLE_DH_USE
-    ctx.options |= ssl.OP_NO_RENEGOTIATION
+    ctx.options |= ssl.OP_NO_RENEGOTIATION  # pylint: disable=no-member
 
     # Set strong cipher suites.
     strong_ciphers = (

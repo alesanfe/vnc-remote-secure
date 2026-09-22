@@ -100,7 +100,8 @@ def test_start_ffmpeg_strips_secret_env(monkeypatch):
     srv = _server()
     assert asyncio.run(srv.start_ffmpeg()) is True
     env = captured['env']
-    assert env is not None and 'VNC_PASSWORD' not in env
+    assert env is not None
+    assert 'VNC_PASSWORD' not in env
     assert env.get('HARMLESS') == 'ok'
     assert srv.ffmpeg_process is not None
 
@@ -187,6 +188,7 @@ def test_audio_reader_removes_disconnected_client():
     dead = _FakeWS()
 
     import websockets
+
     async def closed_send(data):
         raise websockets.ConnectionClosed(None, None)
     dead.send = closed_send
@@ -246,7 +248,8 @@ def test_handle_client_rejects_unauthorized(monkeypatch):
         srv = _server()
         ws = _FakeWS(headers={'Origin': 'http://127.0.0.1'})
         await srv.handle_client(ws)
-        assert ws.closed is not None and ws.closed[0] == 1008
+        assert ws.closed is not None
+        assert ws.closed[0] == 1008
         assert ws not in srv.clients
 
     asyncio.run(scenario())

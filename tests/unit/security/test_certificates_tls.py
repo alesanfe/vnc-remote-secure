@@ -22,6 +22,7 @@ from vnc_remote_secure.security import certificates, tls_validation  # noqa: E40
 # generate_self_signed (cryptography backend)
 # ---------------------------------------------------------------------------
 
+
 def test_generate_self_signed_creates_valid_pair(tmp_path, monkeypatch):
     """The cryptography backend writes a cert+key pair that
     _validate_certificate accepts and that loads into an SSLContext."""
@@ -32,7 +33,8 @@ def test_generate_self_signed_creates_valid_pair(tmp_path, monkeypatch):
     monkeypatch.setattr(certificates, '_restrict_key_permissions',
                         lambda *a, **k: None)
     assert certificates.generate_self_signed(cert, key) is True
-    assert os.path.exists(cert) and os.path.exists(key)
+    assert os.path.exists(cert)
+    assert os.path.exists(key)
 
     # Round-trip: certificate validates clean (key size, expiry,
     # cert/key pair match).

@@ -24,6 +24,7 @@ from vnc_remote_secure.security.token_signing import (
 # Round-trip sign/verify
 # ---------------------------------------------------------------------------
 
+
 def test_sign_verify_roundtrip_session():
     payload = "alice:1700000000:1700003600"
     token = sign_token(TOKEN_TYPE_SESSION, payload)

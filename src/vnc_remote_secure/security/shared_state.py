@@ -91,7 +91,6 @@ class MemoryBackend(StateBackend):
     """In-memory backend (single-process/test scenarios)."""
 
     def __init__(self):
-        """Init."""
         self._store: dict = {}  # (namespace, key) -> (value, expires_at or None)
         self._lock = threading.Lock()
 
@@ -194,7 +193,6 @@ class SQLiteBackend(StateBackend):
     """
 
     def __init__(self, db_path: str):
-        """Init."""
         self._db_path = db_path
         # dirname() is '' for a bare filename (SHARED_STATE_DB_PATH=
         # "state.db") — makedirs('') raises FileNotFoundError.

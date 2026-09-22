@@ -35,8 +35,6 @@ _cached_secret = None
 
 def _secret_file_path():
     """Return the path to the persisted auto-generated secret."""
-    import os
-
     from vnc_remote_secure.core.paths import get_run_dir
     return os.path.join(get_run_dir(), 'auth_secret.key')
 
@@ -70,6 +68,7 @@ def _get_secret():
                 except Exception:  # noqa: BLE001
                     pass
         except OSError as exc:
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs path+error, not the secret)
             logger.debug("Could not read persisted auth secret at %s: %s", path, exc, exc_info=True)
         if not _cached_secret:
             _cached_secret = secrets.token_hex(32)
@@ -98,6 +97,7 @@ def _get_secret():
                     with contextlib.suppress(OSError):
                         os.chmod(path, 0o600)
             except OSError as exc:
+                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs path+error, not the secret)
                 logger.warning("Could not persist auth secret at %s: %s", path, exc, exc_info=True)
     return _cached_secret.encode('utf-8')
 
@@ -223,8 +223,6 @@ def create_web_session(flask_session, username, csrf_token_bytes=32):
         The signed session token string (also stored under the ``token``
         key in the session).
     """
-    import os
-
     from vnc_remote_secure.core.constants import DEFAULT_SESSION_MAX_LIFETIME
     lifetime = int(os.environ.get(
         'SESSION_MAX_LIFETIME', str(DEFAULT_SESSION_MAX_LIFETIME)))

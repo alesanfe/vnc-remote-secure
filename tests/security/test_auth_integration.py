@@ -19,6 +19,7 @@ from vnc_remote_secure.security import auth_gateway, profiles
 # Profile application in lifecycle
 # ---------------------------------------------------------------------------
 
+
 def test_startup_applies_security_profile(monkeypatch):
     """lifecycle.startup() applies the security profile before get_config()."""
     monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
@@ -30,7 +31,7 @@ def test_startup_applies_security_profile(monkeypatch):
 
     from vnc_remote_secure.core import lifecycle
     # Reset state so startup runs fresh.
-    with lifecycle._state['lock']:
+    with lifecycle._lock:
         lifecycle._state['running'] = False
         lifecycle._state['config'] = None
 

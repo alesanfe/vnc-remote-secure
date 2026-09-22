@@ -113,7 +113,6 @@ class AudioStreamServer:
     """WebSocket server that streams audio to connected clients."""
 
     def __init__(self, host, port, device, bitrate):
-        """Init."""
         self.host = host
         self.port = port
         self.device = device

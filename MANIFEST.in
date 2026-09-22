@@ -60,4 +60,10 @@ recursive-include docs *.md *.yaml
 recursive-include scripts *.sh *.py *.ps1
 
 # Tests (so downstream packagers can run them)
-recursive-include tests *.py *.sh *.ps1 *.js
+recursive-include tests *.py *.sh *.ps1 *.js *.md
+
+# Tooling/config files — reproducible builds and license compliance
+include Makefile REUSE.toml SECURITY.md ROADMAP.md
+include .editorconfig .darglint .pre-commit-config.yaml .dockerignore
+include package.json package-lock.json playwright.config.js cosmic-ray.toml
+recursive-include LICENSES *.txt

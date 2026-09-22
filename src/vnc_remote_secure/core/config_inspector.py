@@ -51,7 +51,6 @@ def _resolve_profile_name(env_snapshot: dict[str, str]) -> str:
     names so profile-scoped checks agree with apply_profile() at
     runtime.
     """
-    from vnc_remote_secure.security.profiles import _PROFILE_ALIASES
     name = (env_snapshot.get('SECURITY_PROFILE')
             or env_snapshot.get('VNC_REMOTE_PROFILE')
             or 'development')

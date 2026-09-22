@@ -101,7 +101,7 @@ class TestProfileIdempotency:
 class TestAliasIdempotency:
     """Legacy profile aliases should resolve consistently."""
 
-    @pytest.mark.parametrize('alias,target', [
+    @pytest.mark.parametrize(('alias', 'target'), [
         ('home-lan', 'trusted-lan'),
         ('private-vpn', 'private-overlay'),
         ('internet-hardened', 'public-hardened'),

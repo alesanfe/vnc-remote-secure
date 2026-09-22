@@ -306,7 +306,6 @@ def _generate_via_openssl(cert_path, key_path, common_name, days_valid):
     # (/CN=x/O=evil); '=' escapes into the value's attribute name.
     # Strip subject-syntax characters rather than escaping — openssl
     # escaping rules differ across versions and configs.
-    import re
     safe_cn = re.sub(r'[/=+\\\r\n\t]', '', str(common_name)).strip()
     if not safe_cn:
         raise ValueError("common_name contains no usable characters")
@@ -319,8 +318,9 @@ def _generate_via_openssl(cert_path, key_path, common_name, days_valid):
     ]
     result = run_cmd(cmd, capture_output=True)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"openssl failed: {result.stderr.decode('utf-8', 'replace')}"
-        )
+        err = result.stderr
+        if isinstance(err, bytes):
+            err = err.decode('utf-8', 'replace')
+        raise RuntimeError(f"openssl failed: {err}")
     _restrict_key_permissions(key_path)
     return True

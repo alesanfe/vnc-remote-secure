@@ -45,7 +45,7 @@ def fresh_store(monkeypatch):
 
 
 @pytest.fixture
-def fresh_registry(monkeypatch):
+def _fresh_registry(monkeypatch):
     """Fresh WebSocket registry."""
     reset_registry()
 
@@ -175,7 +175,8 @@ class TestSingleUseAtomicConsumption:
 class TestRevocationClosesWebSockets:
     """TEST-SEC-004: Revocar una sesión cierra sus WebSockets activos."""
 
-    def test_revoke_closes_single_websocket(self, fresh_store, fresh_registry):
+    @pytest.mark.usefixtures('_fresh_registry')
+    def test_revoke_closes_single_websocket(self, fresh_store):
         """Contrato: revocar una sesión cierra su WebSocket activo.
 
         Precondiciones: sesión activa con 1 WebSocket registrado.
@@ -204,7 +205,8 @@ class TestRevocationClosesWebSockets:
         # WebSocket should have been closed
         assert closed == [True], 'WebSocket was not closed on revocation'
 
-    def test_revoke_closes_multiple_websockets(self, fresh_store, fresh_registry):
+    @pytest.mark.usefixtures('_fresh_registry')
+    def test_revoke_closes_multiple_websockets(self, fresh_store):
         """Contrato: revocar una sesión cierra TODOS sus WebSockets.
 
         Precondiciones: sesión con 3 WebSockets registrados.
@@ -234,8 +236,9 @@ class TestRevocationClosesWebSockets:
             f'Expected all 3 WebSockets closed, got {closed}'
         )
 
+    @pytest.mark.usefixtures('_fresh_registry')
     def test_revoke_does_not_close_other_sessions(
-        self, fresh_store, fresh_registry,
+        self, fresh_store,
     ):
         """Contrato: revocar una sesión NO cierra WebSockets de otras
         sesiones.
@@ -274,12 +277,13 @@ class TestRevocationClosesWebSockets:
         allowed, reason = check_websocket_upgrade(
             origin='http://localhost:8000',
             bearer_token=signed,
-            required_permission=PERM_VIEW if (PERM_VIEW := 'view') else '',
+            required_permission='view',
         )
         assert allowed is False
         assert 'revoked' in reason.lower()
 
-    def test_revoke_with_no_active_websockets(self, fresh_store, fresh_registry):
+    @pytest.mark.usefixtures('_fresh_registry')
+    def test_revoke_with_no_active_websockets(self, fresh_store):
         """Contrato: revocar una sesión sin WebSockets no falla.
 
         Condición límite: no hay conexiones activas.
@@ -288,7 +292,8 @@ class TestRevocationClosesWebSockets:
         # No WebSocket registered
         revoke_session(signed)  # Should not raise
 
-    def test_close_callback_exception_does_not_crash(self, fresh_store, fresh_registry):
+    @pytest.mark.usefixtures('_fresh_registry')
+    def test_close_callback_exception_does_not_crash(self, fresh_store):
         """Contrato: si el close_callback lanza una excepción, la
         revocación continúa cerrando otras conexiones.
 

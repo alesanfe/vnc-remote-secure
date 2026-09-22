@@ -75,6 +75,7 @@ def redact_env(name: str, show_fingerprint: bool = False) -> str:
             )
             value = _load_generated_credential(name) or ''
         except (ImportError, OSError):
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs var name, not value)
             logger.debug(
                 "Generated credential lookup failed for %s", name,
                 exc_info=True)
@@ -169,15 +170,14 @@ def sanitized_child_env() -> dict:
     the FULL environment including every secret, which is the failure
     this function exists to prevent.
     """
-    import os as _os
     try:
-        return {k: v for k, v in _os.environ.items()
+        return {k: v for k, v in os.environ.items()
                 if k not in SECRET_VARS}
     except Exception:  # noqa: BLE001 - fail closed, not env=None
         minimal = {}
         for k in ('PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC',
                   'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL'):
-            v = _os.environ.get(k)
+            v = os.environ.get(k)
             if v:
                 minimal[k] = v
         return minimal

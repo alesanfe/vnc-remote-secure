@@ -38,7 +38,6 @@ class RateLimiter:
         lockout_seconds: int | None = None,
         window_seconds: int | None = None,
     ):
-        """Init."""
         load_env_file()
         self.max_attempts = max_attempts or int(
             os.environ.get('AUTH_MAX_ATTEMPTS', str(DEFAULT_MAX_ATTEMPTS))

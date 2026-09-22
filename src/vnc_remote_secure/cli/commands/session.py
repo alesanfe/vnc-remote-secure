@@ -132,7 +132,7 @@ def cmd_session(args):
                 print(f"Error: --allowed-ip is not a valid IP: {args.allowed_ip!r}")
                 return 1
 
-        session, signed_token = store.create(
+        _session, signed_token = store.create(
             expires_in=expires_in,
             role=role,
             single_use=args.single_use,

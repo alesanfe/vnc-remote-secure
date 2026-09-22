@@ -24,7 +24,8 @@ from Crypto.Cipher import DES  # noqa: E402
 # _bit_reverse
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize('inp,expected', [
+
+@pytest.mark.parametrize(('inp', 'expected'), [
     (0x00, 0x00),
     (0x01, 0x80),
     (0x80, 0x01),

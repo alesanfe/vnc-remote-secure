@@ -24,6 +24,7 @@ def _isolate_project_root(monkeypatch, tmp_path):
 # _find_ultravnc
 # ---------------------------------------------------------------------------
 
+
 def test_find_ultravnc_returns_explicit_env_path(monkeypatch, tmp_path):
     """ULTRAVNC_PATH env var pointing to a real file is returned first."""
     fake_exe = tmp_path / 'winvnc.exe'
@@ -86,6 +87,7 @@ def test_ensure_ultravnc_noop_when_present(monkeypatch, tmp_path):
     monkeypatch.setattr(installer, '_find_ultravnc',
                         lambda: str(tmp_path / 'winvnc.exe'))
     # If _ensure_ultravnc tries to download, urlopen will fail and raise.
+
     def _fail(*a, **k):
         raise AssertionError("should not download when UltraVNC present")
     monkeypatch.setattr(installer.urllib.request, 'urlopen', _fail)

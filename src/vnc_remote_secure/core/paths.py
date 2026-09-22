@@ -177,7 +177,7 @@ def get_run_dir():
     xdg_runtime = os.environ.get('XDG_RUNTIME_DIR')
     if xdg_runtime:
         return os.path.join(xdg_runtime, _APP_DIR_NAME)
-    # nosec rationale: runtime dir, perms hardened by callers
+    # justification: runtime dir, perms hardened by callers
     return os.path.join('/tmp', _APP_DIR_NAME)  # nosec B108
 
 
@@ -221,6 +221,7 @@ def _restrict_dir(path):
         except (OSError, subprocess.SubprocessError):
             pass
     else:
+        # nosemgrep: python.lang.security.insecure-file-permissions.insecure-file-permissions (0o700 hardens)
         with contextlib.suppress(OSError):
             os.chmod(path, 0o700)
 

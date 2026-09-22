@@ -17,7 +17,10 @@ from flask import (
     url_for,
 )
 
-from vnc_remote_secure.core.constants import RESERVED_USERNAMES
+from vnc_remote_secure.core.constants import (
+    RESERVED_USERNAMES,
+    WINDOWS_BUILTIN_USERNAMES,
+)
 from vnc_remote_secure.core.errors import json_error
 from vnc_remote_secure.core.validation import sanitize_input, validate_password, validate_username
 from vnc_remote_secure.security.auth_gateway import check_authenticated
@@ -78,7 +81,6 @@ def _create_runtime_user(username: str, password: str) -> str | None:
         validate_username(username)
     except ValueError as exc:
         return str(exc)
-    from vnc_remote_secure.core.constants import WINDOWS_BUILTIN_USERNAMES
     if username in RESERVED_USERNAMES or username in WINDOWS_BUILTIN_USERNAMES:
         return 'Cannot create system users'
     try:
@@ -106,7 +108,6 @@ def _delete_runtime_user(username: str) -> str | None:
         validate_username(username)
     except ValueError as exc:
         return str(exc)
-    from vnc_remote_secure.core.constants import WINDOWS_BUILTIN_USERNAMES
     if username in RESERVED_USERNAMES or username in WINDOWS_BUILTIN_USERNAMES:
         return 'Cannot delete system users'
     try:
@@ -276,8 +277,7 @@ def logout():
         if token:
             revoke_session_connections(_resolve_session_id(token))
             revoke_session_connections(token)
-        from flask import request as _req
-        live = _req.cookies.get('vnc_session', '')
+        live = request.cookies.get('vnc_session', '')
         if live and live != token:
             revoke_session_connections(_resolve_session_id(live))
             revoke_session_connections(live)
@@ -301,11 +301,10 @@ def logout():
 @users_bp.route('/users')
 def users():
     """Render the user management page (requires authentication)."""
-    username, err = _require_session()
+    _username, err = _require_session()
     if err is not None:
         return err
     # Provide the context variables the template expects.
-    from vnc_remote_secure.core.constants import RESERVED_USERNAMES
     # Enumerate real system users via the platform adapter.
     users_list = []
     try:
@@ -370,7 +369,6 @@ def delete_user(username):
         return json_error(str(exc), 400)
     import getpass
 
-    from vnc_remote_secure.core.constants import RESERVED_USERNAMES, WINDOWS_BUILTIN_USERNAMES
     if (username in RESERVED_USERNAMES
             or username in WINDOWS_BUILTIN_USERNAMES
             or username == getpass.getuser()):
@@ -401,7 +399,6 @@ def _audit_user_action(event, actor, target, ok=True):
 
 def _api_users_get():
     """Handle GET /api/users — list non-system users."""
-    from vnc_remote_secure.core.constants import RESERVED_USERNAMES
     users_list = []
     try:
         import pwd
@@ -413,10 +410,6 @@ def _api_users_get():
     except (ImportError, AttributeError):
         # Windows: use the platform adapter.
         try:
-            from vnc_remote_secure.core.constants import (
-                RESERVED_USERNAMES,
-                WINDOWS_BUILTIN_USERNAMES,
-            )
             from vnc_remote_secure.platform.windows.permissions import list_users
             all_users = list_users()
             users_list = [
@@ -429,9 +422,9 @@ def _api_users_get():
     return jsonify({'users': users_list})
 
 
-def _api_users_post(request, session):
+def _api_users_post(req, sess):
     """Handle POST /api/users — create a user via the platform adapter."""
-    data = request.get_json(silent=True)
+    data = req.get_json(silent=True)
     if not isinstance(data, dict):
         return json_error('Request body must be a JSON object', 400)
     username = sanitize_input(data.get('username', ''))
@@ -442,7 +435,7 @@ def _api_users_post(request, session):
     return jsonify({'status': 'created', 'username': username})
 
 
-def _api_users_delete(request, session, username):
+def _api_users_delete(req, sess, username):
     """Handle DELETE /api/users — remove a user via the platform adapter."""
     try:
         validate_username(username)
@@ -450,7 +443,6 @@ def _api_users_delete(request, session, username):
         return json_error(str(exc), 400)
     import getpass
 
-    from vnc_remote_secure.core.constants import RESERVED_USERNAMES, WINDOWS_BUILTIN_USERNAMES
     if (username in RESERVED_USERNAMES
             or username in WINDOWS_BUILTIN_USERNAMES
             or username == getpass.getuser()):

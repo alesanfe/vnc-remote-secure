@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-import vnc_remote_secure.services.landing as landing  # noqa: E402
+from vnc_remote_secure.services import landing  # noqa: E402
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def fake_config(monkeypatch):
     }
     monkeypatch.setattr(landing, '_config', lambda: cfg)
     monkeypatch.setattr(landing, 'check_port', lambda *a, **k: False)
-    monkeypatch.setattr(landing, 'get_lan_ips', lambda: [])
+    monkeypatch.setattr(landing, 'get_lan_ips', list)
     return cfg
 
 

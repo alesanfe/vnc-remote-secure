@@ -8,6 +8,7 @@ rules, the runtime user, and optionally SSL certificates and data.
 import logging
 import os
 import shutil
+import subprocess
 
 from vnc_remote_secure.core.paths import (
     get_config_dir,
@@ -98,8 +99,6 @@ def uninstall(keep_data: bool = False, force: bool = False) -> dict:
         # GROUP (groupadd --system) — userdel does not remove it, so
         # the canonical uninstall must not orphan it either.
         try:
-            import subprocess
-
             from vnc_remote_secure.core.processes import run_cmd
             run_cmd(
                 ['groupdel', 'vnc-remote'],

@@ -14,7 +14,6 @@ class LinuxInputInjector:
     """Inject input events on Linux using uinput (via evdev)."""
 
     def __init__(self):
-        """Init."""
         self.uinput = None
         self.available = False
         try:

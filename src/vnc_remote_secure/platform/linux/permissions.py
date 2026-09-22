@@ -83,7 +83,7 @@ def set_user_password(username, password):
 def user_exists(username):
     """Return ``True`` if ``username`` exists on the system."""
     try:
-        import pwd
+        import pwd  # pylint: disable=import-error
         pwd.getpwnam(username)
         return True
     except KeyError:

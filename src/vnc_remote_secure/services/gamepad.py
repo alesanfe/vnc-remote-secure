@@ -164,7 +164,6 @@ class GamepadServer:
     """Gamepad Server."""
 
     def __init__(self, host, port):
-        """Init."""
         self.host = host
         self.port = port
         self.injector = None

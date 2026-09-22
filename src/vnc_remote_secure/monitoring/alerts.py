@@ -80,7 +80,7 @@ def _post_json(url, payload):
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
-        # nosec rationale: scheme validated before dispatch
+        # justification: scheme validated before dispatch
         with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310
             ok = 200 <= resp.status < 300
             if not ok:

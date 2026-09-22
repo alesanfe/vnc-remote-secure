@@ -1,0 +1,4 @@
+[pydocstyle]
+# __init__ methods are self-documenting in this codebase; the class
+# docstring carries the constructor contract.
+add-ignore = D107

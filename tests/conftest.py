@@ -24,7 +24,7 @@ except ImportError:
 
 @pytest.fixture(autouse=True)
 def _isolate_run_dir(monkeypatch, tmp_path):
-    """Redirect get_run_dir() to a temporary directory for every test.
+    r"""Redirect get_run_dir() to a temporary directory for every test.
 
     This prevents tests from reading/writing the real /run/vnc-remote-secure
     (Linux) or C:\\ProgramData\\VncRemoteSecure\\run (Windows) directory,
@@ -97,5 +97,3 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     # explicitly (it can monkeypatch.setenv itself).
     monkeypatch.delenv('AUDIT_LOG_FILE', raising=False)
     monkeypatch.delenv('AUDIT_MIRROR_FILE', raising=False)
-
-    yield

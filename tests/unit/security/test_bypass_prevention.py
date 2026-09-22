@@ -170,7 +170,7 @@ class TestDirectPortAccess:
                         # But on some OS configs 0.0.0.0 routes to localhost
                         # so we just log it
                         conn2.close()
-                    except (ConnectionRefusedError, OSError, socket.timeout):
+                    except (OSError, socket.timeout):
                         # Expected: connection refused
                         pass
                     except Exception:

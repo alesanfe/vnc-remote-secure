@@ -127,7 +127,6 @@ class WindowsAdapter(PlatformAdapter):
         ``userdel -r`` semantics. Failures to delete the profile are
         logged but do not fail the operation.
         """
-        import logging
         log = logging.getLogger(__name__)
         # Refuse to remove accounts we did not create: TEMP_USER comes
         # from the environment, so a misconfiguration naming a builtin
@@ -152,7 +151,6 @@ class WindowsAdapter(PlatformAdapter):
         # Best-effort profile removal (matches Linux ``userdel -r``).
         profile_path = f"C:\\Users\\{username}"
         try:
-            import os
             import shutil
             if os.path.isdir(profile_path):
                 shutil.rmtree(profile_path, ignore_errors=True)
@@ -266,8 +264,6 @@ class WindowsAdapter(PlatformAdapter):
         ``QueryAccept=0`` so unattended connections are not gated on a
         console-side prompt. Any other existing keys are preserved.
         """
-        import os
-
         from vnc_remote_secure.core.config import get_config
         from vnc_remote_secure.vendor.d3des import encrypt_vnc_password
 

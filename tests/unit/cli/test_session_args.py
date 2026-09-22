@@ -11,12 +11,12 @@ from vnc_remote_secure.cli.commands.session import cmd_session
 
 
 def _args(**over):
-    base = dict(
-        session_action='create', expires='30m', role='viewer',
-        view_only=False, no_terminal=False, single_use=False,
-        max_uses=0, allowed_ip=None, resource=None, json=False,
-        verbose=False,
-    )
+    base = {
+        'session_action': 'create', 'expires': '30m', 'role': 'viewer',
+        'view_only': False, 'no_terminal': False, 'single_use': False,
+        'max_uses': 0, 'allowed_ip': None, 'resource': None, 'json': False,
+        'verbose': False,
+    }
     base.update(over)
     return Namespace(**base)
 

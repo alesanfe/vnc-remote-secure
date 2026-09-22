@@ -88,7 +88,7 @@ def decode_all_payloads(data: bytes) -> bytes:
 def rfb_server_handshake() -> bytes:
     """A complete RFB 3.8 server handshake (VncAuth)."""
     return (b'RFB 003.008\n'            # protocol version
-            + b'\x01\x02'               # 1 security type: VncAuth(2)
+            b'\x01\x02'                # 1 security type: VncAuth(2)
             + secrets.token_bytes(16)   # challenge
             + b'\x00\x00\x00\x00'       # SecurityResult OK
             + secrets.token_bytes(20)   # ServerInit: fb + pixel-format
@@ -99,7 +99,7 @@ def rfb_client_handshake() -> bytes:
     """Client handshake bytes for VncAuth: version echo + type +
     challenge response + ClientInit."""
     return (b'RFB 003.008\n'            # protocol version echo
-            + b'\x02'                  # chosen security type: VncAuth
+            b'\x02'                   # chosen security type: VncAuth
             + secrets.token_bytes(16)  # challenge response
             + b'\x01')                 # ClientInit (shared)
 
@@ -179,7 +179,7 @@ class TestRfbInputFilter:
         f = RfbInputFilter()
         # 12B version echo + unsupported security type 0x10
         out = f.client_to_server(
-            ws_client_frame(b'RFB 003.008\n' + b'\x10'
+            ws_client_frame(b'RFB 003.008\n\x10'
                             + secrets.token_bytes(4)))
         assert out is None
 
@@ -190,7 +190,8 @@ class TestRfbInputFilter:
         half = len(frame) // 2
         out1 = f.client_to_server(frame[:half])
         out2 = f.client_to_server(frame[half:])
-        assert out1 is not None and out2 is not None
+        assert out1 is not None
+        assert out2 is not None
         assert out1 + out2 == b''  # key event still dropped
 
     def test_fragmented_ws_message(self):
@@ -235,7 +236,7 @@ class TestRfbInputFilter:
     def test_no_mask_server_frame_track(self):
         # Server frames are unmasked; track_server must still parse
         f = RfbInputFilter()
-        f.track_server(ws_server_frame(b'RFB 003.008\n' + b'\x01\x02'))
+        f.track_server(ws_server_frame(b'RFB 003.008\n\x01\x02'))
         # Not done yet — handshake incomplete
         assert not f._srv.done
 

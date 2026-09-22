@@ -123,8 +123,10 @@ class _FakeWebSocket:
         self.remote_address = (remote_ip, 12345)
         # Mimic the websockets library's request headers accessor so the
         # auth gateway can read Origin/Cookie/Authorization.
+
         class _Req:
             headers = {}
+
         class _Handler:
             request = _Req()
         self.handler = _Handler()

@@ -31,7 +31,7 @@ from vnc_remote_secure.security.ephemeral_sessions import (
 
 
 @pytest.fixture(autouse=True)
-def reset_store():
+def _reset_store():
     import vnc_remote_secure.security.ephemeral_sessions as es
     es._store = None
     yield

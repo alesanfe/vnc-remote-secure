@@ -21,6 +21,7 @@ from vnc_remote_secure.security.shared_state import (
 # MemoryBackend
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryBackend:
     def test_set_get(self):
         b = MemoryBackend()

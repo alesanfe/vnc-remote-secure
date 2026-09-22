@@ -133,7 +133,6 @@ class EphemeralSession:
         nonce: str | None = None,
         max_uses: int = 0,
     ):
-        """Init."""
         self.token = token
         self.role = role
         self.permissions = permissions or ROLES.get(role, {PERM_VIEW})
@@ -321,7 +320,6 @@ class SessionStore:
     """
 
     def __init__(self):
-        """Init."""
         self._sessions: dict = {}  # token -> EphemeralSession
         self._cleanup_interval = 300  # 5 min
         self._lock = threading.Lock()
@@ -688,7 +686,7 @@ def create_ephemeral_session(
     """
     store = get_session_store()
     try:
-        session, signed = store.create(
+        _session, signed = store.create(
             expires_in=ttl_seconds,
             role=role,
             single_use=single_use,

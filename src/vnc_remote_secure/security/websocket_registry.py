@@ -92,7 +92,6 @@ class WebSocketRegistry:
     """
 
     def __init__(self):
-        """Init."""
         self._lock = threading.Lock()
         self._connections: dict[str, _ConnectionEntry] = {}  # conn_id -> entry
         self._by_session: dict[str, set[str]] = {}  # session_id -> {conn_ids}

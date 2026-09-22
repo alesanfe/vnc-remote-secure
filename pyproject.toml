@@ -89,6 +89,32 @@ ignore_missing_imports = false
 module = ["evdev", "psutil", "waitress"]
 ignore_missing_imports = true
 
+[tool.pylint.messages_control]
+# pylint complements ruff/flake8 with structural checks. Style rules and
+# families already owned by ruff are disabled to avoid duplicates.
+disable = [
+    "C", "R",                        # convention/refactor — ruff+flake8
+    "fixme", "missing-docstring",    # pydocstyle/pydoclint own docs
+    "too-many-arguments", "too-many-locals", "too-many-branches",
+    "too-many-statements", "too-many-instance-attributes",
+    "too-few-public-methods", "too-many-public-methods",
+    "broad-except", "broad-exception-caught",  # documented policy
+    "global-statement",              # lazy singletons are the pattern
+    "import-outside-toplevel",       # lazy imports are intentional
+    "redefined-outer-name",          # lazy inner imports shadow by design
+    "protected-access",              # module-internal helpers access _x
+    "arguments-differ",              # stdlib/tornado override signatures
+    "abstract-method",               # tornado's data_received is optional
+    "attribute-defined-outside-init",# tornado WS lifecycle + ctypes fields
+    "cyclic-import",
+    "duplicate-code",
+]
+
+[tool.pylint.variables]
+# Dispatch/interface callbacks receive a uniform signature; the handler
+# may legitimately ignore some parameters.
+ignored-argument-names = "args|config|session|sess|request|req|websocket|sig|frame|cwd|force|unit_file|unit_content|actor|username|project_root|as_json|writer|environ|start_response|permissions|returncode|_.*"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -138,6 +164,7 @@ extend-ignore = [
     "NQA102", "NQA103", "NQA104",   # noqa codes target ruff, not flake8
     "WPS",                          # wemake styleguide — not adopted
     "DAR", "DCO",                   # Args/Returns — pydoclint is canonical
+    "D107",                         # __init__ docstrings — see .pydocstyle
     "FNE", "ANN", "PD005", "FMT", "FA100",  # opinionated plugins
     "H101", "H102", "H104", "H105", "H106", "H201", "H202", "H204",
     "H205", "H301", "H306", "H401", "H403", "H404", "H405", "H501",
@@ -169,14 +196,31 @@ extend-ignore = [
 per-file-ignores = [
     "src/vnc_remote_secure/vendor/*: S, DUO, SIM, TRY, PIE, DTZ, B, N8",
     "src/vnc_remote_secure/third_party/*: ALL",
+    # test docstrings are not required — test names are the documentation
+    "tests/*: D",
 ]
 exclude = [
     ".git", "__pycache__", ".venv", "venv", "build", "dist", "dist_lint",
     "node_modules", "novnc", "docs/reports", ".idea",
 ]
 
+[tool.basedpyright]
+# mypy is the canonical type checker; basedpyright runs in basic mode as
+# a secondary signal (strict mode is not adopted — the codebase is not
+# fully annotated).
+typeCheckingMode = "basic"
+
+[tool.deptry]
+# CLI/test tools are dev-only deps (not imported by src/); websockify is
+# spawned as a subprocess rather than imported.
+[tool.deptry.per_rule_ignores]
+DEP002 = [
+    "websockify", "pytest", "pytest-cov", "ruff", "black", "pre-commit",
+    "yamllint", "hypothesis", "bandit", "build",
+]
+
 # darglint config lives in .darglint (it does not read pyproject.toml);
-# pydocstyle runs clean with its defaults.
+# pydocstyle config lives in .pydocstyle.
 
 [tool.interrogate]
 # Docstring coverage gate — pydocstyle handles style, this counts presence.

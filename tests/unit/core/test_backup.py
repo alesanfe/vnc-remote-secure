@@ -20,7 +20,8 @@ class TestVerifyBackup:
     def test_missing_file(self, tmp_path):
         from vnc_remote_secure.core.backup import verify_backup
         ok, msg, count = verify_backup(str(tmp_path / 'nope.tar.gz'))
-        assert not ok and count == -1
+        assert not ok
+        assert count == -1
         assert 'not found' in msg.lower()
 
     def test_valid_archive(self, tmp_path):
@@ -28,14 +29,17 @@ class TestVerifyBackup:
         f = tmp_path / 'backup_x.tar.gz'
         _make_tar(str(f))
         ok, msg, count = verify_backup(str(f))
-        assert ok and count == 2 and 'intact' in msg.lower()
+        assert ok
+        assert count == 2
+        assert 'intact' in msg.lower()
 
     def test_corrupt_archive(self, tmp_path):
         from vnc_remote_secure.core.backup import verify_backup
         f = tmp_path / 'backup_bad.tar.gz'
         f.write_bytes(b'not a real tarball' * 4)
         ok, msg, count = verify_backup(str(f))
-        assert not ok and count == -1
+        assert not ok
+        assert count == -1
         assert 'corrupt' in msg.lower()
 
     def test_encrypted_backup(self, tmp_path, monkeypatch):
@@ -52,7 +56,8 @@ class TestVerifyBackup:
         backup_mod._encrypt_file(str(plain), str(enc))
 
         ok, msg, count = backup_mod.verify_backup(str(enc))
-        assert ok and count == 2
+        assert ok
+        assert count == 2
 
     def test_encrypted_wrong_password(self, tmp_path, monkeypatch):
         pytest.importorskip('cryptography.fernet')

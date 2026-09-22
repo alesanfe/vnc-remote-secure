@@ -11,7 +11,6 @@ class WindowsInputInjector:
     """Inject input events on Windows using SendInput (ctypes)."""
 
     def __init__(self):
-        """Init."""
         self.available = True
         # Map gamepad buttons to virtual key codes
         self.key_map = {
@@ -60,7 +59,8 @@ class WindowsInputInjector:
         flags = KEYEVENTF_KEYUP if value == 0 else KEYEVENTF_KEYDOWN
 
         inp = INPUT()
-        inp.type = INPUT_KEYBOARD
+        # ctypes union field assignment
+        inp.type = INPUT_KEYBOARD  # pylint: disable=attribute-defined-outside-init
         inp.ki.wVk = vk
         inp.ki.dwFlags = flags
 
@@ -110,7 +110,8 @@ class WindowsInputInjector:
             return
 
         inp = INPUT()
-        inp.type = INPUT_MOUSE
+        # ctypes union field assignment
+        inp.type = INPUT_MOUSE  # pylint: disable=attribute-defined-outside-init
         inp.mi.dx = dx
         inp.mi.dy = dy
         inp.mi.dwFlags = MOUSEEVENTF_MOVE
@@ -118,5 +119,4 @@ class WindowsInputInjector:
         ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
 
     def close(self):
-        """Close."""
-        pass  # Nothing to clean up on Windows
+        """Close (no-op on Windows — nothing to clean up)."""

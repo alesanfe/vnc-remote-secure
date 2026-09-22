@@ -16,7 +16,7 @@ def create_runtime_user(username):
     The user is created as a system account (``-r``) with a nologin
     shell so it cannot be used for interactive logins.
     """
-    # nosec rationale: useradd shell arg, not shell=True
+    # justification: useradd shell arg, not shell=True
     return create_user(username, system=True, shell='/usr/sbin/nologin')  # nosec B604
 
 

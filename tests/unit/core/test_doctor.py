@@ -26,10 +26,12 @@ def _run(monkeypatch, **env):
 def test_result_shape(monkeypatch):
     """run_doctor returns the documented checks/summary/healthy keys."""
     result = _run(monkeypatch)
-    assert 'checks' in result and 'summary' in result
+    assert 'checks' in result
+    assert 'summary' in result
     assert 'healthy' in result
     names = [c['name'] for c in result['checks']]
-    assert 'ports.vnc' in names and 'ports.landing' in names
+    assert 'ports.vnc' in names
+    assert 'ports.landing' in names
 
 
 def test_optional_services_skipped_when_disabled(monkeypatch):

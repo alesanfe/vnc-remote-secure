@@ -401,9 +401,10 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception:  # noqa: BLE001
                     pass
 
-    def log_message(self, fmt, *args):  # noqa: D401
+    def log_message(self, format, *args):  # noqa: A002 - stdlib signature
+        # pylint: disable=redefined-builtin  # noqa: D401
         logger.info("%s - %s", self.client_address[0],
-                    fmt % args)  # noqa: PIE803 - fmt%args is the stdlib log format
+                    format % args)  # noqa: PIE803 - format%args is the stdlib log format
 
 
 def main():
@@ -445,7 +446,7 @@ def main():
             or os.environ.get('NOVNC_HOST', '').strip()
             or os.environ.get('BIND_HOST', '').strip()
             or DEFAULT_BIND_HOST)
-    # nosec rationale: detection, not a bind
+    # justification: detection, not a bind
     if host == '0.0.0.0':  # nosec B104
         logger.warning("SERVE_NOVNC_HOST=0.0.0.0 exposes noVNC directly; "
                        "use a reverse proxy instead")

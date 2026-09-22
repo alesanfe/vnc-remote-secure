@@ -105,6 +105,8 @@ def _decrypt_file(source_path, dest_path):
     if len(blob) > _SALT_LEN:
         salt, token = blob[:_SALT_LEN], blob[_SALT_LEN:]
         key = _get_backup_key(salt=salt, iterations=_PBKDF2_ITERATIONS)
+        if key is None:  # unreachable: password validated non-empty above
+            raise ValueError('BACKUP_PASSWORD not set')
         try:
             data = Fernet(key).decrypt(token)
             with open(dest_path, 'wb') as f:
@@ -113,6 +115,8 @@ def _decrypt_file(source_path, dest_path):
         except InvalidToken:
             pass  # fall through to the legacy derivation
     key = _get_backup_key()
+    if key is None:  # unreachable: password validated non-empty above
+        raise ValueError('BACKUP_PASSWORD not set')
     data = Fernet(key).decrypt(blob)
     with open(dest_path, 'wb') as f:
         f.write(data)
@@ -126,6 +130,7 @@ def _backup_dir() -> str:
     # directory must not be group/world-accessible on POSIX. On
     # Windows chmod only toggles the read-only flag, so this is a
     # no-op there and the dir inherits the project ACL.
+    # nosemgrep: python.lang.security.insecure-file-permissions.insecure-file-permissions (0o700 hardens)
     with contextlib.suppress(OSError):
         os.chmod(d, 0o700)
     return d
@@ -322,6 +327,7 @@ def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir)
     os.makedirs(temp_dir, exist_ok=True)
+    # nosemgrep: python.lang.security.insecure-file-permissions.insecure-file-permissions (0o700 hardens)
     with suppress(OSError):
         os.chmod(temp_dir, 0o700)  # POSIX; no-op semantics on Windows
 
@@ -467,6 +473,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
         # Restore the system config.env captured as 'system-config.env'
         # (Windows: ProgramData root; Linux: /etc/vnc-remote-secure).
         sys_cfg_src = os.path.join(temp_dir, 'system-config.env')
+        sys_cfg_dst = None
         if os.path.isfile(sys_cfg_src):
             from vnc_remote_secure.platform.detection import is_windows
             sys_cfg_dst = (os.path.join(
@@ -539,7 +546,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
             restored_secrets = [
                 os.path.join(project_root, '.env'),
             ]
-            if os.path.isfile(sys_cfg_src):
+            if sys_cfg_dst is not None:
                 restored_secrets.append(sys_cfg_dst)
             for base in (ssl_dir, config_dst, data_dst, run_dst):
                 if not os.path.isdir(base):

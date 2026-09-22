@@ -103,6 +103,7 @@ class TestPostStartBindVerification:
         # Simulate the child binding shortly after spawn: the listener
         # accepts connections so the probe's backlog slot is drained.
         bind_err = []
+
         def delayed_bind():
             try:
                 time.sleep(0.3)
@@ -124,6 +125,7 @@ class TestPostStartBindVerification:
         t.start()
         calls = []
         orig = sm._port_in_use
+
         def wrapped(p, h='127.0.0.1'):
             calls.append(p)
             return orig(p, h)
@@ -132,6 +134,7 @@ class TestPostStartBindVerification:
         # via a fake Popen? Instead patch Popen to a sleeping process.
         import subprocess
         real_popen = subprocess.Popen
+
         def fake_popen(cmd, **kw):
             return real_popen(
                 [sys.executable, '-c', 'import time;time.sleep(10)'],

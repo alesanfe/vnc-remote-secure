@@ -143,6 +143,7 @@ def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
     try:
         key = _base32_decode(secret)
     except (ValueError, KeyError) as exc:
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs decode error, not the secret)
         logger.debug("TOTP secret decode failed: %s", exc)
         return False
     ts = timestamp or int(time.time())

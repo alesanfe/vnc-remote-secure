@@ -14,6 +14,7 @@ from vnc_remote_secure.services import landing
 # check_port
 # ---------------------------------------------------------------------------
 
+
 def test_check_port_returns_bool_when_closed(monkeypatch):
     """check_port returns False when nothing listens (port available)."""
     monkeypatch.setattr(
@@ -43,6 +44,7 @@ def test_check_port_wildcard_normalised_to_loopback(monkeypatch):
     """A wildcard/empty host is probed on loopback (Windows cannot
     connect to '0.0.0.0')."""
     seen = {}
+
     def _spy(port, host='127.0.0.1'):
         seen['host'] = host
         return False  # listening

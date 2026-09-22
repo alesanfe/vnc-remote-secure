@@ -50,6 +50,7 @@ def test_fallback_app_serves_health():
     """SimpleWebApp should serve JSON at /health."""
     app = SimpleWebApp({})
     captured = {}
+
     def start_response(status, headers):
         captured['status'] = status
         captured['headers'] = dict(headers)
@@ -68,6 +69,7 @@ def test_fallback_app_serves_text_for_other_paths(monkeypatch):
     monkeypatch.setenv('LANDING_PASSWORD', 'test-pass-1234')
     app = SimpleWebApp({})
     captured = {}
+
     def start_response(status, headers):
         captured['status'] = status
         captured['headers'] = dict(headers)
@@ -88,6 +90,7 @@ def test_fallback_app_landing_denies_empty_password(monkeypatch):
     monkeypatch.delenv('LANDING_PASSWORD', raising=False)
     app = SimpleWebApp({})
     captured = {}
+
     def start_response(status, headers):
         captured['status'] = status
         captured['headers'] = dict(headers)
@@ -124,7 +127,6 @@ def test_flask_landing_rejects_invalid_session_token(monkeypatch):
     client = app.test_client()
     resp = client.get('/?session=ephemeral:bad:1:0.sig')
     assert resp.status_code == 403
-
 
 
 def test_flask_session_cookie_does_not_collide_with_token_cookie():

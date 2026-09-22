@@ -51,9 +51,8 @@ def setup_logging(verbose=False, json_output=False):
 
     Args:
         verbose: If True, set log level to DEBUG; otherwise INFO.
-        json_output: If True, format log records as JSON lines. Currently
-            falls back to the standard formatter when the optional JSON
-            dependencies are unavailable.
+        json_output: If True, format log records as JSON lines
+            (``ts``/``level``/``logger``/``msg``).
 
     Returns:
         The configured root ``logging.Logger`` for the
@@ -71,9 +70,23 @@ def setup_logging(verbose=False, json_output=False):
     else:
         level = logging.INFO
     handler = logging.StreamHandler(sys.stderr)
-    formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-    )
+    if json_output:
+        import json as _json
+
+        class _JsonFormatter(logging.Formatter):
+            def format(self, record):
+                return _json.dumps({
+                    'ts': self.formatTime(record),
+                    'level': record.levelname,
+                    'logger': record.name,
+                    'msg': record.getMessage(),
+                }, ensure_ascii=False)
+
+        formatter = _JsonFormatter()
+    else:
+        formatter = logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+        )
     handler.setFormatter(formatter)
     handler.addFilter(_SecretScrubFilter())
     logger = logging.getLogger('vnc_remote_secure')

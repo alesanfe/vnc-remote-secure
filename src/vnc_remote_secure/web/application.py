@@ -244,7 +244,6 @@ class SimpleWebApp:
     """
 
     def __init__(self, config):
-        """Init."""
         self.config = config
 
     def __call__(self, environ, start_response):

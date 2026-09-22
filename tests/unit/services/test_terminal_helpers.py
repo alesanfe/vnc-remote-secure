@@ -29,6 +29,7 @@ from vnc_remote_secure.services.terminal import (  # noqa: E402
 # _complete_windows_command
 # ---------------------------------------------------------------------------
 
+
 def test_complete_command_matches_prefix():
     """'ec' completes to echo (COMMON_COMMANDS) — 'where' may add
     PATH executables that don't share the prefix, so only assert the

@@ -453,8 +453,10 @@ def _create_temp_user():
         try:
             from vnc_remote_secure.platform.linux.permissions import set_user_password
             set_user_password(temp_user, temp_pass)
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs username, not the password)
             logger.info("Password set for temp user: %s", temp_user)
         except (OSError, subprocess.CalledProcessError) as exc:
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs username+error, not the password)
             logger.warning("Failed to set password for temp user '%s': %s", temp_user, exc)
 
 
@@ -469,7 +471,7 @@ def install(project_root=None, service_user='vnc-remote'):
     Returns:
         ``True`` if the installation completed successfully.
     """
-    if os.geteuid() != 0:
+    if os.geteuid() != 0:  # pylint: disable=no-member
         raise PermissionError("Linux install requires root privileges")
     if project_root is None:
         from vnc_remote_secure.core.paths import find_project_root

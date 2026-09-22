@@ -10,7 +10,6 @@ import logging
 import os
 import secrets
 import string
-from typing import Optional
 
 from vnc_remote_secure.core.constants import (
     DEFAULT_AUDIO_STREAM_PORT,
@@ -444,6 +443,7 @@ def _persist_generated_credential(name, value):
             raise
         with contextlib.suppress(OSError):
             os.chmod(cred_file, 0o600)
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs var name+path, not the value)
         logger.warning(
             "%s not set; generated a random password — stored in %s "
             "(owner-only). Set it explicitly in .env to control it.",
@@ -587,8 +587,8 @@ def _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_use
         validate_password(landing_password, 'LANDING_PASSWORD')
 
 
-def _safe_int(env_name: str, default: int, minimum: 'Optional[int]' = None,
-              maximum: 'Optional[int]' = None) -> int:
+def _safe_int(env_name: str, default: int, minimum: 'int | None' = None,
+              maximum: 'int | None' = None) -> int:
     """Parse an integer env var with a fallback and optional range check.
 
     Returns ``default`` when the env var is unset or not a valid integer.

@@ -44,14 +44,15 @@ def test_find_ffmpeg_returns_binary_when_available(monkeypatch):
     import subprocess
     monkeypatch.setattr(
         subprocess, 'run',
-        lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [],
-                                                  returncode=0))
+        lambda *a, **k: subprocess.CompletedProcess(
+            a[0] if a else [], returncode=0))
     assert audio.find_ffmpeg() == "ffmpeg"
 
 
 def test_find_ffmpeg_returns_none_when_missing(monkeypatch):
     """find_ffmpeg returns None when ffmpeg is not on PATH."""
     import subprocess
+
     def _raise(*a, **k):
         raise FileNotFoundError("ffmpeg not found")
     monkeypatch.setattr(subprocess, 'run', _raise)
@@ -61,6 +62,7 @@ def test_find_ffmpeg_returns_none_when_missing(monkeypatch):
 def test_find_ffmpeg_returns_none_on_timeout(monkeypatch):
     """find_ffmpeg returns None when ffmpeg times out."""
     import subprocess
+
     def _raise(*a, **k):
         raise subprocess.TimeoutExpired(cmd="ffmpeg", timeout=5)
     monkeypatch.setattr(subprocess, 'run', _raise)
@@ -85,7 +87,8 @@ def test_get_ffmpeg_capture_cmd_uses_adapter_args(monkeypatch):
     cmd = audio.get_ffmpeg_capture_cmd(device="hw:0", bitrate=192)
     assert cmd is not None
     assert cmd[0] == "ffmpeg"
-    assert "-f" in cmd and "alsa" in cmd
+    assert "-f" in cmd
+    assert "alsa" in cmd
     assert "-codec:a" in cmd
     assert "libmp3lame" in cmd
     assert "-b:a" in cmd
@@ -105,7 +108,8 @@ def test_get_ffmpeg_capture_cmd_falls_back_to_avfoundation(monkeypatch):
 
     cmd = audio.get_ffmpeg_capture_cmd(device=None, bitrate=128)
     assert cmd is not None
-    assert "-f" in cmd and "avfoundation" in cmd
+    assert "-f" in cmd
+    assert "avfoundation" in cmd
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ def test_config_loads_without_error():
     assert config is not None
     assert 'vnc_port' in config
 
+
 def test_config_has_all_required_keys():
     """Config should have all required keys."""
     config = get_config()

@@ -171,8 +171,7 @@ def _ensure_ultravnc():
             zip_path = os.path.join(tmp_dir, 'ultravnc.zip')
             # urlretrieve() has no timeout — a stalled mirror would
             # hang install forever. Stream via urlopen instead.
-            import shutil
-            # nosec rationale: HTTPS enforced by _validate_download_url
+            # justification: HTTPS enforced by _validate_download_url
             with (urllib.request.urlopen(url, timeout=60) as resp,  # nosec B310
                     open(zip_path, 'wb') as out):
                 shutil.copyfileobj(resp, out)
@@ -193,7 +192,7 @@ def _ensure_ultravnc():
                         raise RuntimeError(
                             f"Unsafe path in UltraVNC archive: {member}")
                 try:
-                    zf.extractall(dest, filter='data')
+                    zf.extractall(dest, filter='data')  # pylint: disable=unexpected-keyword-arg
                 except TypeError:
                     zf.extractall(dest)
             logger.info("Extracted UltraVNC to %s", _ULTRAVNC_INSTALL_DIR)

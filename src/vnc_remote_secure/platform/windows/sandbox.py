@@ -173,18 +173,18 @@ def _get_sid():
     for dll in ('userenv', 'kernelbase', 'kernel32'):
         try:
             cand = ctypes.WinDLL(dll, use_last_error=True)
-            cand.DeriveAppContainerSidFromAppContainerName
-            host = cand
-            break
+            if hasattr(cand, 'DeriveAppContainerSidFromAppContainerName'):
+                host = cand
+                break
         except (OSError, AttributeError):
             continue
     if host is None:
         for dll in ('userenv', 'kernelbase', 'kernel32'):
             try:
                 cand = ctypes.WinDLL(dll, use_last_error=True)
-                cand.CreateAppContainerProfile
-                host = cand
-                break
+                if hasattr(cand, 'CreateAppContainerProfile'):
+                    host = cand
+                    break
             except (OSError, AttributeError):
                 continue
     if host is None:
@@ -262,7 +262,6 @@ class SandboxedProcess:
     """Minimal Popen-compatible wrapper around an AppContainer child."""
 
     def __init__(self, pid, h_process, h_job, stdout_f, stderr_f):
-        """Init."""
         self.pid = pid
         self._h_process = h_process
         self._h_job = h_job
@@ -397,6 +396,7 @@ def spawn_sandboxed(args, cwd=None, env=None):
                 _PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
                 ctypes.byref(caps), ctypes.sizeof(caps), None, None):
             raise ctypes.WinError(ctypes.get_last_error())
+        # pylint: disable=attribute-defined-outside-init
         si.lpAttributeList = ctypes.cast(attr_buf, ctypes.c_void_p)
 
         cmdline = subprocess.list2cmdline(args)

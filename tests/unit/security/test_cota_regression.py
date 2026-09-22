@@ -78,6 +78,7 @@ class TestCota008WebSocketRegistryIntegrated:
         reset_registry()
 
         closed = []
+
         def close_cb():
             closed.append(True)
             return True

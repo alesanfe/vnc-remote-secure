@@ -214,7 +214,6 @@ class LinuxAdapter(PlatformAdapter):
         start — the previous behaviour accumulated credential files
         that were never deleted.
         """
-        import os
         import tempfile
 
         from vnc_remote_secure.vendor.d3des import encrypt_vnc_password

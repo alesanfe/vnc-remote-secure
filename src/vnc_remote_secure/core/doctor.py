@@ -32,7 +32,7 @@ def _check_port(host: str, port: int) -> bool:
     A wildcard bind (``0.0.0.0``/``::``) covers loopback too — connecting
     to the wildcard address itself is unreliable on Windows.
     """
-    # nosec rationale: detection, not a bind
+    # justification: detection, not a bind
     if host in ('0.0.0.0', '::', ''):  # nosec B104
         host = '127.0.0.1'
     # Delegate to the shared probe — it selects AF_INET6 for IPv6
@@ -111,8 +111,7 @@ def _check_secrets(checks, config):
     try:
         from vnc_remote_secure.security.authentication import _secret_file_path
         secret_file = _secret_file_path()
-        import os as _os
-        secret_persisted = _os.path.exists(secret_file)
+        secret_persisted = os.path.exists(secret_file)
     except (ImportError, OSError):
         secret_persisted = False
 
@@ -138,7 +137,6 @@ def _check_ssl(checks, config):
         # "certificates not found" on deployments actually serving TLS.
         if not (cert and key and os.path.isfile(cert) and os.path.isfile(key)):
             try:
-                from vnc_remote_secure.core.paths import get_ssl_dir
                 ssl_dir = get_ssl_dir()
                 d_cert = os.path.join(ssl_dir, 'fullchain.pem')
                 d_key = os.path.join(ssl_dir, 'privkey.pem')
@@ -209,7 +207,7 @@ def _check_shared_state(checks):
 def _check_runtime_deps(checks):
     """Optional-runtime dependencies whose absence silently disables features."""
     try:
-        import psutil  # noqa: F401
+        import psutil  # noqa: F401  # pylint: disable=unused-import
         _ok(checks, 'deps.psutil',
             'psutil present — stale-process reaping enabled')
     except ImportError:
@@ -218,7 +216,7 @@ def _check_runtime_deps(checks):
               'not reaped on restart. Install with: '
               'pip install "vnc-remote-secure[ops]"')
     try:
-        import waitress  # noqa: F401
+        import waitress  # noqa: F401  # pylint: disable=unused-import
         _ok(checks, 'deps.waitress',
             'waitress present — user UI served by a production WSGI '
             'server')
@@ -266,7 +264,7 @@ def _check_terminal_isolation(checks):
                   'Could not verify AppContainer sandbox availability')
         return
     try:
-        euid = os.geteuid()
+        euid = os.geteuid()  # pylint: disable=no-member
     except AttributeError:
         return
     webterm_user = os.environ.get('WEBTERM_USER', '').strip()
@@ -282,8 +280,7 @@ def _check_terminal_isolation(checks):
     # Non-root service: a real uid drop is impossible, but the
     # bubblewrap sandbox still hides the service state dirs from the
     # spawned shell when unprivileged user namespaces are enabled.
-    import shutil as _shutil
-    bwrap = _shutil.which('bwrap')
+    bwrap = shutil.which('bwrap')
     if bwrap:
         try:
             from vnc_remote_secure.services.terminal import _bwrap_usable

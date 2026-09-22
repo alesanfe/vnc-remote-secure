@@ -13,6 +13,7 @@ def test_internal_ports_not_public():
     # Health and landing should be configurable, but VNC should be loopback
     assert config.get('vnc_port') in range(5900, 5910)
 
+
 def test_ssl_enabled_by_default():
     """SSL should be enabled by default in configuration."""
     # This is enforced by the Bash validate_config

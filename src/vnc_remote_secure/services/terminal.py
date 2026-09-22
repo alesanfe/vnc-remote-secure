@@ -296,13 +296,13 @@ def _restricted_user_prefix():
     ``setpriv`` (no PAM), falls back to ``runuser``. Returns ``None``
     when privilege dropping is unavailable or not configured.
     """
-    import pwd
+    import pwd  # pylint: disable=import-error
     import shutil as _shutil
 
     user = os.environ.get('WEBTERM_USER', '').strip()
     if not user:
         return None
-    if os.geteuid() != 0:
+    if os.geteuid() != 0:  # pylint: disable=no-member
         logger.warning(
             "WEBTERM_USER=%s ignored — not running as root; terminal "
             "commands execute as the service user", user)
@@ -443,6 +443,7 @@ def _kill_process_tree(proc):
         else:
             import signal
             try:
+                # POSIX-only path — pylint: disable=no-member
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except OSError:  # ProcessLookupError/PermissionError subclass OSError
                 proc.kill()
@@ -1030,10 +1031,9 @@ def _xterm_static_dir() -> str:
         from importlib.resources import files
         return str(files('vnc_remote_secure') / 'static' / 'xterm')
     except Exception:  # noqa: BLE001 - source-tree fallback
-        import os as _os
-        return _os.path.join(
-            _os.path.dirname(_os.path.dirname(
-                _os.path.abspath(__file__))), 'static', 'xterm')
+        return os.path.join(
+            os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))), 'static', 'xterm')
 
 
 def make_app():

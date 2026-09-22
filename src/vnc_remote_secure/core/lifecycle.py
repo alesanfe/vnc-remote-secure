@@ -12,7 +12,8 @@ from vnc_remote_secure.core.logging import setup_logging
 from vnc_remote_secure.core.paths import ensure_dirs
 
 _logger = logging.getLogger('vnc_remote_secure.lifecycle')
-_state = {'running': False, 'config': None, 'lock': threading.Lock()}
+_lock = threading.Lock()
+_state = {'running': False, 'config': None}
 
 
 def startup(config=None):
@@ -30,7 +31,7 @@ def startup(config=None):
     ``SECURITY_PROFILE=public-hardened`` alone did not enforce hardened
     defaults.
     """
-    with _state['lock']:
+    with _lock:
         if _state['running']:
             _logger.warning('startup() called while already running')
             return _state['config']
@@ -66,7 +67,7 @@ def shutdown():
     Stops all managed services via the service manager (by PID, not by
     pattern), then clears the running state and active configuration.
     """
-    with _state['lock']:
+    with _lock:
         if not _state['running']:
             return
         _logger.info('VNC Remote Secure shutting down')

@@ -61,7 +61,7 @@ def _service_ports():
 
     def _h(env, default='127.0.0.1'):
         host = (os.environ.get(env, '') or default).strip()
-        # nosec rationale: detection
+        # justification: detection, not a bind
         return '127.0.0.1' if host in ('0.0.0.0', '::', '') else host  # nosec B104
 
     def _p(env, default):
@@ -371,9 +371,10 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body.encode('utf-8'))
 
-    def log_message(self, fmt, *args):  # noqa: D401 - route stdlib logs to logger
+    def log_message(self, format, *args):  # noqa: A002 - stdlib signature
+        # pylint: disable=redefined-builtin  # noqa: D401 - route stdlib logs to logger
         logger.info("%s - %s", self.client_address[0],
-                    fmt % args)  # noqa: PIE803 - fmt%args is the stdlib log format
+                    format % args)  # noqa: PIE803 - format%args is the stdlib log format
 
 
 def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST, ssl_context=None):

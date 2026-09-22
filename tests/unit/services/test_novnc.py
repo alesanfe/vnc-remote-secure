@@ -16,6 +16,7 @@ from vnc_remote_secure.security.certificates import create_ssl_context
 # Constants used by novnc.py
 # ---------------------------------------------------------------------------
 
+
 def test_novnc_default_port_is_int():
     """DEFAULT_NOVNC_PORT is a valid integer port."""
     assert isinstance(DEFAULT_NOVNC_PORT, int)
@@ -97,7 +98,7 @@ def test_novnc_auth_handler_rejects_missing_token(monkeypatch):
     # The handler should expose an auth-checking entry point; verify it
     # is a class with the expected interface rather than just asserting
     # it exists.
-    assert hasattr(_AuthedSimpleHTTPRequestHandler, '__call__') or \
+    assert callable(_AuthedSimpleHTTPRequestHandler) or \
         hasattr(_AuthedSimpleHTTPRequestHandler, 'do_GET') or \
         hasattr(_AuthedSimpleHTTPRequestHandler, 'handle_request')
 

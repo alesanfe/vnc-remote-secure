@@ -15,6 +15,7 @@ from vnc_remote_secure.services import health
 # check_health
 # ---------------------------------------------------------------------------
 
+
 def test_check_health_returns_dict(monkeypatch):
     """check_health returns a dict mapping known service names to booleans."""
     monkeypatch.setattr(health, 'is_port_available', lambda port, host=None: True)
@@ -44,7 +45,7 @@ def test_check_health_values_are_bool_when_all_up(monkeypatch):
     """When no port is available (all services listening), all are True."""
     monkeypatch.setattr(health, 'is_port_available', lambda port, host=None: False)
     status = health.check_health()
-    for name, listening in status.items():
+    for _name, listening in status.items():
         assert listening is True
 
 
@@ -96,6 +97,7 @@ def test_get_health_status_down_when_all_down(monkeypatch):
 def test_get_health_status_degraded_when_partial(monkeypatch):
     """Some services up, some down -> status 'degraded'."""
     up_ports = {5901, 6080}  # vnc + novnc listening
+
     def _fake(port, host=None):
         return port not in up_ports
     monkeypatch.setattr(health, 'is_port_available', _fake)

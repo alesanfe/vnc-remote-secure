@@ -19,6 +19,7 @@ from vnc_remote_secure.platform.detection import is_windows
 # PID file helpers
 # ---------------------------------------------------------------------------
 
+
 def test_write_and_read_pid_roundtrip(tmp_path, monkeypatch):
     """_write_pid / _read_pid persist and recover PIDs."""
     monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))

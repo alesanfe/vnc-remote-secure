@@ -8,7 +8,7 @@ from vnc_remote_secure.core import paths
 
 @pytest.fixture(autouse=True)
 def _restore(monkeypatch):
-    yield
+    return
 
 
 class TestIsMsixPackaged:
