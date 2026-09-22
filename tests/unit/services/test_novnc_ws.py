@@ -17,7 +17,7 @@ class TestParseCookies:
 
     def test_ignores_malformed_parts(self):
         cookies = H._parse_cookies('nok; good=1; =noval')
-        assert cookies == {'good': '1', '': 'noval'} or cookies == {'good': '1'}
+        assert cookies == {'good': '1', '': 'noval'}
 
 
 class TestEphemeralToken:

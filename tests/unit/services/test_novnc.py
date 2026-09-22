@@ -95,12 +95,10 @@ def test_novnc_auth_handler_rejects_missing_token(monkeypatch):
     """The noVNC auth handler rejects requests without a valid token."""
     from vnc_remote_secure.services.novnc import _AuthedSimpleHTTPRequestHandler
 
-    # The handler should expose an auth-checking entry point; verify it
-    # is a class with the expected interface rather than just asserting
-    # it exists.
-    assert callable(_AuthedSimpleHTTPRequestHandler) or \
-        hasattr(_AuthedSimpleHTTPRequestHandler, 'do_GET') or \
-        hasattr(_AuthedSimpleHTTPRequestHandler, 'handle_request')
+    # The handler must expose the auth gate plus the stdlib entry
+    # point it protects.
+    assert hasattr(_AuthedSimpleHTTPRequestHandler, '_require_auth')
+    assert hasattr(_AuthedSimpleHTTPRequestHandler, 'do_GET')
 
 
 def _generate_self_signed(cert_path, key_path):

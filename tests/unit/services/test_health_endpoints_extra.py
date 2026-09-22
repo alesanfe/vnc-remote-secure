@@ -67,4 +67,4 @@ def test_unknown_path_404(health_server):
     status, _, body = _get(health_server, '/does-not-exist')
     assert status == 404
     data = json.loads(body)
-    assert 'error' in data or 'status' in data
+    assert 'error' in data

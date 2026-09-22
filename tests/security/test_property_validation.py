@@ -62,7 +62,7 @@ class TestDomainValidation:
     def test_empty_domain_accepted(self):
         # Empty domain means SSL disabled, should be accepted
         result = validate_domain('')
-        assert result is True or result == 1
+        assert result is True
 
     @given(st.text(min_size=1, max_size=253, alphabet=string.ascii_lowercase + string.digits + '.-'))
     @settings(max_examples=50)
@@ -103,7 +103,7 @@ class TestEmailValidation:
             validate_email('')
 
     def test_accepts_valid(self):
-        assert validate_email('user@gmail.com') is True or validate_email('user@gmail.com') == 1
+        assert validate_email('user@gmail.com') is True
 
 
 # ============================================================================

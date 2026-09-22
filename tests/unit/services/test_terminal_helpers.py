@@ -59,7 +59,7 @@ def test_path_glob_completes_files(tmp_path):
     suggestions = _complete_path_glob('cat al', str(tmp_path))
     assert 'alpha.txt' in suggestions
     assert 'alps.txt' in suggestions
-    assert 'beta' + os.sep in suggestions or 'beta' not in suggestions
+    assert 'beta' not in suggestions  # does not match prefix 'al'
 
 
 def test_path_glob_dirs_get_trailing_sep(tmp_path):

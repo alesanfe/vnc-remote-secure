@@ -9,5 +9,5 @@ def test_env_example_not_secret():
     if os.path.exists(env_example):
         with open(env_example) as f:
             content = f.read()
-        assert 'changeme' not in content.lower() or 'example' in content.lower()
+        assert 'changeme' not in content.lower()
         assert 'YOUR_TOKEN' in content or 'your-token' in content or 'DUCKDNS_TOKEN=' in content

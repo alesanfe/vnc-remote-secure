@@ -117,7 +117,7 @@ def test_cards_html_escapes_user_data(fake_config):
          'color': '#000', 'category': 'c'},
     ]
     html = landing._build_service_cards_html(services)
-    assert '<script>x</script>' not in html or '&lt;script&gt;' in html
+    assert '<script>x</script>' not in html
 
 
 # ---------------------------------------------------------------------------

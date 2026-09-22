@@ -159,8 +159,11 @@ def test_landing_host_is_string():
     host = landing._config()['landing_host']
     assert isinstance(host, str)
     assert len(host) > 0
-    # In development profile, the host should be a loopback or bind address.
-    assert host in ('127.0.0.1', '0.0.0.0', 'localhost') or '.' in host
+    # The bind host must be an IP literal or localhost — a bare
+    # hostname without dots would still be wrong.
+    import ipaddress
+    if host != 'localhost':
+        ipaddress.ip_address(host)  # raises if not a valid IP
 
 
 def test_vnc_http_port_is_integer():
