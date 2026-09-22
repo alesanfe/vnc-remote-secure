@@ -139,6 +139,25 @@ _SHARED_STATE_TEST_NAMESPACES = (
 
 
 @pytest.fixture(autouse=True)
+def _restore_environ():
+    """Snapshot os.environ and restore it after every test.
+
+    Code paths like ``apply_profile()`` and ``load_env_file()`` write
+    os.environ permanently — monkeypatch cannot undo them. A leaked
+    BIND_HOST=0.0.0.0 from a profile test silently flips every later
+    get_config() host key, for example.
+    """
+    import os
+    snapshot = dict(os.environ)
+    yield
+    for key in [k for k in os.environ if k not in snapshot]:
+        os.environ.pop(key, None)
+    for key, val in snapshot.items():
+        if os.environ.get(key) != val:
+            os.environ[key] = val
+
+
+@pytest.fixture(autouse=True)
 def _clear_shared_state_namespaces():
     """Wipe shared-state test namespaces after every test.
 

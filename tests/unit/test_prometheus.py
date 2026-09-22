@@ -37,3 +37,17 @@ class TestPrometheusMetrics:
     def test_process_start_time_present(self):
         output = render_metrics()
         assert 'vnc_remote_process_start_time' in output
+
+
+class TestEscaping:
+    """Label/metric values with quotes/newlines must not break the
+    exposition format or inject lines."""
+
+    def test_quote_and_newline_in_label_escaped(self):
+        from vnc_remote_secure.monitoring import prometheus
+        # A label value containing " or a newline must not inject
+        # lines into the exposition format.
+        assert prometheus._format_labels('k="a\nb"') == \
+            '{k=\\"a\\nb\\"}'
+        assert prometheus._format_labels('a=b\\c') == '{a=b\\\\c}'
+        assert prometheus._format_labels('') == ''

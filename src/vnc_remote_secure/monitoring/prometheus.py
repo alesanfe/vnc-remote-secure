@@ -110,10 +110,19 @@ def _shared_gauges() -> dict[str, dict[str, float]]:
 
 
 def _format_labels(label_str: str) -> str:
-    """Format a label string for Prometheus exposition format."""
+    r"""Format a label string for Prometheus exposition format.
+
+    Escapes the three characters that would corrupt the exposition
+    format (``\\``, ``"``, ``\\n``) — label values come from internal
+    callers today, but a future dynamic label must not be able to
+    inject lines into ``/metrics``.
+    """
     if not label_str:
         return ''
-    return '{' + label_str + '}'
+    safe = (label_str.replace('\\', '\\\\')
+            .replace('"', '\\"')
+            .replace('\n', '\\n'))
+    return '{' + safe + '}'
 
 
 def render_metrics() -> str:

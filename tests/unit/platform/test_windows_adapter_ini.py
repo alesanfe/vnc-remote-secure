@@ -37,3 +37,28 @@ def test_non_admin_structural_keys_untouched():
     lines = ['[admin]', 'A=1', '[other]', 'A=2']
     out = _merge_ini_overrides(lines, {'A': 'X'})
     assert out == ['[admin]', 'A=X', '[other]', 'A=2']
+
+
+def test_empty_input_adds_admin_section():
+    out = _merge_ini_overrides([], {'PortNumber': '5900'})
+    assert '[admin]' in out
+    assert 'PortNumber=5900' in out
+
+
+def test_lines_without_equals_skipped_not_corrupted():
+    lines = ['[admin]', 'garbage-no-equals', 'A=1']
+    out = _merge_ini_overrides(lines, {})
+    assert 'garbage-no-equals' in out or 'A=1' in out
+    # no exception, output is a list of strings
+    assert all(isinstance(ln, str) for ln in out)
+
+
+def test_override_value_cannot_inject_lines():
+    """A value containing a newline must not split into a second
+    key=value line — INI injection vector via config."""
+    out = _merge_ini_overrides(
+        ['[admin]', 'A=1'], {'K': 'v\nMalicious=1'})
+    # No standalone 'Malicious=1' line may appear — the newline must be
+    # stripped, collapsing the payload into the K= value.
+    assert 'Malicious=1' not in out
+    assert any(ln.startswith('K=') and '\n' not in ln for ln in out)

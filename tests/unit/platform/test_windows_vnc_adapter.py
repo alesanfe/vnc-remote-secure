@@ -79,3 +79,16 @@ def test_write_ultravnc_ini_without_password_keeps_structure(tmp_path):
     text = (tmp_path / 'ultravnc.ini').read_text()
     assert 'QueryAccept=0' in text
     assert 'passwd=' not in text
+
+
+def test_vnc_des_truncates_to_8_chars():
+    """VNC DES uses only the first 8 password bytes — pin the protocol
+    limitation so a 'fix' that hashes the full password breaks loudly."""
+    assert (encrypt_vnc_password('abcdefghXYZ').hex().upper()
+            == encrypt_vnc_password('abcdefgh').hex().upper())
+
+
+def test_encrypt_empty_password_deterministic():
+    blob = encrypt_vnc_password('')
+    assert len(blob) == 8  # DES block
+    assert blob == encrypt_vnc_password('')

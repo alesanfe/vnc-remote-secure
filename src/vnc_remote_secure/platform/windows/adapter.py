@@ -30,6 +30,12 @@ def _merge_ini_overrides(lines, overrides):
     a working default credential. Structural keys are [admin]-only.
     """
     credential_keys = {'passwd', 'passwd2'}
+
+    def _safe(v):
+        # A CR/LF in an override value would inject extra lines into
+        # the ini — strip them (values are single-line by definition).
+        return str(v).replace('\r', '').replace('\n', '')
+
     out = []
     seen = set()
     in_admin = False
@@ -42,21 +48,25 @@ def _merge_ini_overrides(lines, overrides):
         if '=' in line:
             key_name = line.split('=', 1)[0].strip()
             if key_name in credential_keys and key_name in overrides:
-                out.append(f'{key_name}={overrides[key_name]}')
+                out.append(f'{key_name}={_safe(overrides[key_name])}')
                 seen.add(key_name)
                 continue
             if in_admin and key_name in overrides:
-                out.append(f'{key_name}={overrides[key_name]}')
+                out.append(f'{key_name}={_safe(overrides[key_name])}')
                 seen.add(key_name)
                 continue
         out.append(line)
     missing = [k for k in overrides if k not in seen]
     if missing:
+        # Create the [admin] section when absent — a truncated/empty
+        # ini must not abort the write.
+        if not any(ln.strip() == '[admin]' for ln in out):
+            out.append('[admin]')
         idx = next(
             i for i, line in enumerate(out)
             if line.strip() == '[admin]') + 1
         for key_name in missing:
-            out.insert(idx, f'{key_name}={overrides[key_name]}')
+            out.insert(idx, f'{key_name}={_safe(overrides[key_name])}')
             idx += 1
     return out
 

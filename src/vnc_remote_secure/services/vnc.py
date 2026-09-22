@@ -55,8 +55,20 @@ def _vnc_port(display):
     """
     if display is None:
         return _vnc_base_port()
-    num = int(str(display).lstrip(':'))
-    return TIGERVNC_BASE_PORT + num
+    raw = str(display)
+    # Strip at most ONE leading colon — '::1' must not silently
+    # become display 1.
+    s = raw[1:] if raw.startswith(':') else raw
+    if not s.isdigit():
+        raise ValueError(f'Invalid VNC display: {display!r}')
+    num = int(s)
+    port = TIGERVNC_BASE_PORT + num
+    # A display whose RFB port exceeds 65535 is meaningless — fail
+    # closed rather than let callers probe/bind a wrapped port.
+    if port > 65535:
+        raise ValueError(
+            f'VNC display {display!r} maps to out-of-range port {port}')
+    return port
 
 
 def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,

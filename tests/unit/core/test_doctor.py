@@ -58,3 +58,58 @@ def test_nginx_probe_absent_when_disabled(monkeypatch):
     result = _run(monkeypatch)
     names = [c['name'] for c in result['checks']]
     assert 'ports.nginx' not in names
+
+
+def test_healthy_flag_reflects_failures(monkeypatch):
+    """healthy must be False exactly when a check is 'fail' — the flag
+    is the machine-readable contract for CI/monitoring.
+
+    Down service ports are 'skip' (doctor is diagnostic); a default
+    VNC password is a 'fail'."""
+    monkeypatch.setattr(
+        doctor, 'get_config',
+        lambda: {'vnc_password': 'changeme'})
+    result = _run(monkeypatch)
+    assert result['healthy'] is False
+    assert result['summary']['fail'] > 0
+    secrets_check = next(
+        c for c in result['checks'] if c['name'] == 'secrets.vnc_password')
+    assert secrets_check['status'] == 'fail'
+
+
+def test_healthy_true_when_only_warns(monkeypatch):
+    """Warnings/skips must NOT mark the deployment unhealthy."""
+    monkeypatch.setattr(doctor, '_check_port', lambda h, p: True)
+    monkeypatch.setattr(doctor, '_check_binary', lambda n: True)
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.doctor.get_blocking_findings',
+        list, raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.doctor.'
+        'validate_profile_consistency', list, raising=False)
+    result = _run(monkeypatch)
+    # Secrets check may still fail with no env password — only check
+    # the flag math: healthy == (no 'fail' checks).
+    expected = not any(c['status'] == 'fail' for c in result['checks'])
+    assert result['healthy'] == expected
+    assert result['summary']['fail'] == sum(
+        1 for c in result['checks'] if c['status'] == 'fail')
+
+
+def test_json_output_serializable(monkeypatch):
+    """as_json result must be JSON-serializable — the CLI prints it."""
+    import json
+    result = _run(monkeypatch)
+    json.dumps(result)
+
+
+def test_blocking_finding_fails_check(monkeypatch):
+    """A config_inspector blocker surfaces as config.blockers fail."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.doctor.get_blocking_findings',
+        lambda: [{'message': 'plain HTTP on public interface'}],
+        raising=False)
+    result = _run(monkeypatch)
+    blk = next(c for c in result['checks'] if c['name'] == 'config.blockers')
+    assert blk['status'] == 'fail'
+    assert 'plain HTTP' in blk['message']

@@ -99,3 +99,46 @@ def test_uninstall_failure_isolated(patched, monkeypatch):
     assert results['remove_service'] is False
     # The failure must not cascade: later steps still ran.
     assert results['remove_user'] is True
+
+
+def test_per_dir_removal_failure_isolated(patched, tmp_path, monkeypatch):
+    """rmtree failing on one dir must not skip the others."""
+    for d in ('config', 'data', 'logs', 'run', 'ssl'):
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+        (tmp_path / d / 'f.txt').write_text('x')
+
+    import shutil
+    real_rmtree = shutil.rmtree
+
+    def flaky(path, *a, **kw):
+        if path.endswith('data'):
+            raise OSError('locked')
+        return real_rmtree(path, *a, **kw)
+
+    monkeypatch.setattr(un.shutil, 'rmtree', flaky)
+    results = un.uninstall(force=True)
+    assert results['remove_data'] is False
+    for name in ('config', 'logs', 'run', 'ssl'):
+        assert results[f'remove_{name}'] is True
+
+
+def test_stop_all_failure_does_not_abort(patched, monkeypatch):
+    """stop_all raising must mark stop_services False but continue."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.core.service_manager.stop_all',
+        lambda: (_ for _ in ()).throw(RuntimeError('sm down')),
+        raising=False)
+    results = un.uninstall(force=True)
+    assert results['stop_services'] is False
+    assert 'remove_service' in results
+
+
+def test_windows_artifacts_removed(patched, monkeypatch, tmp_path):
+    """Windows: ProgramData config.env + LocalAppData sweep must run."""
+    monkeypatch.setattr(un, 'is_windows', lambda: True)
+    cfg_env = tmp_path / 'config.env'
+    cfg_env.write_text('SECRET=x')
+    # get_config_dir is tmp/'config' -> dirname gives tmp_path.
+    results = un.uninstall(force=True)
+    assert results.get('remove_config.env') is True
+    assert not cfg_env.exists()
