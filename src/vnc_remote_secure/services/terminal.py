@@ -323,6 +323,72 @@ def _restricted_user_prefix():
     return None
 
 
+_BWRAP_USABLE = None
+
+
+def _bwrap_usable(bwrap: str) -> bool:
+    """Probe once whether unprivileged user namespaces work.
+
+    ``bwrap --dev-bind / / -- true`` is the minimal namespace setup —
+    when the kernel forbids unprivileged userns (e.g.
+    ``kernel.unprivileged_userns_clone=0``) the probe fails and we fall
+    back instead of erroring every terminal command.
+    """
+    global _BWRAP_USABLE
+    if _BWRAP_USABLE is not None:
+        return _BWRAP_USABLE
+    try:
+        from vnc_remote_secure.core.processes import run_cmd
+        res = run_cmd([bwrap, '--dev-bind', '/', '/', '--', 'true'],
+                      capture_output=True, timeout=5)
+        _BWRAP_USABLE = res.returncode == 0
+    except Exception:  # noqa: BLE001 - probe is best-effort
+        _BWRAP_USABLE = False
+    if not _BWRAP_USABLE:
+        logger.warning(
+            "bubblewrap present but unprivileged user namespaces are "
+            "disabled — terminal sandbox unavailable")
+    return _BWRAP_USABLE
+
+
+def _sandbox_prefix():
+    """Return a bubblewrap argv prefix masking secret dirs, or None.
+
+    When the WEBTERM_USER privilege drop is unavailable (the packaged
+    systemd unit runs as the unprivileged ``vnc-remote`` user, where
+    setpriv/runuser are impossible), unprivileged user namespaces still
+    let us hide the directories holding service secrets — auth_secret.
+    key, shared_state.db, generated_credentials.env, config.env, SSL
+    keys and backups — from the spawned shell. The shell keeps a full
+    view of the rest of the filesystem; only the service-owned state
+    is masked with tmpfs.
+    """
+    import shutil as _shutil
+    bwrap = _shutil.which('bwrap')
+    if not bwrap or not _bwrap_usable(bwrap):
+        return None
+    try:
+        from vnc_remote_secure.core.paths import (
+            get_config_dir,
+            get_data_dir,
+            get_log_dir,
+            get_run_dir,
+            get_ssl_dir,
+        )
+        sensitive = [get_run_dir(), get_ssl_dir(), get_config_dir(),
+                     get_data_dir(), get_log_dir()]
+    except Exception:  # noqa: BLE001 - paths module unavailable
+        sensitive = []
+    args = [bwrap, '--dev-bind', '/', '/']
+    # Mask every sensitive dir — even the shell's cwd. A cwd inside a
+    # masked dir resolves to the empty tmpfs (confusing but secure);
+    # skipping the mask would leave the service state readable.
+    for d in sensitive:
+        args += ['--tmpfs', os.path.realpath(d)]
+    args.append('--')
+    return args
+
+
 def _build_subprocess_args(cmd, shell, cwd):
     """Build the subprocess argument list for the configured shell."""
     import shutil as _shutil
@@ -331,7 +397,10 @@ def _build_subprocess_args(cmd, shell, cwd):
         # sane fallback — cmd.exe does not exist here.
         resolved = (_shutil.which(shell) if shell else None) \
             or _shutil.which('bash') or '/bin/sh'
-        prefix = _restricted_user_prefix() or []
+        # Prefer a real uid drop (strongest); fall back to the
+        # bubblewrap filesystem sandbox when the service is non-root.
+        prefix = (_restricted_user_prefix()
+                  or _sandbox_prefix() or [])
         return prefix + [resolved, '-c', cmd]
     if shell == 'powershell.exe':
         ps_exe = (_shutil.which('powershell.exe')

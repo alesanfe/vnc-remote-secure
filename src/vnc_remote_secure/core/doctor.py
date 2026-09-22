@@ -239,15 +239,16 @@ def _check_terminal_isolation(checks):
     claims and revocation markers). On Linux the privilege drop only
     applies when the service runs as root and WEBTERM_USER is set —
     the packaged systemd unit runs as the unprivileged 'vnc-remote'
-    user, where setpriv is unavailable and the check below fails
-    closed to a warning.
+    user, where setpriv is unavailable. In that case the bubblewrap
+    sandbox (unprivileged user namespaces) is the second line of
+    defence: it masks the secret dirs from the spawned shell.
     """
     if sys.platform == 'win32':
         _warn(checks, 'terminal.isolation',
               'Windows terminal/VNC processes share the interactive '
               'user session (F-035) — a terminal shell can read the '
               'service data dir. Restrict terminal access or set '
-              'WEBTERM_USER where possible')
+              'TERMINAL_COMMAND_ALLOWLIST')
         return
     try:
         euid = os.geteuid()  # type: ignore[attr-defined]
@@ -257,16 +258,38 @@ def _check_terminal_isolation(checks):
     if euid == 0 and webterm_user:
         _ok(checks, 'terminal.isolation',
             f'WEBTERM_USER={webterm_user} — shell drops privileges')
-    elif euid == 0:
+        return
+    if euid == 0:
         _warn(checks, 'terminal.isolation',
               'Running as root without WEBTERM_USER — terminal shells '
               'spawn as root. Set WEBTERM_USER to an unprivileged user')
-    else:
+        return
+    # Non-root service: a real uid drop is impossible, but the
+    # bubblewrap sandbox still hides the service state dirs from the
+    # spawned shell when unprivileged user namespaces are enabled.
+    import shutil as _shutil
+    bwrap = _shutil.which('bwrap')
+    if bwrap:
+        try:
+            from vnc_remote_secure.services.terminal import _bwrap_usable
+            usable = _bwrap_usable(bwrap)
+        except Exception:  # noqa: BLE001 - probe is best-effort
+            usable = False
+        if usable:
+            _ok(checks, 'terminal.isolation',
+                'bubblewrap sandbox active — secret dirs (run, config, '
+                'ssl, data, log) are masked from terminal shells')
+            return
         _warn(checks, 'terminal.isolation',
-              'Not running as root — WEBTERM_USER is ignored and '
-              'terminal shells run as the service account, which owns '
-              'auth_secret.key/shared_state.db. Treat terminal:use as '
-              'equivalent to credential disclosure; see AGENTS.md')
+              'bubblewrap installed but unprivileged user namespaces '
+              'are disabled — terminal shells can read the service '
+              'state dirs (auth_secret.key, shared_state.db)')
+        return
+    _warn(checks, 'terminal.isolation',
+          'Not running as root and no bubblewrap — terminal shells '
+          'run as the service account and can read auth_secret.key / '
+          'write shared_state.db. Install bubblewrap, set '
+          'TERMINAL_COMMAND_ALLOWLIST, or restrict terminal access')
 
 
 def _check_firewall(checks):
