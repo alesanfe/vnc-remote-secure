@@ -164,3 +164,43 @@ class TestSetEnvPersistent:
         assert _cfg.set_env_persistent('ROT', 'new') is True
         assert 'ROT=new' in sysenv.read_text(encoding='utf-8')
         assert 'ROT' not in (proj / '.env').read_text(encoding='utf-8')
+
+
+class TestValidateUserPasswords:
+    """_validate_user_passwords: user-set creds validated, generated
+    ones must NEVER raise (random draw can contain weak substrings)."""
+
+    def _v(self, **kw):
+        from vnc_remote_secure.core.config import _validate_user_passwords
+        defaults = {
+            'vnc_password': 'Str0ng!Pass', 'vnc_user_set': True,
+            'ttyd_password': 'Str0ng!Pass', 'ttyd_user_set': True,
+            'user_ui_password': 'Str0ng!Pass',
+            'landing_password': 'Str0ng!Pass',
+            'landing_user_set': True,
+        }
+        defaults.update(kw)
+        return _validate_user_passwords(**defaults)
+
+    def test_weak_user_vnc_password_rejected(self):
+        import pytest
+        from vnc_remote_secure.core.validation import ValidationError
+        with pytest.raises(ValidationError):
+            self._v(vnc_password='changeme')
+
+    def test_weak_user_landing_password_rejected(self):
+        import pytest
+        from vnc_remote_secure.core.validation import ValidationError
+        with pytest.raises(ValidationError):
+            self._v(landing_password='changeme')
+
+    def test_generated_weak_substring_not_rejected(self):
+        """A generated LANDING_PASSWORD containing a weak substring
+        must not crash get_config() — the draw is random."""
+        # user_set=False -> skipped even if the value is weak.
+        self._v(landing_password='changeme', landing_user_set=False)
+
+    def test_generated_vnc_password_not_validated(self):
+        """Generated VNC password (vnc_user_set=False) skips validation —
+        it is a random strong draw, not operator input."""
+        self._v(vnc_password='changeme', vnc_user_set=False)

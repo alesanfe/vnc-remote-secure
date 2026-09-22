@@ -126,3 +126,11 @@ class TestSensitiveActionsList:
         not drift back into a declaration-only list."""
         assert SENSITIVE_ACTIONS == {
             'open_terminal', 'create_admin', 'delete_admin'}
+
+    def test_future_auth_timestamp_needs_step_up(self):
+        """A future last_auth (clock skew or tampered shared state)
+        must fail closed — negative age is not a recent auth."""
+        import time
+        mgr = StepUpAuthManager()
+        mgr.record_auth_time('victim', auth_time=time.time() + 99999)
+        assert mgr.needs_step_up('victim', max_age=300) is True

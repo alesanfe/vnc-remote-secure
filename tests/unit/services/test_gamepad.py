@@ -223,3 +223,42 @@ def test_handle_client_ignores_malformed_messages(monkeypatch):
     ws = _FakeWebSocket(messages=messages)
     _run(server.handle_client(ws))
     assert ("button_1", 0) in injector.buttons
+
+
+def test_handle_client_requires_control_permission(monkeypatch):
+    """The gateway call must demand desktop:control — a view-only
+    session must not inject gamepad input (control is control)."""
+    captured = {}
+    injector = _FakeInjector()
+    _patch_adapter(monkeypatch, injector)
+
+    # Override the autouse bypass to capture the real call args.
+    def _fake_upgrade(**kw):
+        captured.update(kw)
+        return True, 'OK'
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+        _fake_upgrade)
+
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    ws = _FakeWebSocket(messages=[json.dumps({"type": "ping"})])
+    _run(server.handle_client(ws))
+    assert captured.get('required_permission') == 'desktop:control'
+    assert captured.get('resource') == 'gamepad'
+
+
+def test_handle_client_rejects_unauthenticated(monkeypatch):
+    """A gateway rejection closes the socket with 1008 and no injector
+    is created."""
+    injector = _FakeInjector()
+    _patch_adapter(monkeypatch, injector)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+        lambda **kw: (False, 'nope'))
+
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    ws = _FakeWebSocket(messages=[json.dumps({"type": "ping"})])
+    _run(server.handle_client(ws))
+    assert ws.closed is True
+    assert ws.close_code == 1008
+    assert injector.device_created is False

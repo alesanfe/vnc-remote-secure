@@ -112,7 +112,17 @@ class StepUpAuthManager:
         last_auth = self._backend_get(username)
         if last_auth is None:
             return True  # Never authenticated
-        return (time.time() - last_auth) > age
+        now = time.time()
+        if last_auth > now:
+            # A future timestamp (clock set forward, or a shared-state
+            # row written by a tampering process) must NOT satisfy the
+            # re-auth requirement — fail closed.
+            logger.warning(
+                'Step-up auth timestamp for %s is in the future '
+                '(%.0f > %.0f) — treating as missing', username,
+                last_auth, now)
+            return True
+        return (now - last_auth) > age
 
     def get_auth_age(self, username: str) -> float | None:
         """Return the age (seconds) of the last authentication.
