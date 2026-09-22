@@ -383,3 +383,63 @@ class TestRecoveryCodeLogin:
                                       totp_code='WRONGCODE', client_ip=ip)
         assert ok is False
         assert 'invalid' in msg.lower()
+
+
+class TestAuthorizeRequestEphemeral:
+    """authorize_request ephemeral-cookie and bearer-permission paths."""
+
+    def test_ephemeral_cookie_with_permission(self, monkeypatch):
+        from vnc_remote_secure.security import auth_gateway as gw
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'check_session_permission',
+            lambda t, perm, **kw: perm == 'desktop:control')
+        ok, reason, ident = gw.authorize_request(
+            ephemeral_cookie='inner-tok',
+            required_permission='desktop:control')
+        assert ok is True
+        assert ident == 'inner-tok'
+
+    def test_ephemeral_cookie_wrong_permission_denied(self, monkeypatch):
+        """viewer cookie cannot gain control — required_permission is
+        enforced on activated sessions too."""
+        from vnc_remote_secure.security import auth_gateway as gw
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'check_session_permission',
+            lambda t, perm, **kw: False)
+        ok, reason, ident = gw.authorize_request(
+            ephemeral_cookie='inner-tok',
+            required_permission='desktop:control')
+        assert ok is False
+        assert ident is None
+
+    def test_stale_ephemeral_falls_through_to_session(self, monkeypatch):
+        """A bad ephemeral cookie must not mask a valid operator
+        session cookie presented alongside it."""
+        from vnc_remote_secure.security import auth_gateway as gw
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'check_session_permission',
+            lambda *a, **kw: False)
+        monkeypatch.setattr(
+            gw, 'check_authenticated', lambda c, b: (True, 'admin'))
+        ok, reason, ident = gw.authorize_request(
+            cookie_value='sess-cookie',
+            ephemeral_cookie='stale-tok')
+        assert ok is True
+        assert ident == 'sess-cookie'
+
+    def test_bearer_operator_required_permission(self, monkeypatch):
+        """Ephemeral bearer passes only via check_permission — an
+        operator-session bearer bypass would skip permissions."""
+        from vnc_remote_secure.security import auth_gateway as gw
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'check_permission',
+            lambda t, perm, **kw: True)
+        ok, reason, ident = gw.authorize_request(
+            bearer_token='eph-bearer',
+            required_permission='desktop:view')
+        assert ok is True
+        assert ident == 'eph-bearer'

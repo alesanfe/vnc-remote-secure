@@ -71,3 +71,73 @@ class TestBuildRfbFilter:
     def test_unknown_session_no_filter(self, monkeypatch):
         self._store(monkeypatch, None)
         assert H._build_rfb_filter('ghost') is None
+
+
+class TestProxyWebsocketGate:
+    """_proxy_websocket reject paths — origin gate, upstream down,
+    TOCTOU revoke. Exercised via a stub handler, no real socket."""
+
+    def _handler(self, monkeypatch, headers=None):
+        from unittest.mock import MagicMock
+        h = object.__new__(H)
+        h.headers = headers or {}
+        h.client_address = ('127.0.0.1', 1)
+        h._ws_error = MagicMock()
+        h._record_ws_origin_failure = MagicMock()
+        h.command = 'GET'
+        h.path = '/websockify'
+        h.connection = MagicMock()
+        h.wfile = MagicMock()
+        return h
+
+    def test_bad_origin_403_and_rate_limited(self, monkeypatch):
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
+            lambda: ['https://ok.example'], raising=False)
+        h = self._handler(monkeypatch,
+                          headers={'Origin': 'https://evil.example'})
+        h._proxy_websocket()
+        h._ws_error.assert_called_once()
+        assert h._ws_error.call_args[0][0] == 403
+        h._record_ws_origin_failure.assert_called_once()
+
+    def test_upstream_down_502(self, monkeypatch):
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
+            lambda: ['https://ok.example'], raising=False)
+        import socket as _s
+        monkeypatch.setattr(
+            _s, 'create_connection',
+            lambda *a, **k: (_ for _ in ()).throw(OSError('down')))
+        h = self._handler(monkeypatch,
+                          headers={'Origin': 'https://ok.example'})
+        h._proxy_websocket()
+        assert h._ws_error.call_args[0][0] == 502
+
+    def test_toctou_revoke_returns_early(self, monkeypatch):
+        """_register_ws -> None (session revoked mid-upgrade) must
+        return without relaying."""
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
+            lambda: ['https://ok.example'], raising=False)
+        import socket as _s
+        upstream = type('U', (), {'close': lambda self: None,
+                                  'sendall': lambda self, b: None})()
+        monkeypatch.setattr(_s, 'create_connection',
+                            lambda *a, **k: upstream)
+        h = self._handler(monkeypatch, headers={
+            'Origin': 'https://ok.example',
+            'Cookie': 'vnc_session=tok',
+        })
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.H._register_ws'
+            if False else
+            'vnc_remote_secure.services.novnc._AuthedSimpleHTTPRequestHandler._register_ws',
+            lambda *a, **k: None)
+        relayed = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.relay_rfb_stream',
+            lambda *a: relayed.append(1))
+        h._proxy_websocket()
+        assert relayed == []
+        assert not h._ws_error.called

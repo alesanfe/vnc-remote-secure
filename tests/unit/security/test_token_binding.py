@@ -172,3 +172,29 @@ class TestMalformedTokenPayloads:
             sign_token, TOKEN_TYPE_EPHEMERAL)
         assert verify_ephemeral_token(sign_token(
             TOKEN_TYPE_EPHEMERAL, 'tok:notanumber:0')) is None
+
+
+class TestRevokeByFingerprint:
+    """revoke_session must resolve the public token_id fingerprint —
+    the operator-facing handle in `session list`."""
+
+    def test_fingerprint_revokes(self, fresh_store):
+        import hashlib
+        session, signed = fresh_store.create(role='viewer')
+        fp = hashlib.sha256(session.token.encode()).hexdigest()[:12]
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            revoke_session)
+        assert revoke_session(fp) is True
+        assert fresh_store.validate(signed) is None
+
+    def test_unknown_fingerprint_false(self, fresh_store):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            revoke_session)
+        assert revoke_session('deadbeefcafe') is False
+
+    def test_signed_token_revokes(self, fresh_store):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            revoke_session)
+        session, signed = fresh_store.create(role='viewer')
+        assert revoke_session(signed) is True
+        assert fresh_store.validate(signed) is None

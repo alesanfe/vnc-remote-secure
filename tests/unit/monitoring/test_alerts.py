@@ -70,3 +70,67 @@ class TestWatchdog:
         from vnc_remote_secure.core import service_manager
         assert service_manager.watchdog_tick(
             {'healthcheck_enabled': False}) == {}
+
+
+class TestWebhookSchemeGuard:
+    """_post_json must refuse non-HTTP schemes — a tampered .env must
+    not turn the alerter into a file:// / gopher:// reader."""
+
+    def _post(self, url, monkeypatch):
+        import urllib.request
+        hits = []
+        monkeypatch.setattr(
+            urllib.request, 'urlopen',
+            lambda *a, **k: hits.append(1))
+        from vnc_remote_secure.monitoring import alerts
+        return alerts._post_json(url, {'x': 1}), hits
+
+    def test_file_scheme_rejected(self, monkeypatch):
+        ok, hits = self._post('file:///etc/passwd', monkeypatch)
+        assert ok is False
+        assert hits == []
+
+    def test_gopher_scheme_rejected(self, monkeypatch):
+        ok, hits = self._post('gopher://x/1', monkeypatch)
+        assert ok is False
+        assert hits == []
+
+    def test_http_and_https_allowed(self, monkeypatch):
+        import urllib.request
+
+        class _Resp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        monkeypatch.setattr(urllib.request, 'urlopen',
+                            lambda *a, **k: _Resp())
+        from vnc_remote_secure.monitoring import alerts
+        assert alerts._post_json('http://h/x', {}) is True
+        assert alerts._post_json('https://h/x', {}) is True
+
+    def test_urlopen_exception_returns_false(self, monkeypatch):
+        import urllib.request
+        monkeypatch.setattr(
+            urllib.request, 'urlopen',
+            lambda *a, **k: (_ for _ in ()).throw(OSError('no')))
+        from vnc_remote_secure.monitoring import alerts
+        assert alerts._post_json('https://h/x', {}) is False
+
+
+class TestRedactUrl:
+    def test_token_path_never_logged(self, caplog):
+        from vnc_remote_secure.monitoring import alerts
+        url = 'https://discord.com/api/webhooks/123/SECRET_TOKEN'
+        out = alerts._redact_url(url)
+        assert 'SECRET_TOKEN' not in out
+        assert 'discord.com' in out
+
+    def test_malformed_url_no_crash(self):
+        from vnc_remote_secure.monitoring import alerts
+        out = alerts._redact_url('http://[bad')
+        assert 'bad' not in out or 'invalid' in out

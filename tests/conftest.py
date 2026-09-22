@@ -118,24 +118,40 @@ def _drain_ws_revocation_watchers():
                 with contextlib.suppress(RuntimeError):
                     task.cancel()
         wr._watcher_tasks.clear()
+        # Registered-but-never-closed fake connections leak across
+        # tests via the process-global registry.
+        reg = wr._registry
+        if reg is not None:
+            with reg._lock:
+                reg._connections.clear()
+                reg._by_session.clear()
     except Exception:  # noqa: BLE001 - teardown best-effort
         pass
 
 
-@pytest.fixture(autouse=True)
-def _clear_rate_limit_namespaces():
-    """Wipe shared-state rate-limit keys after every test.
+_SHARED_STATE_TEST_NAMESPACES = (
+    'rate_limit_lockouts', 'rate_limit_attempts', 'rate_limit_general',
+    'websocket_revoked_sessions', 'ephemeral_revoked_sessions',
+    'ephemeral_consumed', 'ephemeral_uses',
+    'mfa_last_step', 'mfa_used_steps', 'mfa_used_recovery_codes',
+    'step_up_auth_times',
+)
 
-    Lockouts live in the sqlite backend, not the RateLimiter instance
-    — a test that triggers a lockout (login, ws-upgrade, landing,
-    health-401) otherwise poisons every later test using the same
-    client IP or username.
+
+@pytest.fixture(autouse=True)
+def _clear_shared_state_namespaces():
+    """Wipe shared-state test namespaces after every test.
+
+    Lockouts, revocations, single-use claims and step-up times live in
+    the sqlite backend, not the Python objects — a test that triggers
+    one otherwise poisons every later test touching the same session
+    id, client IP or username.
     """
     yield
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         be = get_backend()
-        for ns in ('rate_limit_lockouts', 'rate_limit_attempts'):
+        for ns in _SHARED_STATE_TEST_NAMESPACES:
             for k in list(be.list_keys(ns)):
                 be.delete(ns, k)
     except Exception:  # noqa: BLE001 - teardown best-effort

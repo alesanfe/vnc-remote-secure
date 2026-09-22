@@ -231,7 +231,10 @@ def test_audio_reader_waits_for_ffmpeg_before_reading():
             await task
         except asyncio.CancelledError:
             pass
+        # The reader broadcast real audio payload bytes (chunks of b'q')
+        # — a bare truthiness assert would pass on any noise frame.
         assert ws.sent
+        assert any(b'q' in m for m in ws.sent)
 
     asyncio.run(scenario())
 

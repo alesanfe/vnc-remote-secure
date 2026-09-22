@@ -62,7 +62,7 @@ def test_api_users_requires_auth_returns_401(app, monkeypatch):
     c = app.test_client()
     resp = c.get('/api/users')
     assert resp.status_code == 401
-    assert resp.is_json
+    assert resp.get_json().get('error') or resp.get_json().get('status')
 
 
 def test_bearer_auth_accepted(app, monkeypatch):
@@ -224,3 +224,100 @@ def test_api_users_delete_rejects_non_object(authed_client):
                                 headers={'X-CSRF-Token': 'csrf123'},
                                 json=['root'])
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Success + adapter-failure paths (positive / negative)
+# ---------------------------------------------------------------------------
+
+def _adapter(monkeypatch, create_ret=None, remove_ret=True,
+             create_exc=None, remove_exc=None):
+    class _A:
+        def create_runtime_user(self, u):
+            if create_exc:
+                raise create_exc
+            return create_ret
+
+        def remove_runtime_user(self, u):
+            if remove_exc:
+                raise remove_exc
+            return remove_ret
+    monkeypatch.setattr(
+        'vnc_remote_secure.platform.base.get_adapter', lambda: _A())
+
+
+def test_create_user_success_redirects(authed_client, monkeypatch):
+    _adapter(monkeypatch, create_ret=True)
+    resp = authed_client.post('/create_user', data={
+        'username': 'newop', 'password': 'Str0ng!Pass',
+        'csrf_token': 'csrf123'})
+    assert resp.status_code == 302
+
+
+def test_create_user_adapter_failure_500(authed_client, monkeypatch):
+    _adapter(monkeypatch, create_ret=False)
+    resp = authed_client.post('/create_user', data={
+        'username': 'newop', 'password': 'Str0ng!Pass',
+        'csrf_token': 'csrf123'})
+    assert resp.status_code == 500
+
+
+def test_create_user_adapter_exception_500(authed_client, monkeypatch):
+    _adapter(monkeypatch, create_exc=RuntimeError('pwsh gone'))
+    resp = authed_client.post('/create_user', data={
+        'username': 'newop', 'password': 'Str0ng!Pass',
+        'csrf_token': 'csrf123'})
+    assert resp.status_code == 500
+
+
+def test_delete_user_success_redirects(authed_client, monkeypatch):
+    _adapter(monkeypatch, remove_ret=True)
+    resp = authed_client.post('/delete_user/newop',
+                              data={'csrf_token': 'csrf123'})
+    assert resp.status_code == 302
+
+
+def test_delete_user_adapter_false_500(authed_client, monkeypatch):
+    _adapter(monkeypatch, remove_ret=False)
+    resp = authed_client.post('/delete_user/newop',
+                              data={'csrf_token': 'csrf123'})
+    assert resp.status_code == 500
+
+
+def test_delete_invalid_username_400(authed_client, monkeypatch):
+    _adapter(monkeypatch)
+    resp = authed_client.post('/delete_user/1x',
+                              data={'csrf_token': 'csrf123'})
+    assert resp.status_code == 400
+
+
+def test_api_delete_step_up_denied(authed_client, monkeypatch):
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.step_up_auth.require_step_up',
+        lambda user, action: 'step-up needed')
+    resp = authed_client.delete('/api/users',
+                                json={'username': 'newop',
+                                      'csrf_token': 'csrf123'},
+                                headers={'X-CSRF-Token': 'csrf123'})
+    assert resp.status_code == 403
+
+
+def test_api_create_success(authed_client, monkeypatch):
+    _adapter(monkeypatch, create_ret=True)
+    resp = authed_client.post(
+        '/api/users',
+        json={'username': 'newop', 'password': 'Str0ng!Pass',
+              'csrf_token': 'csrf123'})
+    assert resp.status_code == 200
+    assert resp.get_json()['status'] == 'created'
+
+
+def test_csrf_via_json_body_accepted(authed_client, monkeypatch):
+    """_check_csrf must accept csrf_token in the JSON body, not only
+    the header."""
+    _adapter(monkeypatch, create_ret=True)
+    resp = authed_client.post(
+        '/api/users',
+        json={'username': 'newop2', 'password': 'Str0ng!Pass',
+              'csrf_token': 'csrf123'})
+    assert resp.status_code == 200

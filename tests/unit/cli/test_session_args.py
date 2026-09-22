@@ -83,3 +83,50 @@ class TestParseDuration:
             DEFAULT_SESSION_IDLE_TIMEOUT)
         assert _parse_duration('') == DEFAULT_SESSION_IDLE_TIMEOUT
         assert _parse_duration(None) == DEFAULT_SESSION_IDLE_TIMEOUT
+
+
+class TestSessionActions:
+    def test_revoke_not_found(self, capsys):
+        monkeypatch_arg = Namespace(
+            session_action='revoke', token='nonexistent-tok')
+        with patch(
+                'vnc_remote_secure.security.ephemeral_sessions.'
+                'revoke_session', return_value=False):
+            rc = cmd_session(monkeypatch_arg)
+        assert rc != 0
+
+    def test_revoke_found(self, capsys):
+        args = Namespace(session_action='revoke', token='tok-1')
+        with patch(
+                'vnc_remote_secure.security.ephemeral_sessions.'
+                'revoke_session', return_value=True):
+            rc = cmd_session(args)
+        assert rc == 0
+
+    def test_list_empty(self, capsys):
+        store = type('S', (), {'list_active': lambda self: []})()
+        args = Namespace(session_action='list', json=False)
+        with patch(
+                'vnc_remote_secure.security.ephemeral_sessions.'
+                'get_session_store', return_value=store):
+            assert cmd_session(args) == 0
+        assert 'o active' in capsys.readouterr().out
+
+    def test_list_json_output(self, capsys):
+        store = type('S', (), {'list_active': lambda self: [
+            {'token_id': 'abc123', 'role': 'viewer',
+             'expires_at': 9999999999, 'view_only': True,
+             'single_use': True}]})()
+        args = Namespace(session_action='list', json=True)
+        with patch(
+                'vnc_remote_secure.security.ephemeral_sessions.'
+                'get_session_store', return_value=store):
+            assert cmd_session(args) == 0
+        import json
+        out = json.loads(capsys.readouterr().out)
+        assert out[0]['token_id'] == 'abc123'
+
+    def test_unknown_action(self):
+        args = Namespace(session_action='frobnicate')
+        rc = cmd_session(args)
+        assert rc != 0

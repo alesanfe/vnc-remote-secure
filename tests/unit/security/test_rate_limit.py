@@ -57,3 +57,28 @@ class TestRateLimiter:
         time.sleep(1.1)
         # Old attempt should be pruned
         assert rl.remaining_attempts('user1') == 2
+
+
+class TestCheckRateLimitEdges:
+    def test_corrupt_counter_fails_closed(self, monkeypatch):
+        """increment() returning garbage must deny, not fail open."""
+        from vnc_remote_secure.security import rate_limit as rl
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.shared_state.get_backend'
+            if False else
+            'vnc_remote_secure.security.rate_limit.get_backend',
+            lambda: type('B', (), {
+                'increment': lambda self, *a, **k: None})())
+        assert rl.check_rate_limit('1.2.3.4') is False
+
+    def test_boundary_at_max(self, monkeypatch):
+        """Requests == max allowed; max+1 denied."""
+        from vnc_remote_secure.security import rate_limit as rl
+        import itertools
+        counter = itertools.count(1)
+        monkeypatch.setattr(rl, 'get_backend', lambda: type('B', (), {
+            'increment': lambda self, *a, **k: next(counter)})())
+        assert rl.check_rate_limit('1.2.3.4', max_requests=3) is True
+        assert rl.check_rate_limit('1.2.3.4', max_requests=3) is True
+        assert rl.check_rate_limit('1.2.3.4', max_requests=3) is True
+        assert rl.check_rate_limit('1.2.3.4', max_requests=3) is False

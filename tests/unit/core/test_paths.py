@@ -1,4 +1,5 @@
 """Tests for core.paths — platform-aware directory resolution."""
+import os
 import sys
 
 import pytest
@@ -70,3 +71,21 @@ class TestWinBase:
         local.mkdir(parents=True)
         monkeypatch.setenv('LOCALAPPDATA', str(local))
         assert paths._win_base() == str(local)
+
+
+class TestGetTempDirSquat:
+    """On POSIX, a pre-existing group/world-writable or foreign-owned
+    temp dir must NOT be used — symlink/predictable-tmp squatting."""
+
+    @pytest.mark.skipif(os.name == 'nt', reason='POSIX tmp semantics')
+    def test_world_writable_dir_recreated(self, tmp_path, monkeypatch):
+        import stat
+        from vnc_remote_secure.core import paths
+        d = tmp_path / 'vnc-remote-tmp'
+        d.mkdir()
+        d.chmod(0o777)  # squatter permissions
+        monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+        monkeypatch.delenv('TMPDIR', raising=False)
+        out = paths.get_temp_dir()
+        mode = stat.S_IMODE(os.stat(out).st_mode)
+        assert mode & 0o077 == 0, oct(mode)

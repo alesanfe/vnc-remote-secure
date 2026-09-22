@@ -151,3 +151,22 @@ class TestVerifyChainEdges:
         audit._last_hash = audit._ANCHOR_HASH
         ok, msg = audit.verify_chain()
         assert ok is False
+
+
+class TestAuditRotation:
+    def test_rotation_preserves_chain(self, tmp_path, monkeypatch):
+        """When the log exceeds AUDIT_LOG_MAX_BYTES it rotates; the
+        fresh log must start with a new anchor, keeping verify_chain
+        meaningful after rotation."""
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        monkeypatch.setenv('AUDIT_LOG_MAX_BYTES', '200')
+        audit._startup_verified = True
+        audit._last_hash = audit._ANCHOR_HASH
+        audit._write_anchor()
+        for i in range(20):
+            audit.audit_log(f'event-{i}', detail='x' * 50)
+        # The log must remain verifiable whether it rotated or not.
+        ok, _msg = audit.verify_chain()
+        assert ok

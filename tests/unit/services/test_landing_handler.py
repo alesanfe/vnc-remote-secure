@@ -170,3 +170,58 @@ def test_invalid_ephemeral_falls_back_to_basic_401(server, monkeypatch):
         server, '/', headers={'Cookie': 'vnc_ephemeral=bad'})
     assert status == 401
     assert 'WWW-Authenticate' in headers
+
+
+# ---------------------------------------------------------------------------
+# Share-link prefetch interstitial + log redaction
+# ---------------------------------------------------------------------------
+
+def test_prefetch_does_not_consume_token(server, monkeypatch):
+    """Link scanners/prefetchers must get the interstitial WITHOUT
+    consuming the single-use session."""
+    calls = []
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.'
+        'activate_ephemeral_session',
+        lambda *a, **kw: calls.append(1) or _FakeSession(),
+        raising=False)
+    status, headers, body = _req(
+        server, '/?session=SIGNEDTOK',
+        headers={**_auth_headers(), 'Sec-Purpose': 'prefetch'})
+    assert status == 200
+    assert calls == []  # token NOT consumed
+    # Interstitial keeps the session link for the real navigation.
+    assert b'session=SIGNEDTOK' in body
+
+
+def test_real_navigation_consumes_token(server, monkeypatch):
+    """A real navigation (no prefetch hints) consumes the session and
+    sets the vnc_ephemeral cookie + redirect."""
+    calls = []
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.'
+        'activate_ephemeral_session',
+        lambda *a, **kw: calls.append(1) or _FakeSession(),
+        raising=False)
+    status, headers, body = _req(
+        server, '/?session=SIGNEDTOK', headers=_auth_headers())
+    assert calls == [1]
+    assert status in (302, 303)
+    assert 'vnc_ephemeral' in headers.get('Set-Cookie', '')
+
+
+class _FakeSession:
+    token = 'internal-tok'
+    permissions = {'view'}
+    role = 'viewer'
+    single_use = True
+
+
+def test_log_message_redacts_session_token(server, caplog):
+    """The signed session token must never reach the access log."""
+    import logging
+    caplog.set_level(logging.INFO)
+    # Any authenticated request with ?session= logs the path.
+    _req(server, '/?session=SECRETTOKEN123', headers=_auth_headers())
+    joined = ' '.join(r.getMessage() for r in caplog.records)
+    assert 'SECRETTOKEN123' not in joined
