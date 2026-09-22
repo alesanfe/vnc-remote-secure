@@ -204,3 +204,60 @@ class TestValidateUserPasswords:
         """Generated VNC password (vnc_user_set=False) skips validation —
         it is a random strong draw, not operator input."""
         self._v(vnc_password='changeme', vnc_user_set=False)
+
+
+class TestParseEnvFile:
+    """_parse_env_file: shell-substitution rejection and ${} expansion."""
+
+    def _parse(self, tmp_path, content):
+        from vnc_remote_secure.core.config import _parse_env_file
+        f = tmp_path / 'x.env'
+        f.write_text(content, encoding='utf-8')
+        return dict(_parse_env_file(str(f)))
+
+    def test_dollar_paren_anywhere_rejected(self, tmp_path):
+        """FOO=x$(id) mid-value must be skipped, not just startswith."""
+        out = self._parse(tmp_path, 'OK=1\nEVIL=x$(id)\n')
+        assert 'EVIL' not in out
+        assert out['OK'] == '1'
+
+    def test_backtick_rejected(self, tmp_path):
+        out = self._parse(tmp_path, 'EVIL=`id`\n')
+        assert 'EVIL' not in out
+
+    def test_var_expansion_known(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('MYVAR', 'hello')
+        out = self._parse(tmp_path, 'A=${MYVAR}-suffix\n')
+        assert out['A'] == 'hello-suffix'
+
+    def test_var_expansion_unknown_empty(self, tmp_path, monkeypatch):
+        monkeypatch.delenv('NOPE_VAR', raising=False)
+        out = self._parse(tmp_path, 'A=pre${NOPE_VAR}post\n')
+        assert out['A'] == 'prepost'
+
+    def test_comments_and_blank_skipped(self, tmp_path):
+        out = self._parse(tmp_path, '# c\n\nNOEQUALS\nA=1\n')
+        assert out == {'A': '1'}
+
+    def test_quoted_value_stripped(self, tmp_path):
+        out = self._parse(tmp_path, 'A="quoted"\nB=\'single\'\n')
+        assert out['A'] == 'quoted'
+        assert out['B'] == 'single'
+
+    def test_unreadable_file_no_crash(self, tmp_path):
+        from vnc_remote_secure.core.config import _parse_env_file
+        assert list(_parse_env_file(str(tmp_path / 'nope.env'))) == []
+
+
+class TestGeneratedCredentialPersistence:
+    def test_roundtrip_and_remove(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.core import config
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.paths.get_run_dir',
+            lambda: str(tmp_path), raising=False)
+        monkeypatch.setattr(config, 'get_run_dir',
+                            lambda: str(tmp_path), raising=False)
+        config._persist_generated_credential('X_CRED', 'secret1')
+        assert config._load_generated_credential('X_CRED') == 'secret1'
+        config._remove_generated_credential('X_CRED')
+        assert not config._load_generated_credential('X_CRED')

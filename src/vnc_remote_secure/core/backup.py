@@ -226,8 +226,9 @@ def create_backup(output: str | None = None) -> str:
 
     paths = _collect_paths()
     if not paths:
-        logger.warning("No files to back up")
-        return output
+        # Fail loudly: returning a path to a file that was never
+        # written makes callers report "Backup created: <nonexistent>".
+        raise RuntimeError("No files to back up — nothing matched")
 
     # Create the tar.gz to a temporary path first, then encrypt if needed.
     # dereference=True stores the CONTENT of symlinked files (e.g. the

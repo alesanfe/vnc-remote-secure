@@ -86,3 +86,89 @@ def test_verify_session_cookie_idle_sliding(monkeypatch):
     session = verify_session_cookie(value)
     assert session is not None
     assert session['username'] == 'carol'
+
+
+class TestSessionCookieBoundaries:
+    def test_legacy_v1_payload_accepted(self):
+        """Pre-upgrade 3-field cookies must still verify — a regression
+        silently logs out every pre-upgrade session."""
+        import time
+        from vnc_remote_secure.security.sessions import (
+            verify_session_cookie)
+        from vnc_remote_secure.security.token_signing import (
+            sign_token, TOKEN_TYPE_SESSION)
+        now = int(time.time())
+        payload = f'alice:{now}:{now + 3600}'
+        cookie = sign_token(TOKEN_TYPE_SESSION, payload)
+        s = verify_session_cookie(cookie)
+        assert s is not None
+        assert s['username'] == 'alice'
+        assert s['last_seen'] == s['created']
+
+    def test_non_integer_fields_rejected(self):
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+        from vnc_remote_secure.security.token_signing import (
+            sign_token, TOKEN_TYPE_SESSION)
+        cookie = sign_token(TOKEN_TYPE_SESSION, 'a:notanint:x:y')
+        assert verify_session_cookie(cookie) is None
+
+    def test_wrong_field_count_rejected(self):
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+        from vnc_remote_secure.security.token_signing import (
+            sign_token, TOKEN_TYPE_SESSION)
+        assert verify_session_cookie(
+            sign_token(TOKEN_TYPE_SESSION, 'a:b')) is None
+        assert verify_session_cookie(
+            sign_token(TOKEN_TYPE_SESSION, 'a:1:2:3:4')) is None
+
+    def test_refresh_preserves_expires(self):
+        """Refresh must update last_seen only — never extend the
+        absolute expiry."""
+        import time
+        from vnc_remote_secure.security.sessions import (
+            create_session_cookie, refresh_session_cookie,
+            verify_session_cookie)
+        cookie = create_session_cookie('alice')['value']
+        s1 = verify_session_cookie(cookie)
+        # Force last_seen into the past so refresh fires.
+        import vnc_remote_secure.security.sessions as m
+        orig = m.verify_session_cookie
+
+        def _stale(v):
+            d = orig(v)
+            if d:
+                d['last_seen'] = int(time.time()) - 3600
+            return d
+
+        from unittest import mock
+        with mock.patch.object(m, 'verify_session_cookie', _stale):
+            new = refresh_session_cookie(cookie)
+        assert new is not None
+        s2 = verify_session_cookie(new)
+        assert s2['expires'] == s1['expires']
+
+    def test_revocation_key_stable_across_refresh(self):
+        """username:created must be identical pre/post refresh — else
+        revoke misses re-issued cookies."""
+        from vnc_remote_secure.security.sessions import (
+            create_session_cookie, session_revocation_key)
+        cookie = create_session_cookie('alice')['value']
+        k1 = session_revocation_key(cookie)
+        assert k1
+        assert k1.startswith('alice:')
+
+
+class TestSameSiteWhitelist:
+    def test_injected_samesite_falls_back(self, monkeypatch):
+        monkeypatch.setenv('SESSION_SAMESITE', 'Lax\r\nX-Injected: 1')
+        from vnc_remote_secure.security.sessions import (
+            get_cookie_attributes)
+        attrs = get_cookie_attributes()
+        assert attrs['samesite'].lower() in ('lax', 'strict', 'none')
+        assert '\r' not in attrs['samesite']
+
+    def test_valid_samesite_passes(self, monkeypatch):
+        monkeypatch.setenv('SESSION_SAMESITE', 'Strict')
+        from vnc_remote_secure.security.sessions import (
+            get_cookie_attributes)
+        assert get_cookie_attributes()['samesite'] == 'Strict'

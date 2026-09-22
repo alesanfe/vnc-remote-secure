@@ -233,3 +233,153 @@ class TestWebSocketRateLimitAccounting:
             client_ip='10.9.9.10')
         assert allowed is False
         assert 'rate' in reason.lower()
+
+
+def _clear_rate_limit_state():
+    """Wipe shared-state lockouts+attempts — they persist across tests."""
+    from vnc_remote_secure.security.shared_state import get_backend
+    be = get_backend()
+    for ns in ('rate_limit_lockouts', 'rate_limit_attempts'):
+        try:
+            for k in list(be.list_keys(ns)):
+                be.delete(ns, k)
+        except Exception:
+            pass
+
+
+class TestAttemptLoginLockout:
+    """attempt_login rate-limit behavior — the brute-force gate."""
+
+    def _setup(self, monkeypatch, password='Str0ng!Pass', max_att=3):
+        from vnc_remote_secure.security import auth_gateway as gw
+        from vnc_remote_secure.security.rate_limit import RateLimiter
+        _clear_rate_limit_state()
+        limiter = RateLimiter()
+        limiter.max_attempts = max_att
+        monkeypatch.setattr(gw, 'get_auth_limiter', lambda: limiter)
+        monkeypatch.setenv('USER_UI_PASSWORD', password)
+        # Pin the expected username — import-time env mutation in other
+        # modules (or a real .env) must not decide which user logs in.
+        monkeypatch.setenv('USER_UI_USERNAME', 'admin')
+        monkeypatch.delenv('TTYD_USERNAME', raising=False)
+        monkeypatch.delenv('TOTP_SECRET', raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.mfa_required_for_login',
+            lambda: False, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.step_up_auth.record_auth_time',
+            lambda u: None, raising=False)
+        return gw, limiter
+
+    def test_lockout_after_max_attempts(self, monkeypatch):
+        gw, _ = self._setup(monkeypatch)
+        for _ in range(3):
+            gw.attempt_login('admin', 'wrong')
+        ok, msg, _ = gw.attempt_login('admin', 'wrong')
+        assert ok is False
+        assert 'locked' in msg.lower()
+
+    def test_correct_password_rejected_while_locked(self, monkeypatch):
+        """Lockout is enforced BEFORE credential check — the right
+        password must not get in during lockout."""
+        gw, _ = self._setup(monkeypatch)
+        for _ in range(3):
+            gw.attempt_login('admin', 'wrong')
+        ok, msg, _ = gw.attempt_login('admin', 'Str0ng!Pass')
+        assert ok is False
+        assert 'locked' in msg.lower()
+
+    def test_username_lockout_independent_of_ip(self, monkeypatch):
+        """Attacker rotating IPs still hits the user:<name> lock."""
+        gw, _ = self._setup(monkeypatch)
+        for i in range(3):
+            gw.attempt_login('admin', 'wrong', client_ip=f'10.0.0.{i}')
+        ok, msg, _ = gw.attempt_login(
+            'admin', 'Str0ng!Pass', client_ip='10.9.9.9')
+        assert ok is False
+        assert 'locked' in msg.lower()
+
+    def test_ip_lockout_independent_of_username(self, monkeypatch):
+        """Same attacker IP cannot pivot to a different account."""
+        gw, _ = self._setup(monkeypatch)
+        for i in range(3):
+            gw.attempt_login(f'user{i}', 'wrong', client_ip='10.1.1.1')
+        ok, msg, _ = gw.attempt_login(
+            'admin', 'Str0ng!Pass', client_ip='10.1.1.1')
+        assert ok is False
+        assert 'locked' in msg.lower()
+
+    def test_success_clears_failures(self, monkeypatch):
+        gw, _ = self._setup(monkeypatch)
+        gw.attempt_login('admin', 'wrong', client_ip='10.2.2.2')
+        ok, msg, sess = gw.attempt_login(
+            'admin', 'Str0ng!Pass', client_ip='10.2.2.2')
+        assert ok is True
+        assert sess
+        assert 'admin' in sess.get('value', '')
+
+
+class TestRecoveryCodeLogin:
+    """Recovery-code MFA path — the MFA-bypass surface."""
+
+    def _setup_mfa(self, monkeypatch):
+        _clear_rate_limit_state()
+        import secrets as _s
+        user = 'adm-' + _s.token_hex(4)
+        ip = '10.99.' + str(_s.randbelow(250) + 1) + '.1'
+        from vnc_remote_secure.security import auth_gateway as gw
+        from vnc_remote_secure.security.rate_limit import RateLimiter
+        from vnc_remote_secure.security.mfa import hash_recovery_code
+        limiter = RateLimiter()
+        limiter.max_attempts = 20
+        monkeypatch.setattr(gw, 'get_auth_limiter', lambda: limiter)
+        monkeypatch.setenv('USER_UI_PASSWORD', 'Str0ng!Pass')
+        monkeypatch.setenv('USER_UI_USERNAME', user)
+        monkeypatch.delenv('TTYD_USERNAME', raising=False)
+        monkeypatch.setenv('TOTP_SECRET', 'BASE32SECRET')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.mfa_required_for_login',
+            lambda: True, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.step_up_auth.record_auth_time',
+            lambda u: None, raising=False)
+        import secrets as _s
+        # Unique per test — claims persist in the shared backend, so a
+        # fixed code would poison later tests in the same run.
+        code = 'RC-' + _s.token_hex(6).upper()
+        monkeypatch.setenv(
+            'RECOVERY_CODES_HASHES', hash_recovery_code(code))
+        # TOTP verify must fail so the recovery path is exercised.
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.verify_totp',
+            lambda *a: False, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.mfa.verify_totp',
+            lambda *a: False, raising=False)
+        return gw, code, user, ip
+
+    def test_valid_recovery_code_logs_in(self, monkeypatch):
+        gw, code, user, ip = self._setup_mfa(monkeypatch)
+        ok, msg, sess = gw.attempt_login(
+            user, 'Str0ng!Pass', totp_code=code, client_ip=ip)
+        assert ok is True
+        assert sess
+
+    def test_recovery_code_single_use(self, monkeypatch):
+        """Same code twice -> second is rejected (claimed in shared
+        state even if .env cannot be rewritten)."""
+        gw, code, user, ip = self._setup_mfa(monkeypatch)
+        ok1, _, _ = gw.attempt_login(
+            user, 'Str0ng!Pass', totp_code=code, client_ip=ip)
+        assert ok1 is True
+        ok2, msg2, _ = gw.attempt_login(
+            user, 'Str0ng!Pass', totp_code=code, client_ip=ip)
+        assert ok2 is False
+        assert 'invalid' in msg2.lower()
+
+    def test_invalid_code_records_failure_both_keys(self, monkeypatch):
+        gw, _, user, ip = self._setup_mfa(monkeypatch)
+        ok, msg, _ = gw.attempt_login(user, 'Str0ng!Pass',
+                                      totp_code='WRONGCODE', client_ip=ip)
+        assert ok is False
+        assert 'invalid' in msg.lower()

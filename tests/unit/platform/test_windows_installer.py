@@ -187,3 +187,52 @@ class _TmpCtx:
 
     def __exit__(self, *exc):
         return False
+
+
+class TestEnsureUltravncSecurity:
+    """Download/install guards — the archive is remote input."""
+
+    def test_non_https_url_refused(self, monkeypatch):
+        monkeypatch.setenv('ULTRAVNC_URL', 'http://evil.example/u.zip')
+        assert installer._ensure_ultravnc() is None
+
+    def test_file_scheme_refused(self, monkeypatch):
+        monkeypatch.setenv('ULTRAVNC_URL', 'file:///etc/passwd')
+        assert installer._ensure_ultravnc() is None
+
+    def test_zip_slip_member_rejected(self, monkeypatch, tmp_path):
+        """A member escaping the install dir must abort extraction."""
+        import io
+        import zipfile
+        monkeypatch.setattr(installer, '_find_ultravnc', lambda: None)
+        dest = tmp_path / 'ultravnc_dest'
+        monkeypatch.setattr(installer, '_ULTRAVNC_INSTALL_DIR', str(dest))
+        monkeypatch.setenv('ULTRAVNC_URL', 'https://x.example/u.zip')
+
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w') as zf:
+            zf.writestr('../evil.exe', 'bad')
+            zf.writestr('x64/winvnc.exe', 'ok')
+        zip_bytes.seek(0)
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, *a):
+                return zip_bytes.read()
+
+        import urllib.request
+        monkeypatch.setattr(urllib.request, 'urlopen',
+                            lambda *a, **k: _Resp())
+        dl = tmp_path / 'dl'
+        dl.mkdir()
+        monkeypatch.setattr(installer.tempfile, 'mkdtemp',
+                            lambda *a, **k: str(dl))
+        import pytest
+        with pytest.raises(RuntimeError, match='Unsafe path'):
+            installer._ensure_ultravnc()
+        assert not (tmp_path / 'evil.exe').exists()

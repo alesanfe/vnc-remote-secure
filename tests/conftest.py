@@ -120,3 +120,23 @@ def _drain_ws_revocation_watchers():
         wr._watcher_tasks.clear()
     except Exception:  # noqa: BLE001 - teardown best-effort
         pass
+
+
+@pytest.fixture(autouse=True)
+def _clear_rate_limit_namespaces():
+    """Wipe shared-state rate-limit keys after every test.
+
+    Lockouts live in the sqlite backend, not the RateLimiter instance
+    — a test that triggers a lockout (login, ws-upgrade, landing,
+    health-401) otherwise poisons every later test using the same
+    client IP or username.
+    """
+    yield
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        be = get_backend()
+        for ns in ('rate_limit_lockouts', 'rate_limit_attempts'):
+            for k in list(be.list_keys(ns)):
+                be.delete(ns, k)
+    except Exception:  # noqa: BLE001 - teardown best-effort
+        pass

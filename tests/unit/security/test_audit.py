@@ -111,3 +111,43 @@ class TestAuditLog:
         entry = audit_log('login', user='alice')
         assert entry['event'] == 'login'
         assert audit_file.exists()
+
+
+class TestVerifyChainEdges:
+    def test_missing_anchor_rejected(self, tmp_path, monkeypatch):
+        """First entry not an anchor -> chain broken."""
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        f.write_text(
+            __import__('json').dumps({'event': 'login', 'hash': 'x'})
+            + '\n')
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        ok, msg = audit.verify_chain()
+        assert ok is False
+        assert 'anchor' in msg.lower()
+
+    def test_invalid_json_line_rejected(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        f.write_text('{not json}\n')
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        ok, msg = audit.verify_chain()
+        assert ok is False
+
+    def test_deleted_middle_entry_detected(self, tmp_path, monkeypatch):
+        """Removing a line breaks the link chain — deletion must be
+        detected, not just tampering."""
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        audit._startup_verified = True
+        audit._last_hash = audit._ANCHOR_HASH
+        audit._write_anchor()
+        audit.audit_log('e1')
+        audit.audit_log('e2')
+        lines = f.read_text().strip().split('\n')
+        assert len(lines) == 3
+        f.write_text(lines[0] + '\n' + lines[2] + '\n')
+        audit._last_hash = audit._ANCHOR_HASH
+        ok, msg = audit.verify_chain()
+        assert ok is False

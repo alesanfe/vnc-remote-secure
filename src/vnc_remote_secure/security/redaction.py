@@ -91,6 +91,14 @@ def redact_dict(data: dict, show_fingerprint: bool = False) -> dict:
     for key, value in data.items():
         if isinstance(value, dict):
             result[key] = redact_dict(value, show_fingerprint)
+        elif isinstance(value, (list, tuple)):
+            # Secrets nested inside a list of dicts (e.g. a 'users'
+            # array in a config dump) must not leak either.
+            result[key] = [
+                redact_dict(item, show_fingerprint)
+                if isinstance(item, dict) else item
+                for item in value
+            ]
         elif isinstance(key, str) and key.upper() in SECRET_VARS:
             result[key] = redact_value(key, str(value), show_fingerprint)
         else:

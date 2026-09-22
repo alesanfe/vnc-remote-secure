@@ -4,6 +4,8 @@ import sys
 from argparse import Namespace
 from unittest.mock import patch
 
+import pytest
+
 sys.path.insert(0, os.path.join(
     os.path.dirname(__file__), '..', '..', '..', 'src'))
 
@@ -56,3 +58,28 @@ def test_allowed_ip_ipv6_accepted(capsys):
         store.create.return_value = (object(), 'tok')
         rc = cmd_session(_args(allowed_ip='::1'))
         assert rc == 0
+
+
+class TestParseDuration:
+    """Duration parsing — BVA on unit suffixes and edge values."""
+
+    @pytest.mark.parametrize(('s', 'expected'), [
+        ('30m', 1800), ('2h', 7200), ('1d', 86400), ('3600', 3600),
+        ('3600s', 3600), (' 30m ', 1800), ('30M', 1800),
+    ])
+    def test_valid_durations(self, s, expected):
+        from vnc_remote_secure.cli.commands.session import _parse_duration
+        assert _parse_duration(s) == expected
+
+    @pytest.mark.parametrize('s', ['0', '-5m', '0m', 'abc', '10x', 'x'])
+    def test_invalid_durations_raise(self, s):
+        from vnc_remote_secure.cli.commands.session import _parse_duration
+        with pytest.raises(SystemExit):
+            _parse_duration(s)
+
+    def test_empty_returns_default(self):
+        from vnc_remote_secure.cli.commands.session import _parse_duration
+        from vnc_remote_secure.core.constants import (
+            DEFAULT_SESSION_IDLE_TIMEOUT)
+        assert _parse_duration('') == DEFAULT_SESSION_IDLE_TIMEOUT
+        assert _parse_duration(None) == DEFAULT_SESSION_IDLE_TIMEOUT

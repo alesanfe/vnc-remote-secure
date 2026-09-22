@@ -129,3 +129,19 @@ class TestRedactTextGeneratedCreds:
             'vnc_remote_secure.core.config._load_generated_credential',
             _boom, raising=False)
         assert 'TermSecret77' not in redact_text('auth TermSecret77 ok')
+
+    def test_secret_nested_in_list_redacted(self):
+        """A dict inside a list value must not leak secrets."""
+        data = {'users': [{'VNC_PASSWORD': 's3cret'}]}
+        assert redact_dict(data)['users'][0]['VNC_PASSWORD'] == 'configured'
+
+    def test_short_secret_not_scrubbed_is_pinned(self):
+        """len<4 secrets are NOT scrubbed — pinned so the limitation
+        is visible, not silent."""
+        # 'ab1' is shorter than the >=4 threshold.
+        import os
+        os.environ['VNC_PASSWORD'] = 'ab1'
+        try:
+            assert 'ab1' in redact_text('pass=ab1')
+        finally:
+            del os.environ['VNC_PASSWORD']

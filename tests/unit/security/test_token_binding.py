@@ -138,3 +138,37 @@ class TestToDictIncludesBinding:
         assert d['resource'] == 'desktop'
         assert d['max_uses'] == 5
         assert d['use_count'] == 0
+
+
+class TestForeignInstanceId:
+    """A token minted by a different deployment (different persisted
+    instance.id) must never authenticate here."""
+
+    def test_foreign_instance_rejected_by_is_valid(self, fresh_store):
+        session, _signed = fresh_store.create(role='viewer')
+        session.instance_id = 'srv_deadbeef'  # simulate foreign deployment
+        assert session.is_valid() is False
+
+    def test_foreign_instance_rejected_by_validate(self, fresh_store):
+        session, signed = fresh_store.create(role='viewer')
+        session.instance_id = 'srv_deadbeef'
+        assert fresh_store.validate(signed) is None
+
+
+class TestMalformedTokenPayloads:
+    def test_wrong_part_count_rejected(self):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            verify_ephemeral_token)
+        from vnc_remote_secure.security.token_signing import (
+            sign_token, TOKEN_TYPE_EPHEMERAL)
+        for bad in ('onlyone', 'a:b', 'a:b:c:d:e'):
+            assert verify_ephemeral_token(
+                sign_token(TOKEN_TYPE_EPHEMERAL, bad)) is None
+
+    def test_non_numeric_fields_rejected(self):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            verify_ephemeral_token)
+        from vnc_remote_secure.security.token_signing import (
+            sign_token, TOKEN_TYPE_EPHEMERAL)
+        assert verify_ephemeral_token(sign_token(
+            TOKEN_TYPE_EPHEMERAL, 'tok:notanumber:0')) is None

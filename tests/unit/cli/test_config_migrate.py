@@ -66,3 +66,24 @@ def test_migrate_clean_config_reports_nothing(tmp_path, monkeypatch, capsys):
     _env(tmp_path, monkeypatch, 'SECURITY_PROFILE=development\n')
     assert _config_migrate(_args()) == 0
     assert 'No migrations needed' in capsys.readouterr().out
+
+
+class TestConfigValidateRc:
+    """config validate rc: critical findings -> 1, warnings-only -> 0."""
+
+    def _run(self, monkeypatch, severities):
+        from argparse import Namespace
+        from vnc_remote_secure.cli.commands import config as cc
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.config_inspector.validate_config',
+            lambda **kw: [{'severity': sv, 'message': 'm'}
+                          for sv in severities],
+            raising=False)
+        args = Namespace(config_action='validate', profile=None, json=False)
+        return cc._config_validate(args)
+
+    def test_warnings_only_rc0(self, monkeypatch):
+        assert self._run(monkeypatch, ['warning', 'info']) == 0
+
+    def test_critical_rc1(self, monkeypatch):
+        assert self._run(monkeypatch, ['warning', 'critical']) == 1

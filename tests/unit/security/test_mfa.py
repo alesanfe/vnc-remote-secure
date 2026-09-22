@@ -188,3 +188,37 @@ class TestTotpStepClaim:
         step = int(time.time() // 30) + 9000
         assert _claim_step('AAAA', step) is True
         assert _claim_step('BBBB', step) is True
+
+
+class TestTotpWindowBoundaries:
+    """TOTP_WINDOW=1: steps -1/0/+1 accepted, ±2 rejected."""
+
+    def test_code_at_window_edge_accepted(self):
+        from vnc_remote_secure.security.mfa import (
+            _base32_decode, _hotp, TOTP_DIGITS)
+        secret = generate_totp_secret()
+        now = int(time.time())
+        # Ascending order matters: each accepted code is consumed, and
+        # counters <= last consumed are rejected as replays.
+        for delta in (-1, 0, 1):
+            step = now // 30 + delta
+            code = f'{_hotp(_base32_decode(secret), step):0{TOTP_DIGITS}d}'
+            assert verify_totp(secret, code, timestamp=now) is True, delta
+
+    def test_code_beyond_window_rejected(self):
+        from vnc_remote_secure.security.mfa import (
+            _base32_decode, _hotp, TOTP_DIGITS)
+        secret = generate_totp_secret()
+        now = int(time.time())
+        for delta in (-2, 2):
+            step = now // 30 + delta
+            code = f'{_hotp(_base32_decode(secret), step):0{TOTP_DIGITS}d}'
+            assert verify_totp(secret, code, timestamp=now) is False, delta
+
+    def test_invalid_base32_secret_fails_closed(self):
+        assert verify_totp('!!!notbase32!!!', '123456') is False
+
+    def test_wrong_length_code_rejected(self):
+        secret = generate_totp_secret()
+        assert verify_totp(secret, '12345') is False
+        assert verify_totp(secret, '1234567') is False

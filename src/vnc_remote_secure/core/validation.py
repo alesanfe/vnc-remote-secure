@@ -119,10 +119,11 @@ def validate_domain(domain, field_name='domain'):
         raise ValidationError(
             f"{field_name}: Domain name too long (max 253 characters)"
         )
-    if not _DOMAIN_RE.match(domain):
-        raise ValidationError(f"{field_name}: Invalid domain name format")
     if domain in ('localhost', '127.0.0.1', '::1'):
         _warn("Using localhost domain may cause SSL certificate issues")
+        return True
+    if not _DOMAIN_RE.match(domain):
+        raise ValidationError(f"{field_name}: Invalid domain name format")
     return True
 
 
@@ -138,11 +139,12 @@ def validate_email(email, field_name='email'):
         raise ValidationError(f"{field_name}: Invalid email format")
     if len(email) > 254:
         raise ValidationError(f"{field_name}: Email address too long")
-    for invalid in _INVALID_EMAIL_DOMAINS:
-        if email.endswith(invalid):
-            raise ValidationError(
-                f"{field_name}: Email domain {invalid} is not valid for production"
-            )
+    domain_part = email.rsplit('@', 1)[-1].lower()
+    if domain_part in _INVALID_EMAIL_DOMAINS:
+        raise ValidationError(
+            f"{field_name}: Email domain {domain_part} is not valid "
+            "for production"
+        )
     return True
 
 

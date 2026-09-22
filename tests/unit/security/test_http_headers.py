@@ -39,3 +39,23 @@ class TestSecurityHeaders:
         """HSTS must never be sent over HTTP."""
         headers = get_security_headers(tls_enabled=False)
         assert 'Strict-Transport-Security' not in headers
+
+
+class TestHeaderInjection:
+    """_safe_header_value must strip CRLF — a header override env var
+    containing CR/LF would inject arbitrary response headers."""
+
+    def test_crlf_in_override_sanitized(self, monkeypatch):
+        monkeypatch.setenv('CSP_POLICY',
+                           "default-src 'self'\r\nX-Injected: evil")
+        from vnc_remote_secure.security import http_headers
+        hdrs = http_headers.get_security_headers(tls_enabled=True)
+        val = hdrs['Content-Security-Policy']
+        assert '\r' not in val
+        assert '\n' not in val
+
+    def test_empty_override_uses_default(self, monkeypatch):
+        monkeypatch.setenv('HSTS_HEADER', '')
+        from vnc_remote_secure.security import http_headers
+        hdrs = http_headers.get_security_headers(tls_enabled=True)
+        assert hdrs['Strict-Transport-Security']

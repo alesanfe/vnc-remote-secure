@@ -262,3 +262,19 @@ def test_handle_client_rejects_unauthenticated(monkeypatch):
     assert ws.closed is True
     assert ws.close_code == 1008
     assert injector.device_created is False
+
+
+def test_handle_client_toctou_revoke_closes(monkeypatch):
+    """register_websocket_connection -> None (revoked between gateway
+    check and registration) must close 1008, never reach the injector."""
+    injector = _FakeInjector()
+    _patch_adapter(monkeypatch, injector)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
+        lambda *a, **kw: None)
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    ws = _FakeWebSocket(messages=[json.dumps({"type": "ping"})])
+    _run(server.handle_client(ws))
+    assert ws.closed is True
+    assert ws.close_code == 1008
+    assert injector.device_created is False

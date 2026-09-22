@@ -83,11 +83,17 @@ def client_ip_from(headers, peer_ip):
         if callable(get):
             forwarded = get('X-Forwarded-For', '')
             if forwarded:
-                # Take the LAST entry, not the first: nginx appends the
-                # real peer ($proxy_add_x_forwarded_for) after any
-                # client-supplied XFF, so the first hop is attacker-
-                # controlled and the last is the trusted-proxy-set one.
-                return forwarded.split(',')[-1].strip()
+                # Take the LAST non-empty entry, not the first: nginx
+                # appends the real peer ($proxy_add_x_forwarded_for)
+                # after any client-supplied XFF, so the first hop is
+                # attacker-controlled and the last is the trusted-proxy-
+                # set one. A trailing comma ('1.2.3.4,') must not yield
+                # an empty key — empty keys collapse into a shared
+                # rate-limit bucket and can bypass allowed_ip binds.
+                for hop in reversed(forwarded.split(',')):
+                    hop = hop.strip()
+                    if hop:
+                        return hop
     return peer_ip
 
 

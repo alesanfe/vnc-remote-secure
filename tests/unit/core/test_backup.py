@@ -141,3 +141,69 @@ class TestArchiveLimits:
                             lambda: str(tmp_path / 'run'))
         with pytest.raises(RuntimeError, match='uncompressed size'):
             backup.restore_backup(str(f))
+
+
+class TestBackupEdgeCases:
+    def test_empty_collect_paths_raises(self, monkeypatch, tmp_path):
+        """create_backup must fail loudly — returning a path to a file
+        never written makes the CLI report a phantom success."""
+        from vnc_remote_secure.core import backup
+        monkeypatch.setattr(backup, '_collect_paths', list)
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path))
+        monkeypatch.setattr(backup, '_backup_dir',
+                            lambda: str(tmp_path / 'backups'))
+        monkeypatch.setattr('vnc_remote_secure.core.service_manager.save_state',
+                            lambda: {'pids': {}, 'timestamp': 0},
+                            raising=False)
+        with pytest.raises(RuntimeError, match='No files'):
+            backup.create_backup()
+
+    def test_traversal_member_name_rejected(self, tmp_path, monkeypatch):
+        """A member literally named ../evil must be rejected (link
+        targets are tested elsewhere; member names were not)."""
+        import io
+        from vnc_remote_secure.core import backup
+        f = tmp_path / 'evil.tar.gz'
+        with tarfile.open(str(f), 'w:gz') as tar:
+            info = tarfile.TarInfo(name='../evil.txt')
+            data = b'x'
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path / 'proj'))
+        with pytest.raises(RuntimeError):
+            backup.restore_backup(str(f), dry_run=True)
+
+    def test_absolute_member_name_rejected(self, tmp_path, monkeypatch):
+        import io
+        from vnc_remote_secure.core import backup
+        f = tmp_path / 'abs.tar.gz'
+        with tarfile.open(str(f), 'w:gz') as tar:
+            info = tarfile.TarInfo(name='/etc/cron.d/x')
+            data = b'x'
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path / 'proj'))
+        with pytest.raises(RuntimeError):
+            backup.restore_backup(str(f), dry_run=True)
+
+    def test_member_at_exact_size_limit_accepted(self, tmp_path,
+                                                 monkeypatch):
+        """size == _MAX_BACKUP_FILE_SIZE is INCLUSIVE-allowed (check
+        uses >) — pin the boundary so an off-by-one cannot shrink it."""
+        import io
+        from vnc_remote_secure.core import backup
+        monkeypatch.setattr(backup, '_MAX_BACKUP_FILE_SIZE', 5)
+        monkeypatch.setattr(backup, '_MAX_BACKUP_TOTAL_SIZE', 10**9)
+        f = tmp_path / 'exact.tar.gz'
+        with tarfile.open(str(f), 'w:gz') as tar:
+            info = tarfile.TarInfo(name='ok.txt')
+            data = b'12345'  # exactly at the cap
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path / 'proj'))
+        # dry_run validates + extracts but skips copy — must not raise.
+        assert backup.restore_backup(str(f), dry_run=True) is True

@@ -307,3 +307,102 @@ def test_open_ephemeral_only_skips_step_up(tmp_path, monkeypatch):
     assert ws._authenticate() is True
     assert step_up_calls == []
     assert ws._ws_conn_id == 7
+
+
+class TestOnMessage:
+    """on_message dispatch — malformed input and the command allowlist
+    (defense-in-depth control with zero prior coverage)."""
+
+    def _ws(self):
+        from unittest.mock import MagicMock
+        from vnc_remote_secure.services import terminal as term
+        ws = object.__new__(term.TerminalWebSocket)
+        ws.write_message = MagicMock()
+        ws._send_prompt = MagicMock()
+        ws._after_command = MagicMock()
+        ws._execute_command = MagicMock()
+        ws.current_process = None
+        ws.history = []
+        return ws
+
+    def test_malformed_json_ignored(self):
+        self._ws().on_message('not json {{{')
+        # must not raise, must not execute
+        ws = self._ws()
+        ws.on_message('not json {{{')
+        ws._execute_command.assert_not_called()
+
+    def test_empty_command_no_exec(self):
+        import json
+        ws = self._ws()
+        ws.on_message(json.dumps({'type': 'command', 'cmd': '   '}))
+        ws._execute_command.assert_not_called()
+
+    def test_allowlist_denies_nonmatching(self, monkeypatch):
+        import json
+        monkeypatch.setenv('TERMINAL_COMMAND_ALLOWLIST', 'uptime|ls -l')
+        ws = self._ws()
+        ws.on_message(json.dumps({'type': 'command', 'cmd': 'rm -rf /'}))
+        ws._execute_command.assert_not_called()
+        assert any('not allowed' in str(c) for c in
+                   ws.write_message.call_args_list)
+
+    def test_allowlist_allows_matching(self, monkeypatch):
+        import json
+        monkeypatch.setenv('TERMINAL_COMMAND_ALLOWLIST', 'uptime')
+        ws = self._ws()
+        ws.on_message(json.dumps({'type': 'command', 'cmd': 'uptime'}))
+        ws._execute_command.assert_called_once_with('uptime')
+
+    def test_invalid_allowlist_regex_fails_closed(self, monkeypatch):
+        """A malformed regex must DENY — fail-open would silently
+        disable the allowlist."""
+        import json
+        monkeypatch.setenv('TERMINAL_COMMAND_ALLOWLIST', '([invalid')
+        ws = self._ws()
+        ws.on_message(json.dumps({'type': 'command', 'cmd': 'uptime'}))
+        ws._execute_command.assert_not_called()
+
+
+class TestGatewayReject:
+    """_authenticate reject paths — the gateway deny/TOCTOU branches."""
+
+    def _ws_stub(self):
+        from unittest.mock import MagicMock
+        from vnc_remote_secure.services import terminal as term
+        ws = object.__new__(term.TerminalWebSocket)
+        ws.request = MagicMock()
+        ws.request.headers = {'Cookie': '', 'Origin': '', 'Authorization': ''}
+        ws.request.remote_ip = '127.0.0.1'
+        ws.close = MagicMock()
+        ws.write_message = MagicMock()
+        return ws
+
+    def test_gateway_deny_closes_1008(self, monkeypatch):
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+            lambda **kw: (False, 'nope'), raising=False)
+        ws = self._ws_stub()
+        assert ws._authenticate() is False
+        ws.close.assert_called_once()
+        args, kwargs = ws.close.call_args
+        code = kwargs.get('code') or (args[0] if args else None)
+        assert code == 1008
+
+    def test_toctou_revoke_closes_1008(self, monkeypatch):
+        """register_websocket_connection -> None (session revoked
+        between check and register) must close."""
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+            lambda **kw: (True, 'OK'), raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.check_authenticated',
+            lambda c, b: (True, 'admin'), raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.step_up_auth.require_step_up',
+            lambda u, a: None, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
+            lambda *a, **kw: None, raising=False)
+        ws = self._ws_stub()
+        assert ws._authenticate() is False

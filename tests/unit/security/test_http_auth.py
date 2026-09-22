@@ -166,3 +166,42 @@ class TestTerminalAuth:
             raising=False)
         assert http_auth.check_terminal_auth('Bearer good') is True
         assert http_auth.check_terminal_auth('Bearer bad') is False
+
+    def test_xff_trailing_comma_returns_last_nonempty(self, monkeypatch):
+        """'1.2.3.4,' must not produce an empty client key — empty keys
+        collapse into a shared rate-limit bucket."""
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        headers = {'X-Forwarded-For': '1.2.3.4,'}
+        assert http_auth.client_ip_from(headers, '127.0.0.1') == '1.2.3.4'
+
+    def test_xff_all_empty_returns_peer(self, monkeypatch):
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        headers = {'X-Forwarded-For': ', ,'}
+        assert http_auth.client_ip_from(headers, '127.0.0.1') == '127.0.0.1'
+
+
+class TestMalformedAuthHeaders:
+    """check_basic_auth / check_bearer_token must fail closed without
+    raising on malformed input."""
+
+    def test_basic_invalid_base64(self):
+        assert http_auth.check_basic_auth('Basic !!!', 'u', 'p') is False
+
+    def test_basic_lowercase_scheme_rejected(self):
+        """Scheme matching is strict ('Basic ') — pinned contract; a
+        client sending 'basic' gets denied, not silently accepted."""
+        import base64
+        hdr = 'basic ' + base64.b64encode(b'u:p').decode()
+        assert http_auth.check_basic_auth(hdr, 'u', 'p') is False
+
+    def test_basic_decoded_without_colon(self):
+        import base64
+        hdr = 'Basic ' + base64.b64encode(b'nocolon').decode()
+        assert http_auth.check_basic_auth(hdr, 'u', 'p') is False
+
+    def test_bearer_non_ascii_fails_closed(self):
+        assert http_auth.check_bearer_token(
+            'Bearer \xc3\xbf\xc3\xbf', 'tok') is False
+
+    def test_bearer_wrong_scheme(self):
+        assert http_auth.check_bearer_token('Basic dGg=', 'tok') is False

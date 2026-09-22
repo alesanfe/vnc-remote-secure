@@ -120,3 +120,29 @@ def test_health_returns_503_when_down(health_server):
         assert resp.status == 503
     else:
         assert resp.status == 200
+
+
+def test_health_requires_token_when_configured(health_server, monkeypatch):
+    """With HEALTH_AUTH_TOKEN set, a missing/wrong Bearer must get 401 —
+    the whole health auth surface is implicitly open otherwise."""
+    monkeypatch.setenv('HEALTH_AUTH_TOKEN', 'tok-secret-42')
+    port = health_server.server_address[1]
+    for path in ('/health', '/health/services', '/metrics'):
+        conn = http.client.HTTPConnection('127.0.0.1', port)
+        conn.request('GET', path)
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        assert resp.status == 401, path
+
+
+def test_health_accepts_correct_token(health_server, monkeypatch):
+    monkeypatch.setenv('HEALTH_AUTH_TOKEN', 'tok-secret-42')
+    port = health_server.server_address[1]
+    conn = http.client.HTTPConnection('127.0.0.1', port)
+    conn.request('GET', '/health',
+                 headers={'Authorization': 'Bearer tok-secret-42'})
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    assert resp.status in (200, 503)  # auth passed; body status may vary

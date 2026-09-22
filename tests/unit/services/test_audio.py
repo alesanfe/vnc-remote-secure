@@ -138,3 +138,35 @@ def test_list_audio_devices_uses_adapter(monkeypatch, caplog):
     audio.list_audio_devices()
     # The resolved ffmpeg path must reach the adapter's device listing.
     assert adapter.list_devices_called_with == ["ffmpeg"]
+
+
+class TestAudioToctouRevoke:
+    """register_websocket_connection -> None (session revoked between
+    the gateway check and registration) must close with 1008."""
+
+    def test_revoked_between_check_and_register(self, monkeypatch):
+        import asyncio
+        from vnc_remote_secure.services import audio
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+            lambda **kw: (True, 'OK'), raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
+            lambda *a, **kw: None, raising=False)
+
+        class _WS:
+            remote_address = ('127.0.0.1', 1)
+            request_headers = {}
+            closed_with = None
+
+            async def close(self, code=None, reason=None):
+                self.closed_with = (code, reason)
+
+            async def send(self, m):
+                pass
+
+        ws = _WS()
+        server = audio.AudioStreamServer('127.0.0.1', 0, None, 128)
+        asyncio.run(server.handle_client(ws))
+        # Strict: the revoked-session path MUST close with 1008.
+        assert ws.closed_with == (1008, 'Session revoked')
