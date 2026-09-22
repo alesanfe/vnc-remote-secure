@@ -179,3 +179,57 @@ class TestAuthorizeRequest:
             bearer_token='tok', required_permission='desktop:view')
         assert allowed is True
         assert ident == 'tok'
+
+
+class TestWebSocketRateLimitAccounting:
+    """Rejected WS upgrades must count against the auth limiter.
+
+    Without ws:<ip> accounting, the WebSocket endpoint is a
+    lockout-free credential oracle — unlimited guesses.
+    """
+
+    def test_rejected_upgrade_records_ws_failure(self, monkeypatch):
+        from vnc_remote_secure.security import auth_gateway
+        from vnc_remote_secure.security.rate_limit import RateLimiter
+        limiter = RateLimiter()
+        monkeypatch.setattr(
+            auth_gateway, 'get_auth_limiter', lambda: limiter)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.rate_limit.get_auth_limiter',
+            lambda: limiter, raising=False)
+        allowed, reason = check_websocket_upgrade(
+            origin='https://evil.example',
+            client_ip='10.9.9.9')
+        assert allowed is False
+        # The failure must be recorded under the ws: namespace so
+        # is_client_locked() sees it.
+        assert limiter._attempt_count('ws:10.9.9.9') == 1
+
+    def test_repeated_rejections_lock_ip(self, monkeypatch):
+        from vnc_remote_secure.security import auth_gateway
+        from vnc_remote_secure.security.rate_limit import RateLimiter
+        limiter = RateLimiter()
+        monkeypatch.setattr(
+            auth_gateway, 'get_auth_limiter', lambda: limiter)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.rate_limit.get_auth_limiter',
+            lambda: limiter, raising=False)
+        # Explicit max_attempts — RateLimiter reads AUTH_MAX_ATTEMPTS
+        # from os.environ at construction time; relying on the default
+        # makes the lock threshold order-dependent under the full suite.
+        limiter = RateLimiter()
+        limiter.max_attempts = 3
+        for _ in range(3):
+            check_websocket_upgrade(
+                origin='https://evil.example',
+                client_ip='10.9.9.10')
+        # Even a *valid* credential is now rejected up front.
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.check_authenticated',
+            lambda c, b: (True, 'admin'), raising=False)
+        allowed, reason = check_websocket_upgrade(
+            origin='https://evil.example',
+            cookie_value='valid-sess',
+            client_ip='10.9.9.10')
+        assert allowed is False
+        assert 'rate' in reason.lower()

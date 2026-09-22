@@ -5,6 +5,7 @@ into a per-test-session temporary directory so tests do not pollute or
 read from the real system runtime directory.
 """
 
+import contextlib
 import pytest
 
 # Hypothesis deadlines flake under load (CI/loaded dev machines): a
@@ -97,3 +98,25 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     # explicitly (it can monkeypatch.setenv itself).
     monkeypatch.delenv('AUDIT_LOG_FILE', raising=False)
     monkeypatch.delenv('AUDIT_MIRROR_FILE', raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _drain_ws_revocation_watchers():
+    """Cancel revocation-watcher tasks orphaned by closed event loops.
+
+    Services spawn ``watch_shared_revocation_async`` tasks with a 5 s
+    poll interval; tests finish (and their ``asyncio.run`` loop dies)
+    before the first tick, so the tasks are GC'd while pending — the
+    ``Task was destroyed but it is pending`` noise. Cancelling them
+    marks the future done even when the loop is already closed.
+    """
+    yield
+    try:
+        from vnc_remote_secure.security import websocket_registry as wr
+        for task in list(wr._watcher_tasks):
+            if not task.done():
+                with contextlib.suppress(RuntimeError):
+                    task.cancel()
+        wr._watcher_tasks.clear()
+    except Exception:  # noqa: BLE001 - teardown best-effort
+        pass
