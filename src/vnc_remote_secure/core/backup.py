@@ -342,88 +342,65 @@ def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _restore_from_temp(backup_file: str, temp_dir: str,
-                       project_root: str, dry_run: bool) -> bool:
-    """Decrypt, validate, extract and copy a backup from ``temp_dir``.
-
-    Caller guarantees ``temp_dir`` exists and is removed afterwards.
-    """
-    # Determine if the backup is encrypted.
-    is_encrypted = backup_file.endswith('.enc.tar.gz')
-    actual_tar = backup_file
-    decrypted_tar = None
-
-    if is_encrypted:
-        if not _get_backup_key():
+def _validate_tar_member(member, member_path, temp_dir):
+    """Validate one archive member's path, link target, and size."""
+    if member_path.startswith('..') or os.path.isabs(member_path):
+        raise RuntimeError(
+            f"Unsafe path in backup archive: {member.name}")
+    # Resolve and ensure it stays within temp_dir.
+    target = os.path.realpath(os.path.join(temp_dir, member_path))
+    if not target.startswith(os.path.realpath(temp_dir) + os.sep):
+        raise RuntimeError(
+            f"Unsafe path in backup archive: {member.name}")
+    # Link members: the name checks above only cover the member path —
+    # a symlink/hardlink TARGET can still point outside temp_dir. On
+    # interpreters where extractall(filter='data') is unavailable these
+    # members extract as live links that the copy phase then follows
+    # into the host filesystem. Validate the target the same way the
+    # name is validated.
+    if member.issym() or member.islnk():
+        link_target = member.linkname or ''
+        if os.path.isabs(link_target):
             raise RuntimeError(
-                "Backup is encrypted but BACKUP_PASSWORD is not set. "
-                "Set BACKUP_PASSWORD to restore this backup."
-            )
-        decrypted_tar = os.path.join(temp_dir, '_decrypted.tar.gz')
-        _decrypt_file(backup_file, decrypted_tar)
-        actual_tar = decrypted_tar
+                "Unsafe link target in backup archive: "
+                f"{member.name} -> {link_target}")
+        # Hardlink targets are names in the archive root; symlink
+        # targets are relative to the link's dir.
+        base = os.path.dirname(member_path) if member.issym() else ''
+        resolved = os.path.normpath(os.path.join(base, link_target))
+        if resolved.startswith('..') or os.path.isabs(resolved):
+            raise RuntimeError(
+                "Unsafe link target in backup archive: "
+                f"{member.name} -> {link_target}")
+    if member.size > _MAX_BACKUP_FILE_SIZE:
+        raise RuntimeError(
+            f"Backup member too large: {member.name} "
+            f"({member.size} > {_MAX_BACKUP_FILE_SIZE})")
+    return member.size
 
+
+def _extract_backup_tar(actual_tar, temp_dir):
+    """Open, validate and extract the backup tarball into ``temp_dir``."""
     try:
         with tarfile.open(actual_tar, 'r:gz') as tar:
-            # Validate each member to prevent path traversal (absolute paths,
-            # '..' components) before extracting. Also bound the archive:
-            # member count, per-file size and total uncompressed size —
-            # a tar-bomb would otherwise fill the disk during extraction.
+            # Validate each member to prevent path traversal (absolute
+            # paths, '..' components) before extracting. Also bound the
+            # archive: member count, per-file size and total
+            # uncompressed size — a tar-bomb would otherwise fill the
+            # disk during extraction.
             members = tar.getmembers()
             if len(members) > _MAX_BACKUP_MEMBERS:
                 raise RuntimeError(
                     "Backup has too many entries "
-                    f"({len(members)} > {_MAX_BACKUP_MEMBERS})"
-                )
-            total_size = 0
-            for member in members:
-                member_path = os.path.normpath(member.name)
-                if member_path.startswith('..') or os.path.isabs(member_path):
-                    raise RuntimeError(
-                        f"Unsafe path in backup archive: {member.name}"
-                    )
-                # Resolve and ensure it stays within temp_dir.
-                target = os.path.realpath(os.path.join(temp_dir, member_path))
-                if not target.startswith(os.path.realpath(temp_dir) + os.sep):
-                    raise RuntimeError(
-                        f"Unsafe path in backup archive: {member.name}"
-                    )
-                # Link members: the name checks above only cover the
-                # member path — a symlink/hardlink TARGET can still
-                # point outside temp_dir. On interpreters where
-                # extractall(filter='data') is unavailable these members
-                # extract as live links that the copy phase then
-                # follows into the host filesystem. Validate the target
-                # the same way the name is validated.
-                if member.issym() or member.islnk():
-                    link_target = member.linkname or ''
-                    if os.path.isabs(link_target):
-                        raise RuntimeError(
-                            "Unsafe link target in backup archive: "
-                            f"{member.name} -> {link_target}"
-                        )
-                    # Hardlink targets are names in the archive root;
-                    # symlink targets are relative to the link's dir.
-                    base = os.path.dirname(member_path) \
-                        if member.issym() else ''
-                    resolved = os.path.normpath(
-                        os.path.join(base, link_target))
-                    if resolved.startswith('..') or os.path.isabs(resolved):
-                        raise RuntimeError(
-                            "Unsafe link target in backup archive: "
-                            f"{member.name} -> {link_target}"
-                        )
-                if member.size > _MAX_BACKUP_FILE_SIZE:
-                    raise RuntimeError(
-                        f"Backup member too large: {member.name} "
-                        f"({member.size} > {_MAX_BACKUP_FILE_SIZE})"
-                    )
-                total_size += member.size
+                    f"({len(members)} > {_MAX_BACKUP_MEMBERS})")
+            total_size = sum(
+                _validate_tar_member(m, os.path.normpath(m.name),
+                                     temp_dir)
+                for m in members)
             if total_size > _MAX_BACKUP_TOTAL_SIZE:
                 raise RuntimeError(
                     "Backup uncompressed size too large "
-                    f"({total_size} > {_MAX_BACKUP_TOTAL_SIZE})"
-                )
+                    f"({total_size} > {_MAX_BACKUP_TOTAL_SIZE})")
             # 'data' filter additionally blocks symlink/hardlink members
             # whose targets escape temp_dir — the name checks above do
             # not cover link payloads. filter= exists on 3.12+ (and
@@ -437,27 +414,160 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
     except tarfile.TarError as e:
         raise RuntimeError(f"Failed to extract backup: {e}") from e
 
-    # Format manifest: warn (not fail) on a newer format — forward
-    # compatibility is best-effort; a missing manifest means the
-    # backup predates format versioning.
+
+def _read_backup_manifest(temp_dir):
+    """Log the backup format version; warn (not fail) on newer formats."""
     manifest_path = os.path.join(temp_dir, 'backup-manifest.json')
-    if os.path.isfile(manifest_path):
+    if not os.path.isfile(manifest_path):
+        return
+    try:
+        import json as _json
+        with open(manifest_path, encoding='utf-8') as f:
+            manifest = _json.load(f)
+        fmt = int(manifest.get('format_version', 0))
+        if fmt > _BACKUP_FORMAT_VERSION:
+            logger.warning(
+                "Backup format v%s is newer than supported v%s — "
+                "restoring anyway, some members may be ignored",
+                fmt, _BACKUP_FORMAT_VERSION)
+        else:
+            logger.info(
+                "Backup format v%s (created by v%s)",
+                fmt, manifest.get('app_version', 'unknown'))
+    except (ValueError, OSError) as e:
+        logger.warning("Unreadable backup manifest: %s", e)
+
+
+def _copy_restored_tree(temp_dir, project_root):
+    """Copy the extracted backup tree into its live destinations."""
+    # Restore .env
+    env_src = os.path.join(temp_dir, '.env')
+    if os.path.isfile(env_src):
+        shutil.copy2(env_src, os.path.join(project_root, '.env'))
+
+    # Restore the system config.env captured as 'system-config.env'
+    # (Windows: ProgramData root; Linux: /etc/vnc-remote-secure).
+    sys_cfg_src = os.path.join(temp_dir, 'system-config.env')
+    sys_cfg_dst = None
+    if os.path.isfile(sys_cfg_src):
+        from vnc_remote_secure.platform.detection import is_windows
+        sys_cfg_dst = (os.path.join(
+            os.environ.get('ProgramData', r'C:\ProgramData'),
+            'VncRemoteSecure', 'config.env')
+            if is_windows()
+            else '/etc/vnc-remote-secure/config.env')
         try:
-            import json as _json
-            with open(manifest_path, encoding='utf-8') as f:
-                manifest = _json.load(f)
-            fmt = int(manifest.get('format_version', 0))
-            if fmt > _BACKUP_FORMAT_VERSION:
-                logger.warning(
-                    "Backup format v%s is newer than supported v%s — "
-                    "restoring anyway, some members may be ignored",
-                    fmt, _BACKUP_FORMAT_VERSION)
-            else:
-                logger.info(
-                    "Backup format v%s (created by v%s)",
-                    fmt, manifest.get('app_version', 'unknown'))
-        except (ValueError, OSError) as e:
-            logger.warning("Unreadable backup manifest: %s", e)
+            os.makedirs(os.path.dirname(sys_cfg_dst), exist_ok=True)
+            shutil.copy2(sys_cfg_src, sys_cfg_dst)
+        except OSError as e:
+            logger.warning("Could not restore system config.env: %s", e)
+
+    # Restore SSL certs
+    ssl_dir = get_ssl_dir()
+    for name in ('ssl', os.path.basename(get_ssl_dir())):
+        src = os.path.join(temp_dir, name)
+        if os.path.isdir(src):
+            os.makedirs(ssl_dir, exist_ok=True)
+            for item in os.listdir(src):
+                s = os.path.join(src, item)
+                d = os.path.join(ssl_dir, item)
+                if os.path.isfile(s):
+                    shutil.copy2(s, d)
+
+    # Restore config (recursive — subdirectories are preserved)
+    config_dst = get_config_dir()
+    config_src = os.path.join(temp_dir, 'config')
+    if os.path.isdir(config_src):
+        shutil.copytree(config_src, config_dst, dirs_exist_ok=True)
+
+    # Restore data (recursive — the data dir can contain nested state
+    # such as the ssl/ subdirectory on XDG layouts)
+    data_dst = get_data_dir()
+    data_src = os.path.join(temp_dir, 'data')
+    if os.path.isdir(data_src):
+        shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
+
+    # Restore runtime secrets (auth secret, generated credentials,
+    # ephemeral session store) captured under 'run/'.
+    run_dst = get_run_dir()
+    run_src = os.path.join(temp_dir, 'run')
+    if os.path.isdir(run_src):
+        os.makedirs(run_dst, exist_ok=True)
+        for item in os.listdir(run_src):
+            s = os.path.join(run_src, item)
+            if os.path.isfile(s):
+                shutil.copy2(s, os.path.join(run_dst, item))
+
+    # Restore service-manager state (PIDs) if available in the
+    # extracted archive.
+    try:
+        from vnc_remote_secure.core.service_manager import restore_state
+        state_file = os.path.join(temp_dir, 'service_state.json')
+        if os.path.isfile(state_file):
+            import json
+            with open(state_file, encoding='utf-8') as f:
+                state = json.load(f)
+            restore_state(state)
+    except Exception as e:
+        logger.debug("Could not restore service state: %s", e)
+
+    return ssl_dir, config_dst, data_dst, run_dst, sys_cfg_dst
+
+
+def _restrict_restored_secrets(ssl_dir, config_dst, data_dst, run_dst,
+                               project_root, sys_cfg_dst):
+    """Re-apply restrictive permissions on restored secrets.
+
+    On Windows tar member modes are meaningless, so restored
+    keys/config would inherit the directory's default ACLs (readable
+    by Users) and get flagged by validate_secret_files().
+    """
+    try:
+        from vnc_remote_secure.security.certificates import (
+            _restrict_key_permissions,
+        )
+        restored_secrets = [
+            os.path.join(project_root, '.env'),
+        ]
+        if sys_cfg_dst is not None:
+            restored_secrets.append(sys_cfg_dst)
+        for base in (ssl_dir, config_dst, data_dst, run_dst):
+            if not os.path.isdir(base):
+                continue
+            for root, _dirs, files in os.walk(base):
+                for item in files:
+                    if item.lower().endswith(('.pem', '.key', '.env')) \
+                            or item in ('config.env', 'auth_secret.key',
+                                        'ephemeral_sessions.json',
+                                        'instance.id',
+                                        'shared_state.db'):
+                        restored_secrets.append(os.path.join(root, item))
+        for secret_path in restored_secrets:
+            if os.path.isfile(secret_path):
+                _restrict_key_permissions(secret_path, writable=True)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Could not restrict restored file permissions: %s", e)
+
+
+def _restore_from_temp(backup_file: str, temp_dir: str,
+                       project_root: str, dry_run: bool) -> bool:
+    """Decrypt, validate, extract and copy a backup from ``temp_dir``.
+
+    Caller guarantees ``temp_dir`` exists and is removed afterwards.
+    """
+    # Determine if the backup is encrypted.
+    actual_tar = backup_file
+    if backup_file.endswith('.enc.tar.gz'):
+        if not _get_backup_key():
+            raise RuntimeError(
+                "Backup is encrypted but BACKUP_PASSWORD is not set. "
+                "Set BACKUP_PASSWORD to restore this backup."
+            )
+        actual_tar = os.path.join(temp_dir, '_decrypted.tar.gz')
+        _decrypt_file(backup_file, actual_tar)
+
+    _extract_backup_tar(actual_tar, temp_dir)
+    _read_backup_manifest(temp_dir)
 
     if dry_run:
         logger.info("Dry run: backup validated and extracted; "
@@ -465,106 +575,10 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
         return True
 
     try:
-        # Restore .env
-        env_src = os.path.join(temp_dir, '.env')
-        if os.path.isfile(env_src):
-            shutil.copy2(env_src, os.path.join(project_root, '.env'))
-
-        # Restore the system config.env captured as 'system-config.env'
-        # (Windows: ProgramData root; Linux: /etc/vnc-remote-secure).
-        sys_cfg_src = os.path.join(temp_dir, 'system-config.env')
-        sys_cfg_dst = None
-        if os.path.isfile(sys_cfg_src):
-            from vnc_remote_secure.platform.detection import is_windows
-            sys_cfg_dst = (os.path.join(
-                os.environ.get('ProgramData', r'C:\ProgramData'),
-                'VncRemoteSecure', 'config.env')
-                if is_windows()
-                else '/etc/vnc-remote-secure/config.env')
-            try:
-                os.makedirs(os.path.dirname(sys_cfg_dst), exist_ok=True)
-                shutil.copy2(sys_cfg_src, sys_cfg_dst)
-            except OSError as e:
-                logger.warning("Could not restore system config.env: %s", e)
-
-        # Restore SSL certs
-        ssl_dir = get_ssl_dir()
-        for name in ('ssl', os.path.basename(get_ssl_dir())):
-            src = os.path.join(temp_dir, name)
-            if os.path.isdir(src):
-                os.makedirs(ssl_dir, exist_ok=True)
-                for item in os.listdir(src):
-                    s = os.path.join(src, item)
-                    d = os.path.join(ssl_dir, item)
-                    if os.path.isfile(s):
-                        shutil.copy2(s, d)
-
-        # Restore config (recursive — subdirectories are preserved)
-        config_dst = get_config_dir()
-        config_src = os.path.join(temp_dir, 'config')
-        if os.path.isdir(config_src):
-            shutil.copytree(config_src, config_dst, dirs_exist_ok=True)
-
-        # Restore data (recursive — the data dir can contain nested state
-        # such as the ssl/ subdirectory on XDG layouts)
-        data_dst = get_data_dir()
-        data_src = os.path.join(temp_dir, 'data')
-        if os.path.isdir(data_src):
-            shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
-
-        # Restore runtime secrets (auth secret, generated credentials,
-        # ephemeral session store) captured under 'run/'.
-        run_dst = get_run_dir()
-        run_src = os.path.join(temp_dir, 'run')
-        if os.path.isdir(run_src):
-            os.makedirs(run_dst, exist_ok=True)
-            for item in os.listdir(run_src):
-                s = os.path.join(run_src, item)
-                if os.path.isfile(s):
-                    shutil.copy2(s, os.path.join(run_dst, item))
-
-        # Restore service-manager state (PIDs) if available in the extracted archive.
-        try:
-            from vnc_remote_secure.core.service_manager import restore_state
-            state_file = os.path.join(temp_dir, 'service_state.json')
-            if os.path.isfile(state_file):
-                import json
-                with open(state_file, encoding='utf-8') as f:
-                    state = json.load(f)
-                restore_state(state)
-        except Exception as e:
-            logger.debug("Could not restore service state: %s", e)
-
-        # Re-apply restrictive permissions on restored secrets — on Windows
-        # tar member modes are meaningless, so restored keys/config would
-        # inherit the directory's default ACLs (readable by Users) and get
-        # flagged by validate_secret_files().
-        try:
-            from vnc_remote_secure.security.certificates import (
-                _restrict_key_permissions,
-            )
-            restored_secrets = [
-                os.path.join(project_root, '.env'),
-            ]
-            if sys_cfg_dst is not None:
-                restored_secrets.append(sys_cfg_dst)
-            for base in (ssl_dir, config_dst, data_dst, run_dst):
-                if not os.path.isdir(base):
-                    continue
-                for root, _dirs, files in os.walk(base):
-                    for item in files:
-                        if item.lower().endswith(('.pem', '.key', '.env')) \
-                                or item in ('config.env', 'auth_secret.key',
-                                            'ephemeral_sessions.json',
-                                            'instance.id',
-                                            'shared_state.db'):
-                            restored_secrets.append(os.path.join(root, item))
-            for secret_path in restored_secrets:
-                if os.path.isfile(secret_path):
-                    _restrict_key_permissions(secret_path, writable=True)
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Could not restrict restored file permissions: %s", e)
-
+        (ssl_dir, config_dst, data_dst, run_dst,
+         sys_cfg_dst) = _copy_restored_tree(temp_dir, project_root)
+        _restrict_restored_secrets(ssl_dir, config_dst, data_dst,
+                                   run_dst, project_root, sys_cfg_dst)
     except OSError:
         logger.exception("Restore failed — partial files may have been "
                          "copied; check permissions on the target directories.")

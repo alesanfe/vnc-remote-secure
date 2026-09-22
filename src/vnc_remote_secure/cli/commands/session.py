@@ -92,6 +92,125 @@ def _share_base_url() -> str:
     return f"{scheme}://{host}:{landing_port}"
 
 
+def _session_create(store, args):
+    """Create an ephemeral session and print the share link."""
+    from vnc_remote_secure.security.ephemeral_sessions import ROLES
+    expires_in = _parse_duration(args.expires or '30m')
+    role = args.role or 'viewer'
+    if role not in ROLES:
+        print(f"Error: unknown role '{role}'. Available: {', '.join(ROLES.keys())}")
+        return 1
+    if args.max_uses < 0:
+        print("Error: --max-uses must be >= 0 (0 = unlimited)")
+        return 1
+    if args.allowed_ip:
+        # Fail fast on a malformed IP — the store validates by
+        # string match, so a typo would create a session that
+        # never activates.
+        import ipaddress
+        try:
+            ipaddress.ip_address(args.allowed_ip.strip())
+        except ValueError:
+            print(f"Error: --allowed-ip is not a valid IP: {args.allowed_ip!r}")
+            return 1
+
+    _session, signed_token = store.create(
+        expires_in=expires_in,
+        role=role,
+        single_use=args.single_use,
+        view_only=args.view_only,
+        no_terminal=args.no_terminal,
+        allowed_ip=args.allowed_ip,
+        created_by=os.environ.get('USERNAME') or os.environ.get('USER', 'admin'),
+        resource=args.resource,
+        max_uses=args.max_uses,
+    )
+
+    base_url = _share_base_url()
+
+    if args.json:
+        print(json.dumps({
+            'token': signed_token,
+            'url': f"{base_url}/?session={signed_token}",
+            'expires_in': expires_in,
+            'role': role,
+            'view_only': args.view_only,
+            'no_terminal': args.no_terminal,
+            'single_use': args.single_use,
+            'resource': args.resource,
+            'max_uses': args.max_uses,
+        }, indent=2))
+    else:
+        print(f"Session created (role: {role}, expires in {expires_in}s)")
+        print(f"URL: {base_url}/?session={signed_token}")
+        if args.view_only:
+            print("  View-only: yes")
+            print("  NOTE: view-only blocks control channels (gamepad,"
+                  " terminal, clipboard) and drops RFB input messages"
+                  " (KeyEvent/PointerEvent/ClientCutText) in the WebSocket"
+                  " relay. Direct access to the VNC port bypasses this —"
+                  " keep it loopback-bound.")
+        if args.no_terminal:
+            print("  Web Terminal: disabled")
+        if args.single_use:
+            print("  Single-use: yes")
+        if args.allowed_ip:
+            print(f"  IP restriction: {args.allowed_ip}")
+        if args.resource:
+            print(f"  Resource: {args.resource} only")
+        if args.max_uses:
+            print(f"  Max uses: {args.max_uses}")
+    # Audited inside SessionStore.create() — a second audit here
+    # would emit a duplicate event per session.
+    return 0
+
+
+def _session_list(store, args):
+    """List active ephemeral sessions."""
+    sessions = store.list_active()
+    if args.json:
+        print(json.dumps(sessions, indent=2))
+    else:
+        if not sessions:
+            print("No active sessions.")
+        else:
+            print(f"Active sessions ({len(sessions)}):")
+            import time
+            for s in sessions:
+                remaining = int(s['expires_at'] - time.time())
+                print(f"  id={s.get('token_id', '?')} role={s['role']} "
+                      f"expires_in={max(remaining, 0)}s "
+                      f"view_only={s['view_only']} single_use={s['single_use']} "
+                      f"resource={s.get('resource') or '*'} "
+                      f"uses={s.get('use_count', 0)}/{s.get('max_uses', 0) or 'inf'} "
+                      f"ip={s.get('allowed_ip') or '*'}")
+    return 0
+
+
+def _session_revoke(args):
+    """Revoke an ephemeral session by token."""
+    # Accept the token either positionally (natural form:
+    # ``vnc-remote session revoke <token>``) or via --token.
+    token = getattr(args, 'token', None) or getattr(args, 'token_pos', None)
+    if not token:
+        print("Error: token required for revoke")
+        return 1
+    # revoke_session() (not bare store.revoke) also marks the
+    # shared-state revocation and force-closes live WebSocket
+    # connections registered for this session.
+    from vnc_remote_secure.security.ephemeral_sessions import revoke_session
+    ok = revoke_session(token)
+    # Token is a credential — audit only its fingerprint.
+    _audit_cli('ephemeral_session_revoke',
+               'success' if ok else 'failure',
+               f'token_sha256={hashlib.sha256(token.encode()).hexdigest()[:12]}')
+    if ok:
+        print("Session revoked.")
+        return 0
+    print("Session not found.")
+    return 1
+
+
 def cmd_session(args):
     """Manage ephemeral remote sessions."""
     # Load the effective env first: the share-link URL is derived from
@@ -106,123 +225,16 @@ def cmd_session(args):
     from vnc_remote_secure.security.profiles import apply_profile
     apply_profile()
     from vnc_remote_secure.security.ephemeral_sessions import (
-        ROLES,
         get_session_store,
     )
 
     store = get_session_store()
-
-    if args.session_action == 'create':
-        expires_in = _parse_duration(args.expires or '30m')
-        role = args.role or 'viewer'
-        if role not in ROLES:
-            print(f"Error: unknown role '{role}'. Available: {', '.join(ROLES.keys())}")
-            return 1
-        if args.max_uses < 0:
-            print("Error: --max-uses must be >= 0 (0 = unlimited)")
-            return 1
-        if args.allowed_ip:
-            # Fail fast on a malformed IP — the store validates by
-            # string match, so a typo would create a session that
-            # never activates.
-            import ipaddress
-            try:
-                ipaddress.ip_address(args.allowed_ip.strip())
-            except ValueError:
-                print(f"Error: --allowed-ip is not a valid IP: {args.allowed_ip!r}")
-                return 1
-
-        _session, signed_token = store.create(
-            expires_in=expires_in,
-            role=role,
-            single_use=args.single_use,
-            view_only=args.view_only,
-            no_terminal=args.no_terminal,
-            allowed_ip=args.allowed_ip,
-            created_by=os.environ.get('USERNAME') or os.environ.get('USER', 'admin'),
-            resource=args.resource,
-            max_uses=args.max_uses,
-        )
-
-        base_url = _share_base_url()
-
-        if args.json:
-            print(json.dumps({
-                'token': signed_token,
-                'url': f"{base_url}/?session={signed_token}",
-                'expires_in': expires_in,
-                'role': role,
-                'view_only': args.view_only,
-                'no_terminal': args.no_terminal,
-                'single_use': args.single_use,
-                'resource': args.resource,
-                'max_uses': args.max_uses,
-            }, indent=2))
-        else:
-            print(f"Session created (role: {role}, expires in {expires_in}s)")
-            print(f"URL: {base_url}/?session={signed_token}")
-            if args.view_only:
-                print("  View-only: yes")
-                print("  NOTE: view-only blocks control channels (gamepad,"
-                      " terminal, clipboard) and drops RFB input messages"
-                      " (KeyEvent/PointerEvent/ClientCutText) in the WebSocket"
-                      " relay. Direct access to the VNC port bypasses this —"
-                      " keep it loopback-bound.")
-            if args.no_terminal:
-                print("  Web Terminal: disabled")
-            if args.single_use:
-                print("  Single-use: yes")
-            if args.allowed_ip:
-                print(f"  IP restriction: {args.allowed_ip}")
-            if args.resource:
-                print(f"  Resource: {args.resource} only")
-            if args.max_uses:
-                print(f"  Max uses: {args.max_uses}")
-        # Audited inside SessionStore.create() — a second audit here
-        # would emit a duplicate event per session.
-        return 0
-
-    if args.session_action == 'list':
-        sessions = store.list_active()
-        if args.json:
-            print(json.dumps(sessions, indent=2))
-        else:
-            if not sessions:
-                print("No active sessions.")
-            else:
-                print(f"Active sessions ({len(sessions)}):")
-                import time
-                for s in sessions:
-                    remaining = int(s['expires_at'] - time.time())
-                    print(f"  id={s.get('token_id', '?')} role={s['role']} "
-                          f"expires_in={max(remaining, 0)}s "
-                          f"view_only={s['view_only']} single_use={s['single_use']} "
-                          f"resource={s.get('resource') or '*'} "
-                          f"uses={s.get('use_count', 0)}/{s.get('max_uses', 0) or 'inf'} "
-                          f"ip={s.get('allowed_ip') or '*'}")
-        return 0
-
-    if args.session_action == 'revoke':
-        # Accept the token either positionally (natural form:
-        # ``vnc-remote session revoke <token>``) or via --token.
-        token = getattr(args, 'token', None) or getattr(args, 'token_pos', None)
-        if not token:
-            print("Error: token required for revoke")
-            return 1
-        # revoke_session() (not bare store.revoke) also marks the
-        # shared-state revocation and force-closes live WebSocket
-        # connections registered for this session.
-        from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-        ok = revoke_session(token)
-        # Token is a credential — audit only its fingerprint.
-        _audit_cli('ephemeral_session_revoke',
-                   'success' if ok else 'failure',
-                   f'token_sha256={hashlib.sha256(token.encode()).hexdigest()[:12]}')
-        if ok:
-            print("Session revoked.")
-            return 0
-        print("Session not found.")
-        return 1
-
-    print(f"Unknown session action: {args.session_action}")
+    action = args.session_action
+    if action == 'create':
+        return _session_create(store, args)
+    if action == 'list':
+        return _session_list(store, args)
+    if action == 'revoke':
+        return _session_revoke(args)
+    print(f"Unknown session action: {action}")
     return 1

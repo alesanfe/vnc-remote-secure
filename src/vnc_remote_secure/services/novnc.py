@@ -209,6 +209,129 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_HEAD()
 
+    def _ws_error(self, status, body):
+        """Send a JSON error response for a rejected upgrade."""
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _record_ws_origin_failure(self):
+        """Record a rate-limit failure for a rejected WS origin."""
+        try:
+            from vnc_remote_secure.security.http_auth import client_ip_from
+            from vnc_remote_secure.security.rate_limit import get_auth_limiter
+            ip = client_ip_from(
+                self.headers,
+                self.client_address[0]
+                if self.client_address else None)
+            get_auth_limiter().record_failure(f'ws:{ip}')
+        except Exception:  # noqa: BLE001 - rate limiting is best-effort
+            pass
+
+    @staticmethod
+    def _parse_cookies(cookie_header):
+        """Parse the Cookie header into a ``name -> value`` dict."""
+        cookies = {}
+        if cookie_header:
+            for part in cookie_header.split(';'):
+                part = part.strip()
+                if '=' in part:
+                    k, _, v = part.partition('=')
+                    cookies[k.strip()] = v.strip()
+        return cookies
+
+    @staticmethod
+    def _ephemeral_token(cookies, bearer):
+        """Return the ephemeral session token, from cookie or Bearer.
+
+        The ephemeral credential may arrive as the ``vnc_ephemeral``
+        cookie OR as a Bearer token — a Bearer-only path would bypass
+        view-only enforcement entirely.
+        """
+        eph_tok = cookies.get('vnc_ephemeral') or ''
+        if not eph_tok and bearer:
+            try:
+                from vnc_remote_secure.security.ephemeral_sessions import (
+                    verify_ephemeral_token,
+                )
+                payload = verify_ephemeral_token(bearer)
+                if payload:
+                    eph_tok = payload['session_token']
+            except Exception:  # noqa: BLE001 - not an ephemeral bearer
+                pass
+        return eph_tok
+
+    @staticmethod
+    def _build_rfb_filter(eph_tok):
+        """Return an RfbInputFilter when the ephemeral session is restricted.
+
+        An ephemeral session without ``desktop:control`` gets
+        protocol-level view-only — the filter drops
+        KeyEvent/PointerEvent/ClientCutText inside the WebSocket stream
+        so a modified client cannot send input even though the UI hides
+        the controls.
+        """
+        if not eph_tok:
+            return None
+        try:
+            from vnc_remote_secure.security.ephemeral_sessions import (
+                get_session_store,
+            )
+            store = get_session_store()
+            store._load_if_changed()
+            sess = store.get(eph_tok)
+            if sess is None:
+                return None
+            control = sess.has_permission('desktop:control', 'desktop')
+            clip = sess.has_permission('desktop:clipboard', 'desktop')
+            if control and clip:
+                return None
+            from vnc_remote_secure.services.rfb_filter import (
+                RfbInputFilter,
+            )
+            logger.info(
+                "RFB input filter active (control=%s clipboard=%s)",
+                control, clip)
+            return RfbInputFilter(allow_clipboard=clip,
+                                  allow_control=control)
+        except Exception:  # noqa: BLE001 - filter is best-effort
+            return None
+
+    def _register_ws(self, token, upstream):
+        """Register the connection for live revocation (best-effort)."""
+        import socket
+
+        from vnc_remote_secure.security.websocket_registry import (
+            register_connection,
+            start_revocation_watcher_thread,
+        )
+
+        def _close():
+            for s in (self.connection, upstream):
+                with contextlib.suppress(OSError):
+                    s.shutdown(socket.SHUT_RDWR)
+                with contextlib.suppress(OSError):
+                    s.close()
+
+        conn_id = register_connection(token, _close, resource='desktop')
+        if conn_id is not None:
+            # Cross-process revocation: a CLI revoke marks the shared
+            # namespace — this handler runs on a worker thread, so the
+            # watcher is a thread too.
+            start_revocation_watcher_thread(token)
+            return conn_id
+        # Session revoked between validation and registration (TOCTOU
+        # guard in the registry) — do not forward the upgrade.
+        self.send_response(403)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{"error":"Session revoked","status":403}')
+        with contextlib.suppress(OSError):
+            upstream.close()
+        return None
+
     def _proxy_websocket(self):
         """Relay the WebSocket upgrade to the loopback websockify bridge.
 
@@ -228,34 +351,15 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
         if not check_origin(
                 self.headers.get('Origin', ''), get_allowed_origins()):
-            try:
-                from vnc_remote_secure.security.http_auth import client_ip_from
-                from vnc_remote_secure.security.rate_limit import get_auth_limiter
-                ip = client_ip_from(
-                    self.headers,
-                    self.client_address[0]
-                    if self.client_address else None)
-                get_auth_limiter().record_failure(f'ws:{ip}')
-            except Exception:  # noqa: BLE001 - rate limiting is best-effort
-                pass
-            body = b'{"error":"invalid origin"}'
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._record_ws_origin_failure()
+            self._ws_error(403, b'{"error":"invalid origin"}')
             return
         ws_port = int(os.environ.get(
             'NOVNC_WS_PORT', str(DEFAULT_NOVNC_WS_PORT)))
         try:
             upstream = socket.create_connection(('127.0.0.1', ws_port), timeout=10)
         except OSError:
-            body = b'{"error":"vnc bridge unavailable"}'
-            self.send_response(502)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._ws_error(502, b'{"error":"vnc bridge unavailable"}')
             return
 
         # Re-register for live revocation (best-effort).
@@ -264,95 +368,19 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         try:
             auth = self.headers.get('Authorization', '')
             bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
-            cookie = self.headers.get('Cookie', '')
+            cookies = self._parse_cookies(self.headers.get('Cookie', ''))
             # Pick the credential in the same priority order the auth
             # check uses (vnc_ephemeral > bearer > vnc_session) so the
             # revocation registration binds to the identity that
             # actually authenticated — revoking the "other" cookie
             # must not leave this socket alive.
-            cookies = {}
-            if cookie:
-                for part in cookie.split(';'):
-                    part = part.strip()
-                    if '=' in part:
-                        k, _, v = part.partition('=')
-                        cookies[k.strip()] = v.strip()
             token = (cookies.get('vnc_ephemeral') or bearer
                      or cookies.get('vnc_session') or '')
-            # RFB input filter: an ephemeral session without
-            # desktop:control gets protocol-level view-only — the
-            # filter drops KeyEvent/PointerEvent/ClientCutText inside
-            # the WebSocket stream so a modified client cannot send
-            # input even though the UI hides the controls.
-            # The ephemeral credential may arrive as the vnc_ephemeral
-            # cookie OR as a Bearer token — a Bearer-only path would
-            # bypass view-only enforcement entirely.
-            eph_tok = cookies.get('vnc_ephemeral') or ''
-            if not eph_tok and bearer:
-                try:
-                    from vnc_remote_secure.security.ephemeral_sessions import (
-                        verify_ephemeral_token,
-                    )
-                    payload = verify_ephemeral_token(bearer)
-                    if payload:
-                        eph_tok = payload['session_token']
-                except Exception:  # noqa: BLE001 - not an ephemeral bearer
-                    pass
-            if eph_tok:
-                try:
-                    from vnc_remote_secure.security.ephemeral_sessions import (
-                        get_session_store,
-                    )
-                    store = get_session_store()
-                    store._load_if_changed()
-                    sess = store.get(eph_tok)
-                    if sess is not None:
-                        control = sess.has_permission(
-                            'desktop:control', 'desktop')
-                        clip = sess.has_permission(
-                            'desktop:clipboard', 'desktop')
-                        if not (control and clip):
-                            from vnc_remote_secure.services.rfb_filter import (
-                                RfbInputFilter,
-                            )
-                            rfb_filter = RfbInputFilter(
-                                allow_clipboard=clip,
-                                allow_control=control)
-                            logger.info(
-                                "RFB input filter active "
-                                "(control=%s clipboard=%s)", control, clip)
-                except Exception:  # noqa: BLE001 - filter is best-effort
-                    rfb_filter = None
+            rfb_filter = self._build_rfb_filter(
+                self._ephemeral_token(cookies, bearer))
             if token:
-                from vnc_remote_secure.security.websocket_registry import register_connection
-
-                def _close():
-                    for s in (self.connection, upstream):
-                        with contextlib.suppress(OSError):
-                            s.shutdown(socket.SHUT_RDWR)
-                        with contextlib.suppress(OSError):
-                            s.close()
-                conn_id = register_connection(
-                    token, _close, resource='desktop')
-                if conn_id is not None:
-                    # Cross-process revocation: a CLI revoke marks the
-                    # shared namespace — this handler runs on a worker
-                    # thread, so the watcher is a thread too.
-                    from vnc_remote_secure.security.websocket_registry import (
-                        start_revocation_watcher_thread,
-                    )
-                    start_revocation_watcher_thread(token)
+                conn_id = self._register_ws(token, upstream)
                 if conn_id is None:
-                    # Session revoked between validation and
-                    # registration (TOCTOU guard in the registry) —
-                    # do not forward the upgrade.
-                    self.send_response(403)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(
-                        b'{"error":"Session revoked","status":403}')
-                    with contextlib.suppress(OSError):
-                        upstream.close()
                     return
         except Exception:  # noqa: BLE001 - registration is best-effort
             conn_id = None

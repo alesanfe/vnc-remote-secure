@@ -22,6 +22,45 @@ from vnc_remote_secure.platform.windows._powershell import run_powershell
 logger = logging.getLogger(__name__)
 
 
+def _merge_ini_overrides(lines, overrides):
+    """Apply ``key=value`` overrides to an UltraVNC ini's ``[admin]`` section.
+
+    Credential keys (``passwd``/``passwd2``) are rewritten in EVERY
+    section — a stale ``passwd`` left in [ultravnc]/[poll] would remain
+    a working default credential. Structural keys are [admin]-only.
+    """
+    credential_keys = {'passwd', 'passwd2'}
+    out = []
+    seen = set()
+    in_admin = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            in_admin = stripped == '[admin]'
+            out.append(line)
+            continue
+        if '=' in line:
+            key_name = line.split('=', 1)[0].strip()
+            if key_name in credential_keys and key_name in overrides:
+                out.append(f'{key_name}={overrides[key_name]}')
+                seen.add(key_name)
+                continue
+            if in_admin and key_name in overrides:
+                out.append(f'{key_name}={overrides[key_name]}')
+                seen.add(key_name)
+                continue
+        out.append(line)
+    missing = [k for k in overrides if k not in seen]
+    if missing:
+        idx = next(
+            i for i, line in enumerate(out)
+            if line.strip() == '[admin]') + 1
+        for key_name in missing:
+            out.insert(idx, f'{key_name}={overrides[key_name]}')
+            idx += 1
+    return out
+
+
 class WindowsAdapter(PlatformAdapter):
     """Windows-specific platform operations."""
 
@@ -316,38 +355,7 @@ class WindowsAdapter(PlatformAdapter):
         if not any(line.strip() == '[admin]' for line in lines):
             lines.insert(0, '[admin]')
 
-        # Credential keys are rewritten in EVERY section — a stale
-        # ``passwd`` left in [ultravnc]/[poll] would remain a working
-        # default credential. Structural keys are [admin]-only.
-        credential_keys = {'passwd', 'passwd2'}
-        out = []
-        seen = set()
-        in_admin = False
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith('[') and stripped.endswith(']'):
-                in_admin = stripped == '[admin]'
-                out.append(line)
-                continue
-            if '=' in line:
-                key_name = line.split('=', 1)[0].strip()
-                if key_name in credential_keys and key_name in overrides:
-                    out.append(f'{key_name}={overrides[key_name]}')
-                    seen.add(key_name)
-                    continue
-                if in_admin and key_name in overrides:
-                    out.append(f'{key_name}={overrides[key_name]}')
-                    seen.add(key_name)
-                    continue
-            out.append(line)
-        missing = [k for k in overrides if k not in seen]
-        if missing:
-            idx = next(
-                i for i, line in enumerate(out)
-                if line.strip() == '[admin]') + 1
-            for key_name in missing:
-                out.insert(idx, f'{key_name}={overrides[key_name]}')
-                idx += 1
+        out = _merge_ini_overrides(lines, overrides)
         # Atomic write: a truncated ultravnc.ini would leave winvnc
         # running with corrupted/partial settings (including a stale
         # or missing password).

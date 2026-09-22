@@ -231,22 +231,14 @@ class AudioStreamServer:
                         disconnected.add(ws)
                 self.clients -= disconnected
 
-    async def handle_client(self, websocket, _path=None):
-        """Handle a new WebSocket client connection.
+    @staticmethod
+    def _ws_headers(websocket):
+        """Extract the handshake headers across websockets versions.
 
-        Authentication is enforced via the central auth gateway before
-        any audio data is sent. This prevents unauthorized clients from
-        capturing the server's audio output.
+        websockets>=13 exposes the handshake on ``connection.request``;
+        the deprecated legacy protocol used ``request_headers`` and very
+        old versions ``connection.handler.request``.
         """
-        # Validate auth via the central gateway.
-        from vnc_remote_secure.security.auth_gateway import (
-            check_websocket_upgrade,
-            register_websocket_connection,
-            unregister_websocket_connection,
-        )
-        # websockets>=13 exposes the handshake on connection.request;
-        # the deprecated legacy protocol used request_headers and very
-        # old versions connection.handler.request.
         headers = {}
         with contextlib.suppress(AttributeError, OSError):
             headers = websocket.request.headers
@@ -258,8 +250,22 @@ class AudioStreamServer:
                 headers = websocket.handler.request.headers
             except (AttributeError, OSError):
                 headers = {}
-        origin = headers.get('Origin', '') if hasattr(headers, 'get') else ''
-        cookie = headers.get('Cookie', '') if hasattr(headers, 'get') else ''
+        return headers
+
+    async def _authenticate_ws(self, websocket):
+        """Gate the upgrade through the central auth gateway.
+
+        Returns the authenticated token (ephemeral/bearer/cookie) or
+        None when the upgrade was rejected (websocket already closed).
+        """
+        from vnc_remote_secure.security.auth_gateway import (
+            check_websocket_upgrade,
+        )
+        headers = self._ws_headers(websocket)
+
+        def get_h(k, d=''):
+            return headers.get(k, d) if hasattr(headers, 'get') else d
+        cookie = get_h('Cookie')
         cookie_value = ''
         eph = ''
         if cookie:
@@ -269,15 +275,13 @@ class AudioStreamServer:
                     cookie_value = part.split('=', 1)[1].strip()
                 elif part.startswith('vnc_ephemeral='):
                     eph = part.split('=', 1)[1].strip()
-        bearer = ''
-        auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
-        if auth and auth.lower().startswith('bearer '):
-            bearer = auth[7:].strip()
+        auth = get_h('Authorization')
+        bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
         # Unified auth: session cookie, bearer, or activated ephemeral
         # cookie — all resolved by the gateway's single enforcement tree.
         from vnc_remote_secure.security.http_auth import client_ip_from
         allowed, reason = check_websocket_upgrade(
-            origin=origin,
+            origin=get_h('Origin'),
             cookie_value=cookie_value,
             bearer_token=bearer,
             resource='audio',
@@ -291,8 +295,24 @@ class AudioStreamServer:
         if not allowed:
             logger.warning("Audio WebSocket rejected: %s", reason)
             await websocket.close(code=1008, reason=reason)
+            return None
+        return eph or bearer or cookie_value
+
+    async def handle_client(self, websocket, _path=None):
+        """Handle a new WebSocket client connection.
+
+        Authentication is enforced via the central auth gateway before
+        any audio data is sent. This prevents unauthorized clients from
+        capturing the server's audio output.
+        """
+        # Validate auth via the central gateway.
+        from vnc_remote_secure.security.auth_gateway import (
+            register_websocket_connection,
+            unregister_websocket_connection,
+        )
+        token = await self._authenticate_ws(websocket)
+        if token is None:
             return
-        token = eph or bearer or cookie_value
         conn_id = register_websocket_connection(token, websocket.close, resource='audio')
         if conn_id is None:
             # Session revoked between validation and registration

@@ -1040,6 +1040,27 @@ def watchdog_tick(config: dict | None = None) -> dict:
     if not config.get('healthcheck_enabled', True):
         return {}
 
+    dead = _find_dead_services(config)
+    global _last_watchdog_dead
+    dead_set = set(dead)
+    auto = config.get('auto_restart', False)
+    # The dedup early-return must not apply while auto-restart is on:
+    # a service whose restart attempt failed stays in dead_set, and
+    # skipping the tick would mean never retrying it.
+    if dead_set == _last_watchdog_dead and not auto:
+        return {}
+    newly_dead = dead_set - _last_watchdog_dead
+    _last_watchdog_dead = dead_set
+    if not dead_set:
+        return {}
+
+    results = _auto_restart_dead(dead, config) if auto else {}
+    _alert_watchdog_transitions(newly_dead, dead, results, auto)
+    return results
+
+
+def _find_dead_services(config: dict) -> list:
+    """Return enabled services whose PID is dead or port is hung."""
     dead = []
     port_map = _service_port_map(config)
     for service in _enabled_services(config):
@@ -1056,78 +1077,78 @@ def watchdog_tick(config: dict | None = None) -> dict:
                     dead.append(service)
             except Exception:  # noqa: BLE001 - probe is best-effort
                 pass
+    return dead
 
-    global _last_watchdog_dead
-    dead_set = set(dead)
-    auto = config.get('auto_restart', False)
-    # The dedup early-return must not apply while auto-restart is on:
-    # a service whose restart attempt failed stays in dead_set, and
-    # skipping the tick would mean never retrying it.
-    if dead_set == _last_watchdog_dead and not auto:
-        return {}
-    newly_dead = dead_set - _last_watchdog_dead
-    _last_watchdog_dead = dead_set
-    if not dead_set:
-        return {}
 
+def _auto_restart_dead(dead: list, config: dict) -> dict:
+    """Restart dead services, honouring the per-service rate limit."""
     results = {}
-    if auto:
-        now = time.monotonic()
-        throttled = []
-        for service in dead:
-            if not _restart_allowed(service, now):
-                throttled.append(service)
-                continue
-            _record_restart(service, now)
-            # A hung-but-alive service (dead listener, live PID) must be
-            # killed before respawn — otherwise it orphans and the next
-            # watchdog cycle finds it again.
-            pid = _read_pid(service)
-            if pid and _pid_alive(pid):
-                _kill_pid(pid, service=service)
-            _clear_pid(service)
-            results[service] = _start_service(service, config)
-        if throttled:
-            # Alert once on the transition into the throttled state —
-            # not on every tick while the service stays down.
-            newly_throttled = [s for s in throttled
-                               if s not in _last_throttled]
-            _last_throttled.update(throttled)
-            for s in set(_last_throttled) - set(throttled):
-                _last_throttled.discard(s)
-            logger.error(
-                "Auto-restart suppressed (>%d restarts in %ds): %s — "
-                "the service is kept down; fix the cause and run "
-                "'vnc-remote start' manually",
-                _RESTART_MAX, _RESTART_WINDOW_S, ', '.join(throttled))
-            if newly_throttled:
-                try:
-                    from vnc_remote_secure.monitoring.alerts import notify
-                    notify('Auto-restart suppressed',
-                           'Restart limit reached for: '
-                           + ', '.join(newly_throttled),
-                           severity='error')
-                except Exception:  # noqa: BLE001 - alerting is best-effort
-                    pass
+    now = time.monotonic()
+    throttled = []
+    for service in dead:
+        if not _restart_allowed(service, now):
+            throttled.append(service)
+            continue
+        _record_restart(service, now)
+        # A hung-but-alive service (dead listener, live PID) must be
+        # killed before respawn — otherwise it orphans and the next
+        # watchdog cycle finds it again.
+        pid = _read_pid(service)
+        if pid and _pid_alive(pid):
+            _kill_pid(pid, service=service)
+        _clear_pid(service)
+        results[service] = _start_service(service, config)
+    if throttled:
+        _alert_throttled(throttled)
+    return results
 
-    # Alerts fire on state transitions only — restarting every tick is
-    # correct, but re-alerting every tick would be notification spam.
-    if newly_dead:
+
+def _alert_throttled(throttled: list):
+    """Log and alert once on the transition into the throttled state."""
+    # Not on every tick while the service stays down.
+    newly_throttled = [s for s in throttled
+                       if s not in _last_throttled]
+    _last_throttled.update(throttled)
+    for s in set(_last_throttled) - set(throttled):
+        _last_throttled.discard(s)
+    logger.error(
+        "Auto-restart suppressed (>%d restarts in %ds): %s — "
+        "the service is kept down; fix the cause and run "
+        "'vnc-remote start' manually",
+        _RESTART_MAX, _RESTART_WINDOW_S, ', '.join(throttled))
+    if newly_throttled:
         try:
             from vnc_remote_secure.monitoring.alerts import notify
-            still_dead = [s for s in dead if not results.get(s)]
-            if still_dead:
-                notify('Services down',
-                       'Dead services: ' + ', '.join(still_dead)
-                       + ('' if auto else ' (AUTO_RESTART disabled)'),
-                       severity='error')
-            elif auto:
-                notify('Services restarted',
-                       'Watchdog restarted: ' + ', '.join(results),
-                       severity='warning')
+            notify('Auto-restart suppressed',
+                   'Restart limit reached for: '
+                   + ', '.join(newly_throttled),
+                   severity='error')
         except Exception:  # noqa: BLE001 - alerting is best-effort
             pass
-    return results
+
+
+def _alert_watchdog_transitions(newly_dead, dead, results, auto):
+    """Fire service-down/restarted alerts on state transitions only.
+
+    Restarting every tick is correct, but re-alerting every tick would
+    be notification spam.
+    """
+    if not newly_dead:
+        return
+    try:
+        from vnc_remote_secure.monitoring.alerts import notify
+        still_dead = [s for s in dead if not results.get(s)]
+        if still_dead:
+            notify('Services down',
+                   'Dead services: ' + ', '.join(still_dead)
+                   + ('' if auto else ' (AUTO_RESTART disabled)'),
+                   severity='error')
+        elif auto:
+            notify('Services restarted',
+                   'Watchdog restarted: ' + ', '.join(results),
+                   severity='warning')
+    except Exception:  # noqa: BLE001 - alerting is best-effort
+        pass
 
 
 def _cleanup_temp_user() -> None:

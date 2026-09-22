@@ -166,210 +166,150 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
         send_security_headers(self)
         super().end_headers()
 
-    def do_GET(self):  # noqa: N802 - stdlib API
+    def _send_json(self, status, body, content_type='application/json'):
+        """Write a JSON (or text) response body."""
+        if isinstance(body, str):
+            body = body.encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_error(self, status, message, realm=None):
+        """Write a JSON error body, optionally with WWW-Authenticate."""
+        body, _ = error_json(message, status)
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        if realm:
+            self.send_header('WWW-Authenticate',
+                             f'Bearer realm="{realm}"')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def _require_health_auth(self, realm='Health'):
+        """Check the health auth token; send 401 and return False on failure."""
         from vnc_remote_secure.security.http_auth import check_health_auth
+        if check_health_auth(self.headers.get('Authorization', ''),
+                             peer_ip=self.client_address[0]
+                             if self.client_address else None):
+            return True
+        self._send_error(401, 'Unauthorized', realm=realm)
+        return False
+
+    def _serve_health(self, ready_only=False):
+        """Serve the aggregated health status."""
+        if not self._require_health_auth():
+            return
+        status = get_health_status()
+        body = json.dumps(status, indent=2).encode('utf-8')
+        # Readiness is stricter than /health: a 'degraded' aggregate
+        # means an enabled service is down, so the deployment cannot
+        # serve all traffic (matches the Flask blueprint, which
+        # requires all services listening).
+        ok_states = ('healthy',) if ready_only else ('healthy', 'degraded')
+        code = 200 if status['status'] in ok_states else 503
+        self._send_json(code, body)
+
+    def _serve_live(self):
+        """Serve the liveness probe (unauthenticated, rate-limited)."""
+        # Rate-limited per IP like the Flask blueprint — the probe is
+        # unauthenticated so it must not be a cheap DoS/recon vector.
+        # 60 req / 60s — liveness probes poll frequently (k8s: every
+        # 10s by default); the generic 5/5min budget would break real
+        # monitoring.
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        from vnc_remote_secure.security.rate_limit import (
+            check_rate_limit,
+        )
+        if not check_rate_limit(
+                client_ip_from(
+                    self.headers, self.client_address[0]),
+                max_requests=60, window_seconds=60):
+            self._send_error(429, 'Too many requests')
+            return
+        self._send_json(200, json.dumps({'status': 'alive'}))
+
+    def _serve_services(self):
+        """Per-service status with PID and port details."""
+        if not self._require_health_auth():
+            return
+        from vnc_remote_secure.core.service_manager import status_all
+        self._send_json(200, json.dumps(status_all(), indent=2))
+
+    def _serve_all_health(self):
+        """Serve the monitoring aggregate (all health checks)."""
+        if not self._require_health_auth():
+            return
+        from vnc_remote_secure.monitoring.health import get_all_health
+        try:
+            status = get_all_health()
+            self._send_json(200, json.dumps(status, indent=2))
+        except Exception:
+            logger.exception("Health status generation failed")
+            self._send_error(500, 'Health status generation failed')
+
+    def _serve_metrics(self):
+        """Prometheus scrape endpoint on the health port."""
+        if not self._require_health_auth(realm='Metrics'):
+            return
+        from vnc_remote_secure.monitoring.prometheus import metrics_handler
+        body, status = metrics_handler()
+        self._send_json(status, body, content_type='text/plain; version=0.0.4')
+
+    def _serve_audit(self):
+        """Serve recent audit entries (bounded by ?limit=)."""
+        if not self._require_health_auth(realm='Audit'):
+            return
+        from urllib.parse import parse_qs, urlparse
+
+        from vnc_remote_secure.security.audit import get_audit_entries
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            limit = max(1, min(int(qs.get('limit', ['100'])[0]), 1000))
+        except (ValueError, TypeError):
+            self._send_error(400, 'Invalid limit parameter')
+            return
+        event = qs.get('event', [None])[0]
+        entries = get_audit_entries(limit=limit, event=event)
+        self._send_json(200, json.dumps(entries, indent=2))
+
+    def _serve_audit_verify(self):
+        """Serve the audit chain integrity check."""
+        if not self._require_health_auth(realm='Audit'):
+            return
+        from vnc_remote_secure.security.audit import verify_chain
+        intact, message = verify_chain()
+        self._send_json(200, json.dumps(
+            {'intact': intact, 'message': message}))
+
+    def do_GET(self):  # noqa: N802 - stdlib API
         # Strip the query string once: Flask routes match path-only and
         # nginx forwards the request URI verbatim, so /health?x=1 must
         # not 404 here while succeeding through the proxy. (The /audit
         # branch still reads the query via urlparse(self.path).)
         path = self.path.split('?', 1)[0]
         if path in ('/health', '/health_status', '/health_status.json'):
-            if not check_health_auth(self.headers.get('Authorization', ''),
-                                     peer_ip=self.client_address[0]
-                                     if self.client_address else None):
-                body, _ = error_json('Unauthorized', 401)
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            status = get_health_status()
-            body = json.dumps(status, indent=2).encode('utf-8')
-            # Return 503 when unhealthy, 200 when healthy/degraded
-            code = 200 if status['status'] in ('healthy', 'degraded') else 503
-            self.send_response(code)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._serve_health()
         elif path == '/health/live':
-            # Liveness: process responds (always 200 if server is
-            # running). Rate-limited per IP like the Flask blueprint —
-            # the probe is unauthenticated so it must not be a cheap
-            # DoS/recon vector.
-            # 60 req / 60s — liveness probes poll frequently (k8s:
-            # every 10s by default); the generic 5/5min budget would
-            # break real monitoring.
-            from vnc_remote_secure.security.http_auth import client_ip_from
-            from vnc_remote_secure.security.rate_limit import (
-                check_rate_limit,
-            )
-            if not check_rate_limit(
-                    client_ip_from(
-                        self.headers, self.client_address[0]),
-                    max_requests=60, window_seconds=60):
-                body, _ = error_json('Too many requests', 429)
-                self.send_response(429)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            body = json.dumps({'status': 'alive'}).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._serve_live()
         elif path == '/health/ready':
-            # Readiness: can fulfill requests — stricter than /health:
-            # a 'degraded' aggregate means an enabled service is down,
-            # so the deployment cannot serve all traffic (matches the
-            # Flask blueprint, which requires all services listening).
-            if not check_health_auth(self.headers.get('Authorization', ''),
-                                     peer_ip=self.client_address[0]
-                                     if self.client_address else None):
-                body, _ = error_json('Unauthorized', 401)
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            status = get_health_status()
-            body = json.dumps(status, indent=2).encode('utf-8')
-            code = 200 if status['status'] == 'healthy' else 503
-            self.send_response(code)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._serve_health(ready_only=True)
         elif path == '/health/services':
-            # Per-service status with PID and port details.
-            if not check_health_auth(self.headers.get('Authorization', ''),
-                                     peer_ip=self.client_address[0]
-                                     if self.client_address else None):
-                body, _ = error_json('Unauthorized', 401)
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            from vnc_remote_secure.core.service_manager import status_all
-            body = json.dumps(status_all(), indent=2).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._serve_services()
         elif path == '/health/all':
-            if not check_health_auth(self.headers.get('Authorization', ''),
-                                     peer_ip=self.client_address[0]
-                                     if self.client_address else None):
-                body, _ = error_json('Unauthorized', 401)
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer realm="Health"')
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            from vnc_remote_secure.monitoring.health import get_all_health
-            try:
-                status = get_all_health()
-                body = json.dumps(status, indent=2).encode('utf-8')
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            except Exception:
-                logger.exception("Health status generation failed")
-                body, _ = error_json('Health status generation failed', 500)
-                self.send_response(500)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
+            self._serve_all_health()
         elif path == '/metrics':
-            # Prometheus scrape endpoint — lives on the health port so
-            # external monitoring does not depend on the optional user UI.
-            if not check_health_auth(self.headers.get('Authorization', ''),
-                                     peer_ip=self.client_address[0]
-                                     if self.client_address else None):
-                body, _ = error_json('Unauthorized', 401)
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer realm="Metrics"')
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            from vnc_remote_secure.monitoring.prometheus import metrics_handler
-            body, status = metrics_handler()
-            self.send_response(status)
-            self.send_header('Content-Type', 'text/plain; version=0.0.4')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body.encode('utf-8'))
+            self._serve_metrics()
         elif path == '/audit':
-            if not check_health_auth(self.headers.get('Authorization', ''),
-                                     peer_ip=self.client_address[0]
-                                     if self.client_address else None):
-                body, _ = error_json('Unauthorized', 401)
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer realm="Audit"')
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            from urllib.parse import parse_qs, urlparse
-
-            from vnc_remote_secure.security.audit import get_audit_entries
-            qs = parse_qs(urlparse(self.path).query)
-            try:
-                limit = max(1, min(int(qs.get('limit', ['100'])[0]), 1000))
-            except (ValueError, TypeError):
-                body, _ = error_json('Invalid limit parameter', 400)
-                self.send_response(400)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            event = qs.get('event', [None])[0]
-            entries = get_audit_entries(limit=limit, event=event)
-            body = json.dumps(entries, indent=2).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._serve_audit()
         elif path == '/audit/verify':
-            if not check_health_auth(self.headers.get('Authorization', ''),
-                                     peer_ip=self.client_address[0]
-                                     if self.client_address else None):
-                body, _ = error_json('Unauthorized', 401)
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer realm="Audit"')
-                self.end_headers()
-                self.wfile.write(body.encode('utf-8'))
-                return
-            from vnc_remote_secure.security.audit import verify_chain
-            intact, message = verify_chain()
-            body = json.dumps({'intact': intact, 'message': message}).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._serve_audit_verify()
         else:
-            body, _ = error_json('Not found', 404)
             self.send_response(404)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(body.encode('utf-8'))
+            self.wfile.write(error_json('Not found', 404)[0].encode('utf-8'))
 
     def log_message(self, format, *args):  # noqa: A002 - stdlib signature
         # pylint: disable=redefined-builtin  # noqa: D401 - route stdlib logs to logger

@@ -85,7 +85,6 @@ def _config_migrate(args):
         ('local-only', 'development',
          'Profile local-only renamed to development'),
     ]
-    changes = []
     env_path = os.path.join(_find_project_root(), '.env')
     if not os.path.exists(env_path):
         print("No .env file found.")
@@ -102,31 +101,11 @@ def _config_migrate(args):
                       if '=' not in o and o.isupper() and o.replace('_', '').isalpha()]
     value_migrations = [(o, n, m) for o, n, m in migrations
                         if (o, n) not in {(a, b) for a, b, _ in var_migrations}]
-    out_lines = []
+    out_lines, changes = [], []
     for ln in lines:
-        stripped = ln.strip()
-        if not stripped or stripped.startswith('#') or '=' not in ln:
-            out_lines.append(ln)
-            continue
-        key, _, val = ln.partition('=')
-        key_s, val_s = key.strip(), val.strip()
-        for old, new, msg in var_migrations:
-            if key_s == old:
-                changes.append({'old': old, 'new': new, 'message': msg})
-                if not args.dry_run:
-                    ln = ln.replace(key, key.replace(old, new), 1)
-                break
-        for old, new, msg in value_migrations:
-            # Check both the current key and the legacy key it may be
-            # renamed FROM in this same pass — a renamed
-            # VNC_REMOTE_PROFILE line must still get its profile value
-            # migrated.
-            if key_s in ('SECURITY_PROFILE', 'VNC_REMOTE_PROFILE') and val_s == old:
-                changes.append({'old': old, 'new': new, 'message': msg})
-                if not args.dry_run:
-                    ln = ln.replace(val, val.replace(old, new), 1)
-                break
-        out_lines.append(ln)
+        out_lines.append(
+            _migrate_env_line(ln, var_migrations, value_migrations,
+                              changes, args.dry_run))
     if not changes:
         print("No migrations needed — config is already up to date.")
         return 0
@@ -134,26 +113,53 @@ def _config_migrate(args):
         print("Dry run — the following changes would be made:")
         for c in changes:
             print(f"  {c['old']} -> {c['new']}: {c['message']}")
-    else:
-        content = '\n'.join(out_lines) + '\n'
-        # Atomic write: a crash mid-write of the .env in place would
-        # lose every other variable — same treatment as
-        # set_env_persistent().
-        import tempfile
-        fd, tmp = tempfile.mkstemp(
-            dir=os.path.dirname(env_path) or '.', suffix='.tmp')
-        try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                f.write(content)
-            os.replace(tmp, env_path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
-        print("Applied migrations:")
-        for c in changes:
-            print(f"  {c['old']} -> {c['new']}: {c['message']}")
+        return 0
+    content = '\n'.join(out_lines) + '\n'
+    # Atomic write: a crash mid-write of the .env in place would
+    # lose every other variable — same treatment as
+    # set_env_persistent().
+    import tempfile
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(env_path) or '.', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(content)
+        os.replace(tmp, env_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    print("Applied migrations:")
+    for c in changes:
+        print(f"  {c['old']} -> {c['new']}: {c['message']}")
     return 0
+
+
+def _migrate_env_line(ln, var_migrations, value_migrations, changes,
+                      dry_run):
+    """Migrate one .env line; record each change in ``changes``."""
+    stripped = ln.strip()
+    if not stripped or stripped.startswith('#') or '=' not in ln:
+        return ln
+    key, _, val = ln.partition('=')
+    key_s, val_s = key.strip(), val.strip()
+    for old, new, msg in var_migrations:
+        if key_s == old:
+            changes.append({'old': old, 'new': new, 'message': msg})
+            if not dry_run:
+                ln = ln.replace(key, key.replace(old, new), 1)
+            break
+    for old, new, msg in value_migrations:
+        # Check both the current key and the legacy key it may be
+        # renamed FROM in this same pass — a renamed
+        # VNC_REMOTE_PROFILE line must still get its profile value
+        # migrated.
+        if key_s in ('SECURITY_PROFILE', 'VNC_REMOTE_PROFILE') and val_s == old:
+            changes.append({'old': old, 'new': new, 'message': msg})
+            if not dry_run:
+                ln = ln.replace(val, val.replace(old, new), 1)
+            break
+    return ln
 
 
 def cmd_config(args):

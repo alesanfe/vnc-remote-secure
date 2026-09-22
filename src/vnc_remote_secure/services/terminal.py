@@ -497,14 +497,35 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         """Reject WebSocket connections from unknown origins (prevents CSWSH)."""
         return _is_origin_allowed(origin)
 
-    def open(self):
-        """Open."""
+    def _step_up_required(self, cookie_value, bearer):
+        """Enforce step-up auth for operator sessions.
+
+        Applies to operator sessions — skipped only when the ephemeral
+        cookie is the SOLE credential (the previous behavior): a session
+        that is already permission-bound has no username for step-up to
+        challenge.
+        """
+        if not (bearer or cookie_value):
+            return True
+        from vnc_remote_secure.security.auth_gateway import check_authenticated
+        from vnc_remote_secure.security.step_up_auth import require_step_up
+        _authed, ws_user = check_authenticated(cookie_value, bearer)
+        if ws_user:
+            step_up_err = require_step_up(ws_user, 'open_terminal')
+            if step_up_err:
+                self.close(code=1008, reason=step_up_err)
+                return False
+        return True
+
+    def _authenticate(self):
+        """Authenticate the WebSocket upgrade. Returns True when allowed.
+
+        Token credentials (ephemeral cookie, bearer, session cookie)
+        resolve through the gateway's single enforcement tree; the
+        legacy basic-auth path falls back to ``check_terminal_auth``.
+        """
         auth = self.request.headers.get('Authorization', '')
-        # First, try ephemeral session token (Bearer) via auth_gateway
-        # so that revocation and per-action permissions are enforced.
-        bearer = ''
-        if auth.lower().startswith('bearer '):
-            bearer = auth[7:].strip()
+        bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
         cookie = self.request.headers.get('Cookie', '')
         # Extract session cookie value if present.
         cookie_value = ''
@@ -516,61 +537,54 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                     cookie_value = part.split('=', 1)[1].strip()
                 elif part.startswith('vnc_ephemeral='):
                     eph = part.split('=', 1)[1].strip()
-        origin = self.request.headers.get('Origin', '')
-        # Token credentials (ephemeral cookie, bearer, session cookie)
-        # all resolve through the gateway's single enforcement tree.
-        if eph or bearer or cookie_value:
-            from vnc_remote_secure.security.auth_gateway import (
-                check_websocket_upgrade,
-                register_websocket_connection,
-            )
-            allowed, reason = check_websocket_upgrade(
-                origin=origin,
-                cookie_value=cookie_value,
-                bearer_token=bearer,
-                resource='terminal',
-                required_permission='terminal:use',
-                client_ip=client_ip_from(
-                    self.request.headers, self.request.remote_ip),
-                ephemeral_cookie=eph,
-            )
-            if not allowed:
-                self.close(code=1008, reason=reason)
-                return
-            # Step-up auth applies to operator sessions — skip it only
-            # when the ephemeral cookie is the SOLE credential (the
-            # previous behavior): a session that is already
-            # permission-bound has no username for step-up to challenge.
-            if bearer or cookie_value:
-                from vnc_remote_secure.security.auth_gateway import check_authenticated
-                from vnc_remote_secure.security.step_up_auth import require_step_up
-                _authed, ws_user = check_authenticated(cookie_value, bearer)
-                if ws_user:
-                    step_up_err = require_step_up(ws_user, 'open_terminal')
-                    if step_up_err:
-                        self.close(code=1008, reason=step_up_err)
-                        return
-            # Register the connection so revocation can close it live.
-            token = eph or bearer or cookie_value
-            self._ws_conn_id = register_websocket_connection(
-                token, self.close, resource='terminal',
-            )
-            if self._ws_conn_id is None:
-                self.close(code=1008, reason='Session revoked')
-                return
-            # Cross-process revocation watcher — a CLI-issued revoke
-            # only marks shared state; this closes the live socket.
-            from vnc_remote_secure.security.websocket_registry import (
-                start_revocation_watcher,
-            )
-            start_revocation_watcher(token)
-        elif not check_terminal_auth(
-                auth, client_ip=client_ip_from(
-                    self.request.headers, self.request.remote_ip)):
-            self.close(code=1008, reason='Unauthorized')
-            return
-        else:
+        if not (eph or bearer or cookie_value):
+            if not check_terminal_auth(
+                    auth, client_ip=client_ip_from(
+                        self.request.headers, self.request.remote_ip)):
+                self.close(code=1008, reason='Unauthorized')
+                return False
             self._ws_conn_id = None
+            return True
+
+        from vnc_remote_secure.security.auth_gateway import (
+            check_websocket_upgrade,
+            register_websocket_connection,
+        )
+        allowed, reason = check_websocket_upgrade(
+            origin=self.request.headers.get('Origin', ''),
+            cookie_value=cookie_value,
+            bearer_token=bearer,
+            resource='terminal',
+            required_permission='terminal:use',
+            client_ip=client_ip_from(
+                self.request.headers, self.request.remote_ip),
+            ephemeral_cookie=eph,
+        )
+        if not allowed:
+            self.close(code=1008, reason=reason)
+            return False
+        if not self._step_up_required(cookie_value, bearer):
+            return False
+        # Register the connection so revocation can close it live.
+        token = eph or bearer or cookie_value
+        self._ws_conn_id = register_websocket_connection(
+            token, self.close, resource='terminal',
+        )
+        if self._ws_conn_id is None:
+            self.close(code=1008, reason='Session revoked')
+            return False
+        # Cross-process revocation watcher — a CLI-issued revoke
+        # only marks shared state; this closes the live socket.
+        from vnc_remote_secure.security.websocket_registry import (
+            start_revocation_watcher,
+        )
+        start_revocation_watcher(token)
+        return True
+
+    def open(self):
+        """Open."""
+        if not self._authenticate():
+            return
 
         self.current_process = None
         home = os.environ.get('USERPROFILE') or os.path.expanduser('~')

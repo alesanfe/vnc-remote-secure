@@ -303,37 +303,13 @@ def _resolve_var(
     return '', 'not-set'
 
 
-def validate_config(
-    env_snapshot: dict[str, str] | None = None,
-    profile_name: str | None = None,
-) -> list[dict[str, str]]:
-    """Validate the effective configuration for contradictions.
+def _check_tls_required(effective_dict, profile_name, findings):
+    """Require TLS in non-development profiles.
 
-    Returns:
-        List of finding dicts with 'severity' and 'message'.
+    Uses the same precedence as config._is_tls_enabled_env: an explicit
+    DISABLE_SSL=true kills TLS even when TLS_ENABLED=true — reading only
+    TLS_ENABLED would certify a deployment whose runtime TLS is off.
     """
-    if env_snapshot is None:
-        env_snapshot = dict(os.environ)
-    if profile_name is None:
-        profile_name = _resolve_profile_name(env_snapshot)
-
-    findings: list[dict[str, str]] = []
-    effective = compute_effective_config(env_snapshot, profile_name)
-    effective_dict = {e['name']: e['value'] for e in effective}
-
-    # Check: BACKEND_BIND_HOST must be 127.0.0.1 in all profiles.
-    backend_bind = effective_dict.get('BACKEND_BIND_HOST', '127.0.0.1')
-    if backend_bind != '127.0.0.1':
-        findings.append({
-            'severity': 'critical',
-            'message': f'BACKEND_BIND_HOST={backend_bind} — must be 127.0.0.1 (Zero Trust)',
-        })
-
-    # Check: TLS must be enabled in non-development profiles. Use the
-    # same precedence as config._is_tls_enabled_env: an explicit
-    # DISABLE_SSL=true kills TLS even when TLS_ENABLED=true — reading
-    # only TLS_ENABLED would certify a deployment whose runtime TLS is
-    # actually off.
     disable_ssl = effective_dict.get('DISABLE_SSL', '').strip().lower()
     tls_enabled = effective_dict.get('TLS_ENABLED', 'true')
     tls_off = (disable_ssl in ('true', '1', 'yes')
@@ -346,43 +322,16 @@ def validate_config(
                        f'{profile_name} — TLS required',
         })
 
-    # Check: MFA required in public-hardened and private-overlay.
-    mfa_required = effective_dict.get('MFA_REQUIRED', 'false')
-    if (profile_name in ('public-hardened', 'private-overlay')
-            and mfa_required.lower() not in ('true', '1', 'yes')):
-        findings.append({
-            'severity': 'critical',
-            'message': f'MFA_REQUIRED={mfa_required} in profile {profile_name} — MFA required',
-        })
 
-    # Check: nginx enabled in non-development profiles.
-    nginx_enabled = effective_dict.get('NGINX_ENABLED', 'false')
-    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
-            and nginx_enabled.lower() not in ('true', '1', 'yes')):
-        findings.append({
-            'severity': 'critical',
-            'message': f'NGINX_ENABLED={nginx_enabled} in profile {profile_name} — reverse proxy required',
-        })
+def _check_vnc_password(env_snapshot, findings):
+    """Require a non-empty, non-weak VNC password.
 
-    # Check: FLASK_SECRET_KEY set in non-development profiles. The
-    # persisted auth_secret.key fallback only applies in development —
-    # web/application.py raises RuntimeError on hardened profiles when
-    # the env var is missing, so the critical here matches the startup
-    # blocker (and doctor's secrets.flask_key, which treats the
-    # persisted file as 'Set' for dev-mode state).
-    flask_secret = env_snapshot.get('FLASK_SECRET_KEY', '').strip()
-    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
-            and not flask_secret):
-        findings.append({
-            'severity': 'critical',
-            'message': 'FLASK_SECRET_KEY not set — sessions invalidated on restart',
-        })
-
-    # Check: VNC_PASSWORD not empty. The runtime auto-generates and
-    # persists a credential to <run_dir>/generated_credentials.env
-    # when the env var is unset — that persisted value counts (same
-    # fallback check_terminal_auth uses), or a deployment relying on
-    # the generated password would report a false critical.
+    The runtime auto-generates and persists a credential to
+    <run_dir>/generated_credentials.env when the env var is unset — that
+    persisted value counts (same fallback check_terminal_auth uses), or
+    a deployment relying on the generated password would report a false
+    critical.
+    """
     vnc_pass = env_snapshot.get('VNC_PASSWORD', '').strip()
     if not vnc_pass:
         try:
@@ -397,8 +346,7 @@ def validate_config(
             'severity': 'critical',
             'message': 'VNC_PASSWORD is empty — VNC server will reject connections',
         })
-
-    # Check: VNC_PASSWORD not a default/weak password.
+        return
     weak_lower = {p.lower() for p in WEAK_PASSWORDS}
     if vnc_pass.lower() in weak_lower:
         findings.append({
@@ -406,9 +354,13 @@ def validate_config(
             'message': 'VNC_PASSWORD is a known weak password',
         })
 
-    # Check: numeric env vars must parse and be in range. This catches
-    # values like VNC_PORT=abc or NOVNC_PORT=99999 that would crash
-    # ``get_config()`` at runtime.
+
+def _check_port_vars(env_snapshot, findings):
+    """Require numeric env vars to parse and be in port range.
+
+    Catches values like VNC_PORT=abc or NOVNC_PORT=99999 that would
+    crash ``get_config()`` at runtime.
+    """
     port_vars = (
         'VNC_PORT', 'VNC_HTTP_PORT', 'NOVNC_PORT', 'TTYD_PORT',
         'HEALTH_WEB_PORT', 'LANDING_PORT', 'USER_UI_PORT',
@@ -433,36 +385,107 @@ def validate_config(
                 'message': f'{var}={val} is out of valid port range (1-65535)',
             })
 
-    # Check: on Linux, TigerVNC derives its RFB port from the display
-    # number (5900 + N) — the adapter launches ``vncserver :N`` and
-    # ignores VNC_PORT for binding, and all probes (doctor, status_all,
-    # landing, websockify) use the derived port. A mismatched VNC_PORT
-    # is inert but misleading: it suggests a setting that has no effect.
-    # Windows uses VNC_PORT directly (UltraVNC PortNumber), so the check
-    # only applies off-Windows.
+
+def _check_tigervnc_port_mismatch(env_snapshot, findings):
+    """Warn when VNC_PORT disagrees with the TigerVNC display-derived port.
+
+    On Linux TigerVNC derives its RFB port from the display number
+    (5900 + N) — the adapter launches ``vncserver :N`` and ignores
+    VNC_PORT for binding, and all probes (doctor, status_all, landing,
+    websockify) use the derived port. A mismatched VNC_PORT is inert but
+    misleading. Windows uses VNC_PORT directly (UltraVNC PortNumber), so
+    the check only applies off-Windows.
+    """
     try:
         from vnc_remote_secure.platform.detection import is_windows
-        if not is_windows():
-            raw_display = (env_snapshot.get('VNC_DISPLAY', ':1') or ':1')
-            display_num = int(str(raw_display).lstrip(':'))
-            vnc_port_raw = env_snapshot.get('VNC_PORT', '').strip()
-            if vnc_port_raw:
-                vnc_port = int(vnc_port_raw)
-                expected = TIGERVNC_BASE_PORT + display_num
-                if vnc_port != expected:
-                    findings.append({
-                        'severity': 'warning',
-                        'message': (
-                            f'VNC_PORT={vnc_port} is ignored on Linux — '
-                            f'TigerVNC binds {TIGERVNC_BASE_PORT}+display '
-                            f'({expected} for display {raw_display}); '
-                            f'set VNC_PORT={expected} or '
-                            f'VNC_DISPLAY=:{vnc_port - TIGERVNC_BASE_PORT} '
-                            'to silence this warning.'
-                        ),
-                    })
+        if is_windows():
+            return
+        raw_display = (env_snapshot.get('VNC_DISPLAY', ':1') or ':1')
+        display_num = int(str(raw_display).lstrip(':'))
+        vnc_port_raw = env_snapshot.get('VNC_PORT', '').strip()
+        if not vnc_port_raw:
+            return
+        vnc_port = int(vnc_port_raw)
+        expected = TIGERVNC_BASE_PORT + display_num
+        if vnc_port != expected:
+            findings.append({
+                'severity': 'warning',
+                'message': (
+                    f'VNC_PORT={vnc_port} is ignored on Linux — '
+                    f'TigerVNC binds {TIGERVNC_BASE_PORT}+display '
+                    f'({expected} for display {raw_display}); '
+                    f'set VNC_PORT={expected} or '
+                    f'VNC_DISPLAY=:{vnc_port - TIGERVNC_BASE_PORT} '
+                    'to silence this warning.'
+                ),
+            })
     except (ValueError, TypeError):
         pass
+
+
+def validate_config(
+    env_snapshot: dict[str, str] | None = None,
+    profile_name: str | None = None,
+) -> list[dict[str, str]]:
+    """Validate the effective configuration for contradictions.
+
+    Returns:
+        List of finding dicts with 'severity' and 'message'.
+    """
+    if env_snapshot is None:
+        env_snapshot = dict(os.environ)
+    if profile_name is None:
+        profile_name = _resolve_profile_name(env_snapshot)
+
+    findings: list[dict[str, str]] = []
+    effective = compute_effective_config(env_snapshot, profile_name)
+    effective_dict = {e['name']: e['value'] for e in effective}
+
+    # BACKEND_BIND_HOST must be 127.0.0.1 in all profiles.
+    backend_bind = effective_dict.get('BACKEND_BIND_HOST', '127.0.0.1')
+    if backend_bind != '127.0.0.1':
+        findings.append({
+            'severity': 'critical',
+            'message': f'BACKEND_BIND_HOST={backend_bind} — must be 127.0.0.1 (Zero Trust)',
+        })
+
+    _check_tls_required(effective_dict, profile_name, findings)
+
+    # MFA required in public-hardened and private-overlay.
+    mfa_required = effective_dict.get('MFA_REQUIRED', 'false')
+    if (profile_name in ('public-hardened', 'private-overlay')
+            and mfa_required.lower() not in ('true', '1', 'yes')):
+        findings.append({
+            'severity': 'critical',
+            'message': f'MFA_REQUIRED={mfa_required} in profile {profile_name} — MFA required',
+        })
+
+    # nginx enabled in non-development profiles.
+    nginx_enabled = effective_dict.get('NGINX_ENABLED', 'false')
+    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
+            and nginx_enabled.lower() not in ('true', '1', 'yes')):
+        findings.append({
+            'severity': 'critical',
+            'message': f'NGINX_ENABLED={nginx_enabled} in profile {profile_name} — reverse proxy required',
+        })
+
+    # FLASK_SECRET_KEY set in non-development profiles. The persisted
+    # auth_secret.key fallback only applies in development —
+    # web/application.py raises RuntimeError on hardened profiles when
+    # the env var is missing, so the critical here matches the startup
+    # blocker (and doctor's secrets.flask_key, which treats the
+    # persisted file as 'Set' for dev-mode state).
+    flask_secret = env_snapshot.get('FLASK_SECRET_KEY', '').strip()
+    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
+            and not flask_secret):
+        findings.append({
+            'severity': 'critical',
+            'message': 'FLASK_SECRET_KEY not set — sessions invalidated on restart',
+        })
+
+    _check_vnc_password(env_snapshot, findings)
+    _check_port_vars(env_snapshot, findings)
+    _check_tigervnc_port_mismatch(env_snapshot, findings)
 
     return findings
 

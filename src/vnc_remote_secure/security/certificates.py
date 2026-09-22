@@ -97,58 +97,19 @@ def create_ssl_context(cert_file=None, key_file=None):
     """
     import ssl
 
-    # Allow explicit opt-out via TLS_ENABLED=false or DISABLE_SSL=true.
-    # Delegate to the canonical resolver — a third interpretation here
-    # once disagreed on the TLS_ENABLED-vs-DISABLE_SSL precedence.
-    try:
-        from vnc_remote_secure.core.config import _is_tls_enabled_env
-        if not _is_tls_enabled_env():
-            return None
-    except ImportError:
-        # Mirror the canonical semantics: DISABLE_SSL=true is a
-        # kill-switch that wins over TLS_ENABLED — checking TLS_ENABLED
-        # first here would silently re-enable TLS when the operator
-        # explicitly asked to disable it.
-        disable_val = os.environ.get('DISABLE_SSL', '').strip()
-        if disable_val and disable_val.lower() in ('true', '1', 'yes'):
-            return None
-        tls_val = os.environ.get('TLS_ENABLED', '').strip()
-        if tls_val and tls_val.lower() in ('false', '0', 'no'):
-            return None
+    if not _tls_enabled_env():
+        return None
 
-    cert = cert_file or os.environ.get('SSL_CERT', '')
-    key = key_file or os.environ.get('SSL_KEY', '')
-
-    # Fall back to the canonical SSL dir (ProgramData on Windows,
-    # XDG/FHS on Linux) and the legacy <project>/data/ssl location —
-    # the same discovery ``config._get_ssl_config`` performs, so every
-    # service terminates TLS consistently rather than only the ones
-    # passing config-derived paths.
-    if not cert or not key:
-        try:
-            from vnc_remote_secure.core.paths import find_project_root, get_ssl_dir
-            for cert_dir in (
-                    get_ssl_dir(),
-                    os.path.join(find_project_root(), 'data', 'ssl')):
-                default_cert = os.path.join(cert_dir, 'fullchain.pem')
-                default_key = os.path.join(cert_dir, 'privkey.pem')
-                if os.path.exists(default_cert) and os.path.exists(default_key):
-                    cert = cert or default_cert
-                    key = key or default_key
-                    break
-        except Exception:  # noqa: BLE001 - discovery is best-effort
-            pass
-
+    cert, key = _resolve_cert_key_paths(cert_file, key_file)
     if not cert or not key:
         return None
     if not os.path.exists(cert) or not os.path.exists(key):
         # Configured-but-missing cert under a hardened profile must
         # abort, not silently serve plain HTTP.
-        profile = os.environ.get('VNC_REMOTE_PROFILE', 'development')
-        if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+        if _is_hardened_profile():
             raise RuntimeError(
                 "SSL cert/key configured but not found under profile "
-                f"'{profile}': {cert} / {key}")
+                f"'{_profile()}': {cert} / {key}")
         logger.debug("SSL cert/key not found: %s / %s", cert, key)
         return None
 
@@ -174,13 +135,69 @@ def create_ssl_context(cert_file=None, key_file=None):
         # deployment on a typo'd SSL_CERT or a permissions error. Under
         # hardened profiles this must abort instead — same gate as the
         # Flask-required check in web/application.py.
-        profile = os.environ.get('VNC_REMOTE_PROFILE', 'development')
-        if profile in ('public-hardened', 'private-overlay', 'trusted-lan'):
+        if _is_hardened_profile():
             raise RuntimeError(
-                f"SSL context failed to load under profile '{profile}': "
+                f"SSL context failed to load under profile '{_profile()}': "
                 f"{exc} — refusing to downgrade to plain HTTP") from exc
         logger.warning("Failed to load SSL context: %s", exc)
         return None
+
+
+def _tls_enabled_env():
+    """Resolve the TLS_ENABLED/DISABLE_SSL env opt-out.
+
+    Delegates to the canonical resolver — a third interpretation here
+    once disagreed on the TLS_ENABLED-vs-DISABLE_SSL precedence. On
+    ImportError mirrors the canonical semantics: DISABLE_SSL=true is a
+    kill-switch that wins over TLS_ENABLED.
+    """
+    try:
+        from vnc_remote_secure.core.config import _is_tls_enabled_env
+        return _is_tls_enabled_env()
+    except ImportError:
+        disable_val = os.environ.get('DISABLE_SSL', '').strip()
+        if disable_val and disable_val.lower() in ('true', '1', 'yes'):
+            return False
+        tls_val = os.environ.get('TLS_ENABLED', '').strip()
+        return not (tls_val and tls_val.lower() in ('false', '0', 'no'))
+
+
+def _resolve_cert_key_paths(cert_file, key_file):
+    """Return (cert, key) paths, discovering defaults when unset.
+
+    Falls back to the canonical SSL dir (ProgramData on Windows,
+    XDG/FHS on Linux) and the legacy <project>/data/ssl location — the
+    same discovery ``config._get_ssl_config`` performs, so every
+    service terminates TLS consistently rather than only the ones
+    passing config-derived paths.
+    """
+    cert = cert_file or os.environ.get('SSL_CERT', '')
+    key = key_file or os.environ.get('SSL_KEY', '')
+    if cert and key:
+        return cert, key
+    try:
+        from vnc_remote_secure.core.paths import find_project_root, get_ssl_dir
+        for cert_dir in (
+                get_ssl_dir(),
+                os.path.join(find_project_root(), 'data', 'ssl')):
+            default_cert = os.path.join(cert_dir, 'fullchain.pem')
+            default_key = os.path.join(cert_dir, 'privkey.pem')
+            if os.path.exists(default_cert) and os.path.exists(default_key):
+                return cert or default_cert, key or default_key
+    except Exception:  # noqa: BLE001 - discovery is best-effort
+        pass
+    return cert, key
+
+
+def _profile():
+    """Return the active security profile name."""
+    return os.environ.get('VNC_REMOTE_PROFILE', 'development')
+
+
+def _is_hardened_profile():
+    """Return True when the profile forbids silent TLS downgrade."""
+    return _profile() in (
+        'public-hardened', 'private-overlay', 'trusted-lan')
 
 
 def _restrict_key_permissions(key_path, writable=False):

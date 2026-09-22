@@ -391,39 +391,32 @@ def authorize_request(
     if limiter is not None and is_client_locked(client_ip):
         return False, 'Rate limited', None
 
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        check_permission,
-        check_session_permission,
-    )
-
     # 1. Activated ephemeral session (internal token cookie).
     if ephemeral_cookie:
-        if required_permission:
-            if check_session_permission(
-                    ephemeral_cookie, required_permission,
-                    resource=resource or None,
-                    client_ip=client_ip or None):
-                return True, 'OK', ephemeral_cookie
-        elif check_session_permission(
-                ephemeral_cookie, 'view',
-                client_ip=client_ip or None):
-            return True, 'OK', ephemeral_cookie
+        allowed, reason = _authorize_ephemeral_cookie(
+            ephemeral_cookie, required_permission, resource, client_ip)
+        if allowed:
+            return True, reason, ephemeral_cookie
         # A stale ephemeral cookie must not block a separately valid
         # credential — only reject when it is the sole credential.
         if not cookie_value and not bearer_token:
             if limiter is not None:
                 limiter.record_failure(client_ip)
-            return False, 'Invalid or expired session', None
+            return False, reason, None
 
     if not cookie_value and not bearer_token:
         return False, 'Authentication required', None
 
     # 2. Ephemeral Bearer token (per-action authorization).
-    if bearer_token and required_permission and check_permission(
-            bearer_token, required_permission,
-            resource=resource or None,
-            client_ip=client_ip or None):
-        return True, 'OK', bearer_token
+    if bearer_token and required_permission:
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            check_permission,
+        )
+        if check_permission(
+                bearer_token, required_permission,
+                resource=resource or None,
+                client_ip=client_ip or None):
+            return True, 'OK', bearer_token
 
     # 3. Operator session (cookie or session bearer).
     allowed, _user = check_authenticated(cookie_value, bearer_token)
@@ -434,6 +427,30 @@ def authorize_request(
     if limiter is not None:
         limiter.record_failure(client_ip)
     return False, 'Invalid or expired session', None
+
+
+def _authorize_ephemeral_cookie(
+    ephemeral_cookie: str,
+    required_permission: str,
+    resource: str,
+    client_ip: str,
+) -> tuple[bool, str]:
+    """Authorize an activated ephemeral session cookie."""
+    from vnc_remote_secure.security.ephemeral_sessions import (
+        check_session_permission,
+    )
+    if required_permission:
+        if check_session_permission(
+                ephemeral_cookie, required_permission,
+                resource=resource or None,
+                client_ip=client_ip or None):
+            return True, 'OK'
+        return False, 'Invalid or expired session'
+    if check_session_permission(
+            ephemeral_cookie, 'view',
+            client_ip=client_ip or None):
+        return True, 'OK'
+    return False, 'Invalid or expired session'
 
 
 def check_websocket_upgrade(

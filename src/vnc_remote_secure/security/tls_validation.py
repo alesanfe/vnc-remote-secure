@@ -54,7 +54,14 @@ def validate_tls_config() -> list:
         })
         return findings
 
-    # Validate default SSL context.
+    _check_default_context(findings)
+    _check_certificate_paths(findings)
+    _check_cipher_override(findings)
+    return findings
+
+
+def _check_default_context(findings):
+    """Validate the default SSLContext minimum TLS version."""
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         if ctx.minimum_version < MIN_TLS_VERSION:
@@ -69,9 +76,14 @@ def validate_tls_config() -> list:
             'message': f'Could not create SSL context: {e}',
         })
 
-    # Validate certificate if configured. Resolve through the same
-    # canonical logic the services use: explicit SSL_CERT/SSL_KEY
-    # first, then the platform ssl dir (fullchain.pem/privkey.pem).
+
+def _check_certificate_paths(findings):
+    """Validate the configured/discovered certificate pair.
+
+    Resolves through the same canonical logic the services use:
+    explicit SSL_CERT/SSL_KEY first, then the platform ssl dir
+    (fullchain.pem/privkey.pem).
+    """
     cert = os.environ.get('SSL_CERT', '')
     key = os.environ.get('SSL_KEY', '')
     if not (cert and key and os.path.exists(cert) and os.path.exists(key)):
@@ -85,8 +97,7 @@ def validate_tls_config() -> list:
         except Exception:  # noqa: BLE001
             pass
     if cert and key and os.path.exists(cert) and os.path.exists(key):
-        cert_findings = _validate_certificate(cert, key)
-        findings.extend(cert_findings)
+        findings.extend(_validate_certificate(cert, key))
     elif cert and not key:
         findings.append({
             'severity': 'warning',
@@ -98,7 +109,9 @@ def validate_tls_config() -> list:
             'message': 'SSL_KEY is set but SSL_CERT is missing',
         })
 
-    # Check for weak cipher environment overrides.
+
+def _check_cipher_override(findings):
+    """Reject weak ciphers in the SSL_CIPHERS environment override."""
     cipher_override = os.environ.get('SSL_CIPHERS', '')
     if cipher_override:
         for weak in WEAK_CIPHER_PATTERNS:
@@ -107,8 +120,6 @@ def validate_tls_config() -> list:
                     'severity': 'critical',
                     'message': f'Weak cipher "{weak}" in SSL_CIPHERS',
                 })
-
-    return findings
 
 
 def _validate_certificate(cert_path: str, key_path: str) -> list:

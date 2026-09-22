@@ -223,24 +223,47 @@ def set_env_persistent(name: str, value: str) -> bool:
     if not name or '=' in name or '\r' in name or '\n' in name:
         logger.error("Refusing to persist invalid env var name %r", name)
         return False
+    env_path = _env_file_for(name)
+    if not _rewrite_env_key(env_path, name, value):
+        return False
+    os.environ[name] = value
+    return True
+
+
+def _env_line_key(ln: str) -> str | None:
+    """Return the variable name a file line defines, or None."""
+    stripped = ln.strip()
+    if stripped and not stripped.startswith('#') and '=' in ln:
+        return ln.split('=', 1)[0].strip()
+    return None
+
+
+def _env_file_for(name: str) -> str:
+    """Pick the env file that already defines ``name``.
+
+    The write goes to whichever file actually holds the key — an
+    installed deployment keeps secrets in the system ``config.env``
+    (``/etc/vnc-remote-secure`` or ``%ProgramData%``); writing only to
+    the project ``.env`` would leave the stale value active for the
+    service (which reads config.env via EnvironmentFile). Falls back
+    to the project ``.env`` when the key lives nowhere else.
+    """
     env_path = os.path.join(_find_project_root(), '.env')
-    # Prefer the file that already defines the key.
     for candidate in (_system_env_path(), env_path):
-        if candidate and os.path.isfile(candidate):
-            try:
-                with open(candidate, encoding='utf-8') as f:
-                    content = f.read()
-            except OSError:
-                continue
-            for ln in content.splitlines():
-                s = ln.strip()
-                if (s and not s.startswith('#') and '=' in ln
-                        and ln.split('=', 1)[0].strip() == name):
-                    env_path = candidate
-                    break
-            else:
-                continue
-            break
+        if not candidate or not os.path.isfile(candidate):
+            continue
+        try:
+            with open(candidate, encoding='utf-8') as f:
+                content = f.read()
+        except OSError:
+            continue
+        if any(_env_line_key(ln) == name for ln in content.splitlines()):
+            return candidate
+    return env_path
+
+
+def _rewrite_env_key(env_path: str, name: str, value: str) -> bool:
+    """Atomically rewrite ``name=value`` inside ``env_path``."""
     lines = []
     if os.path.isfile(env_path):
         try:
@@ -250,9 +273,7 @@ def set_env_persistent(name: str, value: str) -> bool:
             return False
     out, found = [], False
     for ln in lines:
-        stripped = ln.strip()
-        if (stripped and not stripped.startswith('#') and '=' in ln
-                and ln.split('=', 1)[0].strip() == name):
+        if _env_line_key(ln) == name:
             out.append(f'{name}={value}')
             found = True
             continue
@@ -278,7 +299,6 @@ def set_env_persistent(name: str, value: str) -> bool:
             os.chmod(env_path, 0o600)
     except OSError:
         return False
-    os.environ[name] = value
     return True
 
 
