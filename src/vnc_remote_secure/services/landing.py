@@ -687,7 +687,58 @@ def _build_sessions_html():
     </script>"""
 
 
-def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, ssl_note, firewall_html, metrics):
+def _build_backup_html():
+    """Render backup status: newest backup name, age, and count.
+
+    The portal is the admin control surface — 'when did a backup
+    last succeed' is exactly the kind of operational fact that must
+    be visible at a glance. Best-effort: an unreadable backup dir
+    renders a warning, not an exception.
+    """
+    try:
+        from vnc_remote_secure.core.backup import list_backups
+        backups = list_backups()
+    except Exception:  # noqa: BLE001
+        return ('<div class="info-card"><strong>💾 Backups:</strong> '
+                'no se pudo leer el directorio de backups</div>')
+    if not backups:
+        return ('<div class="info-card"><strong>💾 Backups:</strong> '
+                'ninguno — ejecuta <code>vnc-remote backup</code></div>')
+    import time as _time
+    newest = backups[0]
+    age_s = None
+    try:
+        age_s = int(_time.time() - os.path.getmtime(newest))
+        if age_s < 3600:
+            age = f'{age_s // 60}m'
+        elif age_s < 86400:
+            age = f'{age_s // 3600}h'
+        else:
+            age = f'{age_s // 86400}d'
+    except OSError:
+        age = '?'
+    stale = age_s is not None and age_s > 7 * 86400
+    warn = ' ⚠️ antiguo (>7d)' if stale else ''
+    # Certificate expiry: the metric exists in Prometheus — surface it
+    # here too so the operator sees cert health without a scraper.
+    cert_html = ''
+    try:
+        from vnc_remote_secure.security.tls_validation import (
+            cert_days_remaining)
+        days = cert_days_remaining()
+        if days is not None:
+            cert_warn = ' ⚠️' if days < 30 else ''
+            cert_html = (f'<br><strong>🔐 Certificado:</strong> '
+                         f'{days} días restantes{cert_warn}')
+    except Exception:  # noqa: BLE001
+        pass
+    return (f'<div class="info-card"><strong>💾 Backups:</strong> '
+            f'{len(backups)} — último: '
+            f'<code>{html.escape(os.path.basename(newest))}</code> '
+            f'({html.escape(age)}){warn}{cert_html}</div>')
+
+
+def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, ssl_note, firewall_html, metrics):
     """Assemble the final landing page HTML from its section components."""
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -719,6 +770,8 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
     {creds_html}
 
     {sessions_html}
+
+    {backups_html}
 
     {ssl_note}
     {firewall_html}
@@ -782,12 +835,13 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None):
         else None)
     creds_html = _build_credentials_html()
     sessions_html = _build_sessions_html()
+    backups_html = _build_backup_html()
     features_section = _build_features_section(use_ssl, is_windows_flag)
     firewall_html, ssl_note = _build_firewall_html(is_windows_flag, use_ssl)
     return _build_landing_page_template(
         metrics_html, cards_html, vnc_direct_html, features_section,
-        lan_html, creds_html, sessions_html, ssl_note, firewall_html,
-        metrics)
+        lan_html, creds_html, sessions_html, backups_html, ssl_note,
+        firewall_html, metrics)
 
 
 class LandingHandler(http.server.SimpleHTTPRequestHandler):
