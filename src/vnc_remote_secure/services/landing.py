@@ -17,7 +17,7 @@ import logging
 import os
 import platform
 
-from vnc_remote_secure.core.errors import error_json, log_exception
+from vnc_remote_secure.core.errors import log_exception
 from vnc_remote_secure.platform.detection import is_windows
 from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
 from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
@@ -945,7 +945,7 @@ class LandingHandler(SecuredHandlerMixin,
         # base permission every role grants.
         client_ip = client_ip_from(
             self.headers,
-            self.client_address[0] if self.client_address else None)
+            self.peer_ip())
         return check_session_permission(
             internal, 'view', client_ip=client_ip)
 
@@ -990,15 +990,10 @@ class LandingHandler(SecuredHandlerMixin,
         # session could never activate if we bound the raw peer.
         client_ip = client_ip_from(
             self.headers,
-            self.client_address[0] if self.client_address else None)
+            self.peer_ip())
         internal = activate_ephemeral_session(signed, client_ip=client_ip)
         if not internal:
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json(
-                'Session link is invalid, expired, or already used', 403)
-            self.wfile.write(body.encode())
+            self.send_json_error('Session link is invalid, expired, or already used', 403)
             return True
         # Mark the cookie Secure when the response travels over TLS —
         # either behind a trusted nginx (X-Forwarded-Proto) or via
@@ -1043,20 +1038,14 @@ class LandingHandler(SecuredHandlerMixin,
             self.headers.get('Authorization', ''),
             client_ip=client_ip_from(
                 self.headers,
-                self.client_address[0]
-                if self.client_address else None))
+                self.peer_ip()))
         return ok, (operator if ok else None)
 
     def _require_portal_auth(self) -> bool:
         """Ephemeral cookie or operator Basic-auth gate; sends 401."""
         authed, operator = self._portal_identity()
         if not authed:
-            self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Unauthorized', 401)
-            self.wfile.write(body.encode())
+            self.send_json_error('Unauthorized', 401, www_authenticate='Basic realm="VNC Portal"')
             return False
         self._portal_operator = operator
         return True
@@ -1088,11 +1077,7 @@ class LandingHandler(SecuredHandlerMixin,
         """Do GET."""
         from vnc_remote_secure.security.http_auth import request_headers_safe
         if not request_headers_safe(self.headers):
-            self.send_response(400)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Ambiguous request framing', 400)
-            self.wfile.write(body.encode())
+            self.send_json_error('Ambiguous request framing', 400)
             return
         # Ephemeral share links exchange the signed token for a cookie
         # before any auth check (the link itself is the credential).
@@ -1105,12 +1090,7 @@ class LandingHandler(SecuredHandlerMixin,
         # gateway-protected paths.
         authed, operator = self._portal_identity()
         if not authed:
-            self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Unauthorized', 401)
-            self.wfile.write(body.encode())
+            self.send_json_error('Unauthorized', 401, www_authenticate='Basic realm="VNC Portal"')
             return
         self._portal_operator = operator
         # Strip the query string for routing: /status.json?ts=… must
@@ -1128,11 +1108,7 @@ class LandingHandler(SecuredHandlerMixin,
         elif path == '/gamepad.html':
             self._serve_template('gamepad.html')
         else:
-            self.send_response(404)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Not found', 404)
-            self.wfile.write(body.encode())
+            self.send_json_error('Not found', 404)
 
     def _session_refresh_header(self):
         """Return a ``Set-Cookie`` value refreshing the session cookie.
@@ -1191,11 +1167,7 @@ class LandingHandler(SecuredHandlerMixin,
             self.wfile.write(content.encode('utf-8'))
         except Exception as e:
             log_exception(e, 'Landing _serve_landing')
-            body, code = error_json('Failed to render landing page', 500)
-            self.send_response(code)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(body.encode())
+            self.send_json_error('Failed to render landing page', 500)
 
     def _serve_template(self, template_name):
         """Serve an HTML template from the web templates directory.
@@ -1266,11 +1238,7 @@ class LandingHandler(SecuredHandlerMixin,
             self.wfile.write(content.encode('utf-8'))
         except Exception as e:
             log_exception(e, 'Landing _serve_template')
-            body, code = error_json(f'Failed to serve template {template_name}', 500)
-            self.send_response(code)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(body.encode())
+            self.send_json_error(f'Failed to serve template {template_name}', 500)
 
     def _serve_status_json(self):
         try:
@@ -1319,17 +1287,10 @@ class LandingHandler(SecuredHandlerMixin,
             if getattr(self, '_portal_operator', None) is not None:
                 data['lan_ips'] = get_lan_ips()
                 data['system'] = get_system_metrics()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(data, indent=2).encode())
+            self.send_json(data, 200, indent=2)
         except Exception as e:
             log_exception(e, 'Landing _serve_status_json')
-            body, code = error_json('Failed to build status JSON', 500)
-            self.send_response(code)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(body.encode())
+            self.send_json_error('Failed to build status JSON', 500)
 
     def _serve_sessions_json(self):
         """List active ephemeral sessions — operator-only.
@@ -1346,38 +1307,21 @@ class LandingHandler(SecuredHandlerMixin,
             self.headers.get('Authorization', ''),
             client_ip=client_ip_from(
                 self.headers,
-                self.client_address[0]
-                if self.client_address else None))
+                self.peer_ip()))
         perms = set((operator or {}).get('permissions') or [])
         if not ok or (
                 'admin_sessions' not in perms
                 and 'admin:*' not in perms):
-            self.send_response(401 if not ok else 403)
-            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json(
-                'Operator credentials required' if not ok
-                else 'Insufficient role for this action',
-                401 if not ok else 403)
-            self.wfile.write(body.encode())
+            self.send_json_error('Operator credentials required' if not ok else 'Insufficient role for this action', 401 if not ok else 403, www_authenticate='Basic realm="VNC Portal"')
             return
         try:
             from vnc_remote_secure.security.ephemeral_sessions import get_session_store
             store = get_session_store()
             store._load_if_changed()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(
-                {'sessions': store.list_active()}, indent=2).encode())
+            self.send_json({'sessions': store.list_active()}, 200, indent=2)
         except Exception as e:
             log_exception(e, 'Landing _serve_sessions_json')
-            body, code = error_json('Failed to list sessions', 500)
-            self.send_response(code)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(body.encode())
+            self.send_json_error('Failed to list sessions', 500)
 
     def do_POST(self):
         """Handle POST — only /sessions/revoke is mutating.
@@ -1392,11 +1336,7 @@ class LandingHandler(SecuredHandlerMixin,
         if not request_headers_safe(self.headers):
             # Ambiguous body framing (Transfer-Encoding or duplicate
             # Content-Length) — reject before touching the body.
-            self.send_response(400)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Ambiguous request framing', 400)
-            self.wfile.write(body.encode())
+            self.send_json_error('Ambiguous request framing', 400)
             return
         path = self.path.split('?', 1)[0]
         if path == '/sessions/revoke-all':
@@ -1406,11 +1346,7 @@ class LandingHandler(SecuredHandlerMixin,
             self._post_gamepad_control(path.endswith('/stop'))
             return
         if path != '/sessions/revoke':
-            self.send_response(404)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Not found', 404)
-            self.wfile.write(body.encode())
+            self.send_json_error('Not found', 404)
             return
 
         operator = self._operator_gate('admin_sessions')
@@ -1424,11 +1360,7 @@ class LandingHandler(SecuredHandlerMixin,
         except ValueError:
             length = 0
         if not 0 < length <= 4096:
-            self.send_response(400)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Bad request', 400)
-            self.wfile.write(body.encode())
+            self.send_json_error('Bad request', 400)
             return
         try:
             payload = json.loads(self.rfile.read(length))
@@ -1436,11 +1368,7 @@ class LandingHandler(SecuredHandlerMixin,
             payload = {}
         token_id = str(payload.get('token_id', '')).strip()
         if not token_id:
-            self.send_response(400)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('token_id required', 400)
-            self.wfile.write(body.encode())
+            self.send_json_error('token_id required', 400)
             return
 
         from vnc_remote_secure.security.ephemeral_sessions import revoke_session
@@ -1451,11 +1379,7 @@ class LandingHandler(SecuredHandlerMixin,
             user=operator.get('username', 'unknown'),
             result='success' if revoked else 'failure',
             detail=f'token_id={token_id}')
-        self.send_response(200 if revoked else 404)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(
-            {'revoked': bool(revoked)}).encode())
+        self.send_json({'revoked': bool(revoked)}, 200 if revoked else 404)
 
     def _operator_gate(self, permission):
         """Authenticate and authorize a mutating endpoint call.
@@ -1471,25 +1395,15 @@ class LandingHandler(SecuredHandlerMixin,
             self.headers.get('Authorization', ''),
             client_ip=client_ip_from(
                 self.headers,
-                self.client_address[0]
-                if self.client_address else None))
+                self.peer_ip()))
         if not ok:
-            self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Operator credentials required', 401)
-            self.wfile.write(body.encode())
+            self.send_json_error('Operator credentials required', 401, www_authenticate='Basic realm="VNC Portal"')
             return None
 
         from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
         origin = self.headers.get('Origin', '')
         if origin and not check_origin(origin, get_allowed_origins()):
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Invalid origin', 403)
-            self.wfile.write(body.encode())
+            self.send_json_error('Invalid origin', 403)
             return None
 
         # Fetch Metadata CSRF defense-in-depth: browsers mark every
@@ -1499,12 +1413,7 @@ class LandingHandler(SecuredHandlerMixin,
         # (some form posts, redirects). Non-browser clients (curl,
         # scripts) never send it, so automation is unaffected.
         if self.headers.get('Sec-Fetch-Site', '').lower() == 'cross-site':
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json(
-                'Cross-site request rejected', 403)
-            self.wfile.write(body.encode())
+            self.send_json_error('Cross-site request rejected', 403)
             return None
 
         perms = set(operator.get('permissions') or [])
@@ -1513,12 +1422,7 @@ class LandingHandler(SecuredHandlerMixin,
             audit_event('portal_permission_denied',
                       user=operator.get('username', '?'),
                       detail=f'required={permission}')
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json(
-                'Insufficient role for this action', 403)
-            self.wfile.write(body.encode())
+            self.send_json_error('Insufficient role for this action', 403)
             return None
         return operator
 
@@ -1543,10 +1447,7 @@ class LandingHandler(SecuredHandlerMixin,
         audit_event('portal_session_revoke_all',
                   user=operator.get('username', 'unknown'),
                   detail=f'count={count}')
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({'revoked': count}).encode())
+        self.send_json({'revoked': count}, 200)
 
     def _post_gamepad_control(self, stop: bool):
         """POST /gamepad/{stop,resume} — local kill-switch.
@@ -1568,21 +1469,13 @@ class LandingHandler(SecuredHandlerMixin,
             else:
                 get_backend().delete('gamepad', 'stopped')
         except Exception as e:  # noqa: BLE001
-            self.send_response(500)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(
-                {'error': str(e)}).encode())
+            self.send_json({'error': str(e)}, 500)
             return
         from vnc_remote_secure.security.audit import audit_event
         audit_event(
             'portal_gamepad_' + ('stop' if stop else 'resume'),
             user=operator.get('username', 'unknown'))
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(
-            {'gamepad_stopped': stop}).encode())
+        self.send_json({'gamepad_stopped': stop}, 200)
 
     def log_message(self, format, *args):  # noqa: A002 - stdlib signature
         # pylint: disable=redefined-builtin
@@ -1594,7 +1487,7 @@ class LandingHandler(SecuredHandlerMixin,
         import re as _re
         line = _re.sub(r'session=[^&\s"]+', 'session=<redacted>',
                        format % args)
-        logger.info("%s - %s", self.client_address[0], line)
+        logger.info("%s - %s", self.peer_ip(), line)
 
 
 def main():

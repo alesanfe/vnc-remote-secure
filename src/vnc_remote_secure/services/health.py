@@ -19,7 +19,6 @@ from vnc_remote_secure.core.constants import (
     DEFAULT_NOVNC_WS_PORT,
     DEFAULT_TTYD_PORT,
 )
-from vnc_remote_secure.core.errors import error_json
 from vnc_remote_secure.core.processes import is_port_available
 from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
@@ -140,7 +139,7 @@ def get_health_status():
     }
 
 
-class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
+class _HealthHandler(SecuredHandlerMixin):
     """HTTP request handler for the health endpoint.
 
     Auth is controlled by ``HEALTH_AUTH_TOKEN`` via the shared
@@ -150,35 +149,14 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
     Slowloris read timeout and security headers.
     """
 
-    def _send_json(self, status, body, content_type='application/json'):
-        """Write a JSON (or text) response body."""
-        if isinstance(body, str):
-            body = body.encode('utf-8')
-        self.send_response(status)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_error(self, status, message, realm=None):
-        """Write a JSON error body, optionally with WWW-Authenticate."""
-        body, _ = error_json(message, status)
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
-        if realm:
-            self.send_header('WWW-Authenticate',
-                             f'Bearer realm="{realm}"')
-        self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
-
     def _require_health_auth(self, realm='Health'):
         """Check the health auth token; send 401 and return False on failure."""
         from vnc_remote_secure.security.http_auth import check_health_auth
         if check_health_auth(self.headers.get('Authorization', ''),
-                             peer_ip=self.client_address[0]
-                             if self.client_address else None):
+                             peer_ip=self.peer_ip()):
             return True
-        self._send_error(401, 'Unauthorized', realm=realm)
+        self.send_json_error('Unauthorized', 401,
+                             www_authenticate=f'Bearer realm="{realm}"')
         return False
 
     def _serve_health(self, ready_only=False):
@@ -193,7 +171,7 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
         # requires all services listening).
         ok_states = ('healthy',) if ready_only else ('healthy', 'degraded')
         code = 200 if status['status'] in ok_states else 503
-        self._send_json(code, body)
+        self.send_body(code, body, 'application/json')
 
     def _serve_live(self):
         """Serve the liveness probe (unauthenticated, rate-limited)."""
@@ -208,18 +186,18 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
         )
         if not check_rate_limit(
                 client_ip_from(
-                    self.headers, self.client_address[0]),
+                    self.headers, self.peer_ip()),
                 max_requests=60, window_seconds=60):
-            self._send_error(429, 'Too many requests')
+            self.send_json_error('Too many requests', 429)
             return
-        self._send_json(200, json.dumps({'status': 'alive'}))
+        self.send_json({'status': 'alive'})
 
     def _serve_services(self):
         """Per-service status with PID and port details."""
         if not self._require_health_auth():
             return
         from vnc_remote_secure.core.service_manager import status_all
-        self._send_json(200, json.dumps(status_all(), indent=2))
+        self.send_json(status_all(), indent=2)
 
     def _serve_all_health(self):
         """Serve the monitoring aggregate (all health checks)."""
@@ -228,10 +206,10 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
         from vnc_remote_secure.monitoring.health import get_all_health
         try:
             status = get_all_health()
-            self._send_json(200, json.dumps(status, indent=2))
+            self.send_json(status, indent=2)
         except Exception:
             logger.exception("Health status generation failed")
-            self._send_error(500, 'Health status generation failed')
+            self.send_json_error('Health status generation failed', 500)
 
     def _serve_metrics(self):
         """Prometheus scrape endpoint on the health port."""
@@ -239,7 +217,7 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
             return
         from vnc_remote_secure.monitoring.prometheus import metrics_handler
         body, status = metrics_handler()
-        self._send_json(status, body, content_type='text/plain; version=0.0.4')
+        self.send_body(status, body, 'text/plain; version=0.0.4')
 
     def _serve_audit(self):
         """Serve recent audit entries (bounded by ?limit=)."""
@@ -252,11 +230,11 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
         try:
             limit = max(1, min(int(qs.get('limit', ['100'])[0]), 1000))
         except (ValueError, TypeError):
-            self._send_error(400, 'Invalid limit parameter')
+            self.send_json_error('Invalid limit parameter', 400)
             return
         event = qs.get('event', [None])[0]
         entries = get_audit_entries(limit=limit, event=event)
-        self._send_json(200, json.dumps(entries, indent=2))
+        self.send_json(entries, indent=2)
 
     def _serve_audit_verify(self):
         """Serve the audit chain integrity check."""
@@ -264,18 +242,12 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
             return
         from vnc_remote_secure.security.audit import verify_chain
         intact, message = verify_chain()
-        self._send_json(200, json.dumps(
-            {'intact': intact, 'message': message}))
+        self.send_json({'intact': intact, 'message': message})
 
     def do_GET(self):  # noqa: N802 - stdlib API
         from vnc_remote_secure.security.http_auth import request_headers_safe
         if not request_headers_safe(self.headers):
-            self.send_response(400)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(
-                error_json('Ambiguous request framing', 400)[0]
-                .encode('utf-8'))
+            self.send_json_error('Ambiguous request framing', 400)
             return
         # Strip the query string once: Flask routes match path-only and
         # nginx forwards the request URI verbatim, so /health?x=1 must
@@ -299,10 +271,7 @@ class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
         elif path == '/audit/verify':
             self._serve_audit_verify()
         else:
-            self.send_response(404)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(error_json('Not found', 404)[0].encode('utf-8'))
+            self.send_json_error('Not found', 404)
 
 
 def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST, ssl_context=None):

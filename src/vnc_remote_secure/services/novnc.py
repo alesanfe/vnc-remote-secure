@@ -178,7 +178,7 @@ class _AuthedSimpleHTTPRequestHandler(
         from vnc_remote_secure.security.http_auth import client_ip_from
         client_ip = client_ip_from(
             self.headers,
-            self.client_address[0] if self.client_address else None)
+            self.peer_ip())
         allowed, reason = _check_novnc_auth(
             self.headers, client_ip=client_ip)
         if not allowed:
@@ -235,8 +235,7 @@ class _AuthedSimpleHTTPRequestHandler(
             from vnc_remote_secure.security.rate_limit import get_auth_limiter
             ip = client_ip_from(
                 self.headers,
-                self.client_address[0]
-                if self.client_address else None)
+                self.peer_ip())
             get_auth_limiter().record_failure(f'ws:{ip}')
         except Exception:  # noqa: BLE001 - rate limiting is best-effort
             pass

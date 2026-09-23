@@ -115,16 +115,18 @@ def install_read_timeout(handler, seconds=READ_TIMEOUT_SECONDS):
         handler.connection.settimeout(seconds)
 
 
-class SecuredHandlerMixin:
+class SecuredHandlerMixin(http.server.BaseHTTPRequestHandler):
     """Shared ``http.server`` handler boilerplate (pull-up).
 
     The health, landing, and noVNC handlers all installed the same
     Slowloris read timeout in ``setup()`` and emitted the same
     security headers in ``end_headers()``; health and noVNC also
-    routed access logs to the module logger identically. Inherit
-    BEFORE the stdlib handler class. A service needing different
-    access-log treatment (the landing redacts share-link tokens)
-    overrides ``log_message``.
+    routed access logs to the module logger identically, and every
+    JSON endpoint hand-wrote the same
+    ``send_response/Content-Type/end_headers/wfile.write`` block.
+    Inherit BEFORE the stdlib handler class. A service needing
+    different access-log treatment (the landing redacts share-link
+    tokens) overrides ``log_message``.
     """
 
     def setup(self):
@@ -138,7 +140,53 @@ class SecuredHandlerMixin:
         send_security_headers(self)
         super().end_headers()
 
+    def peer_ip(self) -> str:
+        """Socket peer IP (``''`` when the address is unavailable)."""
+        return self.client_address[0] if self.client_address else ''
+
+    def send_body(self, status: int, body: str | bytes,
+                  content_type: str):
+        """Write a pre-serialized body (HTML, metrics text) with
+        Content-Length always set."""
+        if isinstance(body, str):
+            body = body.encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_json(self, payload, status: int = 200, indent=None):
+        """Write ``payload`` as a JSON response (Content-Length set)."""
+        import json
+        body = json.dumps(payload, indent=indent).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_json_error(self, message: str, status: int,
+                        www_authenticate: str | None = None):
+        """Write a canonical ``error_json`` response.
+
+        ``www_authenticate`` is the raw ``WWW-Authenticate`` header
+        value (e.g. ``'Basic realm="VNC Portal"'`` or
+        ``'Bearer realm="Health"'``); callers keep their own realm
+        semantics.
+        """
+        from vnc_remote_secure.core.errors import error_json
+        body_text, _ = error_json(message, status)
+        body = body_text.encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        if www_authenticate:
+            self.send_header('WWW-Authenticate', www_authenticate)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def log_message(self, format, *args):  # noqa: A002 - stdlib signature
         # pylint: disable=redefined-builtin
-        logger.info("%s - %s", self.client_address[0],
+        logger.info("%s - %s", self.peer_ip(),
                     format % args)  # noqa: PIE803 - stdlib log format
