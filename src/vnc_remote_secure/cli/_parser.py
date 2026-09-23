@@ -134,6 +134,29 @@ def _add_secrets_args(subparsers):
     p_sec.set_defaults(func=cmd_security)
 
 
+def _add_upgrade_args(subparsers):
+    """Create the ``upgrade`` subparser."""
+    from vnc_remote_secure.cli.commands.upgrade import cmd_upgrade
+    p_up = subparsers.add_parser(
+        'upgrade',
+        help='Upgrade the package (backup-first, automatic rollback)')
+    _add_common_args(p_up)
+    p_up.add_argument(
+        '--check', action='store_true',
+        help='Only report installed vs available versions')
+    p_up.add_argument(
+        '--from', dest='source', metavar='SPEC',
+        help='Install source: wheel/sdist path, VCS URL, or a '
+             'version pin (default: package name on PyPI)')
+    p_up.add_argument(
+        '--yes', action='store_true',
+        help='Skip the interactive confirmation')
+    p_up.add_argument(
+        '--rollback', action='store_true',
+        help='Restore the state recorded by the last upgrade')
+    p_up.set_defaults(func=cmd_upgrade)
+
+
 def _add_config_args(subparsers):
     """Create the ``config`` subparser with its sub-actions."""
     # Config
@@ -241,6 +264,9 @@ def create_parser():
 
     # Config
     _add_config_args(subparsers)
+
+    # Upgrade (backup-first self-update with rollback)
+    _add_upgrade_args(subparsers)
 
     # Verify (audit chain / backup integrity)
     p_verify = subparsers.add_parser(

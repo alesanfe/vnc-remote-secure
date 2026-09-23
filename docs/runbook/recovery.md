@@ -88,9 +88,14 @@ WebSockets — a compromised deployment is dark in seconds.
 
 ## 7. Upgrade rollback
 
-- The package is installed via pip: `pip install
-  vnc-remote-secure==<previous>` restores the prior version; config
-  keys are forward-compatible (unknown-key warnings, never fatal).
-- Always snapshot first: `vnc-remote backup create` before upgrading.
-- If a new version misbehaves: restore the backup, downgrade the
-  package, `vnc-remote doctor` to confirm the deployment is clean.
+- `vnc-remote upgrade` is backup-first: it snapshots the deployment,
+  records `run/upgrade_state.json` (previous version + backup path —
+  the rollback receipt), installs, then verifies the new package in a
+  fresh interpreter. Any failure triggers automatic rollback.
+- `vnc-remote upgrade --check` reports installed vs available
+  versions (PyPI); `--from <wheel|url|pkg==ver>` pins a source.
+- `vnc-remote upgrade --rollback` restores the recorded backup and
+  reinstalls the recorded previous version. Manual equivalent:
+  `vnc-remote restore <backup>` + `pip install
+  vnc-remote-secure==<previous>`; config keys are forward-compatible
+  (unknown-key warnings, never fatal).
