@@ -127,6 +127,15 @@ def _claim_step(secret: str, step: int) -> bool:
         return False
 
 
+def _metric_replay() -> None:
+    """Emit the TOTP-replay counter (best-effort)."""
+    try:
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_totp_replays_total')
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
     """Verify a TOTP code against the secret.
 
@@ -155,13 +164,17 @@ def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
             matched = step + delta
             if matched <= last:
                 # Already consumed — replay within the drift window.
+                # A replay attempt is a security signal: the code was
+                # captured somewhere. Metric, not just a debug log.
                 logger.debug("TOTP replay rejected (counter %d <= %d)",
                              matched, last)
+                _metric_replay()
                 return False
             if not _claim_step(secret, matched):
                 # Lost a cross-process race for this timestep.
                 logger.debug("TOTP replay rejected (step %d claimed)",
                              matched)
+                _metric_replay()
                 return False
             _record_step(matched, secret)
             return True
