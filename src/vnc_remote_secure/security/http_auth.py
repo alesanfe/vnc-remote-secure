@@ -183,6 +183,59 @@ def check_landing_auth(auth_header, client_ip=None):
     return ok
 
 
+def authenticate_landing(auth_header, client_ip=None):
+    """Authenticate a portal operator; return ``(ok, operator)``.
+
+    Like :func:`check_landing_auth` but returns the operator record
+    so callers can enforce per-role permissions:
+
+    - A username found in the operator store authenticates against
+      it (and only it — a stored user does NOT fall back to the env
+      password, which would silently widen their credentials).
+    - Any other username takes the env ``admin``/``LANDING_PASSWORD``
+      bootstrap path and maps to the ``admin`` role.
+
+    ``operator`` is ``None`` on failure, else ``{'username', 'role',
+    'permissions'}``. The rate limiter records exactly one outcome
+    per attempt.
+    """
+    limiter = None
+    if client_ip:
+        from vnc_remote_secure.security.rate_limit import (
+            get_auth_limiter)
+        limiter = get_auth_limiter()
+        if _is_locked(limiter, client_ip):
+            return False, None
+    username = None
+    password = None
+    if auth_header.startswith('Basic '):
+        try:
+            decoded = base64.b64decode(
+                auth_header[6:]).decode('utf-8', 'replace')
+            username, _, password = decoded.partition(':')
+        except ValueError:
+            username = None
+    if username:
+        from vnc_remote_secure.security.operator_users import (
+            load_store, verify)
+        if username in load_store():
+            rec = verify(username, password or '')
+            if limiter is not None:
+                (limiter.record_success if rec else
+                 limiter.record_failure)(client_ip)
+            return (True, rec) if rec else (False, None)
+    ok = check_landing_auth(auth_header, client_ip=None)
+    if limiter is not None:
+        (limiter.record_success if ok else
+         limiter.record_failure)(client_ip)
+    if not ok:
+        return False, None
+    return True, {
+        'username': 'admin', 'role': 'admin',
+        'permissions': ['admin:*'],
+    }
+
+
 def check_terminal_auth(auth_header, client_ip=None):
     """Check terminal auth using ``TTYD_USERNAME`` / ``TTYD_PASSWD`` or.
 

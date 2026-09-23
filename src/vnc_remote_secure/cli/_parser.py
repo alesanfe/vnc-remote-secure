@@ -185,6 +185,38 @@ def _add_config_args(subparsers):
     p_config.set_defaults(func=cmd_config)
 
 
+def _add_operator_args(subparsers):
+    """Create the ``operator`` subparser with its sub-actions."""
+    from vnc_remote_secure.cli.commands.operator import cmd_operator
+    p_op = subparsers.add_parser(
+        'operator',
+        help='Manage operator accounts (multi-user RBAC)')
+    _add_common_args(p_op)
+    sub = p_op.add_subparsers(dest='operator_action', required=True)
+    p_list = sub.add_parser('list', help='List operator accounts')
+    _add_common_args(p_list, suppress_defaults=True)
+    p_add = sub.add_parser('add', help='Add an operator account')
+    p_add.add_argument('username')
+    p_add.add_argument('--role', default='viewer',
+                       choices=['admin', 'operator', 'viewer'],
+                       help='admin (all), operator (sessions+audit), '
+                            'viewer (read-only portal)')
+    _add_common_args(p_add, suppress_defaults=True)
+    for name, helptext in (
+            ('remove', 'Remove an operator account'),
+            ('passwd', 'Set an operator password'),
+            ('role', 'Change an operator role'),
+            ('disable', 'Disable an operator account'),
+            ('enable', 'Re-enable an operator account')):
+        p = sub.add_parser(name, help=helptext)
+        p.add_argument('username')
+        if name == 'role':
+            p.add_argument('role',
+                           choices=['admin', 'operator', 'viewer'])
+        _add_common_args(p, suppress_defaults=True)
+    p_op.set_defaults(func=cmd_operator)
+
+
 def create_parser():
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -268,6 +300,9 @@ def create_parser():
 
     # Upgrade (backup-first self-update with rollback)
     _add_upgrade_args(subparsers)
+
+    # Operator accounts (multi-user RBAC)
+    _add_operator_args(subparsers)
 
     # Verify (audit chain / backup integrity)
     p_verify = subparsers.add_parser(

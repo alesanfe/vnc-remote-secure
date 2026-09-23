@@ -89,6 +89,42 @@ Revoking a session is immediate: the shared-state revocation is
 propagated to all service processes and every live WebSocket connection
 registered for that session is force-closed.
 
+## Operator accounts (multi-user RBAC)
+
+Beyond the single env-configured credential, named operator accounts
+can be created with scoped roles:
+
+```bash
+vnc-remote operator add alice --role operator   # prompts for password
+vnc-remote operator add bob --role viewer
+vnc-remote operator list
+vnc-remote operator role bob admin
+vnc-remote operator disable bob
+vnc-remote operator remove bob
+```
+
+| Operator role | Permissions | Can do |
+|---------------|-------------|--------|
+| `admin` | `admin:*` → all `admin_*` | everything: manage operators, sessions, config, secrets, audit |
+| `operator` | `admin_sessions`, `admin_audit` | session list/revoke/revoke-all, gamepad kill-switch, audit view |
+| `viewer` | — | read-only portal (no mutations) |
+
+Rules:
+
+- The **store is checked first**; the env `admin`/`LANDING_PASSWORD`
+  credential remains the bootstrap admin when no store entry exists
+  for the username. A username that IS stored does **not** fall back
+  to the env password — stored users authenticate only against their
+  own credentials.
+- Portal mutating endpoints (`/sessions/revoke`, `/revoke-all`,
+  `/gamepad/stop|resume`) require `admin_sessions` — a `viewer`
+  authenticates but gets 403 on mutations.
+- Flask admin routes (create/delete system user) require
+  `admin_users` in addition to step-up auth.
+- Passwords are stored as `pbkdf2:sha256` in
+  `<data_dir>/operator_users.json` (`0o600`, atomic writes) and are
+  prompted via getpass — never accepted as CLI arguments.
+
 ## Properties
 
 - Tokens are HMAC-signed with a `ephemeral` type tag — they cannot be

@@ -52,6 +52,28 @@ def _require_session():
     return username, None
 
 
+def _require_permission(permission: str, actor: str):
+    """Enforce an operator-store permission on an admin action.
+
+    Returns a JSON error response when the authenticated operator's
+    role lacks ``permission`` (a viewer must not create system users
+    even with a valid session); ``None`` when allowed. The built-in
+    env-authenticated operator resolves to ``admin`` (all perms).
+    """
+    from vnc_remote_secure.security.operator_users import (
+        has_permission)
+    if has_permission(actor, permission):
+        return None
+    try:
+        from vnc_remote_secure.security.audit import audit_log
+        audit_log('operator_permission_denied', user=actor,
+                  ip=_client_ip(), result='failure',
+                  detail=f'required={permission}')
+    except Exception:  # noqa: BLE001
+        pass
+    return json_error('Insufficient role for this action', 403)
+
+
 users_bp = Blueprint('users', __name__)
 
 
@@ -333,6 +355,9 @@ def create_user():
     actor, err = _require_session()
     if err is not None:
         return err
+    perm_err = _require_permission('admin_users', actor)
+    if perm_err is not None:
+        return perm_err
     # Step-up auth: creating users is a sensitive action.
     from vnc_remote_secure.security.step_up_auth import require_step_up
     step_up_err = require_step_up(actor, 'create_admin')
@@ -355,6 +380,9 @@ def delete_user(username):
     actor, err = _require_session()
     if err is not None:
         return err
+    perm_err = _require_permission('admin_users', actor)
+    if perm_err is not None:
+        return perm_err
     # Step-up auth: deleting users is a sensitive action.
     from vnc_remote_secure.security.step_up_auth import require_step_up
     step_up_err = require_step_up(actor, 'delete_admin')

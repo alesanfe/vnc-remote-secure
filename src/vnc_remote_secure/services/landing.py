@@ -1373,31 +1373,8 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body.encode())
             return
 
-        from vnc_remote_secure.security.http_auth import (
-            check_landing_auth, client_ip_from)
-        if not check_landing_auth(
-                self.headers.get('Authorization', ''),
-                client_ip=client_ip_from(
-                    self.headers,
-                    self.client_address[0]
-                    if self.client_address else None)):
-            self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Operator credentials required', 401)
-            self.wfile.write(body.encode())
-            return
-
-        from vnc_remote_secure.security.auth_gateway import (
-            check_origin, get_allowed_origins)
-        origin = self.headers.get('Origin', '')
-        if origin and not check_origin(origin, get_allowed_origins()):
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Invalid origin', 403)
-            self.wfile.write(body.encode())
+        operator = self._operator_gate('admin_sessions')
+        if operator is None:
             return
 
         # Bounded body read: Content-Length beyond 4 KiB is not a
@@ -1443,28 +1420,32 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(
             {'revoked': bool(revoked)}).encode())
 
-    def _post_revoke_all(self):
-        """POST /sessions/revoke-all — emergency kill-switch.
+    def _operator_gate(self, permission):
+        """Authenticate and authorize a mutating endpoint call.
 
-        Revokes every active ephemeral session in one call; live
-        WebSockets close via shared-state propagation. Operator-only
-        with the same Origin check as the single-revoke endpoint.
+        Runs operator auth (env bootstrap or operator store), the
+        Origin check, and the per-role permission check. Returns the
+        operator dict ``{'username', 'role', 'permissions'}`` on
+        success; on failure it has already written the error response
+        (401/403) and returns ``None``.
         """
         from vnc_remote_secure.security.http_auth import (
-            check_landing_auth, client_ip_from)
-        if not check_landing_auth(
-                self.headers.get('Authorization', ''),
-                client_ip=client_ip_from(
-                    self.headers,
-                    self.client_address[0]
-                    if self.client_address else None)):
+            authenticate_landing, client_ip_from)
+        ok, operator = authenticate_landing(
+            self.headers.get('Authorization', ''),
+            client_ip=client_ip_from(
+                self.headers,
+                self.client_address[0]
+                if self.client_address else None))
+        if not ok:
             self.send_response(401)
             self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             body, _ = error_json('Operator credentials required', 401)
             self.wfile.write(body.encode())
-            return
+            return None
+
         from vnc_remote_secure.security.auth_gateway import (
             check_origin, get_allowed_origins)
         origin = self.headers.get('Origin', '')
@@ -1474,6 +1455,34 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             body, _ = error_json('Invalid origin', 403)
             self.wfile.write(body.encode())
+            return None
+
+        perms = set(operator.get('permissions') or [])
+        if permission not in perms and 'admin:*' not in perms:
+            try:
+                from vnc_remote_secure.security.audit import audit_log
+                audit_log('portal_permission_denied',
+                          actor=operator.get('username', '?'),
+                          detail=f'required={permission}')
+            except Exception:  # noqa: BLE001
+                pass
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json(
+                'Insufficient role for this action', 403)
+            self.wfile.write(body.encode())
+            return None
+        return operator
+
+    def _post_revoke_all(self):
+        """POST /sessions/revoke-all — emergency kill-switch.
+
+        Revokes every active ephemeral session in one call; live
+        WebSockets close via shared-state propagation. Operator-only
+        with the same Origin check as the single-revoke endpoint.
+        """
+        if self._operator_gate('admin_sessions') is None:
             return
         from vnc_remote_secure.security.ephemeral_sessions import (
             get_session_store, revoke_session)
@@ -1503,30 +1512,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         while a session holds it. Same operator-auth + Origin gate as
         the session endpoints.
         """
-        from vnc_remote_secure.security.http_auth import (
-            check_landing_auth, client_ip_from)
-        if not check_landing_auth(
-                self.headers.get('Authorization', ''),
-                client_ip=client_ip_from(
-                    self.headers,
-                    self.client_address[0]
-                    if self.client_address else None)):
-            self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Operator credentials required', 401)
-            self.wfile.write(body.encode())
-            return
-        from vnc_remote_secure.security.auth_gateway import (
-            check_origin, get_allowed_origins)
-        origin = self.headers.get('Origin', '')
-        if origin and not check_origin(origin, get_allowed_origins()):
-            self.send_response(403)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            body, _ = error_json('Invalid origin', 403)
-            self.wfile.write(body.encode())
+        if self._operator_gate('admin_sessions') is None:
             return
         try:
             from vnc_remote_secure.security.shared_state import (

@@ -201,6 +201,16 @@ def authenticate(username, password):
         ``True`` if the credentials match, ``False`` otherwise.
     """
     load_env_file()
+    # Operator store takes precedence: a stored operator authenticates
+    # against their own credentials/role; the env credentials remain
+    # the bootstrap admin for deployments without a store.
+    try:
+        from vnc_remote_secure.security.operator_users import (
+            load_store, verify)
+        if str(username) in load_store():
+            return verify(str(username), password) is not None
+    except Exception:  # noqa: BLE001 - store failure falls back to env
+        pass
     from vnc_remote_secure.core.constants import DEFAULT_TTYD_USERNAME
     expected_user = os.environ.get(
         'USER_UI_USERNAME',
