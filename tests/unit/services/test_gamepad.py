@@ -365,3 +365,19 @@ class TestMessageDispatch:
         server, injector = self._server(monkeypatch)
         assert gamepad._process_gamepad_message(server, {}, None) is None
         assert not injector.buttons
+
+
+def test_single_controller_rejects_second(monkeypatch):
+    """A second authenticated client must be rejected — two
+    simultaneous controllers fight over the same virtual device."""
+    injector = _FakeInjector()
+    _patch_adapter(monkeypatch, injector)
+
+    server = gamepad.GamepadServer('127.0.0.1', 7788)
+    # A controller is already holding the device.
+    server.clients.add(_FakeWebSocket())
+    ws2 = _FakeWebSocket(messages=[json.dumps({"type": "ping"})])
+    _run(server.handle_client(ws2))
+    # ws2 was closed with the single-controller reason.
+    assert ws2.closed
+    assert 'control' in (ws2.close_reason or '')

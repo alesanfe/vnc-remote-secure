@@ -352,6 +352,20 @@ def is_client_locked(client_ip: str) -> bool:
             or limiter.is_locked(f'ws:{client_ip}'))
 
 
+def _metric_reject(reason: str) -> None:
+    """Emit a WS/HTTP auth-rejection counter (best-effort).
+
+    Labels are limited to a small fixed reason set — no IP, token or
+    user (high-cardinality by design).
+    """
+    try:
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_auth_rejections_total',
+                    f'reason={reason}')
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def authorize_request(
     cookie_value: str = '',
     bearer_token: str = '',
@@ -389,6 +403,7 @@ def authorize_request(
     """
     limiter = get_auth_limiter() if client_ip else None
     if limiter is not None and is_client_locked(client_ip):
+        _metric_reject('rate_limited')
         return False, 'Rate limited', None
 
     # 1. Activated ephemeral session (internal token cookie).
@@ -402,9 +417,11 @@ def authorize_request(
         if not cookie_value and not bearer_token:
             if limiter is not None:
                 limiter.record_failure(client_ip)
+            _metric_reject('ephemeral_invalid')
             return False, reason, None
 
     if not cookie_value and not bearer_token:
+        _metric_reject('missing_credentials')
         return False, 'Authentication required', None
 
     # 2. Ephemeral Bearer token (per-action authorization).
@@ -426,6 +443,7 @@ def authorize_request(
         return True, 'OK', cookie_value or bearer_token
     if limiter is not None:
         limiter.record_failure(client_ip)
+    _metric_reject('invalid_session')
     return False, 'Invalid or expired session', None
 
 
@@ -488,17 +506,18 @@ def check_websocket_upgrade(
     if client_ip and is_client_locked(client_ip):
         return False, 'Rate limited'
 
-    def _reject(reason: str) -> tuple[bool, str]:
+    def _reject(reason: str, category: str = 'invalid') -> tuple[bool, str]:
         # Count rejected upgrades against the same limiter as auth
         # attempts — otherwise the WebSocket endpoint becomes a
         # lockout-free credential oracle.
         if client_ip:
             limiter.record_failure(f'ws:{client_ip}')
+        _metric_reject(category)
         return False, reason
 
     # Origin must be valid
     if not check_origin(origin, get_allowed_origins()):
-        return _reject('Invalid origin')
+        return _reject('Invalid origin', 'bad_origin')
 
     # Activated ephemeral session (vnc_ephemeral cookie → internal
     # token). Unified through authorize_request's resolution — when it
@@ -514,7 +533,8 @@ def check_websocket_upgrade(
                 client_ip=client_ip or None):
             return True, 'OK'
         if not cookie_value and not bearer_token:
-            return _reject('Invalid or expired session')
+            return _reject('Invalid or expired session',
+                           'ephemeral_invalid')
 
     # If a required permission is specified, the bearer token is an
     # ephemeral session token — validate it against the session store.
@@ -535,19 +555,20 @@ def check_websocket_upgrade(
         # ephemeral-then-standard order).
         if verify_token(TOKEN_TYPE_EPHEMERAL, bearer_token):
             if is_session_revoked(bearer_token):
-                return _reject('Session revoked')
+                return _reject('Session revoked', 'revoked')
             if is_session_expired(bearer_token):
-                return _reject('Session expired')
+                return _reject('Session expired', 'expired')
             if not check_permission(
                     bearer_token, required_permission, resource=resource,
                     client_ip=client_ip or None):
-                return _reject(f'Permission denied: {required_permission}')
+                return _reject(f'Permission denied: {required_permission}',
+                               'permission_denied')
             return True, 'OK'
 
     # Standard authentication (cookie or session token)
     authed, _ = check_authenticated(cookie_value, bearer_token)
     if not authed:
-        return _reject('Authentication required')
+        return _reject('Authentication required', 'auth_failed')
 
     return True, 'OK'
 

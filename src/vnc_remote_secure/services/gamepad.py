@@ -185,8 +185,10 @@ class GamepadServer:
     async def handle_client(self, websocket, _path=None):
         """Handle a new gamepad WebSocket client with auth gateway enforcement.
 
-        Gamepad input is a control action: it requires the
-        ``desktop:control`` permission. View-only sessions are rejected.
+        Gamepad input is an experimental injection path: it requires
+        the ``desktop:gamepad`` permission, and only ONE session may
+        hold control at a time — a second client is rejected, not
+        merged. View-only sessions are rejected.
         """
         from vnc_remote_secure.security.auth_gateway import (
             unregister_websocket_connection,
@@ -198,6 +200,22 @@ class GamepadServer:
         if not allowed:
             logger.warning("Gamepad WebSocket rejected: %s", error_msg)
             await websocket.close(code=1008, reason=error_msg)
+            return
+
+        # Single-controller policy: two simultaneous gamepad clients
+        # would fight over the same virtual device — reject the second
+        # instead of merging conflicting input streams.
+        if self.clients:
+            logger.warning(
+                "Gamepad client rejected: another session holds control")
+            await websocket.close(
+                code=1008,
+                reason='another session controls the gamepad')
+            try:
+                unregister_websocket_connection(conn_id)
+            except (KeyError, ImportError):
+                logger.debug("Failed to unregister gamepad connection",
+                             exc_info=True)
             return
 
         self.clients.add(websocket)

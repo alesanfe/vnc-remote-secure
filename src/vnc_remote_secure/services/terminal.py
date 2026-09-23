@@ -587,11 +587,21 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             return
 
         self.current_process = None
+        import time as _time
+        self._opened_at = _time.time()
         home = os.environ.get('USERPROFILE') or os.path.expanduser('~')
         self.cwd = home if os.path.isdir(home) else (
             'C:\\' if os.name == 'nt' else '/')
         self.history = []
         logger.info("Client connected from %s", self.request.remote_ip)
+        # A terminal is remote code execution — its open/close must
+        # land in the audit trail (identity, duration; never commands).
+        try:
+            from vnc_remote_secure.security.audit import audit_log
+            audit_log('terminal_open',
+                      detail='web terminal session started')
+        except Exception:  # noqa: BLE001
+            pass
 
         # Idle timeout: an unattended terminal is an open shell on the
         # server — close it rather than leave it authenticated forever.
@@ -676,6 +686,16 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         if idle_cb is not None:
             idle_cb.stop()
             self._idle_cb = None
+        opened_at = getattr(self, '_opened_at', None)
+        if opened_at:
+            try:
+                import time as _time
+                from vnc_remote_secure.security.audit import audit_log
+                audit_log('terminal_close',
+                          detail=f'duration={_time.time() - opened_at:.0f}s')
+            except Exception:  # noqa: BLE001
+                pass
+            self._opened_at = None
         logger.info("Client disconnected")
         # current_process is only assigned after successful auth —
         # sockets rejected in open() raise AttributeError noise here.
