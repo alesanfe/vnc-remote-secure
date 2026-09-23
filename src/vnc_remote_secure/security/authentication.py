@@ -103,8 +103,16 @@ def _get_secret():
                 except Exception:  # noqa: BLE001
                     pass
         except OSError as exc:
+            # A missing file on first run is normal (debug); a file
+            # that EXISTS but is unreadable means every bearer/session/
+            # ephemeral token is about to be silently invalidated by
+            # the regenerated secret — that must be visible.
             # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs path+error, not the secret)
-            logger.debug("Could not read persisted auth secret at %s: %s", path, exc, exc_info=True)
+            log = (logger.debug
+                   if isinstance(exc, FileNotFoundError)
+                   else logger.warning)
+            log("Could not read persisted auth secret at %s: %s",
+                path, exc, exc_info=True)
         if not _cached_secret:
             _cached_secret = secrets.token_hex(32)
             try:
@@ -209,8 +217,13 @@ def authenticate(username, password):
             load_store, verify)
         if str(username) in load_store():
             return verify(str(username), password) is not None
-    except Exception:  # noqa: BLE001 - store failure falls back to env
-        pass
+    except Exception as exc:  # noqa: BLE001 - store failure falls back to env
+        # Falling back to env creds silently bypasses RBAC (the shared
+        # credential authenticates as full admin) — the degraded state
+        # must be loud, not invisible.
+        logger.warning(
+            "Operator store unreadable (%s) — falling back to env "
+            "credentials", exc)
     from vnc_remote_secure.core.constants import DEFAULT_TTYD_USERNAME
     expected_user = os.environ.get(
         'USER_UI_USERNAME',

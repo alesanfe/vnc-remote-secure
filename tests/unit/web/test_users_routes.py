@@ -226,6 +226,31 @@ def test_api_users_delete_rejects_non_object(authed_client):
     assert resp.status_code == 400
 
 
+def test_api_users_post_denied_without_admin_users_perm(
+        authed_client, monkeypatch):
+    """A viewer-role operator session must not create users via the
+    API even though it is authenticated — same gate as the HTML route."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.operator_users.has_permission',
+        lambda user, perm: False)
+    resp = authed_client.post('/api/users',
+                              headers={'X-CSRF-Token': 'csrf123'},
+                              json={'username': 'victim',
+                                    'password': 'Str0ng!Pass'})
+    assert resp.status_code == 403
+
+
+def test_api_users_delete_denied_without_admin_users_perm(
+        authed_client, monkeypatch):
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.operator_users.has_permission',
+        lambda user, perm: False)
+    resp = authed_client.delete('/api/users',
+                                headers={'X-CSRF-Token': 'csrf123'},
+                                json={'username': 'victim'})
+    assert resp.status_code == 403
+
+
 # ---------------------------------------------------------------------------
 # Success + adapter-failure paths (positive / negative)
 # ---------------------------------------------------------------------------

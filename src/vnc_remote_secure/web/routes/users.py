@@ -507,6 +507,13 @@ def api_users():
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
 
+    # Permission gate: same as the HTML routes — without it an
+    # authenticated-but-unprivileged session could manage users via
+    # the API while the HTML path blocked it.
+    perm_err = _require_permission('admin_users', _user)
+    if perm_err:
+        return perm_err
+
     # Step-up auth: user management is sensitive (same as the HTML
     # routes /create_user and /delete_user).
     from vnc_remote_secure.security.step_up_auth import require_step_up

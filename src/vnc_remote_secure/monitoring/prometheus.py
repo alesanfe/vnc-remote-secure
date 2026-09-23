@@ -274,11 +274,11 @@ def render_metrics() -> str:
                     f'{name}{_format_labels(labels)} {value}')
     _emitted_g = {'vnc_remote_up', 'vnc_remote_session_active',
                   'vnc_remote_tls_enabled', 'vnc_remote_posture_score'}
-    for name, entries in sorted(gauges.items()):
+    for name, gauge_entries in sorted(gauges.items()):
         if name in _emitted_g:
             continue
         lines.append(f'# TYPE {name} gauge')
-        for labels, value in entries.items():
+        for labels, value in gauge_entries.items():
             if labels == 'default':
                 lines.append(f'{name} {value}')
             else:

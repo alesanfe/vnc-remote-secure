@@ -206,11 +206,3 @@ def get_cookie_attributes(secure: bool = True) -> dict:
         'samesite': samesite,
         'path': '/',
     }
-
-
-def invalidate_session_cookie() -> dict:
-    """Return cookie attributes that immediately expire the session."""
-    attrs = get_cookie_attributes()
-    attrs['max_age'] = 0
-    attrs['value'] = ''
-    return attrs

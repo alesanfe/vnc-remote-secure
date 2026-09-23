@@ -72,8 +72,11 @@ def _save(data: dict) -> None:
     os.replace(tmp, path)
     try:
         os.chmod(path, 0o600)
-    except OSError:
-        pass
+    except OSError as exc:
+        # No-op on Windows (ACLs handled separately); on POSIX a
+        # failed chmod leaves the credential store world-readable.
+        logger.debug(
+            'Could not restrict %s to 0o600: %s', path, exc)
 
 
 def hash_password(password: str) -> str:
@@ -232,7 +235,7 @@ def _audit(event: str, username: str, detail: str = '') -> None:
     """Emit an audit event for operator-store mutations."""
     try:
         from vnc_remote_secure.security.audit import audit_log
-        audit_log(event, actor='cli', detail=username
+        audit_log(event, user='cli', detail=username
                   + (f' {detail}' if detail else ''))
     except Exception:  # noqa: BLE001 - audit must not break admin ops
         logger.debug('audit emit failed', exc_info=True)

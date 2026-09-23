@@ -154,6 +154,32 @@ def _secrets_redact(args):
     return 0
 
 
+def _secrets_recovery_codes(args):
+    """Generate MFA recovery codes and store only their hashes.
+
+    ``RECOVERY_CODES_HASHES`` is consumed by the auth gateway as a
+    comma-separated SHA-256 list (single-use — a spent code is removed
+    at login). Without this command there was no way to produce a
+    valid value: the generators in ``security.mfa`` existed but were
+    never wired up. Codes are printed ONCE — only hashes persist.
+    """
+    from vnc_remote_secure.core.config import set_env_persistent
+    from vnc_remote_secure.security.mfa import (
+        generate_recovery_codes, hash_recovery_code)
+
+    codes = generate_recovery_codes(8)
+    hashes = ','.join(hash_recovery_code(c) for c in codes)
+    if not set_env_persistent('RECOVERY_CODES_HASHES', hashes):
+        print("Error: could not write .env", file=sys.stderr)
+        return 1
+    print("Recovery codes — store these NOW, they are shown once "
+          "(only hashes are persisted, each code is single-use):")
+    for c in codes:
+        print(f"  {c}")
+    _audit_cli('recovery_codes_generate', 'success', 'count=8')
+    return 0
+
+
 def _secrets_check(args):
     # Validate TLS config and secret file permissions.
     findings = []
@@ -219,6 +245,7 @@ def cmd_secrets(args):
         'rotate': _secrets_rotate,
         'rotate-signing': _secrets_rotate_signing,
         'redact': _secrets_redact,
+        'recovery-codes': _secrets_recovery_codes,
         'check': _secrets_check,
     }
     handler = handlers.get(args.secrets_action)

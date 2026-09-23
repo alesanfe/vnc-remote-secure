@@ -26,7 +26,8 @@ def server(monkeypatch, tmp_path):
     monkeypatch.setenv('LANDING_PASSWORD', 'T3st-Landing!Pass')
     monkeypatch.setattr(
         landing, 'generate_landing_page',
-        lambda forwarded_host=None, forwarded_proto=None:
+        lambda forwarded_host=None, forwarded_proto=None,
+        is_operator=True:
         '<html><body>portal</body></html>')
     monkeypatch.setattr(landing, 'check_port', lambda *a, **k: True)
     monkeypatch.setattr(landing, 'get_lan_ips', lambda: ['10.0.0.9'])

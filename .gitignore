@@ -162,3 +162,8 @@ _run_tests.sh
 _test_pw.sh
 
 dist_lint/
+
+# Mutation testing workdir + audit evidence bundles
+mutants/
+.mutmut-cache
+audit-evidence/

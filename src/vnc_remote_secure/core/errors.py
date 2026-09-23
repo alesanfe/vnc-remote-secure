@@ -15,26 +15,8 @@ Error responses follow a structured schema:
 """
 import json
 import logging
-import uuid
 
 logger = logging.getLogger(__name__)
-
-# Error code registry.
-ERROR_CODES = {
-    'ERR_AUTH_REQUIRED': 401,
-    'ERR_AUTH_FAILED': 401,
-    'ERR_MFA_REQUIRED': 403,
-    'ERR_PERMISSION_DENIED': 403,
-    'ERR_SESSION_EXPIRED': 403,
-    'ERR_SESSION_REVOKED': 403,
-    'ERR_RATE_LIMITED': 429,
-    'ERR_NOT_FOUND': 404,
-    'ERR_CONFLICT': 409,
-    'ERR_VALIDATION': 422,
-    'ERR_CONFIG': 500,
-    'ERR_INTERNAL': 500,
-    'ERR_UNAVAILABLE': 503,
-}
 
 
 def error_json(
@@ -88,26 +70,6 @@ def error_json_response(
     if request_id:
         body['request_id'] = request_id
     return jsonify(body), status_code
-
-
-def structured_error(
-    code: str,
-    message: str,
-    detail: str | None = None,
-    request_id: str | None = None,
-) -> tuple[str, int]:
-    """Create a structured error using a registered error code.
-
-    Looks up the HTTP status code from :data:`ERROR_CODES` and delegates
-    to :func:`error_json`.
-    """
-    status = ERROR_CODES.get(code, 500)
-    return error_json(message, status, detail, code, request_id)
-
-
-def generate_request_id() -> str:
-    """Generate a unique request ID for error correlation."""
-    return str(uuid.uuid4())
 
 
 # Flask-compatible alias for the JSON error envelope.

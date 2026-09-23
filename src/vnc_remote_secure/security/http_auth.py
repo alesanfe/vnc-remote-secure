@@ -216,14 +216,21 @@ def authenticate_landing(auth_header, client_ip=None):
         except ValueError:
             username = None
     if username:
-        from vnc_remote_secure.security.operator_users import (
-            load_store, verify)
-        if username in load_store():
-            rec = verify(username, password or '')
-            if limiter is not None:
-                (limiter.record_success if rec else
-                 limiter.record_failure)(client_ip)
-            return (True, rec) if rec else (False, None)
+        try:
+            from vnc_remote_secure.security.operator_users import (
+                load_store, verify)
+            if username in load_store():
+                rec = verify(username, password or '')
+                if limiter is not None:
+                    (limiter.record_success if rec else
+                     limiter.record_failure)(client_ip)
+                return (True, rec) if rec else (False, None)
+        except Exception as exc:  # noqa: BLE001 - store failure falls back to env
+            # A corrupt/unreadable store must not 500 the request —
+            # but silently bypassing RBAC must be visible.
+            logger.warning(
+                "Operator store unreadable (%s) — falling back to "
+                "env credentials", exc)
     ok = check_landing_auth(auth_header, client_ip=None)
     if limiter is not None:
         (limiter.record_success if ok else

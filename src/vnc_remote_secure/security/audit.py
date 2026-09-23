@@ -369,8 +369,8 @@ def audit_log(
             # the next entry chains onto a hash whose line never
             # persisted, and verification then reports "tampered" for
             # what was merely a full disk.
-            _chain_hash = entry['hash']
-            _record_tip(entry['hash'])
+            _chain_hash = str(entry['hash'])
+            _record_tip(_chain_hash)
         except Exception:
             logger.exception("Failed to write audit log:")
 

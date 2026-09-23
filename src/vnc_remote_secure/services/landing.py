@@ -19,10 +19,7 @@ import platform
 
 from vnc_remote_secure.core.errors import error_json, log_exception
 from vnc_remote_secure.platform.detection import is_windows
-from vnc_remote_secure.security.http_auth import (
-    check_landing_auth,
-    client_ip_from,
-)
+from vnc_remote_secure.security.http_auth import client_ip_from
 
 logger = logging.getLogger(__name__)
 
@@ -855,8 +852,16 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
 </html>"""
 
 
-def generate_landing_page(forwarded_host=None, forwarded_proto=None):
-    """Generate the landing page HTML."""
+def generate_landing_page(forwarded_host=None, forwarded_proto=None,
+                          is_operator=True):
+    """Generate the landing page HTML.
+
+    ``is_operator`` distinguishes a credentialed operator from an
+    ephemeral share-link session: the session inventory (who holds
+    links, roles, expiry) and the gamepad kill-switch are operator
+    information — a ``view``-only share recipient gets the page
+    without them.
+    """
     lan_ips = get_lan_ips()
     # Use create_ssl_context() as the single source of truth so that
     # links match the actual protocol the servers will use. This
@@ -906,10 +911,10 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None):
         external_base if (external_base or _config().get('nginx_enabled'))
         else None)
     creds_html = _build_credentials_html()
-    sessions_html = _build_sessions_html()
+    sessions_html = _build_sessions_html() if is_operator else ''
     backups_html = _build_backup_html()
     audio_html = _build_audio_indicator_html()
-    gamepad_html = _build_gamepad_html()
+    gamepad_html = _build_gamepad_html() if is_operator else ''
     features_section = _build_features_section(use_ssl, is_windows_flag)
     firewall_html, ssl_note = _build_firewall_html(is_windows_flag, use_ssl)
     return _build_landing_page_template(
@@ -1028,14 +1033,32 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         return True
 
+    def _portal_identity(self):
+        """Resolve the portal request's auth identity.
+
+        Returns ``(authenticated, operator)`` where ``operator`` is the
+        RBAC record (env bootstrap admin or a stored operator account)
+        or ``None`` when the request is an ephemeral share-link session.
+        Read access is allowed to both; session inventory and
+        mutations are operator-only (checked by the callers via the
+        stashed ``self._portal_operator``).
+        """
+        if self._valid_ephemeral_cookie():
+            return True, None
+        from vnc_remote_secure.security.http_auth import (
+            authenticate_landing)
+        ok, operator = authenticate_landing(
+            self.headers.get('Authorization', ''),
+            client_ip=client_ip_from(
+                self.headers,
+                self.client_address[0]
+                if self.client_address else None))
+        return ok, (operator if ok else None)
+
     def _require_portal_auth(self) -> bool:
-        """Ephemeral cookie or landing Basic-auth gate; sends 401 on failure."""
-        ephemeral_ok = self._valid_ephemeral_cookie()
-        if not ephemeral_ok and not check_landing_auth(
-                self.headers.get('Authorization', ''),
-                client_ip=client_ip_from(
-                    self.headers,
-                    self.client_address[0] if self.client_address else None)):
+        """Ephemeral cookie or operator Basic-auth gate; sends 401."""
+        authed, operator = self._portal_identity()
+        if not authed:
             self.send_response(401)
             self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
             self.send_header('Content-Type', 'application/json')
@@ -1043,6 +1066,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             body, _ = error_json('Unauthorized', 401)
             self.wfile.write(body.encode())
             return False
+        self._portal_operator = operator
         return True
 
     def do_HEAD(self):  # noqa: N802 - stdlib API
@@ -1068,19 +1092,13 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         # before any auth check (the link itself is the credential).
         if self._handle_session_exchange():
             return
-        # An activated ephemeral session grants portal access without
-        # the landing Basic-auth credentials.
-        ephemeral_ok = self._valid_ephemeral_cookie()
-        # Landing Basic-auth (fail-closed: an empty LANDING_PASSWORD
-        # denies access — the startup blocker refuses to run in that
-        # state anyway). client_ip feeds the shared auth rate limiter
+        # Ephemeral share sessions or operator Basic-auth (env
+        # bootstrap admin or a stored operator account — fail closed
+        # either way). client_ip feeds the shared auth rate limiter
         # so Basic-auth brute force is locked out like the
         # gateway-protected paths.
-        if not ephemeral_ok and not check_landing_auth(
-                self.headers.get('Authorization', ''),
-                client_ip=client_ip_from(
-                    self.headers,
-                    self.client_address[0] if self.client_address else None)):
+        authed, operator = self._portal_identity()
+        if not authed:
             self.send_response(401)
             self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
             self.send_header('Content-Type', 'application/json')
@@ -1088,6 +1106,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             body, _ = error_json('Unauthorized', 401)
             self.wfile.write(body.encode())
             return
+        self._portal_operator = operator
         # Strip the query string for routing: /status.json?ts=… must
         # resolve like the bare path (the Flask blueprint and nginx
         # both match path-only).
@@ -1160,7 +1179,9 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                 forwarded_host=(
                     self.headers.get('X-Forwarded-Host') if trusted else None),
                 forwarded_proto=(
-                    self.headers.get('X-Forwarded-Proto') if trusted else None))
+                    self.headers.get('X-Forwarded-Proto') if trusted else None),
+                is_operator=getattr(
+                    self, '_portal_operator', None) is not None)
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             refresh = self._session_refresh_header()
@@ -1317,18 +1338,25 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         metadata only, never raw tokens or passwords.
         """
         from vnc_remote_secure.security.http_auth import (
-            check_landing_auth, client_ip_from)
-        if not check_landing_auth(
-                self.headers.get('Authorization', ''),
-                client_ip=client_ip_from(
-                    self.headers,
-                    self.client_address[0]
-                    if self.client_address else None)):
-            self.send_response(401)
+            authenticate_landing)
+        ok, operator = authenticate_landing(
+            self.headers.get('Authorization', ''),
+            client_ip=client_ip_from(
+                self.headers,
+                self.client_address[0]
+                if self.client_address else None))
+        perms = set((operator or {}).get('permissions') or [])
+        if not ok or (
+                'admin_sessions' not in perms
+                and 'admin:*' not in perms):
+            self.send_response(401 if not ok else 403)
             self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            body, _ = error_json('Operator credentials required', 401)
+            body, _ = error_json(
+                'Operator credentials required' if not ok
+                else 'Insufficient role for this action',
+                401 if not ok else 403)
             self.wfile.write(body.encode())
             return
         try:
@@ -1410,6 +1438,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             from vnc_remote_secure.security.audit import audit_log
             audit_log(
                 'portal_session_revoke',
+                user=operator.get('username', 'unknown'),
                 result='success' if revoked else 'failure',
                 detail=f'token_id={token_id}')
         except Exception:  # noqa: BLE001
@@ -1462,7 +1491,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 from vnc_remote_secure.security.audit import audit_log
                 audit_log('portal_permission_denied',
-                          actor=operator.get('username', '?'),
+                          user=operator.get('username', '?'),
                           detail=f'required={permission}')
             except Exception:  # noqa: BLE001
                 pass
@@ -1482,7 +1511,8 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         WebSockets close via shared-state propagation. Operator-only
         with the same Origin check as the single-revoke endpoint.
         """
-        if self._operator_gate('admin_sessions') is None:
+        operator = self._operator_gate('admin_sessions')
+        if operator is None:
             return
         from vnc_remote_secure.security.ephemeral_sessions import (
             get_session_store, revoke_session)
@@ -1495,6 +1525,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         try:
             from vnc_remote_secure.security.audit import audit_log
             audit_log('portal_session_revoke_all',
+                      user=operator.get('username', 'unknown'),
                       detail=f'count={count}')
         except Exception:  # noqa: BLE001
             pass
@@ -1512,7 +1543,8 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         while a session holds it. Same operator-auth + Origin gate as
         the session endpoints.
         """
-        if self._operator_gate('admin_sessions') is None:
+        operator = self._operator_gate('admin_sessions')
+        if operator is None:
             return
         try:
             from vnc_remote_secure.security.shared_state import (
@@ -1531,7 +1563,9 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             from vnc_remote_secure.security.audit import audit_log
-            audit_log('portal_gamepad_' + ('stop' if stop else 'resume'))
+            audit_log(
+                'portal_gamepad_' + ('stop' if stop else 'resume'),
+                user=operator.get('username', 'unknown'))
         except Exception:  # noqa: BLE001
             pass
         self.send_response(200)

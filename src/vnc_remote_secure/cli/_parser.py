@@ -114,6 +114,11 @@ def _add_secrets_args(subparsers):
     p_sredact = p_secrets_sub.add_parser('redact', help='Show redacted value of a secret')
     p_sredact.add_argument('--name', dest='secret_name', required=True, help='Secret name to redact')
     _add_common_args(p_sredact, suppress_defaults=True)
+    p_srecov = p_secrets_sub.add_parser(
+        'recovery-codes',
+        help='Generate MFA recovery codes (hashes written to env, '
+             'codes printed once)')
+    _add_common_args(p_srecov, suppress_defaults=True)
     p_scheck = p_secrets_sub.add_parser('check', help='Validate TLS config and secret file permissions')
     _add_common_args(p_scheck, suppress_defaults=True)
     p_scheck.add_argument(

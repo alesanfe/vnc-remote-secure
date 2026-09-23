@@ -115,7 +115,8 @@ def _pip_install(spec: str) -> tuple[bool, str]:
         return False, f'pip failed to run: {e}'
     out = (res.stdout or '') + (res.stderr or '')
     if res.returncode != 0:
-        return False, out.strip().splitlines()[-15:]
+        # Tail only: a full pip traceback drowns the actionable line.
+        return False, '\n'.join(out.strip().splitlines()[-15:])
     return True, out
 
 
@@ -216,7 +217,7 @@ def perform_rollback() -> dict:
         return {'ok': False, 'error': 'recorded backup missing — '
                 'manual restore required (vnc-remote restore <file>)'}
 
-    result = {'ok': False}
+    result: dict = {'ok': False}
     try:
         restore_backup(backup_path)
         result['restored'] = backup_path
