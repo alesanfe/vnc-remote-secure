@@ -170,3 +170,70 @@ class TestAuditRotation:
         # The log must remain verifiable whether it rotated or not.
         ok, _msg = audit.verify_chain()
         assert ok
+
+
+class TestChainTipWitness:
+    """The shared-state tip detects truncation/rollback — a file with
+    tail lines deleted still verifies as a valid (shorter) chain
+    without the witness."""
+
+    def _reset(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.security import audit
+        log = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(log))
+        audit._startup_verified = False
+        audit._chain_hash = ''
+        # Decouple from the process-global shared-state backend: other
+        # tests' tips would read as phantom truncations. An in-memory
+        # witness tests the mismatch logic itself.
+        tip = {}
+        monkeypatch.setattr(
+            audit, '_record_tip', lambda h: tip.__setitem__('t', h))
+        monkeypatch.setattr(
+            audit, '_stored_tip', lambda: tip.get('t'))
+        return audit, log
+
+    def _warns(self, monkeypatch, audit):
+        """Capture audit warnings — caplog can't be trusted here:
+        another test leaves logger.propagate=False, so records never
+        reach the root handler."""
+        warnings = []
+        monkeypatch.setattr(audit.logger, 'warning',
+                            lambda *a, **k: warnings.append(
+                                a[0] % a[1:] if len(a) > 1 else a[0]))
+        return warnings
+
+    def test_truncated_log_warns(self, tmp_path, monkeypatch):
+        audit, log = self._reset(tmp_path, monkeypatch)
+        audit.verify_chain_on_startup()
+        audit._startup_verified = False
+        audit.audit_log('e1')
+        audit.audit_log('e2')
+        lines = log.read_text().strip().split(chr(10))
+        log.write_text(chr(10).join(lines[:2]) + chr(10))
+        audit._startup_verified = False
+        warnings = self._warns(monkeypatch, audit)
+        audit.verify_chain_on_startup()
+        assert any('tip mismatch' in w for w in warnings)
+
+    def test_missing_log_with_tip_warns(self, tmp_path, monkeypatch):
+        audit, log = self._reset(tmp_path, monkeypatch)
+        audit.verify_chain_on_startup()
+        audit._startup_verified = False
+        audit.audit_log('e1')
+        audit._startup_verified = False
+        log.unlink()
+        warnings = self._warns(monkeypatch, audit)
+        audit.verify_chain_on_startup()
+        assert any('deleted or moved' in w for w in warnings)
+
+    def test_intact_chain_no_warn(self, tmp_path, monkeypatch):
+        audit, log = self._reset(tmp_path, monkeypatch)
+        audit.verify_chain_on_startup()
+        audit._startup_verified = False
+        audit.audit_log('e1')
+        audit._startup_verified = False
+        warnings = self._warns(monkeypatch, audit)
+        audit.verify_chain_on_startup()
+        assert not any('tip mismatch' in w or 'deleted or moved' in w
+                       for w in warnings)

@@ -102,6 +102,32 @@ def _compute_hash(prev_hash: str, entry: dict) -> str:
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 
+# Shared-state namespace holding the last-known chain tip. Persisting
+# the tip lets startup detect truncation/rollback of the log file —
+# the hash chain catches mid-file edits, but a peer deleting tail
+# lines leaves a perfectly valid (shorter) chain. The stored tip is
+# the cross-restart witness for that.
+_TIP_NS = 'audit_chain'
+
+
+def _record_tip(chain_hash: str) -> None:
+    """Persist the chain tip to shared state (best-effort)."""
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        get_backend().set_ttl(_TIP_NS, 'tip', chain_hash, 86400 * 365)
+    except Exception:  # noqa: BLE001 - checkpoint must not break logging
+        pass
+
+
+def _stored_tip() -> str | None:
+    """Return the last recorded chain tip, or None."""
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        return get_backend().get(_TIP_NS, 'tip')
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _write_anchor():
     """Write the initial anchor entry to a fresh audit log."""
     global _chain_hash
@@ -120,6 +146,7 @@ def _write_anchor():
     with open(path, 'w', encoding='utf-8') as f:
         f.write(json.dumps(entry, separators=(',', ':')) + '\n')
     _set_secure_perms(path)
+    _record_tip(entry['hash'])
 
 
 def _set_secure_perms(path):
@@ -222,13 +249,28 @@ def verify_chain_on_startup():
         return
     _startup_verified = True
     path = Path(_audit_log_file())
+    stored = _stored_tip()
     if not path.exists() or path.stat().st_size == 0:
+        if stored:
+            logger.warning(
+                "Audit log missing but a previous chain tip exists — "
+                "the log was deleted or moved outside the service")
         _write_anchor()
         logger.info("Created fresh audit log with anchor entry")
         return
     ok, msg = verify_chain()
     if ok:
         logger.info("Audit chain verified on startup: %s", msg)
+        # Tip witness: a file that ends at a different tip than the
+        # one recorded after the last write was truncated or rolled
+        # back — mid-file edits break the hash chain, but tail
+        # deletion leaves a *valid* shorter chain.
+        _load_chain_hash()
+        if stored and _chain_hash and _chain_hash != stored:
+            logger.warning(
+                "Audit chain tip mismatch — log truncated or rolled "
+                "back (recorded tip %s…, file tip %s…)",
+                stored[:12], _chain_hash[:12])
     else:
         logger.warning("Audit chain verification FAILED on startup: %s", msg)
     _set_secure_perms(path)
@@ -299,6 +341,7 @@ def audit_log(
             with open(path, 'a', encoding='utf-8') as f:
                 f.write(line)
             _set_secure_perms(path)
+            _record_tip(entry['hash'])
         except Exception:
             logger.exception("Failed to write audit log:")
 

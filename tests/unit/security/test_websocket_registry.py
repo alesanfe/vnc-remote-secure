@@ -256,3 +256,59 @@ class TestCloseCallbackFailures:
             WebSocketRegistry)
         reg = WebSocketRegistry()
         reg.unregister('ghost')  # must not raise
+
+
+class TestExpirySweep:
+    """A session crossing expires_at mid-connection must lose its
+    live sockets — revocation is not the only death."""
+
+    def test_expired_session_swept(self, monkeypatch):
+        import time
+        from vnc_remote_secure.security import websocket_registry as w
+        closed = []
+        monkeypatch.setattr(w, 'is_revoked_shared', lambda t: False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'get_session_store',
+            lambda: type('S', (), {'get': lambda s, t: type(
+                'E', (), {'expires_at': time.time() - 1})()})())
+        monkeypatch.setattr(
+            w, 'get_registry',
+            lambda: type('R', (), {
+                'revoke_session': staticmethod(closed.append)})())
+        assert w._sweep_revoked_session('tok') is True
+        assert closed == ['tok']
+
+    def test_live_session_not_swept(self, monkeypatch):
+        import time
+        from vnc_remote_secure.security import websocket_registry as w
+        monkeypatch.setattr(w, 'is_revoked_shared', lambda t: False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'get_session_store',
+            lambda: type('S', (), {'get': lambda s, t: type(
+                'E', (), {'expires_at': time.time() + 3600})()})())
+        assert w._sweep_revoked_session('tok') is False
+
+    def test_unknown_session_not_swept(self, monkeypatch):
+        """Non-ephemeral tokens (operator sessions) aren't looked up
+        — store.get returns None, sweep must not close them."""
+        from vnc_remote_secure.security import websocket_registry as w
+        monkeypatch.setattr(w, 'is_revoked_shared', lambda t: False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'get_session_store',
+            lambda: type('S', (), {'get': lambda s, t: None})())
+        assert w._sweep_revoked_session('tok') is False
+
+    def test_store_error_not_swept(self, monkeypatch):
+        """A broken store must not kill live connections."""
+        from vnc_remote_secure.security import websocket_registry as w
+        monkeypatch.setattr(w, 'is_revoked_shared', lambda t: False)
+
+        def boom():
+            raise RuntimeError('db locked')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'get_session_store', boom)
+        assert w._sweep_revoked_session('tok') is False

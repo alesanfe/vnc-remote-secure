@@ -332,9 +332,28 @@ def clear_revoked_shared(session_id: str):
 _watcher_tasks: set = set()
 
 
+def _session_expired(session_id: str) -> bool:
+    """Return True when the ephemeral session exists but is expired.
+
+    Revocation is not the only way a session dies: a session that
+    crosses ``expires_at`` mid-connection must have its live sockets
+    closed too — otherwise a link valid for 30 min stays connected
+    forever once opened. Best-effort: unknown token types (operator
+    sessions) are not looked up here and never match.
+    """
+    try:
+        import time
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            get_session_store)
+        sess = get_session_store().get(session_id)
+        return sess is not None and time.time() > sess.expires_at
+    except Exception:  # noqa: BLE001 - expiry check must not kill watcher
+        return False
+
+
 def _sweep_revoked_session(session_id: str) -> bool:
-    """Run the local revoke path when the shared mark exists."""
-    if is_revoked_shared(session_id):
+    """Close the session's connections on revocation OR expiry."""
+    if is_revoked_shared(session_id) or _session_expired(session_id):
         get_registry().revoke_session(session_id)
         return True
     return False

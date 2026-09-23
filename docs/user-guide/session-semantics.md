@@ -47,8 +47,9 @@ create (CLI)  →  signed URL token  →  GET /?session=<token>
 
 - Absolute wall-clock deadline (`time.time() > expires_at` →
   invalid). Checked on every `is_valid` call — a session that
-  expires mid-connection fails the next request/upgrade; live
-  WebSockets close on revocation-watch expiry where enforced.
+  expires mid-connection fails the next request/upgrade AND its live
+  WebSockets are closed by the revocation watcher (the sweep checks
+  expiry alongside the revocation marker).
 - There is no sliding renewal for ephemeral sessions.
 
 ## IP binding (`allowed_ip`)

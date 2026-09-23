@@ -11,10 +11,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 from vnc_remote_secure.services import bounded_server as bs  # noqa: E402
 
 
-def _server(max_conn=2):
+def _server(max_conn=2, max_per_ip=16):
     """Instantiate the mixin without binding a real socket."""
     srv = object.__new__(bs.BoundedThreadingTCPServer)
     srv._conn_semaphore = threading.BoundedSemaphore(max_conn)
+    srv._max_per_ip = max_per_ip
+    srv._per_ip = {}
+    srv._per_ip_lock = threading.Lock()
     # process_request_thread bottom half: the semaphore release is in
     # the mixin's finally; the super() call we stub out below.
     return srv
@@ -107,3 +110,72 @@ class TestBackpressure:
         srv._conn_semaphore.release()
         t.join(timeout=2)
         assert done == ['spawned']
+
+
+class TestPerIpCap:
+    """A single source IP must not hold the whole pool — slowloris
+    sockets all come from one address."""
+
+    def _server(self, per_ip=3):
+        import socketserver
+        from vnc_remote_secure.services.bounded_server import _BoundedMixin
+
+        class S(_BoundedMixin, socketserver.ThreadingTCPServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+        class HoldHandler(socketserver.BaseRequestHandler):
+            def handle(self):
+                # Hold the connection — without this the handler
+                # returns instantly and the slot frees before the
+                # assertion runs.
+                self.request.settimeout(5)
+                try:
+                    self.request.recv(64)
+                except OSError:
+                    pass
+        return S(('127.0.0.1', 0), HoldHandler, max_per_ip=per_ip)
+
+    def test_cap_blocks_n_plus_one(self):
+        """After N held connections, N+1 from the same IP is refused
+        at accept time."""
+        import socket
+        import threading
+        s = self._server(per_ip=2)
+        t = threading.Thread(target=s.serve_forever, daemon=True)
+        t.start()
+        socks = [socket.create_connection(s.server_address)
+                 for _ in range(2)]
+        # Third connection: accept loop still accepts the socket but
+        # closes it immediately — the client sees an instant EOF.
+        third = socket.create_connection(s.server_address)
+        third.settimeout(2)
+        assert third.recv(1) == b''
+        s.shutdown()
+        for sk in socks:
+            sk.close()
+        s.server_close()
+
+    def test_release_frees_slot(self):
+        s = self._server(per_ip=2)
+        assert s._ip_acquire('10.0.0.1') is True
+        assert s._ip_acquire('10.0.0.1') is True
+        assert s._ip_acquire('10.0.0.1') is False
+        s._ip_release('10.0.0.1')
+        assert s._ip_acquire('10.0.0.1') is True
+        s.server_close()
+
+    def test_different_ips_independent(self):
+        s = self._server(per_ip=1)
+        assert s._ip_acquire('10.0.0.1') is True
+        assert s._ip_acquire('10.0.0.2') is True
+        assert s._ip_acquire('10.0.0.1') is False
+        s.server_close()
+
+    def test_empty_counter_cleanup(self):
+        """Released-to-zero IPs must not leak dict entries."""
+        s = self._server(per_ip=2)
+        s._ip_acquire('10.0.0.1')
+        s._ip_release('10.0.0.1')
+        assert s._per_ip == {}
+        s.server_close()

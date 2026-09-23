@@ -22,31 +22,67 @@ import socketserver
 import threading
 
 MAX_CONNECTIONS = 128
+# Per-source-IP cap: a single client must not be able to hold the
+# whole connection pool — slowloris needs many sockets, and they all
+# come from one address. Generous enough for a browser's parallel
+# connections plus keep-alives behind one NAT.
+MAX_CONNECTIONS_PER_IP = 16
 READ_TIMEOUT_SECONDS = 15
 
 
 class _BoundedMixin:
     """Semaphore-bounded request threads for ThreadingMixIn servers."""
 
-    def __init__(self, *args, max_connections=MAX_CONNECTIONS, **kwargs):
+    def __init__(self, *args, max_connections=MAX_CONNECTIONS,
+                 max_per_ip=MAX_CONNECTIONS_PER_IP, **kwargs):
         self._conn_semaphore = threading.BoundedSemaphore(max_connections)
+        self._max_per_ip = max_per_ip
+        self._per_ip: dict = {}
+        self._per_ip_lock = threading.Lock()
         super().__init__(*args, **kwargs)
+
+    def _ip_acquire(self, ip: str) -> bool:
+        """Reserve a slot for ``ip``; False when at the per-IP cap."""
+        with self._per_ip_lock:
+            count = self._per_ip.get(ip, 0)
+            if count >= self._max_per_ip:
+                return False
+            self._per_ip[ip] = count + 1
+            return True
+
+    def _ip_release(self, ip: str) -> None:
+        with self._per_ip_lock:
+            count = self._per_ip.get(ip, 0)
+            if count <= 1:
+                self._per_ip.pop(ip, None)
+            else:
+                self._per_ip[ip] = count - 1
 
     def process_request(self, request, client_address):
         # Acquire BEFORE spawning the thread — a full pool makes the
         # accept loop wait, which is the desired back-pressure.
+        ip = client_address[0] if client_address else ''
         self._conn_semaphore.acquire()
+        if not self._ip_acquire(ip):
+            # Per-IP cap hit: refuse the socket instead of queuing a
+            # thread that would stall on the global semaphore anyway.
+            self._conn_semaphore.release()
+            self.shutdown_request(request)
+            return
         try:
             super().process_request(request, client_address)
         except Exception:
             self._conn_semaphore.release()
+            self._ip_release(ip)
             raise
 
     def process_request_thread(self, request, client_address):
+        ip = client_address[0] if client_address else ''
         try:
             super().process_request_thread(request, client_address)
         finally:
             self._conn_semaphore.release()
+            self._ip_release(ip)
 
 
 class BoundedThreadingTCPServer(_BoundedMixin,
