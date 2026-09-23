@@ -121,6 +121,14 @@ class WebSocketRegistry:
                     _redact(session_id),
                 )
                 return None
+            # Connection cap: an authenticated client that opens
+            # thousands of sockets exhausts fds/threads — a bound is a
+            # resource limit, not an auth decision.
+            if len(self._connections) >= _max_connections():
+                logger.warning(
+                    'Refused WebSocket registration: connection cap '
+                    '(%d) reached', _max_connections())
+                return None
             self._next_id += 1
             conn_id = f'ws_{self._next_id}'
             loop = None
@@ -382,6 +390,14 @@ def _session_expired(session_id: str) -> bool:
         return sess is not None and time.time() > sess.expires_at
     except Exception:  # noqa: BLE001 - expiry check must not kill watcher
         return False
+
+
+def _max_connections() -> int:
+    """Return the per-process WebSocket connection cap."""
+    try:
+        return max(1, int(os.environ.get('WS_MAX_CONNECTIONS', '256')))
+    except (TypeError, ValueError):
+        return 256
 
 
 def _sweep_revoked_session(session_id: str) -> bool:

@@ -312,3 +312,17 @@ class TestExpirySweep:
             'vnc_remote_secure.security.ephemeral_sessions.'
             'get_session_store', boom)
         assert w._sweep_revoked_session('tok') is False
+
+
+def test_connection_cap_refuses(monkeypatch):
+    """Past WS_MAX_CONNECTIONS, registrations are refused — a
+    connection flood must not exhaust fds/threads."""
+    from vnc_remote_secure.security import websocket_registry as wr
+    reg = wr.get_registry()
+    monkeypatch.setenv('WS_MAX_CONNECTIONS', '2')
+    monkeypatch.setattr(wr, 'is_revoked_shared', lambda s: False)
+    ids = [reg.register(f's{i}', lambda: None) for i in range(4)]
+    assert ids[0] is not None
+    assert ids[1] is not None
+    assert ids[2] is None
+    assert ids[3] is None
