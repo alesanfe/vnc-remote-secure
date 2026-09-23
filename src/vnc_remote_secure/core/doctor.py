@@ -202,6 +202,35 @@ def _check_shared_state(checks):
         except Exception as e:  # noqa: BLE001 - probe is best-effort
             _warn(checks, 'state.backend.effective',
                   f'Could not probe effective backend: {e}')
+    # Integrity check: the DB carries security state (revocations,
+    # TOTP claims, rate limits) — a torn DB after a crash or AV
+    # quarantine must surface here, not as silent auth anomalies.
+    if backend == 'sqlite':
+        try:
+            import sqlite3 as _sq
+            from vnc_remote_secure.core.paths import get_run_dir
+            db_path = os.environ.get(
+                'SHARED_STATE_DB_PATH',
+                os.path.join(get_run_dir(), 'shared_state.db'))
+            if os.path.isfile(db_path):
+                conn = _sq.connect(
+                    f'file:{db_path}?mode=ro', uri=True)
+                try:
+                    row = conn.execute(
+                        'PRAGMA integrity_check').fetchone()
+                finally:
+                    conn.close()
+                if row and row[0] == 'ok':
+                    _ok(checks, 'state.integrity',
+                        'shared_state.db integrity_check ok')
+                else:
+                    _fail(checks, 'state.integrity',
+                          f'shared_state.db corrupt: '
+                          f'{row[0] if row else "integrity_check failed"} '
+                          '— see docs/runbook/recovery.md §2')
+        except Exception as e:  # noqa: BLE001
+            _warn(checks, 'state.integrity',
+                  f'Could not run integrity_check: {e}')
 
 
 def _check_runtime_deps(checks):
