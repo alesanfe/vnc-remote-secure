@@ -136,11 +136,31 @@ class WebSocketRegistry:
             if session_id not in self._by_session:
                 self._by_session[session_id] = set()
             self._by_session[session_id].add(conn_id)
+            self._emit_active_gauges()
             logger.debug(
                 'Registered WebSocket connection %s for session %s (resource=%s)',
                 conn_id, _redact(session_id), resource,
             )
             return conn_id
+
+    def _emit_active_gauges(self):
+        """Emit per-resource active-connection gauges (best-effort).
+
+        Labels are resource-scoped (desktop/terminal/audio/gamepad) —
+        each resource is served by exactly one service process, so
+        cross-process gauge writes never overwrite each other.
+        """
+        try:
+            from vnc_remote_secure.monitoring.prometheus import set_gauge
+            counts: dict = {}
+            for e in self._connections.values():
+                key = e.resource or 'unknown'
+                counts[key] = counts.get(key, 0) + 1
+            for res, n in counts.items():
+                set_gauge('vnc_remote_ws_connections_active',
+                          float(n), labels=f'resource={res}')
+        except Exception:  # noqa: BLE001
+            pass
 
     def unregister(self, conn_id: str):
         """Unregister a connection (called when it closes normally)."""
@@ -153,6 +173,7 @@ class WebSocketRegistry:
                 session_set.discard(conn_id)
                 if not session_set:
                     del self._by_session[entry.session_id]
+            self._emit_active_gauges()
             logger.debug(
                 'Unregistered WebSocket connection %s for session %s',
                 conn_id, entry.session_id,

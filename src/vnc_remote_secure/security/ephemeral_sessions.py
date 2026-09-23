@@ -657,6 +657,8 @@ class SessionStore:
             del self._sessions[t]
         if expired:
             self._save()
+            for _ in expired:
+                _metric('expired')
 
 
 # Global session store
