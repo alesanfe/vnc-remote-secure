@@ -87,10 +87,12 @@ jobs:
         # after the novnc/d3des/health-blueprint test rounds; raise as
         # coverage improves — next targets: novnc.py 36%,
         # ephemeral_sessions.py 68%).
+        # --cov-branch reports branch coverage (measured 65% on
+        # unit+security alone — the 56 floor is safe).
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: |
           python -m pytest tests/unit tests/integration tests/e2e tests/security -q \
-            --cov=vnc_remote_secure --cov-report=term-missing \
+            --cov=vnc_remote_secure --cov-branch --cov-report=term-missing \
             --cov-report=xml:coverage.xml --cov-fail-under=56
       - name: Run pytest (no coverage gate)
         if: !(matrix.os == 'ubuntu-latest' && matrix.python == '3.12')

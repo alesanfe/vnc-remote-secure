@@ -120,6 +120,19 @@ def _add_secrets_args(subparsers):
         help='Attempt to repair permissions on flagged secret files')
     p_secrets.set_defaults(func=cmd_secrets)
 
+    # Security (aggregated audit)
+    from vnc_remote_secure.cli.commands.security import cmd_security
+    p_sec = subparsers.add_parser(
+        'security', help='Security audit (check)')
+    _add_common_args(p_sec)
+    p_sec_sub = p_sec.add_subparsers(
+        dest='security_action', required=True)
+    p_schk = p_sec_sub.add_parser(
+        'check',
+        help='Aggregated audit: posture + config + listeners + doctor')
+    _add_common_args(p_schk, suppress_defaults=True)
+    p_sec.set_defaults(func=cmd_security)
+
 
 def _add_config_args(subparsers):
     """Create the ``config`` subparser with its sub-actions."""

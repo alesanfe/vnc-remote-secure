@@ -192,6 +192,22 @@ def render_metrics() -> str:
         else:
             lines.append(f'vnc_remote_health_check_total{_format_labels(labels)} {value}')
 
+    # --- Certificate days remaining (scrape-time, best-effort) ---
+    try:
+        from vnc_remote_secure.security.tls_validation import (
+            cert_days_remaining)
+        days = cert_days_remaining()
+        if days is not None:
+            lines.append(
+                '# HELP vnc_remote_cert_days_remaining Days until '
+                'TLS certificate expiry')
+            lines.append(
+                '# TYPE vnc_remote_cert_days_remaining gauge')
+            lines.append(
+                f'vnc_remote_cert_days_remaining {days}')
+    except Exception:  # noqa: BLE001
+        pass
+
     # --- Shared-state DB size (best-effort, scrape-time stat) ---
     try:
         import os as _os

@@ -77,6 +77,43 @@ def _check_default_context(findings):
         })
 
 
+def cert_days_remaining() -> int | None:
+    """Return days until the active certificate expires, or None.
+
+    Resolves through the same canonical path logic as
+    ``_check_certificate_paths`` (SSL_CERT/SSL_KEY, then the platform
+    ssl dir). Used by the /metrics endpoint to export
+    ``vnc_remote_cert_days_remaining`` — alerting on cert expiry
+    should not require parsing doctor output.
+    """
+    import os as _os
+    cert = _os.environ.get('SSL_CERT', '')
+    if not (cert and _os.path.exists(cert)):
+        try:
+            from vnc_remote_secure.core.paths import get_ssl_dir
+            cand = _os.path.join(get_ssl_dir(), 'fullchain.pem')
+            if _os.path.exists(cand):
+                cert = cand
+        except Exception:  # noqa: BLE001
+            pass
+    if not (cert and _os.path.exists(cert)):
+        return None
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
+        import datetime as _dt
+        with open(cert, 'rb') as f:
+            parsed = x509.load_pem_x509_certificate(
+                f.read(), default_backend())
+        not_after = parsed.not_valid_after_utc
+        if not_after is None:
+            return None
+        return (not_after - _dt.datetime.now(
+            _dt.timezone.utc)).days
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _check_certificate_paths(findings):
     """Validate the configured/discovered certificate pair.
 
