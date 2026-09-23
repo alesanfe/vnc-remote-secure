@@ -273,9 +273,20 @@ def _kill_pid(pid: int, timeout: float = 5.0,
         while time.time() < deadline and _pid_alive(pid):
             time.sleep(0.1)
     else:
+        # Process-group kill first: services spawn with
+        # start_new_session so the whole tree (including
+        # grandchildren that escaped the pgrep recursion via a
+        # double-fork) shares pgid == service pid. killpg is
+        # POSIX-only — absent on Windows even when tests simulate
+        # the POSIX branch.
+        _killpg = getattr(os, 'killpg', None)
+        if _killpg is not None:
+            with suppress(OSError):
+                _killpg(pid, signal.SIGTERM)
         # Terminate children first — a dead parent (e.g. the audio
         # supervisor) would orphan grandchildren like ffmpeg, which
-        # keep the capture running after `stop`.
+        # keep the capture running after `stop`. pgrep covers
+        # processes that created their own session.
         _kill_descendants(pid)
         try:
             os.kill(pid, signal.SIGTERM)
@@ -571,6 +582,18 @@ def _start_python_service(module: str, service_name: str,
             'a', buffering=1, encoding='utf-8', errors='replace')
     except OSError:
         log_fh = subprocess.DEVNULL
+    # Own process group/session: services must outlive the terminal
+    # that ran `vnc-remote start` (no SIGHUP/CTRL+C propagation), and
+    # a group lets _kill_pid reach descendants that escaped the
+    # pgrep recursion (double-forked grandchildren share the group).
+    _popen_kw: dict = {}
+    if is_windows():
+        # New process group — console CTRL+C must not propagate to
+        # services spawned from an interactive shell.
+        _popen_kw['creationflags'] = getattr(
+            subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+    else:
+        _popen_kw['start_new_session'] = True
     try:
         proc = subprocess.Popen(
             cmd,
@@ -578,6 +601,7 @@ def _start_python_service(module: str, service_name: str,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             env=child_env,
+            **_popen_kw,
         )
     except OSError:
         logger.exception("Failed to start %s:", service_name)
