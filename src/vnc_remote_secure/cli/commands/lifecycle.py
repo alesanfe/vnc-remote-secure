@@ -44,6 +44,69 @@ def _apply_no_ssl(args) -> bool:
     return True
 
 
+def _print_install_summary(project_root):
+    """Print the post-install summary (URL, profile, paths, next steps).
+
+    An install that ends silently leaves the operator guessing where
+    the entry point is — surface the effective URL, active profile,
+    cert state and the immediate follow-up commands.
+    """
+    try:
+        from vnc_remote_secure.core.config import get_config
+        config = get_config()
+    except Exception:  # noqa: BLE001
+        return
+    tls = bool(config.get('tls_enabled'))
+    domain = (os.environ.get('DUCK_DOMAIN', '').strip()
+              or '127.0.0.1')
+    if config.get('nginx_enabled'):
+        port = int(os.environ.get(
+            'NGINX_HTTPS_PORT' if tls else 'NGINX_HTTP_PORT',
+            '443' if tls else '80'))
+    else:
+        port = int(config.get('landing_port') or 8080)
+    scheme = 'https' if tls else 'http'
+    default_port = 443 if tls else 80
+    url = (f'{scheme}://{domain}'
+           + ('' if port == default_port else f':{port}'))
+    print("\n=== Post-install summary ===")
+    print(f"  URL:        {url}")
+    print(f"  Profile:    {config.get('security_profile') or 'default'}")
+    print(f"  TLS:        {'enabled' if tls else 'DISABLED'}")
+    try:
+        from vnc_remote_secure.security.tls_validation import (
+            cert_days_remaining)
+        days = cert_days_remaining()
+        if days is not None:
+            warn = ' — EXPIRES SOON' if days < 30 else ''
+            print(f"  Cert:       {days} days remaining{warn}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from vnc_remote_secure.core.paths import (
+            get_config_dir, get_data_dir)
+        print(f"  Config:     {get_config_dir()}")
+        print(f"  Data:       {get_data_dir()}")
+    except Exception:  # noqa: BLE001
+        print(f"  Config:     {os.path.join(project_root, '.env')}")
+    try:
+        from vnc_remote_secure.core.config_inspector import (
+            validate_config)
+        findings = validate_config()
+        crit = sum(1 for f in findings
+                   if f.get('severity') == 'critical')
+        warn = len(findings) - crit
+        if crit or warn:
+            print(f"  Warnings:   {crit} critical, {warn} warnings "
+                  "(vnc-remote config validate)")
+    except Exception:  # noqa: BLE001
+        pass
+    print("\n  Next steps:")
+    print("    vnc-remote doctor          # verify the deployment")
+    print("    vnc-remote start           # start all services")
+    print("    vnc-remote session create  # share a timed link")
+
+
 def cmd_install(args):
     """Install and configure the system via the platform adapter.
 
@@ -79,6 +142,7 @@ def cmd_install(args):
             from vnc_remote_secure.platform.linux.installer import install
         install(project_root=project_root)
         print("Installation completed successfully.")
+        _print_install_summary(project_root)
         return 0
     except PermissionError as e:
         print(f"Error: {e}", file=sys.stderr)

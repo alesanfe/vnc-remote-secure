@@ -103,6 +103,20 @@ def _secrets_rotate(args):
 
     _drop_stale_secret_fallbacks(name)
 
+    # Rotating the operator UI credential must kill every live operator
+    # session — otherwise a logged-in session keeps working on the OLD
+    # password's authority after the credential changed. Bumping the
+    # epoch invalidates all sessions issued so far (services pick it up
+    # via shared state without a restart).
+    if name in ('USER_UI_PASSWORD', 'TTYD_PASSWD'):
+        try:
+            from vnc_remote_secure.security.sessions import (
+                bump_operator_epoch)
+            bump_operator_epoch()
+            print("  All operator sessions revoked (credential changed)")
+        except Exception:  # noqa: BLE001 - rotation already succeeded
+            pass
+
     fp = hashlib.sha256(new_val.encode()).hexdigest()[:8]
     print(f"Rotated {name} (written to {env_path}; restart services to apply)")
     print(f"  Fingerprint: {fp}")

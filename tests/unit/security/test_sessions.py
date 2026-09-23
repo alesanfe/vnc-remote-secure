@@ -172,3 +172,37 @@ class TestSameSiteWhitelist:
         from vnc_remote_secure.security.sessions import (
             get_cookie_attributes)
         assert get_cookie_attributes()['samesite'] == 'Strict'
+
+
+class TestOperatorEpoch:
+    """bump_operator_epoch must invalidate every session issued
+    before the credential change (post-rotation revocation)."""
+
+    def test_old_session_rejected_after_bump(self, monkeypatch):
+        import time
+        from vnc_remote_secure.security import sessions
+        from vnc_remote_secure.security.auth_gateway import (
+            check_authenticated)
+        cookie = sessions.create_session_cookie('admin')['value']
+        # The cookie verifies BEFORE the bump.
+        ok, _u = check_authenticated(cookie)
+        assert ok is True
+        # Simulate the epoch set AFTER the session was issued.
+        epoch = time.time() + 1
+        monkeypatch.setattr(
+            sessions, 'operator_session_epoch', lambda: epoch)
+        ok, _u = check_authenticated(cookie)
+        assert ok is False
+
+    def test_new_session_survives(self, monkeypatch):
+        import time
+        from vnc_remote_secure.security import sessions
+        from vnc_remote_secure.security.auth_gateway import (
+            check_authenticated)
+        # Epoch in the PAST must not reject fresh sessions.
+        monkeypatch.setattr(
+            sessions, 'operator_session_epoch',
+            lambda: time.time() - 100)
+        cookie = sessions.create_session_cookie('admin')['value']
+        ok, _u = check_authenticated(cookie)
+        assert ok is True

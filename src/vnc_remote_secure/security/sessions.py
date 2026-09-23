@@ -118,6 +118,37 @@ def verify_session_cookie(cookie_value: str) -> dict | None:
     }
 
 
+_NS_OPERATOR_EPOCH = 'operator_session_epoch'
+
+
+def bump_operator_epoch() -> None:
+    """Invalidate every operator session issued so far.
+
+    Records the current time as the operator-session epoch in shared
+    state; ``check_authenticated`` rejects any session whose
+    ``created`` predates it. Called after sensitive credential
+    changes (rotating the UI password must not leave live sessions).
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        get_backend().set_ttl(
+            _NS_OPERATOR_EPOCH, 'all', time.time(),
+            _get_env_int('SESSION_MAX_LIFETIME', 86400) + 86400)
+    except Exception:  # noqa: BLE001 - best-effort; rotation already
+        logger.debug("Could not bump operator session epoch")
+        pass
+
+
+def operator_session_epoch() -> float:
+    """Return the operator-session epoch (0 when never bumped)."""
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        val = get_backend().get(_NS_OPERATOR_EPOCH, 'all')
+        return float(val) if val else 0.0
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def session_revocation_key(cookie_value: str) -> str | None:
     """Return a revocation key stable across cookie refreshes.
 
