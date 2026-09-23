@@ -567,6 +567,7 @@ class SessionStore:
                              f'resource={resource or "*"}')
         except Exception:  # noqa: BLE001 - audit must not break sessions
             pass
+        _metric('created')
         return session, signed
 
     def get(self, token: str) -> EphemeralSession | None:
@@ -791,6 +792,20 @@ def is_session_expired(signed_token: str) -> bool:
     return time.time() >= session.expires_at
 
 
+def _metric(event: str) -> None:
+    """Emit a session-lifecycle counter (best-effort).
+
+    Labels are limited to the event type — token/user/IP would be
+    high-cardinality by design.
+    """
+    try:
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_ephemeral_sessions_total',
+                    f'event={event}')
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def revoke_session(signed_token: str) -> bool:
     """Revoke a session by its signed token.
 
@@ -819,6 +834,8 @@ def revoke_session(signed_token: str) -> bool:
                 token = real_token
                 break
     result = store.revoke(token)
+    if result:
+        _metric('revoked')
 
     # Close all active WebSocket connections for this session.
     try:
@@ -1026,6 +1043,7 @@ def activate_ephemeral_session(signed_token: str,
             return None
         session.mark_used()
         store._save()
+        _metric('activated')
         try:
             from vnc_remote_secure.security.audit import audit_log
             audit_log('ephemeral_session_activate',

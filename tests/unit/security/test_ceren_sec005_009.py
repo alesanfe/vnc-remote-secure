@@ -1,4 +1,4 @@
-"""CEREN tests for TEST-SEC-005 through TEST-SEC-009.
+﻿"""CEREN tests for TEST-SEC-005 through TEST-SEC-009.
 
 TEST-SEC-005: Desktop token cannot be used in terminal.
 TEST-SEC-006: Disallowed Origin is rejected.
@@ -48,7 +48,7 @@ class TestResourceBinding:
         """Contrato: un token bound to 'desktop' no puede acceder a terminal.
 
         Precondiciones: token con resource='desktop'.
-        Acción: check_permission_for_action(token, 'terminal', resource='terminal').
+        AcciÃ³n: check_permission_for_action(token, 'terminal', resource='terminal').
         Resultado: rechazado.
         Efectos prohibidos: el token no obtiene acceso a terminal.
         """
@@ -87,7 +87,7 @@ class TestResourceBinding:
         assert check_permission(signed, PERM_TERMINAL, resource='terminal')
 
     def test_desktop_token_can_access_desktop(self, fresh_store):
-        """Contrato: un token bound to 'desktop' SÍ puede acceder a desktop."""
+        """Contrato: un token bound to 'desktop' SÃ puede acceder a desktop."""
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
         signed = create_ephemeral_session(
             role='viewer', ttl_seconds=300, resource='desktop',
@@ -103,7 +103,7 @@ class TestOriginValidation:
     """TEST-SEC-006: Disallowed Origin is rejected."""
 
     def test_empty_origin_rejected(self):
-        """Contrato: Origin vacío es rechazado."""
+        """Contrato: Origin vacÃ­o es rechazado."""
         assert not check_origin('', ['http://localhost:8000'])
 
     def test_null_origin_rejected(self):
@@ -127,7 +127,7 @@ class TestOriginValidation:
     def test_spoofed_subdomain_rejected(self):
         """Contrato: un subdominio spoofed de localhost es rechazado.
 
-        Condición límite: attacker intenta http://localhost.evil.com
+        CondiciÃ³n lÃ­mite: attacker intenta http://localhost.evil.com
         """
         origins = ['http://localhost:8000']
         assert not check_origin('http://localhost.evil.com', origins)
@@ -136,8 +136,8 @@ class TestOriginValidation:
     def test_websocket_upgrade_rejects_bad_origin(self, fresh_store):
         """Contrato: check_websocket_upgrade rechaza Origin no permitido.
 
-        Precondiciones: token válido.
-        Acción: check_websocket_upgrade con Origin='https://evil.com'.
+        Precondiciones: token vÃ¡lido.
+        AcciÃ³n: check_websocket_upgrade con Origin='https://evil.com'.
         Resultado: rechazado con 'Invalid origin'.
         """
         signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
@@ -169,7 +169,7 @@ class TestSpoofedProxyHeaders:
 
     Contrato: las cabeceras X-Forwarded-User, X-Remote-User,
     X-Authenticated-User, X-Forwarded-For, X-Forwarded-Proto NO deben
-    conceder autenticación. Solo el reverse proxy de confianza debe
+    conceder autenticaciÃ³n. Solo el reverse proxy de confianza debe
     establecer identidad, y solo via mecanismos verificados.
     """
 
@@ -184,15 +184,15 @@ class TestSpoofedProxyHeaders:
         ],
     )
     def test_spoofed_header_does_not_authenticate(self, header_name):
-        """Contrato: ninguna cabecera proxy concede autenticación.
+        """Contrato: ninguna cabecera proxy concede autenticaciÃ³n.
 
-        Precondiciones: ninguna sesión activa.
-        Acción: check_authenticated con cookie vacía y bearer vacío.
+        Precondiciones: ninguna sesiÃ³n activa.
+        AcciÃ³n: check_authenticated con cookie vacÃ­a y bearer vacÃ­o.
         Resultado: no autenticado, sin importar las cabeceras.
 
-        Nota: check_authenticated no acepta cabeceras como parámetro.
-        Las cabeceras proxy son ignoradas por diseño. Este test
-        verifica que la función no las considere.
+        Nota: check_authenticated no acepta cabeceras como parÃ¡metro.
+        Las cabeceras proxy son ignoradas por diseÃ±o. Este test
+        verifica que la funciÃ³n no las considere.
         """
         from vnc_remote_secure.security.auth_gateway import check_authenticated
         # check_authenticated only accepts cookie_value and bearer_token.
@@ -203,7 +203,7 @@ class TestSpoofedProxyHeaders:
         assert username is None
 
     def test_check_authenticated_ignores_proxy_headers(self):
-        """Contrato: check_authenticated no tiene parámetro para cabeceras proxy.
+        """Contrato: check_authenticated no tiene parÃ¡metro para cabeceras proxy.
 
         Esto verifica que la API misma no acepta cabeceras proxy.
         Si la API no las acepta, no pueden ser usadas para bypass.
@@ -222,7 +222,7 @@ class TestSpoofedProxyHeaders:
     def test_websocket_upgrade_does_not_trust_forwarded_user(self, fresh_store):
         """Contrato: check_websocket_upgrade no acepta X-Forwarded-User.
 
-        Si un atacante envía X-Forwarded-User: admin, no debe obtener
+        Si un atacante envÃ­a X-Forwarded-User: admin, no debe obtener
         acceso WebSocket.
         """
         signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
@@ -268,7 +268,7 @@ class TestPublicHardenedBlocksInsecureStartup:
         """Contrato: public-hardened fuerza BACKEND_BIND_HOST=127.0.0.1.
 
         Precondiciones: usuario pone BACKEND_BIND_HOST=0.0.0.0 en env.
-        Acción: apply_profile('public-hardened').
+        AcciÃ³n: apply_profile('public-hardened').
         Resultado: BACKEND_BIND_HOST se fuerza a 127.0.0.1.
         """
         monkeypatch.setenv('BACKEND_BIND_HOST', '0.0.0.0')
@@ -283,7 +283,7 @@ class TestPublicHardenedBlocksInsecureStartup:
         """
         monkeypatch.setenv('BACKEND_BIND_HOST', '0.0.0.0')
         monkeypatch.setenv('SECURITY_PROFILE', 'development')
-        # overwrite=False: operator-set vars win over profile defaults —
+        # overwrite=False: operator-set vars win over profile defaults â€”
         # and development is not hardened, so BACKEND_BIND_HOST is not
         # in locked_vars (unlike public-hardened, which forces 127.0.0.1).
         apply_profile('development')
@@ -292,9 +292,9 @@ class TestPublicHardenedBlocksInsecureStartup:
     def test_config_validate_reports_missing_flask_secret(self, monkeypatch):
         """Contrato: config validate reporta FLASK_SECRET_KEY ausente en hardened.
 
-        Precondiciones: SECURITY_PROFILE=public-hardened, FLASK_SECRET_KEY vacío.
-        Acción: validate_config.
-        Resultado: finding crítico sobre FLASK_SECRET_KEY.
+        Precondiciones: SECURITY_PROFILE=public-hardened, FLASK_SECRET_KEY vacÃ­o.
+        AcciÃ³n: validate_config.
+        Resultado: finding crÃ­tico sobre FLASK_SECRET_KEY.
         """
         from vnc_remote_secure.core.config_inspector import validate_config
         monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
@@ -315,7 +315,7 @@ class TestSecretsNotInLogs:
     def test_ephemeral_token_not_in_session_to_dict(self, fresh_store):
         """Contrato: to_dict() no incluye el token ni la firma.
 
-        Efectos prohibidos: el token no aparece en la serialización.
+        Efectos prohibidos: el token no aparece en la serializaciÃ³n.
         """
         session, signed = fresh_store.create(role='viewer', expires_in=300)
         d = session.to_dict()
@@ -334,7 +334,7 @@ class TestSecretsNotInLogs:
         """Contrato: config show-effective redacta VNC_PASSWORD.
 
         Precondiciones: VNC_PASSWORD=secret123.
-        Acción: compute_effective_config.
+        AcciÃ³n: compute_effective_config.
         Resultado: VNC_PASSWORD se muestra como [REDACTED].
         Efectos prohibidos: el valor real aparece en la salida.
         """
@@ -364,10 +364,10 @@ class TestSecretsNotInLogs:
         pytest.fail('FLASK_SECRET_KEY not found in config output')
 
     def test_audit_log_does_not_include_token(self, fresh_store, caplog):
-        """Contrato: los logs de auditoría no incluyen el token.
+        """Contrato: los logs de auditorÃ­a no incluyen el token.
 
-        Precondiciones: sesión válida.
-        Acción: revoke_session (que escribe log).
+        Precondiciones: sesiÃ³n vÃ¡lida.
+        AcciÃ³n: revoke_session (que escribe log).
         Resultado: el token no aparece en los logs.
         Efectos prohibidos: el token firmado aparece en cualquier log.
         """
@@ -386,7 +386,7 @@ class TestSecretsNotInLogs:
     def test_error_messages_do_not_leak_secrets(self, fresh_store):
         """Contrato: los mensajes de error no incluyen secretos.
 
-        Acción: check_permission_for_action con token inválido.
+        AcciÃ³n: check_permission_for_action con token invÃ¡lido.
         Resultado: el mensaje de error no incluye el token.
         """
         from vnc_remote_secure.security.auth_gateway import (
@@ -400,7 +400,7 @@ class TestSecretsNotInLogs:
 
 class TestExpiryEnforcement:
     """An expired session must fail is_valid/validate/check_permission
-    — the expiry check sits on the authorization critical path."""
+    â€” the expiry check sits on the authorization critical path."""
 
     def test_expired_is_invalid(self, fresh_store):
         sess, signed = fresh_store.create(
@@ -433,12 +433,12 @@ class TestExpiryEnforcement:
         assert fresh_store.validate(signed) is None
 
     def test_expiry_boundary_just_inside(self, fresh_store):
-        """expires_in=0 creates expires_at ~= now — must not be
+        """expires_in=0 creates expires_at ~= now â€” must not be
         treated as still-valid after the clock advances."""
         import time
         sess, signed = fresh_store.create(role='viewer', expires_in=0)
         # Boundary: exactly at expiry is invalid (>), one second before
-        # would be valid — freeze time just inside validity.
+        # would be valid â€” freeze time just inside validity.
         sess.expires_at = time.time() + 1
         assert sess.is_valid() is True
         sess.expires_at = time.time() - 0.001
@@ -447,7 +447,7 @@ class TestExpiryEnforcement:
 
 class TestResourceBindingValidation:
     """A token minted for resource='desktop' must not validate for
-    resource='terminal' at the is_valid/validate layer — not just at
+    resource='terminal' at the is_valid/validate layer â€” not just at
     has_permission."""
 
     def test_wrong_resource_is_invalid(self, fresh_store):
@@ -470,7 +470,7 @@ class TestResourceBindingValidation:
 
 
 class TestCidrIpBinding:
-    """allowed_ip accepts CIDR ranges — subnet policies survive a
+    """allowed_ip accepts CIDR ranges â€” subnet policies survive a
     client roaming inside one network."""
 
     def test_cidr_match_accepted(self, fresh_store):
@@ -568,7 +568,7 @@ class TestGranularPermissionExpansion:
 
 class TestFirstObservedIpBinding:
     """allowed_ip='first-observed' pins the session to the first
-    activation IP — a middle ground between no binding and an exact
+    activation IP â€” a middle ground between no binding and an exact
     (possibly unknown) address."""
 
     def test_first_activation_pins_ip(self, fresh_store):
@@ -601,7 +601,7 @@ class TestFirstObservedIpBinding:
 
     def test_activation_without_ip_leaves_unbound(
             self, fresh_store):
-        """CLI/API activation without caller context doesn't pin —
+        """CLI/API activation without caller context doesn't pin â€”
         the binding applies at first request with a real IP... and a
         later activation WITH an ip still pins then."""
         from vnc_remote_secure.security.ephemeral_sessions import (
@@ -616,7 +616,7 @@ class TestFirstObservedIpBinding:
 
 
 class TestAudioPermission:
-    """desktop:audio is explicit — room audio is privacy-sensitive
+    """desktop:audio is explicit â€” room audio is privacy-sensitive
     and must not ride along with desktop:view."""
 
     def test_viewer_lacks_audio(self, fresh_store):
@@ -636,12 +636,12 @@ class TestAudioPermission:
 
 
 class TestGamepadPermission:
-    """desktop:gamepad is explicit AND experimental — it is input
+    """desktop:gamepad is explicit AND experimental â€” it is input
     injection through a privileged driver, not plain control."""
 
     def test_support_lacks_gamepad(self, fresh_store):
         """support has full control but NOT the experimental
-        gamepad path — control umbrella must not imply it."""
+        gamepad path â€” control umbrella must not imply it."""
         sess, _ = fresh_store.create(role='support', expires_in=3600)
         assert sess.has_permission('desktop:control') is True
         assert sess.has_permission('desktop:gamepad') is False
@@ -657,3 +657,43 @@ class TestGamepadPermission:
             role='operator', expires_in=3600, view_only=True,
             permissions={'view', 'gamepad'})
         assert sess.has_permission('desktop:gamepad') is False
+
+
+class TestSessionLifecycleMetrics:
+    """Session create/activate/revoke must emit lifecycle counters â€”
+    the security-metrics the external review asks for."""
+
+    def test_created_metric(self, fresh_store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.monitoring.prometheus.inc_counter',
+            lambda n, lbl='', value=1: calls.append((n, lbl)))
+        fresh_store.create(role='viewer', expires_in=3600)
+        assert ('vnc_remote_ephemeral_sessions_total',
+                'event=created') in calls
+
+    def test_revoked_metric(self, fresh_store, monkeypatch):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            revoke_session)
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600)
+        calls = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.monitoring.prometheus.inc_counter',
+            lambda n, lbl='', value=1: calls.append((n, lbl)))
+        assert revoke_session(signed) is True
+        assert ('vnc_remote_ephemeral_sessions_total',
+                'event=revoked') in calls
+
+    def test_activated_metric(self, fresh_store, monkeypatch):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session)
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600)
+        calls = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.monitoring.prometheus.inc_counter',
+            lambda n, lbl='', value=1: calls.append((n, lbl)))
+        assert activate_ephemeral_session(signed) is not None
+        assert ('vnc_remote_ephemeral_sessions_total',
+                'event=activated') in calls

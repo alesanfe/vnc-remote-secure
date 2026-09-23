@@ -37,6 +37,7 @@ import hashlib
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable
 
 from vnc_remote_secure.core.constants import DEFAULT_SESSION_MAX_LIFETIME
@@ -182,8 +183,19 @@ class WebSocketRegistry:
                 str(DEFAULT_SESSION_MAX_LIFETIME)))
         except (ValueError, TypeError):
             max_lifetime = DEFAULT_SESSION_MAX_LIFETIME
+        # The marker stores the revocation timestamp so the sweep can
+        # measure mark->close latency. Re-marking (e.g. the sweeper's
+        # own close path) preserves the original timestamp — only a
+        # legacy True value or a missing marker gets a fresh one.
+        existing = get_backend().get(_NS_REVOKED, session_id)
+        if isinstance(existing, (int, float)) \
+                and not isinstance(existing, bool):
+            marked_at = existing
+        else:
+            marked_at = time.time()
         get_backend().set_ttl(
-            _NS_REVOKED, session_id, True, max(86400, max_lifetime))
+            _NS_REVOKED, session_id, marked_at,
+            max(86400, max_lifetime))
         # Snapshot and detach under the lock, then invoke the close
         # callbacks AFTER releasing it — a callback that touches the
         # registry (e.g. calls unregister from the socket's close
@@ -354,18 +366,32 @@ def _session_expired(session_id: str) -> bool:
 def _sweep_revoked_session(session_id: str) -> bool:
     """Close the session's connections on revocation OR expiry."""
     reason = None
+    marked_at = None
     if is_revoked_shared(session_id):
         reason = 'revoked'
+        try:
+            raw = get_backend().get(_NS_REVOKED, session_id)
+            if isinstance(raw, (int, float)) \
+                    and not isinstance(raw, bool):
+                marked_at = float(raw)
+        except Exception:  # noqa: BLE001
+            pass
     elif _session_expired(session_id):
         reason = 'expired'
     if reason is None:
         return False
     closed = get_registry().revoke_session(session_id)
     try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        from vnc_remote_secure.monitoring.prometheus import (
+            inc_counter, set_gauge)
         inc_counter('vnc_remote_ws_connections_closed_total',
                     f'reason={reason}',
                     value=closed if isinstance(closed, int) else 1)
+        if marked_at is not None:
+            # mark->close propagation latency, clamped for clock skew.
+            set_gauge('vnc_remote_revocation_latency_seconds',
+                      max(0.0, time.time() - marked_at),
+                      labels='channel=websocket')
     except Exception:  # noqa: BLE001 - metrics must not break cleanup
         pass
     return True

@@ -232,6 +232,23 @@ def _session_revoke(args, store=None):
                    f'count={revoked}')
         print(f"Revoked {revoked} session(s).")
         return 0
+    # Revoke every session created by a given operator — the "kill all
+    # sessions for user X" operation (credential change, offboarding,
+    # compromised admin account).
+    by_user = getattr(args, 'by_user', None)
+    if by_user:
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            get_session_store, revoke_session)
+        store = store or get_session_store()
+        revoked = 0
+        for token, sess in list(store._sessions.items()):
+            if getattr(sess, 'created_by', '') == by_user \
+                    and revoke_session(token):
+                revoked += 1
+        _audit_cli('ephemeral_session_revoke_user', 'success',
+                   f'user={by_user} count={revoked}')
+        print(f"Revoked {revoked} session(s) created by {by_user}.")
+        return 0
     # Accept the token either positionally (natural form:
     # ``vnc-remote session revoke <token>``) or via --token.
     token = getattr(args, 'token', None) or getattr(args, 'token_pos', None)
