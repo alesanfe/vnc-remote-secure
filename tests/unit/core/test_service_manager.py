@@ -349,3 +349,62 @@ class TestPidIdentityGuards:
         monkeypatch.setattr(sm, 'is_windows', lambda: False)
         # /proc read fails -> None (unknown), never False.
         assert sm._pid_is_ours(999999999) is None
+
+
+class TestAuditInternalListeners:
+    """A service that bound publicly when it must be loopback-only
+    is a perimeter breach — the post-start audit must catch it."""
+
+    def _cfg(self, **kw):
+        cfg = {'vnc_port': 5901, 'novnc_ws_port': 5700,
+               'ttyd_port': 7681, 'landing_port': 8080,
+               'nginx_enabled': False}
+        cfg.update(kw)
+        return cfg
+
+    def _with_listeners(self, monkeypatch, listeners):
+        import vnc_remote_secure.core.service_manager as sm
+        import vnc_remote_secure.core.doctor as doc
+        monkeypatch.setattr(
+            doc, '_list_listeners', lambda: listeners)
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.doctor._list_listeners',
+            lambda: listeners)
+        return sm
+
+    def test_rfb_public_flagged(self, monkeypatch):
+        sm = self._with_listeners(
+            monkeypatch,
+            [('0.0.0.0', 5901), ('127.0.0.1', 5700)])
+        findings = sm.audit_internal_listeners(self._cfg())
+        assert any('vnc' in f and '0.0.0.0' in f for f in findings)
+
+    def test_websockify_public_flagged(self, monkeypatch):
+        sm = self._with_listeners(
+            monkeypatch,
+            [('127.0.0.1', 5901), ('0.0.0.0', 5700)])
+        findings = sm.audit_internal_listeners(self._cfg())
+        assert any('websockify' in f for f in findings)
+
+    def test_loopback_clean(self, monkeypatch):
+        sm = self._with_listeners(
+            monkeypatch,
+            [('127.0.0.1', 5901), ('::1', 5700)])
+        assert sm.audit_internal_listeners(self._cfg()) == []
+
+    def test_backend_public_only_with_nginx(self, monkeypatch):
+        """Without nginx the backends ARE the public entry points —
+        flagging them would be a false positive."""
+        sm = self._with_listeners(
+            monkeypatch,
+            [('0.0.0.0', 8080), ('127.0.0.1', 5901),
+             ('127.0.0.1', 5700)])
+        cfg = self._cfg(nginx_enabled=False)
+        assert sm.audit_internal_listeners(cfg) == []
+        cfg = self._cfg(nginx_enabled=True)
+        findings = sm.audit_internal_listeners(cfg)
+        assert any('8080' in f for f in findings)
+
+    def test_enumeration_failure_no_findings(self, monkeypatch):
+        sm = self._with_listeners(monkeypatch, None)
+        assert sm.audit_internal_listeners(self._cfg()) == []

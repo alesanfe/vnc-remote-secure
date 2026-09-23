@@ -422,6 +422,57 @@ def _port_accepting(port: int, host: str = '127.0.0.1') -> bool:
         return False
 
 
+def audit_internal_listeners(config: dict) -> list:
+    """Verify security-internal ports are not bound publicly.
+
+    The RFB port and the WebSocket→RFB bridge MUST stay on loopback —
+    the gateway/noVNC proxy is the only legitimate public path to the
+    desktop, and a legacy VNC DES credential is not a defence. Other
+    backend services are checked too but only flagged when the
+    deployment runs nginx (they are meant to be fronted then).
+
+    Reuses doctor's listener enumeration (psutil, then netstat/ss
+    fallback) so the post-start audit and ``doctor`` see the same
+    socket table.
+
+    Returns:
+        A list of human-readable findings (empty = clean).
+    """
+    try:
+        from vnc_remote_secure.core.doctor import (
+            _is_loopback_addr, _list_listeners)
+    except ImportError:
+        return []
+    listeners = _list_listeners()
+    if not listeners:
+        return []
+    findings = []
+    # _service_port_map resolves the EFFECTIVE VNC port (Linux derives
+    # it from the display number, not VNC_PORT) — the audit must probe
+    # the port TigerVNC actually bound.
+    ports = _service_port_map(config)
+    strict = {'vnc': ports.get('vnc'),
+              'websockify': ports.get('websockify')}
+    backend_ports = {p for s, p in ports.items()
+                     if s not in strict and p}
+    for addr, port in listeners:
+        if _is_loopback_addr(addr):
+            continue
+        for service, expected in strict.items():
+            if expected and port == int(expected):
+                findings.append(
+                    f'{service} port {port} listening on {addr} — '
+                    'MUST be loopback-only (public RFB exposure)')
+        # Backend services: only flagged when nginx fronts them —
+        # without a reverse proxy they ARE the public entry points
+        # by design.
+        if config.get('nginx_enabled') and port in backend_ports:
+            findings.append(
+                f'backend port {port} listening on {addr} — '
+                'nginx deployment expects loopback backends')
+    return findings
+
+
 def _reap_stale_service(module: str, service_name: str, port: int):
     """Best-effort kill of an orphaned service process holding ``port``.
 
@@ -625,6 +676,29 @@ def start_all(config: dict | None = None) -> dict:
                        severity='error')
             except Exception:  # noqa: BLE001 - alerting is best-effort
                 pass
+
+        # Listener audit: a service that bound publicly when it must be
+        # loopback-only (RFB, websockify) is a perimeter breach even if
+        # every service started "successfully".
+        findings = audit_internal_listeners(config)
+        for f in findings:
+            logger.error("LISTENER AUDIT: %s", f)
+        if findings:
+            try:
+                from vnc_remote_secure.security.audit import audit_log
+                audit_log('listener_audit_failure',
+                          detail='; '.join(findings))
+            except Exception:  # noqa: BLE001
+                pass
+            if config.get('security_profile') in (
+                    'public-hardened', 'private-overlay'):
+                try:
+                    from vnc_remote_secure.monitoring.alerts import (
+                        notify)
+                    notify('Public listener detected',
+                           '; '.join(findings), severity='critical')
+                except Exception:  # noqa: BLE001
+                    pass
         return results
 
 
