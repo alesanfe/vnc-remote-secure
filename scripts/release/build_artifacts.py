@@ -15,12 +15,10 @@ Usage: ``python scripts/release/build_artifacts.py [--no-sign]``
 """
 import glob
 import hashlib
-import json
 import os
 import shutil
 import subprocess
 import sys
-import time
 
 
 def _root() -> str:
@@ -63,45 +61,18 @@ def write_checksums(artifacts: list, dist: str) -> str:
 
 
 def write_sbom(dist: str) -> str:
-    """Write a CycloneDX 1.5 JSON SBOM of the installed runtime deps.
+    """Write the CycloneDX SBOM via tools/generate_sbom.py.
 
-    Uses importlib.metadata — an SBOM that requires a third-party
-    generator would be unauditable inside this very build.
+    The canonical generator reads declared deps from pyproject.toml —
+    listing every package in the build venv (importlib.metadata)
+    would ship dev-tool noise as if it were a runtime dependency.
     """
-    from importlib import metadata
-    components = []
-    for d in sorted(metadata.distributions(),
-                    key=lambda x: (x.metadata['Name'] or '').lower()):
-        name = d.metadata['Name']
-        version = d.version
-        if not name:
-            continue
-        components.append({
-            'type': 'library',
-            'bom-ref': f'pkg:pypi/{name.lower()}@{version}',
-            'name': name,
-            'version': version,
-            'purl': f'pkg:pypi/{name.lower()}@{version}',
-        })
-    sbom = {
-        'bomFormat': 'CycloneDX',
-        'specVersion': '1.5',
-        'version': 1,
-        'metadata': {
-            'timestamp': time.strftime(
-                '%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            'component': {
-                'type': 'application',
-                'name': 'vnc-remote-secure',
-                'bom-ref': 'pkg:pypi/vnc-remote-secure',
-            },
-        },
-        'components': components,
-    }
     path = os.path.join(dist, 'sbom.cdx.json')
-    with open(path, 'w', encoding='utf-8', newline='\n') as f:
-        json.dump(sbom, f, indent=2)
-    print(f"[OK] sbom.cdx.json ({len(components)} components)")
+    root = os.path.dirname(dist)  # dist/ is directly under the root
+    generator = os.path.join(root, 'tools', 'generate_sbom.py')
+    rc = _run([sys.executable, generator, '--output', path], root)
+    if rc != 0 or not os.path.isfile(path):
+        sys.exit('SBOM generation failed')
     return path
 
 
