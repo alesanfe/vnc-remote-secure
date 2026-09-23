@@ -215,7 +215,11 @@ class EphemeralSession:
             return False
         # IP binding is fail-closed: a missing client_ip must not
         # silently skip an operator-configured restriction.
-        if self.allowed_ip and not _ip_matches(self.allowed_ip, client_ip):
+        # 'first-observed' is the unbound marker — it binds to the
+        # first activation IP inside consume/activate, so it never
+        # reaches this check as a literal.
+        if self.allowed_ip and self.allowed_ip != 'first-observed' \
+                and not _ip_matches(self.allowed_ip, client_ip):
             return False
         # Resource binding restricts WHERE a permission may be used —
         # enforced only when the caller names a resource (action-level
@@ -994,6 +998,12 @@ def activate_ephemeral_session(signed_token: str,
         # allowed, the per-request check still enforces the binding.
         # An empty STRING means a request resolved to no IP (suspicious,
         # e.g. malformed XFF) — denied.
+        if session.allowed_ip == 'first-observed' and client_ip:
+            # Pin the binding to the first activation IP: the
+            # operator wants "whoever redeems first" rather than a
+            # literal address — useful for mobile clients whose IP is
+            # unknowable at link-creation time.
+            session.allowed_ip = client_ip
         if session.allowed_ip and client_ip is not None and \
                 not _ip_matches(session.allowed_ip, client_ip):
             return None

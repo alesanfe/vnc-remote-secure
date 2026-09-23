@@ -32,6 +32,10 @@
       "type": "string",
       "description": "SMTP username for alert emails."
     },
+    "ALERT_WEBHOOK_SECRET": {
+      "type": "string",
+      "description": "HMAC secret for signing outbound webhook alerts (X-VncRemote-Signature header)."
+    },
     "ALERT_WEBHOOK_URL": {
       "type": "string",
       "description": "Webhook URL for alert notifications."
@@ -154,6 +158,10 @@
     "DUCK_DOMAIN": {
       "type": "string",
       "description": "DuckDNS domain used for dynamic DNS."
+    },
+    "DUCKDNS_TOKEN": {
+      "type": "string",
+      "description": "DuckDNS API token for dynamic DNS updates."
     },
     "EMAIL": {
       "type": "string",

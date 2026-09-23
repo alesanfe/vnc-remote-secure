@@ -103,7 +103,7 @@ def _session_create(store, args):
     if args.max_uses < 0:
         print("Error: --max-uses must be >= 0 (0 = unlimited)")
         return 1
-    if args.allowed_ip:
+    if args.allowed_ip and args.allowed_ip != 'first-observed':
         # Fail fast on a malformed IP — the store validates by
         # string match, so a typo would create a session that
         # never activates.
@@ -115,8 +115,8 @@ def _session_create(store, args):
             else:
                 ipaddress.ip_address(raw)
         except ValueError:
-            print(f"Error: --allowed-ip is not a valid IP or CIDR: "
-                  f"{args.allowed_ip!r}")
+            print(f"Error: --allowed-ip is not a valid IP, CIDR, or "
+                  f"'first-observed': {args.allowed_ip!r}")
             return 1
 
     permissions = None

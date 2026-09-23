@@ -71,7 +71,10 @@ def _add_session_args(subparsers):
     p_create.add_argument('--single-use', action='store_true', help='Session expires after first use')
     p_create.add_argument('--max-uses', type=int, default=0,
                           help='Maximum number of uses (0 = unlimited)')
-    p_create.add_argument('--allowed-ip', help='Restrict to a specific IP')
+    p_create.add_argument(
+        '--allowed-ip',
+        help="Restrict to an IP, CIDR range, or 'first-observed' "
+             "(pins to whoever activates the link first)")
     p_create.add_argument('--resource', default=None,
                           choices=['desktop', 'terminal', 'audio', 'gamepad'],
                           help='Bind the token to a single resource')

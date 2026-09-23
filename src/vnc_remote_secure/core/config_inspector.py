@@ -144,6 +144,54 @@ def _redact_value(name: str, value: str) -> str:
     return value
 
 
+def _load_env_file_values() -> dict[str, str]:
+    """Parse the project ``.env`` into a dict (no env mutation)."""
+    env_file_values: dict[str, str] = {}
+    from vnc_remote_secure.core.paths import find_project_root
+    env_path = os.path.join(find_project_root(), '.env')
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, _, val = line.partition('=')
+                    key = key.strip()
+                    val = val.strip()
+                    if val and val[0] in '"\'' and val[-1] == val[0]:
+                        val = val[1:-1]
+                    if val.startswith('$('):
+                        continue
+                    env_file_values[key] = val
+        except (OSError, ValueError):
+            logger.debug("Failed to read .env file", exc_info=True)
+    return env_file_values
+
+
+def _schema_known_vars() -> set:
+    """Return variable names declared in the JSON schema."""
+    import json as _json
+    candidates = []
+    try:
+        from importlib.resources import files
+        candidates.append(str(
+            files('vnc_remote_secure') / 'config' / 'schema'
+            / 'config.schema.json'))
+    except Exception:  # noqa: BLE001
+        pass
+    candidates.append(os.path.join(
+        os.path.dirname(__file__), '..', 'config', 'schema',
+        'config.schema.json'))
+    for path in candidates:
+        try:
+            with open(path, encoding='utf-8') as f:
+                return set(_json.load(f).get('properties', {}))
+        except (OSError, ValueError):
+            continue
+    return set()
+
+
 def compute_effective_config(
     env_snapshot: dict[str, str] | None = None,
     profile_name: str | None = None,
@@ -167,26 +215,7 @@ def compute_effective_config(
         profile_name = _resolve_profile_name(env_snapshot)
 
     # Load .env file values (without overriding existing env vars).
-    env_file_values: dict[str, str] = {}
-    from vnc_remote_secure.core.paths import find_project_root
-    env_path = os.path.join(find_project_root(), '.env')
-    if os.path.exists(env_path):
-        try:
-            with open(env_path, encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#') or '=' not in line:
-                        continue
-                    key, _, val = line.partition('=')
-                    key = key.strip()
-                    val = val.strip()
-                    if val and val[0] in '"\'' and val[-1] == val[0]:
-                        val = val[1:-1]
-                    if val.startswith('$('):
-                        continue
-                    env_file_values[key] = val
-        except (OSError, ValueError):
-            logger.debug("Failed to read .env file", exc_info=True)
+    env_file_values = _load_env_file_values()
 
     profile_values = _get_profile_values(profile_name)
     platform_defaults = _get_platform_defaults()
@@ -440,6 +469,19 @@ def validate_config(
     findings: list[dict[str, str]] = []
     effective = compute_effective_config(env_snapshot, profile_name)
     effective_dict = {e['name']: e['value'] for e in effective}
+
+    # Unknown keys in .env: a typo like VNC_PASWORD silently does
+    # nothing while the operator believes a credential is set. Only
+    # file keys are checked — os.environ holds hundreds of unrelated
+    # system variables that must not be flagged.
+    known = _schema_known_vars()
+    if known:
+        for key in sorted(set(_load_env_file_values()) - known):
+            findings.append({
+                'severity': 'warning',
+                'message': f'Unknown config key in .env: {key} — '
+                           'not declared in the schema (typo?)',
+            })
 
     # BACKEND_BIND_HOST must be 127.0.0.1 in all profiles.
     backend_bind = effective_dict.get('BACKEND_BIND_HOST', '127.0.0.1')

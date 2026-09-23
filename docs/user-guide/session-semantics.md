@@ -54,8 +54,13 @@ create (CLI)  →  signed URL token  →  GET /?session=<token>
 
 ## IP binding (`allowed_ip`)
 
-- Optional. When set, `client_ip` must match exactly — a missing
-  client IP fails closed (`None != allowed_ip`).
+- Optional. When set, `client_ip` must match — either an exact IP or
+  a CIDR range (`10.0.0.0/24`). A missing client IP fails closed.
+- `--allowed-ip first-observed` pins the session to **whoever
+  activates the link first** — useful when the client's IP is
+  unknowable at creation time (mobile networks, CGNAT). Weaker than
+  a fixed binding: the first redeemer becomes the bound client; it
+  stops *later* misuse of the same link.
 - It is a **supporting control, not an identity**: CGNAT, VPNs,
   mobile networks and shared proxies can break it or let it be
   shared. Do not rely on it as the primary defence.

@@ -135,3 +135,46 @@ class TestRedaction:
             {'VNC_PASSWORD': 'Sup3rSecret'}, 'development')
         vnc = next(e for e in eff if e['name'] == 'VNC_PASSWORD')
         assert 'Sup3rSecret' not in str(vnc)
+
+
+class TestUnknownEnvKeys:
+    """A typo'd .env key (VNC_PASWORD) silently does nothing while
+    the operator believes a control is set — validate must flag it."""
+
+    def _with_env(self, tmp_path, monkeypatch, content):
+        env = tmp_path / '.env'
+        env.write_text(content)
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.paths.find_project_root',
+            lambda: str(tmp_path))
+        # find_project_root may be bound into the inspector module too
+        from vnc_remote_secure.core import config_inspector as ci
+        import vnc_remote_secure.core.paths as paths_mod
+        monkeypatch.setattr(
+            paths_mod, 'find_project_root', lambda: str(tmp_path))
+        return ci
+
+    def test_unknown_key_warns(self, tmp_path, monkeypatch):
+        ci = self._with_env(
+            tmp_path, monkeypatch, 'VNC_PASWORD=hunter2\n')
+        findings = ci.validate_config(env_snapshot={})
+        assert any('VNC_PASWORD' in f['message'] and
+                   f['severity'] == 'warning'
+                   for f in findings)
+
+    def test_known_key_no_warn(self, tmp_path, monkeypatch):
+        ci = self._with_env(
+            tmp_path, monkeypatch, 'VNC_PORT=5900\n')
+        findings = ci.validate_config(env_snapshot={})
+        assert not any('Unknown config key' in f['message']
+                       for f in findings)
+
+    def test_missing_schema_no_crash(self, tmp_path, monkeypatch):
+        """Schema unloadable -> no findings, no crash (fail open for
+        a lint-level check)."""
+        ci = self._with_env(
+            tmp_path, monkeypatch, 'WHATEVER=1\n')
+        monkeypatch.setattr(ci, '_schema_known_vars', set)
+        findings = ci.validate_config(env_snapshot={})
+        assert not any('Unknown config key' in f['message']
+                       for f in findings)

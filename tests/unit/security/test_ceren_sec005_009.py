@@ -564,3 +564,52 @@ class TestGranularPermissionExpansion:
         assert sess.has_permission('desktop:pointer') is False
         assert sess.has_permission('desktop:clipboard_write') is False
         assert sess.has_permission('desktop:view') is True
+
+
+class TestFirstObservedIpBinding:
+    """allowed_ip='first-observed' pins the session to the first
+    activation IP — a middle ground between no binding and an exact
+    (possibly unknown) address."""
+
+    def test_first_activation_pins_ip(self, fresh_store):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session)
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600,
+            allowed_ip='first-observed')
+        token = activate_ephemeral_session(
+            signed, client_ip='203.0.113.7')
+        assert token is not None
+        sess = fresh_store.get(token)
+        assert sess.allowed_ip == '203.0.113.7'
+
+    def test_pinned_binding_enforced(self, fresh_store):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session, check_session_permission)
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600,
+            allowed_ip='first-observed')
+        token = activate_ephemeral_session(
+            signed, client_ip='203.0.113.7')
+        assert check_session_permission(
+            token, 'desktop:view',
+            client_ip='203.0.113.7') is True
+        # A different client is rejected after pinning.
+        assert check_session_permission(
+            token, 'desktop:view',
+            client_ip='198.51.100.4') is False
+
+    def test_activation_without_ip_leaves_unbound(
+            self, fresh_store):
+        """CLI/API activation without caller context doesn't pin —
+        the binding applies at first request with a real IP... and a
+        later activation WITH an ip still pins then."""
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session)
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600,
+            allowed_ip='first-observed')
+        token = activate_ephemeral_session(signed)
+        assert token is not None
+        sess = fresh_store.get(token)
+        assert sess.allowed_ip == 'first-observed'
