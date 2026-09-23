@@ -125,6 +125,10 @@
       "type": "string",
       "description": "When set, backups are Fernet-encrypted (.enc.tar.gz) and restore decrypts automatically."
     },
+    "RESTORE_KEEP_SESSIONS": {
+      "type": "boolean",
+      "description": "Keep the ephemeral session store when restoring a backup (default off — restored share links are expired to avoid resurrecting sessions revoked after the backup)."
+    },
     "BIND_HOST": {
       "type": "string",
       "description": "Default bind address for public-facing services."

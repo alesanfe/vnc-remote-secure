@@ -304,3 +304,49 @@ def test_sqlite_snapshot_missing_source(tmp_path):
     """A missing/corrupt source returns None (caller falls back)."""
     from vnc_remote_secure.core.backup import _snapshot_sqlite
     assert _snapshot_sqlite(str(tmp_path / 'nope.db')) is None
+
+
+class TestRestoreSessionExpiry:
+    """Restored share links must not resurrect sessions revoked
+    after the backup was taken (default: expire them)."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.core import backup
+        run_dst = tmp_path / "run_dst"
+        monkeypatch.setattr(backup, "get_run_dir", lambda: str(run_dst))
+        monkeypatch.setattr(backup, "get_ssl_dir",
+                            lambda: str(tmp_path / "ssl_dst"))
+        monkeypatch.setattr(backup, "get_config_dir",
+                            lambda: str(tmp_path / "cfg_dst"))
+        monkeypatch.setattr(backup, "get_data_dir",
+                            lambda: str(tmp_path / "data_dst"))
+        monkeypatch.setattr(backup, "get_system_config_path",
+                            lambda: str(tmp_path / "sys.env"),
+                            raising=False)
+        monkeypatch.setattr(backup, "find_project_root",
+                            lambda: str(tmp_path / "proj"))
+        (tmp_path / "proj").mkdir(exist_ok=True)
+        return run_dst
+
+    def _tar_with_sessions(self, path):
+        _make_tar(str(path), members=(
+            "run/ephemeral_sessions.json", "run/auth_secret.key"))
+
+    def test_sessions_expired_by_default(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.core import backup
+        run_dst = self._setup(tmp_path, monkeypatch)
+        monkeypatch.delenv("RESTORE_KEEP_SESSIONS", raising=False)
+        f = tmp_path / "b.tar.gz"
+        self._tar_with_sessions(f)
+        backup.restore_backup(str(f))
+        assert not (run_dst / "ephemeral_sessions.json").exists()
+        assert (run_dst / "auth_secret.key").exists()
+
+    def test_sessions_kept_with_optin(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.core import backup
+        run_dst = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setenv("RESTORE_KEEP_SESSIONS", "1")
+        f = tmp_path / "b.tar.gz"
+        self._tar_with_sessions(f)
+        backup.restore_backup(str(f))
+        assert (run_dst / "ephemeral_sessions.json").exists()

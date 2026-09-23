@@ -549,8 +549,26 @@ def _copy_restored_tree(temp_dir, project_root):
         os.makedirs(run_dst, exist_ok=True)
         for item in os.listdir(run_src):
             s = os.path.join(run_src, item)
-            if os.path.isfile(s):
-                shutil.copy2(s, os.path.join(run_dst, item))
+            if not os.path.isfile(s):
+                continue
+            if (item == 'ephemeral_sessions.json'
+                    and os.environ.get(
+                        'RESTORE_KEEP_SESSIONS', 'false').lower()
+                    not in ('1', 'true', 'yes')):
+                # Stale-session rule: a share link revoked AFTER the
+                # backup was taken would be resurrected by a blind
+                # copy (revocations live in shared_state, but that
+                # snapshot is also stale). Default: drop the session
+                # store — RESTORE_KEEP_SESSIONS=1 opts back in for
+                # machine-rebuild restores where links must survive.
+                # Consumed single-use claims stay in shared_state.db,
+                # so burned links cannot be re-activated anyway.
+                logger.info(
+                    "Skipping ephemeral_sessions.json — restored "
+                    "sessions are expired by default "
+                    "(RESTORE_KEEP_SESSIONS=1 to keep)")
+                continue
+            shutil.copy2(s, os.path.join(run_dst, item))
 
     # Restore service-manager state (PIDs) if available in the
     # extracted archive.
