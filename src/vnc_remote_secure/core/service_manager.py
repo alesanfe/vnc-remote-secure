@@ -749,11 +749,8 @@ _SERVICE_PORT_KEYS = {
 
 def _metric(name: str, labels: str = '') -> None:
     """Emit a Prometheus counter (best-effort — metrics never break lifecycle)."""
-    try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter(name, labels)
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.monitoring.prometheus import inc_counter
+    inc_counter(name, labels)
 
 
 def _audit_lifecycle(event: str, service: str, pid) -> None:

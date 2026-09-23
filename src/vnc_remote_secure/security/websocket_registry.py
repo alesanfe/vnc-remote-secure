@@ -386,12 +386,9 @@ def is_revoked_shared(session_id: str) -> bool:
             logger.warning(
                 "Shared revocation check failed — treating sessions "
                 "as %s", 'revoked' if _strict() else 'not revoked')
-        try:
-            from vnc_remote_secure.monitoring.prometheus import inc_counter
-            inc_counter('vnc_remote_shared_state_errors_total',
-                        'op=revocation_check')
-        except Exception:  # noqa: BLE001
-            pass
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_shared_state_errors_total',
+                    'op=revocation_check')
         return _strict()
 
 

@@ -43,11 +43,8 @@ def _audit(event, user, ip, result, detail):
 
 def _inc_auth_counter(result: str):
     """Increment the ``vnc_remote_auth_attempts_total`` counter (best-effort)."""
-    try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_auth_attempts_total', labels=result)
-    except (ImportError, KeyError):
-        pass
+    from vnc_remote_secure.monitoring.prometheus import inc_counter
+    inc_counter('vnc_remote_auth_attempts_total', labels=result)
 
 
 # Shared-state namespace for consumed recovery-code hashes. Unlike the
@@ -407,12 +404,9 @@ def _metric_reject(reason: str) -> None:
     Labels are limited to a small fixed reason set — no IP, token or
     user (high-cardinality by design).
     """
-    try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_auth_rejections_total',
-                    f'reason={reason}')
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.monitoring.prometheus import inc_counter
+    inc_counter('vnc_remote_auth_rejections_total',
+                f'reason={reason}')
 
 
 def authorize_request(

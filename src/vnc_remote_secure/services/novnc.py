@@ -46,6 +46,7 @@ from vnc_remote_secure.core.constants import (
     DEFAULT_NOVNC_PORT,
     DEFAULT_NOVNC_WS_PORT,
 )
+from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 # Idle budget for the WebSocket relay: no traffic in either direction
 # for this long closes the tunnel. VNC sessions are chatty in practice;
@@ -163,23 +164,14 @@ def relay_rfb_stream(client_sock, upstream, rfb_filter=None):
             peer.sendall(data)
 
 
-class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
-    """SimpleHTTPRequestHandler that enforces auth before serving files."""
+class _AuthedSimpleHTTPRequestHandler(
+        SecuredHandlerMixin, http.server.SimpleHTTPRequestHandler):
+    """SimpleHTTPRequestHandler that enforces auth before serving files.
 
-    def setup(self):
-        super().setup()
-        # Slowloris guard: bound the pre-auth header-read window. The
-        # websocket path clears this before relaying — the RFB relay
-        # owns its own idle timeout for long-lived sessions.
-        from vnc_remote_secure.services.bounded_server import (
-            install_read_timeout,
-        )
-        install_read_timeout(self)
-
-    def end_headers(self):
-        from vnc_remote_secure.security.http_headers import send_security_headers
-        send_security_headers(self)
-        super().end_headers()
+    The mixin installs the Slowloris read timeout (the websocket path
+    clears it before relaying — the RFB relay owns its own idle
+    timeout) and the security headers.
+    """
 
     def _require_auth(self) -> bool:
         """Run the auth gate; sends 401 and returns False on failure."""
@@ -478,16 +470,10 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             with contextlib.suppress(OSError):
                 upstream.close()
             if conn_id:
-                try:
-                    from vnc_remote_secure.security.websocket_registry import unregister_connection
-                    unregister_connection(conn_id)
-                except Exception:  # noqa: BLE001
-                    pass
-
-    def log_message(self, format, *args):  # noqa: A002 - stdlib signature
-        # pylint: disable=redefined-builtin  # noqa: D401
-        logger.info("%s - %s", self.client_address[0],
-                    format % args)  # noqa: PIE803 - format%args is the stdlib log format
+                from vnc_remote_secure.security.auth_gateway import (
+                    unregister_websocket_quiet,
+                )
+                unregister_websocket_quiet(conn_id)
 
 
 def main():

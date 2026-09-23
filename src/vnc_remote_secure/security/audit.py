@@ -151,11 +151,8 @@ def _alert_audit_write_failure() -> None:
                severity='critical')
     except Exception:  # noqa: BLE001
         pass
-    try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_audit_write_errors_total')
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.monitoring.prometheus import inc_counter
+    inc_counter('vnc_remote_audit_write_errors_total')
 
 
 def _tip_sidecar_path() -> str:

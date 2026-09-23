@@ -188,6 +188,17 @@ def extract_bearer_token(auth_header: str) -> str:
     return ''
 
 
+def ws_peer_ip(websocket) -> str:
+    """Return the peer IP of a ``websockets`` connection (``''`` if none).
+
+    ``remote_address`` is ``(host, port)`` or ``None`` for closed/local
+    transports — every WS service used to inline the
+    ``ws.remote_address[0] if ws.remote_address else None`` ternary.
+    """
+    addr = getattr(websocket, 'remote_address', None)
+    return addr[0] if addr else ''
+
+
 def _is_locked(limiter, client_ip):
     """Return True when the client is locked out in ANY shared namespace.
 

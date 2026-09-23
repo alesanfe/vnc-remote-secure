@@ -491,12 +491,9 @@ def get_backend() -> StateBackend:
                 "to in-memory state — cross-process single-use and "
                 "revocation guarantees are degraded until this is fixed",
                 exc)
-            try:
-                from vnc_remote_secure.monitoring.prometheus import inc_counter
-                inc_counter('vnc_remote_shared_state_errors_total',
-                            'op=backend_init_fallback')
-            except Exception:  # noqa: BLE001
-                pass
+            from vnc_remote_secure.monitoring.prometheus import inc_counter
+            inc_counter('vnc_remote_shared_state_errors_total',
+                        'op=backend_init_fallback')
             if shared_state_strict():
                 # Fail-closed mode: a degraded backend weakens
                 # single-use/revocation/rate-limit guarantees to

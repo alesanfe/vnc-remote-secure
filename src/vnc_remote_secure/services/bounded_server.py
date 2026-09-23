@@ -18,8 +18,11 @@ here:
 
 import contextlib
 import http.server
+import logging
 import socketserver
 import threading
+
+logger = logging.getLogger(__name__)
 
 MAX_CONNECTIONS = 128
 # Per-source-IP cap: a single client must not be able to hold the
@@ -110,3 +113,32 @@ def install_read_timeout(handler, seconds=READ_TIMEOUT_SECONDS):
     """
     with contextlib.suppress(OSError):
         handler.connection.settimeout(seconds)
+
+
+class SecuredHandlerMixin:
+    """Shared ``http.server`` handler boilerplate (pull-up).
+
+    The health, landing, and noVNC handlers all installed the same
+    Slowloris read timeout in ``setup()`` and emitted the same
+    security headers in ``end_headers()``; health and noVNC also
+    routed access logs to the module logger identically. Inherit
+    BEFORE the stdlib handler class. A service needing different
+    access-log treatment (the landing redacts share-link tokens)
+    overrides ``log_message``.
+    """
+
+    def setup(self):
+        super().setup()
+        install_read_timeout(self)
+
+    def end_headers(self):
+        from vnc_remote_secure.security.http_headers import (
+            send_security_headers,
+        )
+        send_security_headers(self)
+        super().end_headers()
+
+    def log_message(self, format, *args):  # noqa: A002 - stdlib signature
+        # pylint: disable=redefined-builtin
+        logger.info("%s - %s", self.client_address[0],
+                    format % args)  # noqa: PIE803 - stdlib log format

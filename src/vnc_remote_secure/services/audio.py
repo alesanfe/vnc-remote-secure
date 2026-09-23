@@ -332,6 +332,7 @@ class AudioStreamServer:
             cookie_value,
             extract_bearer_token,
             header_get,
+            ws_peer_ip,
         )
         cookie = header_get(headers, 'Cookie')
         session_cookie = cookie_value(cookie, 'vnc_session')
@@ -345,10 +346,7 @@ class AudioStreamServer:
             bearer_token=bearer,
             resource='audio',
             required_permission='desktop:audio',
-            client_ip=client_ip_from(
-                headers,
-                websocket.remote_address[0]
-                if websocket.remote_address else None),
+            client_ip=client_ip_from(headers, ws_peer_ip(websocket)),
             ephemeral_cookie=eph,
         )
         if not allowed:
@@ -376,13 +374,13 @@ class AudioStreamServer:
             register_websocket_connection,
             unregister_websocket_quiet,
         )
+        from vnc_remote_secure.security.http_auth import ws_peer_ip
         token = await self._authenticate_ws(websocket)
         if token is None:
             return
         conn_id = register_websocket_connection(
             token, websocket.close, resource='audio',
-            client_ip=websocket.remote_address[0]
-            if websocket.remote_address else '')
+            client_ip=ws_peer_ip(websocket))
         if conn_id is None:
             # Session revoked between validation and registration
             # (TOCTOU guard in the registry) — the socket must not
@@ -398,7 +396,7 @@ class AudioStreamServer:
         start_revocation_watcher(token)
 
         self.clients.add(websocket)
-        client_ip = websocket.remote_address[0] if websocket.remote_address else "unknown"
+        client_ip = ws_peer_ip(websocket) or "unknown"
         logger.info("Client connected: %s (total: %s)", client_ip, len(self.clients))
 
         # Start ffmpeg if not running

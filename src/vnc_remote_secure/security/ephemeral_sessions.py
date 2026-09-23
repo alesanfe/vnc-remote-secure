@@ -818,12 +818,9 @@ def _metric(event: str) -> None:
     Labels are limited to the event type — token/user/IP would be
     high-cardinality by design.
     """
-    try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_ephemeral_sessions_total',
-                    f'event={event}')
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.monitoring.prometheus import inc_counter
+    inc_counter('vnc_remote_ephemeral_sessions_total',
+                f'event={event}')
 
 
 def revoke_session(signed_token: str) -> bool:
@@ -914,12 +911,9 @@ def _is_revoked_shared(token: str) -> bool:
             logger.warning(
                 "Revocation backend unavailable — enforcing local "
                 "JSON flags only (cross-process revocations may lag)")
-        try:
-            from vnc_remote_secure.monitoring.prometheus import inc_counter
-            inc_counter('vnc_remote_shared_state_errors_total',
-                        'op=revocation_check')
-        except Exception:  # noqa: BLE001
-            pass
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_shared_state_errors_total',
+                    'op=revocation_check')
         from vnc_remote_secure.security.shared_state import shared_state_strict
         if shared_state_strict():
             # Strict mode: a revocation check that cannot consult the

@@ -129,11 +129,8 @@ def _claim_step(secret: str, step: int) -> bool:
 
 def _metric_replay() -> None:
     """Emit the TOTP-replay counter (best-effort)."""
-    try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_totp_replays_total')
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.monitoring.prometheus import inc_counter
+    inc_counter('vnc_remote_totp_replays_total')
 
 
 def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:

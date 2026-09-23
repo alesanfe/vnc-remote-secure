@@ -21,6 +21,7 @@ from vnc_remote_secure.core.constants import (
 )
 from vnc_remote_secure.core.errors import error_json
 from vnc_remote_secure.core.processes import is_port_available
+from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 logger = logging.getLogger(__name__)
 
@@ -129,11 +130,8 @@ def get_health_status():
     else:
         status = 'degraded'
     # Increment the Prometheus health-check counter (best-effort).
-    try:
-        from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_health_check_total', labels=status)
-    except (ImportError, KeyError):
-        pass
+    from vnc_remote_secure.monitoring.prometheus import inc_counter
+    inc_counter('vnc_remote_health_check_total', labels=status)
     return {
         'status': status,
         'services_up': up,
@@ -142,29 +140,15 @@ def get_health_status():
     }
 
 
-class _HealthHandler(http.server.BaseHTTPRequestHandler):
+class _HealthHandler(SecuredHandlerMixin, http.server.BaseHTTPRequestHandler):
     """HTTP request handler for the health endpoint.
 
     Auth is controlled by ``HEALTH_AUTH_TOKEN`` via the shared
     :func:`check_health_auth` helper. When the token is unset, access
     is open only while every health-serving bind is loopback; a public
-    bind without a token fails closed with 401.
+    bind without a token fails closed with 401. The mixin installs the
+    Slowloris read timeout and security headers.
     """
-
-    def setup(self):
-        super().setup()
-        # Slowloris guard: a dribbled pre-auth request must not pin a
-        # thread forever — the connection pool is also bounded (see
-        # start_health_server).
-        from vnc_remote_secure.services.bounded_server import (
-            install_read_timeout,
-        )
-        install_read_timeout(self)
-
-    def end_headers(self):
-        from vnc_remote_secure.security.http_headers import send_security_headers
-        send_security_headers(self)
-        super().end_headers()
 
     def _send_json(self, status, body, content_type='application/json'):
         """Write a JSON (or text) response body."""
@@ -319,11 +303,6 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(error_json('Not found', 404)[0].encode('utf-8'))
-
-    def log_message(self, format, *args):  # noqa: A002 - stdlib signature
-        # pylint: disable=redefined-builtin  # noqa: D401 - route stdlib logs to logger
-        logger.info("%s - %s", self.client_address[0],
-                    format % args)  # noqa: PIE803 - format%args is the stdlib log format
 
 
 def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST, ssl_context=None):

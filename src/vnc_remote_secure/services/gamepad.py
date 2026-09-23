@@ -96,16 +96,14 @@ def _authenticate_gamepad_connection(headers, websocket):
         cookie_value,
         extract_bearer_token,
         header_get,
+        ws_peer_ip,
     )
     origin = header_get(headers, 'Origin')
     cookie = header_get(headers, 'Cookie')
     session_cookie = cookie_value(cookie, 'vnc_session')
     eph = cookie_value(cookie, 'vnc_ephemeral')
     bearer = extract_bearer_token(header_get(headers, 'Authorization'))
-    peer_ip = client_ip_from(
-        headers,
-        websocket.remote_address[0]
-        if getattr(websocket, 'remote_address', None) else None)
+    peer_ip = client_ip_from(headers, ws_peer_ip(websocket))
     # Unified auth: session cookie, bearer, or activated ephemeral
     # cookie — resolved by the gateway's single enforcement tree.
     allowed, reason = check_websocket_upgrade(
@@ -230,6 +228,7 @@ class GamepadServer:
         hold control at a time — a second client is rejected, not
         merged. View-only sessions are rejected.
         """
+        from vnc_remote_secure.security.http_auth import ws_peer_ip
         headers = _extract_upgrade_headers(websocket)
 
         allowed, _token, conn_id, error_msg = _authenticate_gamepad_connection(
@@ -255,7 +254,7 @@ class GamepadServer:
             return
 
         self.clients.add(websocket)
-        client_ip = websocket.remote_address[0] if websocket.remote_address else "unknown"
+        client_ip = ws_peer_ip(websocket) or "unknown"
         logger.info("Gamepad client connected: %s", client_ip)
 
         if not self.injector or not self.injector.available:

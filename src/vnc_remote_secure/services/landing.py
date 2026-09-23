@@ -20,6 +20,7 @@ import platform
 from vnc_remote_secure.core.errors import error_json, log_exception
 from vnc_remote_secure.platform.detection import is_windows
 from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
+from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 logger = logging.getLogger(__name__)
 
@@ -920,14 +921,14 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None,
         gamepad_html, ssl_note, firewall_html, metrics)
 
 
-class LandingHandler(http.server.SimpleHTTPRequestHandler):
-    """Landing Handler."""
+class LandingHandler(SecuredHandlerMixin,
+                     http.server.SimpleHTTPRequestHandler):
+    """Landing Handler.
 
-    def end_headers(self):
-        """End headers."""
-        from vnc_remote_secure.security.http_headers import send_security_headers
-        send_security_headers(self)
-        super().end_headers()
+    The mixin installs the Slowloris read timeout and the security
+    headers; ``log_message`` is overridden below to redact the
+    share-link token from access logs.
+    """
 
     def _ephemeral_cookie(self) -> str:
         """Extract the ``vnc_ephemeral`` cookie value, if present."""
@@ -1582,15 +1583,6 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(
             {'gamepad_stopped': stop}).encode())
-
-    def setup(self):
-        """Set up the request (bounded header-read window)."""
-        super().setup()
-        # Slowloris guard: bound the pre-auth header-read window.
-        from vnc_remote_secure.services.bounded_server import (
-            install_read_timeout,
-        )
-        install_read_timeout(self)
 
     def log_message(self, format, *args):  # noqa: A002 - stdlib signature
         # pylint: disable=redefined-builtin
