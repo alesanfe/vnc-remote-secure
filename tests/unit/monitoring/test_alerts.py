@@ -183,3 +183,25 @@ class TestWebhookHmac:
         alerts, captured = self._capture(monkeypatch, '')
         alerts.send_webhook_alert('t', 'm')
         assert captured['req'].get_header('X-vncremote-signature') is None
+
+
+def test_notify_correlation_id_shared(monkeypatch):
+    """All channels receive the SAME correlation id — an inbound
+    alert can then be tied back to the dispatching event."""
+    seen = {}
+    monkeypatch.setenv('ALERTS_ENABLED', 'true')
+    monkeypatch.setenv('DISCORD_ENABLED', 'true')
+    monkeypatch.setattr(alerts, '_last_sent', {})
+    monkeypatch.setattr(
+        alerts, 'send_discord_alert',
+        lambda t, m, s, alert_id='': seen.setdefault(
+            'discord', alert_id) or True)
+    monkeypatch.setattr(
+        alerts, 'send_webhook_alert',
+        lambda t, m, s, alert_id='': seen.setdefault(
+            'webhook', alert_id) or True)
+    monkeypatch.setattr(
+        alerts, 'send_email_alert', lambda t, m: False)
+    alerts.notify('t', 'm', severity='warning')
+    assert seen['discord'] == seen['webhook']
+    assert len(seen['discord']) == 12

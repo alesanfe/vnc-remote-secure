@@ -27,25 +27,38 @@ def _env_flag(name, default='false'):
     return os.environ.get(name, default).lower() in ('true', '1', 'yes')
 
 
-def send_discord_alert(title, message, severity='info'):
+def _alert_id() -> str:
+    """Return a short correlation id for an alert dispatch.
+
+    Lets the receiver (or the operator cross-referencing the audit
+    log) tie an inbound notification back to one event — without it
+    two deduped incidents are indistinguishable on the channel.
+    """
+    import uuid
+    return uuid.uuid4().hex[:12]
+
+
+def send_discord_alert(title, message, severity='info', alert_id=''):
     """Post an embed to the configured Discord webhook."""
     url = os.environ.get('DISCORD_WEBHOOK_URL', '')
     if not url:
         return False
     colors = {'info': 0x3498DB, 'warning': 0xF1C40F, 'error': 0xE74C3C, 'success': 0x2ECC71}
-    payload = {'embeds': [{'title': title, 'description': message,
+    desc = message + (f'\n`id: {alert_id}`' if alert_id else '')
+    payload = {'embeds': [{'title': title, 'description': desc,
                            'color': colors.get(severity, 0x3498DB)}]}
     return _post_json(url, payload)
 
 
-def send_webhook_alert(title, message, severity='info'):
+def send_webhook_alert(title, message, severity='info', alert_id=''):
     """POST a JSON payload to the generic alert webhook."""
     url = os.environ.get('ALERT_WEBHOOK_URL', '')
     if not url:
         return False
     return _post_json(url, {'title': title, 'message': message,
                             'severity': severity,
-                            'source': 'vnc-remote-secure'})
+                            'source': 'vnc-remote-secure',
+                            'id': alert_id})
 
 
 def _redact_url(url):
@@ -181,13 +194,21 @@ def notify(title, message, severity='info', force=False):
         return 0
     _last_sent[key] = now
 
+    alert_id = _alert_id()
     sent = 0
-    if _env_flag('DISCORD_ENABLED') and send_discord_alert(title, message, severity):
+    if _env_flag('DISCORD_ENABLED') and send_discord_alert(
+            title, message, severity, alert_id=alert_id):
         sent += 1
-    if send_webhook_alert(title, message, severity):
+    if send_webhook_alert(title, message, severity, alert_id=alert_id):
         sent += 1
-    if send_email_alert(title, message):
+    if send_email_alert(
+            title, f'{message}\n\n(alert id: {alert_id})'):
         sent += 1
     if sent == 0:
         logger.debug("No alert channel configured or reachable for: %s", title)
+    else:
+        # The id lands in the local log so an inbound alert can be
+        # correlated back to the event that raised it.
+        logger.info("Alert dispatched (id=%s, channels=%d): %s",
+                    alert_id, sent, title)
     return sent
