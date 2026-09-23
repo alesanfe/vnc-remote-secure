@@ -201,12 +201,14 @@ def _session_list(store, args):
             import time
             for s in sessions:
                 remaining = int(s['expires_at'] - time.time())
+                perms = ','.join(s.get('permissions') or []) or '-'
                 print(f"  id={s.get('token_id', '?')} role={s['role']} "
                       f"expires_in={max(remaining, 0)}s "
                       f"view_only={s['view_only']} single_use={s['single_use']} "
                       f"resource={s.get('resource') or '*'} "
                       f"uses={s.get('use_count', 0)}/{s.get('max_uses', 0) or 'inf'} "
-                      f"ip={s.get('allowed_ip') or '*'}")
+                      f"ip={s.get('allowed_ip') or '*'} "
+                      f"perms={perms}")
     return 0
 
 

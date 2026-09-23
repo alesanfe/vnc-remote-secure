@@ -110,12 +110,13 @@ PERM_CLIPBOARD = 'clipboard'      # umbrella: clipboard_write
 PERM_CLIPBOARD_WRITE = 'clipboard_write'
 PERM_FILE_TRANSFER = 'file_transfer'
 PERM_TERMINAL = 'terminal'
+PERM_AUDIO = 'audio'
 PERM_ADMIN = 'admin'
 
 ALL_PERMISSIONS = {
     PERM_VIEW, PERM_CONTROL, PERM_KEYBOARD, PERM_POINTER,
     PERM_CLIPBOARD, PERM_CLIPBOARD_WRITE,
-    PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_ADMIN,
+    PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_AUDIO, PERM_ADMIN,
 }
 
 # Coarse permissions expand to their fine-grained members: a session
@@ -142,8 +143,9 @@ def expand_permissions(permissions) -> set:
 # Roles (collections of permissions)
 ROLES = {
     'viewer': {PERM_VIEW},
-    'support': {PERM_VIEW, PERM_CONTROL, PERM_CLIPBOARD},
-    'operator': {PERM_VIEW, PERM_CONTROL, PERM_CLIPBOARD, PERM_FILE_TRANSFER, PERM_TERMINAL},
+    'support': {PERM_VIEW, PERM_CONTROL, PERM_CLIPBOARD, PERM_AUDIO},
+    'operator': {PERM_VIEW, PERM_CONTROL, PERM_CLIPBOARD,
+                 PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_AUDIO},
     'administrator': ALL_PERMISSIONS,
 }
 

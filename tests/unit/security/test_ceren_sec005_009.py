@@ -613,3 +613,23 @@ class TestFirstObservedIpBinding:
         assert token is not None
         sess = fresh_store.get(token)
         assert sess.allowed_ip == 'first-observed'
+
+
+class TestAudioPermission:
+    """desktop:audio is explicit — room audio is privacy-sensitive
+    and must not ride along with desktop:view."""
+
+    def test_viewer_lacks_audio(self, fresh_store):
+        sess, _ = fresh_store.create(role='viewer', expires_in=3600)
+        assert sess.has_permission('desktop:audio') is False
+        assert sess.has_permission('desktop:view') is True
+
+    def test_support_has_audio(self, fresh_store):
+        sess, _ = fresh_store.create(role='support', expires_in=3600)
+        assert sess.has_permission('desktop:audio') is True
+
+    def test_explicit_view_plus_audio(self, fresh_store):
+        sess, _ = fresh_store.create(
+            role='viewer', expires_in=3600,
+            permissions={'view', 'audio'})
+        assert sess.has_permission('desktop:audio') is True

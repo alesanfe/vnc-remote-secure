@@ -285,7 +285,7 @@ class AudioStreamServer:
             cookie_value=cookie_value,
             bearer_token=bearer,
             resource='audio',
-            required_permission='desktop:view',
+            required_permission='desktop:audio',
             client_ip=client_ip_from(
                 headers,
                 websocket.remote_address[0]

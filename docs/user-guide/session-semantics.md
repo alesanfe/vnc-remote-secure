@@ -87,6 +87,13 @@ fine-grained permission does NOT grant the umbrella:
 | `control` | `keyboard`, `pointer` |
 | `clipboard` | `clipboard_write` |
 
+`audio` is a standalone permission (system-audio capture of the
+desktop — privacy-sensitive). Roles `support`, `operator` and
+`administrator` grant it; `viewer` does not, so a view-only share
+link cannot listen to the machine's audio. Sessions created before
+this permission existed keep their stored permission set — a link
+that needs audio must be re-created under a current role.
+
 - `desktop:keyboard` → RFB `KeyEvent`; `desktop:pointer` →
   `PointerEvent` + `SetDesktopSize`; `desktop:clipboard_write` →
   `ClientCutText` (client→server clipboard push). Dropped at the
