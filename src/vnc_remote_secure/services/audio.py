@@ -313,7 +313,10 @@ class AudioStreamServer:
         token = await self._authenticate_ws(websocket)
         if token is None:
             return
-        conn_id = register_websocket_connection(token, websocket.close, resource='audio')
+        conn_id = register_websocket_connection(
+            token, websocket.close, resource='audio',
+            client_ip=websocket.remote_address[0]
+            if websocket.remote_address else '')
         if conn_id is None:
             # Session revoked between validation and registration
             # (TOCTOU guard in the registry) — the socket must not

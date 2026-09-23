@@ -120,7 +120,9 @@ def _authenticate_gamepad_connection(headers, websocket):
     if not allowed:
         return False, None, None, reason
     token = eph or bearer or cookie_value
-    conn_id = register_websocket_connection(token, websocket.close, resource='gamepad')
+    conn_id = register_websocket_connection(
+        token, websocket.close, resource='gamepad',
+        client_ip=peer_ip or '')
     if conn_id is None:
         # Session revoked between validation and registration
         # (TOCTOU guard in the registry).

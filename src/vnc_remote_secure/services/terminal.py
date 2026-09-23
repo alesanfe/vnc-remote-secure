@@ -569,6 +569,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         token = eph or bearer or cookie_value
         self._ws_conn_id = register_websocket_connection(
             token, self.close, resource='terminal',
+            client_ip=self.request.remote_ip or '',
         )
         if self._ws_conn_id is None:
             self.close(code=1008, reason='Session revoked')

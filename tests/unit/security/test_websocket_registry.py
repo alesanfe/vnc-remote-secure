@@ -326,3 +326,21 @@ def test_connection_cap_refuses(monkeypatch):
     assert ids[1] is not None
     assert ids[2] is None
     assert ids[3] is None
+
+
+def test_per_ip_cap_refuses(monkeypatch):
+    """One source IP past WS_MAX_CONNECTIONS_PER_IP is refused —
+    another IP is unaffected."""
+    from vnc_remote_secure.security import websocket_registry as wr
+    reg = wr.get_registry()
+    monkeypatch.setenv('WS_MAX_CONNECTIONS_PER_IP', '2')
+    monkeypatch.setattr(wr, 'is_revoked_shared', lambda s: False)
+    reg._connections.clear()
+    a = reg.register('s1', lambda: None, client_ip='10.0.0.1')
+    b = reg.register('s2', lambda: None, client_ip='10.0.0.1')
+    c = reg.register('s3', lambda: None, client_ip='10.0.0.1')
+    d = reg.register('s4', lambda: None, client_ip='10.0.0.2')
+    assert a is not None
+    assert b is not None
+    assert c is None
+    assert d is not None

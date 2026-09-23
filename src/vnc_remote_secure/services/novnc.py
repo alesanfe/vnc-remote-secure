@@ -320,7 +320,9 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 with contextlib.suppress(OSError):
                     s.close()
 
-        conn_id = register_connection(token, _close, resource='desktop')
+        conn_id = register_connection(
+            token, _close, resource='desktop',
+            client_ip=getattr(self, 'client_address', ('',))[0])
         if conn_id is not None:
             # Cross-process revocation: a CLI revoke marks the shared
             # namespace — this handler runs on a worker thread, so the

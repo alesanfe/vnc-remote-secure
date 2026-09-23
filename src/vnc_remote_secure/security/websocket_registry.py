@@ -66,17 +66,18 @@ class _ConnectionEntry:
     """Internal: tracks a single WebSocket connection."""
 
     __slots__ = ('conn_id', 'session_id', 'close_callback', 'resource',
-                 'created_at', 'loop')
+                 'created_at', 'loop', 'client_ip')
 
     def __init__(self, conn_id: str, session_id: str,
                  close_callback: CloseCallback,
                  resource: str | None = None,
                  created_at: float | None = None,
-                 loop=None):
+                 loop=None, client_ip: str = ''):
         self.conn_id = conn_id
         self.session_id = session_id
         self.close_callback = close_callback
         self.resource = resource
+        self.client_ip = client_ip
         # The registering thread's asyncio loop (None for sync/threaded
         # handlers). Needed when close_callback() returns a coroutine —
         # scheduling it requires the loop it was created on.
@@ -99,13 +100,15 @@ class WebSocketRegistry:
         self._next_id = 0
 
     def register(self, session_id: str, close_callback: CloseCallback,
-                 resource: str | None = None) -> str | None:
+                 resource: str | None = None,
+                 client_ip: str = '') -> str | None:
         """Register a new WebSocket connection.
 
         Args:
             session_id: The session this connection belongs to.
             close_callback: Callable that closes the WebSocket.
             resource: Optional resource name (e.g. 'desktop', 'terminal').
+            client_ip: Peer IP for the per-IP connection cap.
 
         Returns:
             A unique connection ID for later unregister, or ``None`` if
@@ -129,6 +132,17 @@ class WebSocketRegistry:
                     'Refused WebSocket registration: connection cap '
                     '(%d) reached', _max_connections())
                 return None
+            # Per-IP cap: one source address must not own a large
+            # fraction of the global budget on its own.
+            if client_ip:
+                per_ip = sum(
+                    1 for e in self._connections.values()
+                    if e.client_ip == client_ip)
+                if per_ip >= _max_connections_per_ip():
+                    logger.warning(
+                        'Refused WebSocket registration: per-IP cap '
+                        '(%d) reached', _max_connections_per_ip())
+                    return None
             self._next_id += 1
             conn_id = f'ws_{self._next_id}'
             loop = None
@@ -139,7 +153,7 @@ class WebSocketRegistry:
                 loop = None  # threaded handler (novnc) — sync callback
             entry = _ConnectionEntry(
                 conn_id, session_id, close_callback, resource,
-                loop=loop)
+                loop=loop, client_ip=client_ip)
             self._connections[conn_id] = entry
             if session_id not in self._by_session:
                 self._by_session[session_id] = set()
@@ -330,9 +344,11 @@ def reset_registry():
 
 
 def register_connection(session_id: str, close_callback: CloseCallback,
-                        resource: str | None = None) -> str | None:
+                        resource: str | None = None,
+                        client_ip: str = '') -> str | None:
     """Register a new WebSocket connection (convenience function)."""
-    return get_registry().register(session_id, close_callback, resource)
+    return get_registry().register(
+        session_id, close_callback, resource, client_ip=client_ip)
 
 
 def unregister_connection(conn_id: str):
@@ -398,6 +414,15 @@ def _max_connections() -> int:
         return max(1, int(os.environ.get('WS_MAX_CONNECTIONS', '256')))
     except (TypeError, ValueError):
         return 256
+
+
+def _max_connections_per_ip() -> int:
+    """Return the per-source-IP WebSocket connection cap."""
+    try:
+        return max(1, int(
+            os.environ.get('WS_MAX_CONNECTIONS_PER_IP', '32')))
+    except (TypeError, ValueError):
+        return 32
 
 
 def _sweep_revoked_session(session_id: str) -> bool:

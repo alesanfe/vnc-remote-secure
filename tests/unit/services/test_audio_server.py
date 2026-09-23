@@ -267,7 +267,7 @@ def test_handle_client_registers_and_serves(monkeypatch):
             lambda **kw: (True, ''))
         monkeypatch.setattr(
             'vnc_remote_secure.security.auth_gateway.register_websocket_connection',
-            lambda token, close, resource='x': 1)
+            lambda token, close, resource='x', client_ip='': 1)
         monkeypatch.setattr(
             'vnc_remote_secure.security.auth_gateway.unregister_websocket_connection',
             lambda cid: None)

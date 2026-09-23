@@ -583,6 +583,7 @@ def register_websocket_connection(
     session_id: str,
     close_callback,
     resource: str = '',
+    client_ip: str = '',
 ) -> str:
     """Register a WebSocket connection for immediate revocation.
 
@@ -597,6 +598,7 @@ def register_websocket_connection(
             return True on success.
         resource: The resource being accessed (e.g. 'desktop',
             'terminal').
+        client_ip: Peer IP for the per-IP connection cap.
 
     Returns:
         A connection ID for later unregister.
@@ -606,7 +608,8 @@ def register_websocket_connection(
     # (which uses the internal token) can find the connection.
     internal_id = _resolve_session_id(session_id)
     return register_connection(
-        internal_id, close_callback, resource) or ''
+        internal_id, close_callback, resource,
+        client_ip=client_ip) or ''
 
 
 def _resolve_session_id(session_id: str) -> str:

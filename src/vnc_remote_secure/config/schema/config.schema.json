@@ -491,6 +491,12 @@
       "maximum": 100000,
       "description": "Per-process cap on registered WebSocket connections (default 256) — bounds fd/thread exhaustion from connection floods."
     },
+    "WS_MAX_CONNECTIONS_PER_IP": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "description": "Cap on registered WebSocket connections per source IP (default 32) — one address must not own the whole connection budget."
+    },
     "TTYD_HOST": {
       "type": "string",
       "description": "Bind address for the web terminal (ttyd on Linux, Tornado on Windows)."
