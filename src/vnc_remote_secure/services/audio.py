@@ -82,6 +82,35 @@ def list_audio_devices():
     logger.info("\nSet AUDIO_DEVICE=<name> in .env to use a specific device.")
 
 
+def _set_audio_indicator(active: bool) -> None:
+    """Publish mic-capture state to shared state for the portal.
+
+    The audio service and the landing portal are separate processes —
+    the portal's 'microphone active' indicator reads the
+    ``audio:capture`` shared key, refreshed with a short TTL while
+    ffmpeg runs so a crashed audio service self-clears instead of
+    leaving a stale 'recording' badge up forever.
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        backend = get_backend()
+        if active:
+            backend.set_ttl('audio_indicator', 'capture', 'on', 120)
+        else:
+            backend.delete('audio_indicator', 'capture')
+    except Exception:  # noqa: BLE001 - indicator must never break audio
+        pass
+
+
+def audio_capture_active() -> bool:
+    """Return True when the mic indicator is set in shared state."""
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        return bool(get_backend().get('audio_indicator', 'capture'))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
     """Build ffmpeg command to capture system audio as MP3 stream."""
     ffmpeg = find_ffmpeg()
@@ -157,6 +186,7 @@ class AudioStreamServer:
                     _assign_to_kill_job)
                 _assign_to_kill_job(self.ffmpeg_process)
             self._ffmpeg_running.set()
+            _set_audio_indicator(True)
             logger.info("ffmpeg started (PID: %s)", self.ffmpeg_process.pid)
             return True
         except Exception:
@@ -179,6 +209,7 @@ class AudioStreamServer:
                         self.ffmpeg_process.wait(), 5)
             self.ffmpeg_process = None
             self._ffmpeg_running.clear()
+            _set_audio_indicator(False)
             logger.info("ffmpeg stopped")
 
     async def audio_reader(self):
@@ -191,12 +222,20 @@ class AudioStreamServer:
         """
         restarts = 0
         max_restarts = 5
+        last_indicator_refresh = 0.0
         while True:
             await self._ffmpeg_running.wait()
             proc = self.ffmpeg_process
             if proc is None or proc.stdout is None:
                 self._ffmpeg_running.clear()
                 continue
+            # Refresh the portal mic indicator — the shared key has a
+            # 120 s TTL so a crashed audio service self-clears, but a
+            # healthy long-running stream must renew it.
+            import time as _t
+            if _t.monotonic() - last_indicator_refresh > 60:
+                _set_audio_indicator(True)
+                last_indicator_refresh = _t.monotonic()
             data = await proc.stdout.read(4096)
             if not data:
                 if proc is not self.ffmpeg_process:

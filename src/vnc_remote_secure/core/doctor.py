@@ -333,6 +333,58 @@ def _check_terminal_isolation(checks):
           'TERMINAL_COMMAND_ALLOWLIST, or restrict terminal access')
 
 
+def _check_gamepad_capability(checks):
+    """Verify the platform can actually inject gamepad input.
+
+    Only runs when GAMEPAD_ENABLED — an idle optional service failing
+    a doctor check would be noise. Linux needs uinput (evdev device
+    creation); Windows uses SendInput, which is a no-op from
+    Session 0 — the check reports whether an interactive session is
+    reachable, since 'driver' per se does not apply to SendInput.
+    """
+    if os.environ.get('GAMEPAD_ENABLED', 'false').lower() not in (
+            'true', '1', 'yes'):
+        return
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            # WTSGetActiveConsoleSessionId: 0xFFFFFFFF when no
+            # interactive console is attached — SendInput would
+            # silently drop every injected event.
+            session = ctypes.windll.kernel32.WTSGetActiveConsoleSessionId()
+            if session == 0xFFFFFFFF:
+                _fail(checks, 'gamepad.capability',
+                      'GAMEPAD_ENABLED but no interactive console '
+                      'session — SendInput cannot inject from '
+                      'Session 0. Run the service in the user session '
+                      'or install a virtual controller driver')
+            else:
+                _ok(checks, 'gamepad.capability',
+                    'SendInput injection available (interactive '
+                    'session present). Note: injects keyboard/mouse '
+                    'events, not an XInput gamepad — ViGEmBus needed '
+                    'for real controller emulation')
+        except Exception:  # noqa: BLE001 - probe is best-effort
+            _warn(checks, 'gamepad.capability',
+                  'Could not verify interactive session for SendInput')
+        return
+    # Linux: uinput device creation requires evdev + /dev/uinput
+    try:
+        import evdev  # noqa: F401  # pylint: disable=unused-import
+    except ImportError:
+        _warn(checks, 'gamepad.capability',
+              'GAMEPAD_ENABLED but evdev not installed — gamepad '
+              'forwarding disabled. pip install evdev')
+        return
+    if os.path.exists('/dev/uinput'):
+        _ok(checks, 'gamepad.capability',
+            'uinput available — virtual gamepad can be created')
+    else:
+        _warn(checks, 'gamepad.capability',
+              '/dev/uinput missing — load the uinput module '
+              '(modprobe uinput) or gamepad injection will fail')
+
+
 def _check_firewall(checks):
     """Add firewall checks (platform-aware)."""
     # --- Firewall (Windows only) ---
@@ -600,6 +652,7 @@ def run_doctor(as_json: bool = False) -> dict:
     _check_shared_state(checks)
     _check_runtime_deps(checks)
     _check_terminal_isolation(checks)
+    _check_gamepad_capability(checks)
 
     # --- Summary ---
     counts = {'ok': 0, 'warn': 0, 'fail': 0, 'skip': 0}

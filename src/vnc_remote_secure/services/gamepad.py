@@ -162,6 +162,21 @@ def _process_gamepad_message(server, msg_data, websocket):
     return None
 
 
+def _injection_stopped() -> bool:
+    """Return True when the local gamepad kill-switch is engaged.
+
+    The portal's ``POST /gamepad/stop`` sets the shared flag — the
+    local operator's emergency stop for remote control injection.
+    Checked per-connection and per-message so an engaged stop drops
+    live clients, not just new ones.
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        return bool(get_backend().get('gamepad', 'stopped'))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class GamepadServer:
     """Gamepad Server."""
 
@@ -202,6 +217,15 @@ class GamepadServer:
         if not allowed:
             logger.warning("Gamepad WebSocket rejected: %s", error_msg)
             await websocket.close(code=1008, reason=error_msg)
+            return
+        if _injection_stopped():
+            await websocket.close(
+                code=1008, reason='gamepad injection stopped locally')
+            try:
+                unregister_websocket_connection(conn_id)
+            except (KeyError, ImportError):
+                logger.debug("Failed to unregister gamepad connection",
+                             exc_info=True)
             return
 
         # Single-controller policy: two simultaneous gamepad clients
@@ -262,6 +286,14 @@ class GamepadServer:
 
         try:
             async for message in websocket:
+                # Local kill-switch: a remote holding the session must
+                # not keep injecting once the operator at the machine
+                # stopped the gamepad service.
+                if _injection_stopped():
+                    await websocket.close(
+                        code=1008,
+                        reason='gamepad injection stopped locally')
+                    break
                 try:
                     event = json.loads(message)
                     response = _process_gamepad_message(self, event, websocket)

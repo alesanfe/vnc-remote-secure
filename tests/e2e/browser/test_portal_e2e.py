@@ -1,4 +1,4 @@
-﻿"""Browser E2E for the landing portal (Playwright).
+"""Browser E2E for the landing portal (Playwright).
 
 Covers what unit tests cannot: the sessions panel's JS wiring —
 clicking "Revocar" must actually POST /sessions/revoke and the row
@@ -125,3 +125,115 @@ def test_revoke_all_revokes_everything(portal_server, browser_ctx):
     assert store.get(s1.token).revoked
     assert store.get(s2.token).revoked
     page.close()
+
+
+@pytest.fixture
+def terminal_server(monkeypatch):
+    """Run the real tornado terminal app on an ephemeral port."""
+    monkeypatch.setenv("TTYD_USERNAME", "admin")
+    monkeypatch.setenv("TTYD_PASSWD", "E2e-Term-Pw-123")
+    monkeypatch.setenv("SHARED_STATE_BACKEND", "memory")
+    import vnc_remote_secure.security.shared_state as _ss
+    monkeypatch.setattr(_ss, "_backend", None, raising=False)
+    import vnc_remote_secure.security.rate_limit as _rl
+    monkeypatch.setattr(_rl, "_auth_limiter", None, raising=False)
+
+    import tornado.httpserver
+    import tornado.ioloop
+    import tornado.netutil
+    from vnc_remote_secure.services.terminal import make_app
+    app = make_app()
+    server = tornado.httpserver.HTTPServer(app)
+    sockets = tornado.netutil.bind_sockets(0, "127.0.0.1")
+    port = sockets[0].getsockname()[1]
+    ready = threading.Event()
+    holder = {}
+
+    def _serve():
+        # The IOLoop must be current IN THE SERVING THREAD — sockets
+        # registered on the main thread's default loop never fire.
+        loop = tornado.ioloop.IOLoop()
+        loop.make_current()
+        server.add_sockets(sockets)
+        holder['loop'] = loop
+        ready.set()
+        loop.start()
+        loop.close(all_fds=True)
+
+    t = threading.Thread(target=_serve, daemon=True)
+    t.start()
+    ready.wait(timeout=10)
+    yield f"http://127.0.0.1:{port}"
+    loop = holder.get('loop')
+    if loop is not None:
+        loop.add_callback(loop.stop)
+        t.join(timeout=5)
+    # No server.stop(): loop.close(all_fds=True) already closed the
+    # sockets — calling it afterwards trips its fileno assertion.
+
+
+def test_portal_denies_without_auth(portal_server, browser_ctx):
+    """No credentials -> 401, never a silently public portal."""
+    page = browser_ctx.new_context().new_page()
+    resp = page.goto(portal_server, wait_until="domcontentloaded")
+    assert resp.status == 401
+    page.close()
+
+
+def test_share_link_activates_and_grants_portal(
+        portal_server, browser_ctx):
+    """GET /?session=<signed> issues the vnc_ephemeral cookie and
+    lands on the portal WITHOUT Basic credentials — the link itself
+    is the credential."""
+    from vnc_remote_secure.security.ephemeral_sessions import (
+        get_session_store)
+    _session, signed = get_session_store().create(
+        role="viewer", expires_in=600)
+
+    ctx = browser_ctx.new_context()  # no http_credentials
+    page = ctx.new_page()
+    page.goto(f"{portal_server}/?session={signed}",
+              wait_until="domcontentloaded")
+    # Landed on the portal (302 -> /), cookie issued.
+    cookies = {c["name"]: c for c in ctx.cookies()}
+    assert "vnc_ephemeral" in cookies
+    assert cookies["vnc_ephemeral"]["httpOnly"]
+    assert "VNC" in page.content() or "Portal" in page.content()
+    page.close()
+    ctx.close()
+
+
+def test_share_link_reuse_still_works_multi_use(
+        portal_server, browser_ctx):
+    """A non-single-use link can activate again (fresh context) —
+    single-use semantics are the explicit opt-in, not the default."""
+    from vnc_remote_secure.security.ephemeral_sessions import (
+        get_session_store)
+    _session, signed = get_session_store().create(
+        role="viewer", expires_in=600)
+    for _ in range(2):
+        ctx = browser_ctx.new_context()
+        page = ctx.new_page()
+        resp = page.goto(f"{portal_server}/?session={signed}",
+                         wait_until="domcontentloaded")
+        assert resp.status == 200
+        page.close()
+        ctx.close()
+
+
+def test_terminal_page_requires_auth(terminal_server, browser_ctx):
+    page = browser_ctx.new_context().new_page()
+    resp = page.goto(terminal_server, wait_until="domcontentloaded")
+    assert resp.status == 401
+    page.close()
+
+
+def test_terminal_page_loads_with_auth(terminal_server, browser_ctx):
+    ctx = browser_ctx.new_context(http_credentials={
+        "username": "admin", "password": "E2e-Term-Pw-123"})
+    page = ctx.new_page()
+    resp = page.goto(terminal_server, wait_until="domcontentloaded")
+    assert resp.status == 200
+    assert "terminal" in page.content().lower()
+    page.close()
+    ctx.close()

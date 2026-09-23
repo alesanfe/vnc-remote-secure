@@ -687,6 +687,76 @@ def _build_sessions_html():
     </script>"""
 
 
+def _audio_capture_active() -> bool:
+    """Return True while the audio service is capturing the mic."""
+    try:
+        from vnc_remote_secure.services.audio import (
+            audio_capture_active)
+        return audio_capture_active()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _build_gamepad_html():
+    """Render the gamepad kill-switch card (stop/resume injection).
+
+    The remote user drives a gamepad over a share link — the local
+    operator needs a stop that does not depend on that session's
+    cooperation: it flips a shared flag the gamepad service checks
+    per-connection and per-message.
+    """
+    if not _config().get('gamepad_enabled'):
+        return ''
+    stopped = False
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        stopped = bool(get_backend().get('gamepad', 'stopped'))
+    except Exception:  # noqa: BLE001
+        pass
+    if stopped:
+        state = ('<strong style="color:#e53935">⛔ Inyección '
+                 'detenida</strong> (local kill-switch activo)')
+        btn = ('<button id="gamepad-resume-btn" '
+               'style="font-size:0.85em;padding:5px 12px;cursor:pointer">'
+               'Reanudar</button>')
+        action = 'resume'
+    else:
+        state = '<strong style="color:#4caf50">🎮 Inyección activa</strong>'
+        btn = ('<button id="gamepad-stop-btn" style="font-size:0.85em;'
+               'padding:5px 12px;background:#c0392b;color:#fff;border:0;'
+               'cursor:pointer">Detener control</button>')
+        action = 'stop'
+    return f"""
+    <div class="info-card"><strong>🎮 Gamepad:</strong> {state}
+    {btn}
+    <script>
+    (function(){{
+      var b = document.getElementById('gamepad-{action}-btn');
+      if (!b) return;
+      b.addEventListener('click', function(){{
+        fetch('/gamepad/{action}', {{method: 'POST'}}).then(function(r){{
+          if (r.ok) {{ location.reload(); }}
+          else {{ alert('No se pudo cambiar el estado del gamepad'); }}
+        }});
+      }});
+    }})();
+    </script></div>"""
+
+
+def _build_audio_indicator_html():
+    """Render a mic-capture privacy badge for the portal header.
+
+    Audio streaming captures the machine's microphone/audio output —
+    an operator or co-located user deserves an unmissable 'recording'
+    indicator while it runs, not a buried service status.
+    """
+    if not _audio_capture_active():
+        return ''
+    return ('<div class="info-card" style="border-left:4px solid '
+            '#e53935"><strong>🎙️ Micrófono activo</strong> — el '
+            'servidor está capturando audio ahora mismo</div>')
+
+
 def _build_backup_html():
     """Render backup status: newest backup name, age, and count.
 
@@ -738,7 +808,7 @@ def _build_backup_html():
             f'({html.escape(age)}){warn}{cert_html}</div>')
 
 
-def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, ssl_note, firewall_html, metrics):
+def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, audio_html, gamepad_html, ssl_note, firewall_html, metrics):
     """Assemble the final landing page HTML from its section components."""
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -769,6 +839,8 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
 
     {creds_html}
 
+    {audio_html}
+    {gamepad_html}
     {sessions_html}
 
     {backups_html}
@@ -836,12 +908,14 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None):
     creds_html = _build_credentials_html()
     sessions_html = _build_sessions_html()
     backups_html = _build_backup_html()
+    audio_html = _build_audio_indicator_html()
+    gamepad_html = _build_gamepad_html()
     features_section = _build_features_section(use_ssl, is_windows_flag)
     firewall_html, ssl_note = _build_firewall_html(is_windows_flag, use_ssl)
     return _build_landing_page_template(
         metrics_html, cards_html, vnc_direct_html, features_section,
-        lan_html, creds_html, sessions_html, backups_html, ssl_note,
-        firewall_html, metrics)
+        lan_html, creds_html, sessions_html, backups_html, audio_html,
+        gamepad_html, ssl_note, firewall_html, metrics)
 
 
 class LandingHandler(http.server.SimpleHTTPRequestHandler):
@@ -1215,6 +1289,9 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                 ),
                 'lan_ips': get_lan_ips(),
                 'system': get_system_metrics(),
+                # Microphone privacy indicator: true while ffmpeg is
+                # capturing (shared-state flag, self-clearing TTL).
+                'audio_capture': _audio_capture_active(),
                 # Credentials are NOT exposed in JSON for security
             }
             self.send_response(200)
@@ -1284,6 +1361,9 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         path = self.path.split('?', 1)[0]
         if path == '/sessions/revoke-all':
             self._post_revoke_all()
+            return
+        if path in ('/gamepad/stop', '/gamepad/resume'):
+            self._post_gamepad_control(path.endswith('/stop'))
             return
         if path != '/sessions/revoke':
             self.send_response(404)
@@ -1413,6 +1493,66 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
         self.wfile.write(json.dumps({'revoked': count}).encode())
+
+    def _post_gamepad_control(self, stop: bool):
+        """POST /gamepad/{stop,resume} — local kill-switch.
+
+        Sets/clears the shared ``gamepad:stopped`` flag that the
+        gamepad service checks per-connection and per-message — the
+        operator at the machine can cut remote control injection even
+        while a session holds it. Same operator-auth + Origin gate as
+        the session endpoints.
+        """
+        from vnc_remote_secure.security.http_auth import (
+            check_landing_auth, client_ip_from)
+        if not check_landing_auth(
+                self.headers.get('Authorization', ''),
+                client_ip=client_ip_from(
+                    self.headers,
+                    self.client_address[0]
+                    if self.client_address else None)):
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Operator credentials required', 401)
+            self.wfile.write(body.encode())
+            return
+        from vnc_remote_secure.security.auth_gateway import (
+            check_origin, get_allowed_origins)
+        origin = self.headers.get('Origin', '')
+        if origin and not check_origin(origin, get_allowed_origins()):
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Invalid origin', 403)
+            self.wfile.write(body.encode())
+            return
+        try:
+            from vnc_remote_secure.security.shared_state import (
+                get_backend)
+            if stop:
+                get_backend().set_ttl('gamepad', 'stopped', '1',
+                                      86400 * 365)
+            else:
+                get_backend().delete('gamepad', 'stopped')
+        except Exception as e:  # noqa: BLE001
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(
+                {'error': str(e)}).encode())
+            return
+        try:
+            from vnc_remote_secure.security.audit import audit_log
+            audit_log('portal_gamepad_' + ('stop' if stop else 'resume'))
+        except Exception:  # noqa: BLE001
+            pass
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(
+            {'gamepad_stopped': stop}).encode())
 
     def setup(self):
         """Set up the request (bounded header-read window)."""
