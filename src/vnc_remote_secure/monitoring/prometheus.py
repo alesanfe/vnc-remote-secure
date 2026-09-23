@@ -194,8 +194,7 @@ def render_metrics() -> str:
 
     # --- Certificate days remaining (scrape-time, best-effort) ---
     try:
-        from vnc_remote_secure.security.tls_validation import (
-            cert_days_remaining)
+        from vnc_remote_secure.security.tls_validation import cert_days_remaining
         days = cert_days_remaining()
         if days is not None:
             lines.append(
@@ -210,8 +209,7 @@ def render_metrics() -> str:
 
     # --- SQLite op statistics (in-process accumulator snapshot) ---
     try:
-        from vnc_remote_secure.security.shared_state import (
-            sqlite_stats)
+        from vnc_remote_secure.security.shared_state import sqlite_stats
         st = sqlite_stats()
         if st.get('ops'):
             lines.append(
@@ -243,6 +241,7 @@ def render_metrics() -> str:
     # --- Shared-state DB size (best-effort, scrape-time stat) ---
     try:
         import os as _os
+
         from vnc_remote_secure.security.shared_state import get_backend
         db_path = getattr(get_backend(), '_db_path', None)
         if db_path and _os.path.isfile(db_path):

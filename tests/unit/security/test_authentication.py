@@ -74,7 +74,10 @@ class TestSigningKeyRotation:
     def test_old_token_valid_in_window(self, tmp_path, monkeypatch):
         auth = self._fresh(tmp_path, monkeypatch)
         from vnc_remote_secure.security.token_signing import (
-            TOKEN_TYPE_BEARER, sign_token, verify_token)
+            TOKEN_TYPE_BEARER,
+            sign_token,
+            verify_token,
+        )
         old_token = sign_token(TOKEN_TYPE_BEARER, 'data')
         ok, err = auth.rotate_signing_secret()
         assert ok is True
@@ -85,7 +88,10 @@ class TestSigningKeyRotation:
     def test_new_tokens_sign_with_new_key(self, tmp_path, monkeypatch):
         auth = self._fresh(tmp_path, monkeypatch)
         from vnc_remote_secure.security.token_signing import (
-            TOKEN_TYPE_BEARER, sign_token, verify_token)
+            TOKEN_TYPE_BEARER,
+            sign_token,
+            verify_token,
+        )
         ok, _ = auth.rotate_signing_secret()
         assert ok
         tok = sign_token(TOKEN_TYPE_BEARER, 'x')
@@ -123,10 +129,62 @@ class TestSigningKeyRotation:
             self, tmp_path, monkeypatch):
         auth = self._fresh(tmp_path, monkeypatch)
         from vnc_remote_secure.security.token_signing import (
-            TOKEN_TYPE_BEARER, sign_token, verify_token)
+            TOKEN_TYPE_BEARER,
+            sign_token,
+            verify_token,
+        )
         t1 = sign_token(TOKEN_TYPE_BEARER, 'gen1')
         auth.rotate_signing_secret()
         t2 = sign_token(TOKEN_TYPE_BEARER, 'gen2')
         auth.rotate_signing_secret()
         assert verify_token(TOKEN_TYPE_BEARER, t1) == 'gen1'
         assert verify_token(TOKEN_TYPE_BEARER, t2) == 'gen2'
+
+
+class TestSecretRotationReload:
+    """Long-running processes must pick up a rotated auth_secret.key —
+    a stale cache keeps signing with a retired key."""
+
+    def _isolate(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.security import authentication as auth
+        monkeypatch.delenv('AUTH_SECRET', raising=False)
+        monkeypatch.delenv('FLASK_SECRET_KEY', raising=False)
+        key = tmp_path / 'auth_secret.key'
+        monkeypatch.setattr(auth, '_secret_file_path',
+                            lambda: str(key))
+        auth._cached_secret = None
+        auth._cached_secret_mtime = 0.0
+        auth._cached_secret_checked = 0.0
+        return auth, key
+
+    def test_rotated_file_reloaded(self, tmp_path, monkeypatch):
+        auth, key = self._isolate(tmp_path, monkeypatch)
+        first = auth._get_secret()
+        assert key.exists()
+        # Rotate the file out-of-band (another process did it).
+        key.write_text('rotatedsecret')
+        import os
+        os.utime(key, (0, 2**30))  # mtime far from cached baseline
+        # Force the recheck window open.
+        auth._cached_secret_checked = 0.0
+        second = auth._get_secret()
+        assert second == b'rotatedsecret'
+        assert second != first
+
+    def test_unchanged_file_not_reloaded(self, tmp_path, monkeypatch):
+        auth, key = self._isolate(tmp_path, monkeypatch)
+        first = auth._get_secret()
+        # Same mtime -> no reload (cache hit, same bytes).
+        auth._cached_secret_checked = 0.0
+        second = auth._get_secret()
+        assert second == first
+
+    def test_recheck_interval_limits_stats(
+            self, tmp_path, monkeypatch):
+        """Within the recheck window the file is not even stat'ed."""
+        auth, key = self._isolate(tmp_path, monkeypatch)
+        auth._get_secret()
+        key.write_text('rotatedsecret')
+        # _cached_secret_checked is fresh -> change unseen.
+        second = auth._get_secret()
+        assert second != b'rotatedsecret'

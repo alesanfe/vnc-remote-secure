@@ -163,6 +163,7 @@ class TestBackupEdgeCases:
         """A member literally named ../evil must be rejected (link
         targets are tested elsewhere; member names were not)."""
         import io
+
         from vnc_remote_secure.core import backup
         f = tmp_path / 'evil.tar.gz'
         with tarfile.open(str(f), 'w:gz') as tar:
@@ -177,6 +178,7 @@ class TestBackupEdgeCases:
 
     def test_absolute_member_name_rejected(self, tmp_path, monkeypatch):
         import io
+
         from vnc_remote_secure.core import backup
         f = tmp_path / 'abs.tar.gz'
         with tarfile.open(str(f), 'w:gz') as tar:
@@ -194,6 +196,7 @@ class TestBackupEdgeCases:
         """size == _MAX_BACKUP_FILE_SIZE is INCLUSIVE-allowed (check
         uses >) — pin the boundary so an off-by-one cannot shrink it."""
         import io
+
         from vnc_remote_secure.core import backup
         monkeypatch.setattr(backup, '_MAX_BACKUP_FILE_SIZE', 5)
         monkeypatch.setattr(backup, '_MAX_BACKUP_TOTAL_SIZE', 10**9)
@@ -280,6 +283,7 @@ def test_sqlite_snapshot_consistent(tmp_path):
     source is WAL-mode (plain file copy loses un-checkpointed
     frames)."""
     import sqlite3
+
     from vnc_remote_secure.core.backup import _snapshot_sqlite
     src = str(tmp_path / 'state.db')
     conn = sqlite3.connect(src)
@@ -350,3 +354,79 @@ class TestRestoreSessionExpiry:
         self._tar_with_sessions(f)
         backup.restore_backup(str(f))
         assert (run_dst / "ephemeral_sessions.json").exists()
+
+    def test_hardened_profile_refuses_plaintext(
+            self, monkeypatch, tmp_path):
+        """Under a hardened security profile an unencrypted backup of
+        secrets is refused outright — BACKUP_PASSWORD or an explicit
+        BACKUP_ALLOW_PLAINTEXT opt-out is required."""
+        from vnc_remote_secure.core import backup
+        secret = tmp_path / '.env'
+        secret.write_text('VNC_PASSWORD=x')
+        monkeypatch.delenv('BACKUP_PASSWORD', raising=False)
+        monkeypatch.delenv('BACKUP_ALLOW_PLAINTEXT', raising=False)
+        monkeypatch.setattr(backup, '_collect_paths',
+                            lambda: [(str(secret), '.env')])
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path))
+        bdir = tmp_path / 'backups'
+        bdir.mkdir()
+        monkeypatch.setattr(backup, '_backup_dir', lambda: str(bdir))
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.service_manager.save_state',
+            lambda: {'pids': {}, 'timestamp': 0}, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.profiles.resolve_profile',
+            lambda: 'public-hardened')
+        with pytest.raises(RuntimeError, match='encrypted backups'):
+            backup.create_backup()
+        # No plaintext archive must survive on disk.
+        assert not list(bdir.glob('*.tar.gz'))
+
+    def test_hardened_profile_plaintext_optout(
+            self, monkeypatch, tmp_path):
+        """BACKUP_ALLOW_PLAINTEXT=true is the documented opt-out."""
+        from vnc_remote_secure.core import backup
+        secret = tmp_path / '.env'
+        secret.write_text('VNC_PASSWORD=x')
+        monkeypatch.delenv('BACKUP_PASSWORD', raising=False)
+        monkeypatch.setenv('BACKUP_ALLOW_PLAINTEXT', 'true')
+        monkeypatch.setattr(backup, '_collect_paths',
+                            lambda: [(str(secret), '.env')])
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path))
+        bdir = tmp_path / 'backups'
+        bdir.mkdir()
+        monkeypatch.setattr(backup, '_backup_dir', lambda: str(bdir))
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.service_manager.save_state',
+            lambda: {'pids': {}, 'timestamp': 0}, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.profiles.resolve_profile',
+            lambda: 'public-hardened')
+        out = backup.create_backup()
+        assert out.endswith('.tar.gz')
+
+    def test_dev_profile_allows_plaintext(
+            self, monkeypatch, tmp_path):
+        """Development profile keeps the warn-only behavior."""
+        from vnc_remote_secure.core import backup
+        secret = tmp_path / '.env'
+        secret.write_text('VNC_PASSWORD=x')
+        monkeypatch.delenv('BACKUP_PASSWORD', raising=False)
+        monkeypatch.delenv('BACKUP_ALLOW_PLAINTEXT', raising=False)
+        monkeypatch.setattr(backup, '_collect_paths',
+                            lambda: [(str(secret), '.env')])
+        monkeypatch.setattr(backup, 'find_project_root',
+                            lambda: str(tmp_path))
+        bdir = tmp_path / 'backups'
+        bdir.mkdir()
+        monkeypatch.setattr(backup, '_backup_dir', lambda: str(bdir))
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.service_manager.save_state',
+            lambda: {'pids': {}, 'timestamp': 0}, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.profiles.resolve_profile',
+            lambda: 'development')
+        out = backup.create_backup()
+        assert out.endswith('.tar.gz')

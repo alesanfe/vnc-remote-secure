@@ -286,3 +286,54 @@ def test_handle_client_registers_and_serves(monkeypatch):
             pass
 
     asyncio.run(scenario())
+
+
+def test_audio_reader_drops_slow_client():
+    """A stalled reader must not head-of-line-block the broadcast —
+    it is dropped after the per-send timeout instead of letting its
+    buffer grow unboundedly."""
+    srv = _server()
+    srv.ffmpeg_process = _FakeProc(chunks=b's' * 500)
+    srv._ffmpeg_running.set()
+    slow = _FakeWS()
+
+    async def _stall(data):
+        await asyncio.sleep(60)  # never drains
+    slow.send = _stall
+    srv.clients.add(slow)
+
+    import vnc_remote_secure.services.audio as m
+    old = m._WS_SEND_TIMEOUT
+    m._WS_SEND_TIMEOUT = 0.05
+    try:
+        async def run_once():
+            task = asyncio.ensure_future(srv.audio_reader())
+            await asyncio.sleep(0.5)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        asyncio.run(run_once())
+    finally:
+        m._WS_SEND_TIMEOUT = old
+    assert slow not in srv.clients
+
+
+def test_handle_client_rejects_at_capacity(monkeypatch):
+    """The client cap bounds websocket+buffer memory per listener."""
+    async def scenario():
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
+            lambda **kw: (True, ''))
+        srv = _server()
+        import vnc_remote_secure.services.audio as m
+        monkeypatch.setattr(m, '_MAX_CLIENTS', 1)
+        srv.clients.add(_FakeWS())  # one seat taken
+        ws = _FakeWS(headers={'Origin': 'http://127.0.0.1'})
+        await srv.handle_client(ws)
+        assert ws.closed is not None
+        assert ws.closed[0] == 1013
+        assert ws not in srv.clients
+
+    asyncio.run(scenario())

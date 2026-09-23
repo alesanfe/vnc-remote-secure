@@ -411,15 +411,13 @@ class TestExpiryEnforcement:
     def test_expired_check_permission_denied(self, fresh_store):
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=-1)
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            check_permission)
+        from vnc_remote_secure.security.ephemeral_sessions import check_permission
         assert check_permission(signed, 'desktop:view') is False
 
     def test_expired_activate_returns_none(self, fresh_store):
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=-1)
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            activate_ephemeral_session)
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
         assert activate_ephemeral_session(signed) is None
 
     def test_max_uses_boundary(self, fresh_store):
@@ -461,8 +459,7 @@ class TestResourceBindingValidation:
     def test_check_permission_wrong_resource_denied(self, fresh_store):
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=3600, resource='desktop')
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            check_permission)
+        from vnc_remote_secure.security.ephemeral_sessions import check_permission
         assert check_permission(
             signed, 'desktop:view', resource='desktop') is True
         assert check_permission(
@@ -513,7 +510,9 @@ class TestCidrIpBinding:
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=3600, allowed_ip='10.0.0.0/24')
         from vnc_remote_secure.security.ephemeral_sessions import (
-            activate_ephemeral_session, check_session_permission)
+            activate_ephemeral_session,
+            check_session_permission,
+        )
         internal = activate_ephemeral_session(
             signed, client_ip='10.0.0.5')
         assert internal is not None
@@ -572,8 +571,7 @@ class TestFirstObservedIpBinding:
     (possibly unknown) address."""
 
     def test_first_activation_pins_ip(self, fresh_store):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            activate_ephemeral_session)
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=3600,
             allowed_ip='first-observed')
@@ -585,7 +583,9 @@ class TestFirstObservedIpBinding:
 
     def test_pinned_binding_enforced(self, fresh_store):
         from vnc_remote_secure.security.ephemeral_sessions import (
-            activate_ephemeral_session, check_session_permission)
+            activate_ephemeral_session,
+            check_session_permission,
+        )
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=3600,
             allowed_ip='first-observed')
@@ -604,8 +604,7 @@ class TestFirstObservedIpBinding:
         """CLI/API activation without caller context doesn't pin â€”
         the binding applies at first request with a real IP... and a
         later activation WITH an ip still pins then."""
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            activate_ephemeral_session)
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=3600,
             allowed_ip='first-observed')
@@ -673,8 +672,7 @@ class TestSessionLifecycleMetrics:
                 'event=created') in calls
 
     def test_revoked_metric(self, fresh_store, monkeypatch):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import revoke_session
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=3600)
         calls = []
@@ -686,8 +684,7 @@ class TestSessionLifecycleMetrics:
                 'event=revoked') in calls
 
     def test_activated_metric(self, fresh_store, monkeypatch):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            activate_ephemeral_session)
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
         _sess, signed = fresh_store.create(
             role='viewer', expires_in=3600)
         calls = []

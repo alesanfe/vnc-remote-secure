@@ -254,8 +254,7 @@ class TestWebSocketRevocationShared:
 
 def test_sqlite_stats_accumulate(tmp_path):
     """Ops and latency accumulate in-process for /metrics export."""
-    from vnc_remote_secure.security.shared_state import (
-        SQLiteBackend, sqlite_stats)
+    from vnc_remote_secure.security.shared_state import SQLiteBackend, sqlite_stats
     before = dict(sqlite_stats())
     b = SQLiteBackend(str(tmp_path / 's.db'))
     b.set('ns', 'k', 1)

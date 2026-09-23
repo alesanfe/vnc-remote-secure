@@ -316,3 +316,103 @@ class TestExchangeSecureCookie:
         cookie = [c for c in h.send_header.call_args_list
                   if c[0][0] == 'Set-Cookie'][0][0][1]
         assert 'Secure' not in cookie
+
+
+# ---------------------------------------------------------------------------
+# status.json disclosure boundary + CSRF hardening + framing
+# ---------------------------------------------------------------------------
+
+def test_status_json_operator_gets_metrics(server):
+    """Operators see lan_ips + system telemetry."""
+    status, _, body = _req(server, '/status.json',
+                           headers=_auth_headers())
+    assert status == 200
+    import json
+    data = json.loads(body)
+    assert 'lan_ips' in data
+    assert 'system' in data
+
+
+def test_status_json_ephemeral_hides_metrics(server, monkeypatch):
+    """An ephemeral view-only session gets service states only �
+    internal topology and resource usage are operator-grade."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.check_session_permission',
+        lambda internal, perm, client_ip=None, resource=None: True)
+    status, _, body = _req(
+        server, '/status.json', headers={'Cookie': 'vnc_ephemeral=tok'})
+    assert status == 200
+    import json
+    data = json.loads(body)
+    assert 'services' in data
+    assert 'lan_ips' not in data
+    assert 'system' not in data
+
+
+def test_post_cross_site_fetch_metadata_rejected(server):
+    """Sec-Fetch-Site: cross-site is set by the browser on every
+    cross-site POST and cannot be forged � reject before auth even."""
+    headers = dict(_auth_headers())
+    headers['Sec-Fetch-Site'] = 'cross-site'
+    status, _, _ = _req(
+        server, '/sessions/revoke', method='POST',
+        headers=headers)
+    assert status == 403
+
+
+def test_post_same_site_fetch_metadata_passes_gate(server):
+    """same-origin Sec-Fetch-Site must NOT be rejected by the CSRF
+    check — a well-formed request reaches the handler (which then
+    applies its own validation, 400/404 on a bad token)."""
+    import http.client
+    import json as _j
+    conn = http.client.HTTPConnection('127.0.0.1', server, timeout=5)
+    conn.request('POST', '/sessions/revoke',
+                 body=_j.dumps({'token_id': 'nonexistent'}),
+                 headers={**_auth_headers(),
+                          'Sec-Fetch-Site': 'same-origin',
+                          'Content-Type': 'application/json'})
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    # Not the CSRF 403 — the request reached handler-level validation.
+    assert resp.status in (200, 400, 404)
+
+
+def test_post_no_fetch_metadata_still_allowed(server):
+    """Non-browser clients (curl, scripts) send no Sec-Fetch-Site —
+    they must keep working (Origin is absent too)."""
+    import http.client
+    import json as _j
+    conn = http.client.HTTPConnection('127.0.0.1', server, timeout=5)
+    conn.request('POST', '/sessions/revoke',
+                 body=_j.dumps({'token_id': 'x'}),
+                 headers={**_auth_headers(),
+                          'Content-Type': 'application/json'})
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    assert resp.status in (200, 400, 404)
+
+
+def test_get_transfer_encoding_rejected(server):
+    """TE on a GET makes body framing ambiguous � http.server has no
+    chunked parser; reject rather than risk pipeline confusion."""
+    status, _, _ = _req(
+        server, '/', headers={**_auth_headers(),
+                              'Transfer-Encoding': 'chunked'})
+    assert status == 400
+
+
+def test_head_transfer_encoding_rejected(server):
+    status, _, _ = _req(
+        server, '/', method='HEAD',
+        headers={**_auth_headers(), 'Transfer-Encoding': 'chunked'})
+    assert status == 400
+
+
+def test_post_transfer_encoding_rejected(server):
+    status, _, _ = _req(
+        server, '/sessions/revoke', method='POST',
+        headers={**_auth_headers(), 'Transfer-Encoding': 'chunked'})
+    assert status == 400

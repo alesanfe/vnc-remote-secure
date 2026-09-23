@@ -173,8 +173,11 @@ def validate_secret_files(project_root: str | None = None) -> list[dict]:
     # DB must be owner-only or any local user can hijack sessions /
     # forge tokens.
     try:
-        from vnc_remote_secure.core.paths import get_log_dir, get_run_dir
+        from vnc_remote_secure.core.paths import get_data_dir, get_log_dir, get_run_dir
         extra_files += [
+            # RBAC store: PBKDF2 password hashes + MFA recovery-code
+            # hashes — must be owner-only like the signing secret.
+            os.path.join(get_data_dir(), 'operator_users.json'),
             os.path.join(get_run_dir(), 'auth_secret.key'),
             os.path.join(get_run_dir(), 'generated_credentials.env'),
             os.path.join(get_run_dir(), 'ephemeral_sessions.json'),

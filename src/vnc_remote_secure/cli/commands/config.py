@@ -24,8 +24,7 @@ def _config_show_effective(args):
 
 def _config_explain(args):
     """Explain how one variable resolves: value, source, precedence."""
-    from vnc_remote_secure.core.config_inspector import (
-        compute_effective_config)
+    from vnc_remote_secure.core.config_inspector import compute_effective_config
 
     name = args.var_name.upper()
     profile = getattr(args, 'profile', None)

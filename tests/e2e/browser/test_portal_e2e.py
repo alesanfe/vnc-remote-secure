@@ -45,8 +45,7 @@ def portal_server(monkeypatch, tmp_path):
     import vnc_remote_secure.security.ephemeral_sessions as eph
     monkeypatch.setattr(eph, '_store', eph.SessionStore())
 
-    from vnc_remote_secure.services.bounded_server import (
-        BoundedThreadingTCPServer)
+    from vnc_remote_secure.services.bounded_server import BoundedThreadingTCPServer
     from vnc_remote_secure.services.landing import LandingHandler
     server = BoundedThreadingTCPServer(('127.0.0.1', 0), LandingHandler)
     port = server.server_address[1]
@@ -74,8 +73,7 @@ def _new_page(browser_ctx):
 def test_portal_renders_sessions_panel(portal_server, browser_ctx):
     """The sessions panel appears once a session exists — an empty
     store renders no panel at all (by design)."""
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        get_session_store)
+    from vnc_remote_secure.security.ephemeral_sessions import get_session_store
     get_session_store().create(role='viewer', expires_in=600)
     page = _new_page(browser_ctx)
     page.goto(portal_server, wait_until='domcontentloaded')
@@ -86,8 +84,7 @@ def test_portal_renders_sessions_panel(portal_server, browser_ctx):
 
 def test_revoke_button_posts_and_fades(portal_server, browser_ctx):
     """Create a session, click Revocar, verify the POST revoked it."""
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        get_session_store)
+    from vnc_remote_secure.security.ephemeral_sessions import get_session_store
     store = get_session_store()
     session, _signed = store.create(role='viewer', expires_in=600)
     token_id = session.to_dict()['token_id']
@@ -109,8 +106,7 @@ def test_revoke_button_posts_and_fades(portal_server, browser_ctx):
 
 
 def test_revoke_all_revokes_everything(portal_server, browser_ctx):
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        get_session_store)
+    from vnc_remote_secure.security.ephemeral_sessions import get_session_store
     store = get_session_store()
     s1, _ = store.create(role='viewer', expires_in=600)
     s2, _ = store.create(role='support', expires_in=600)
@@ -141,6 +137,7 @@ def terminal_server(monkeypatch):
     import tornado.httpserver
     import tornado.ioloop
     import tornado.netutil
+
     from vnc_remote_secure.services.terminal import make_app
     app = make_app()
     server = tornado.httpserver.HTTPServer(app)
@@ -185,8 +182,7 @@ def test_share_link_activates_and_grants_portal(
     """GET /?session=<signed> issues the vnc_ephemeral cookie and
     lands on the portal WITHOUT Basic credentials — the link itself
     is the credential."""
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        get_session_store)
+    from vnc_remote_secure.security.ephemeral_sessions import get_session_store
     _session, signed = get_session_store().create(
         role="viewer", expires_in=600)
 
@@ -207,8 +203,7 @@ def test_share_link_reuse_still_works_multi_use(
         portal_server, browser_ctx):
     """A non-single-use link can activate again (fresh context) —
     single-use semantics are the explicit opt-in, not the default."""
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        get_session_store)
+    from vnc_remote_secure.security.ephemeral_sessions import get_session_store
     _session, signed = get_session_store().create(
         role="viewer", expires_in=600)
     for _ in range(2):

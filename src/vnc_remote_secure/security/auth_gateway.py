@@ -325,8 +325,7 @@ def check_authenticated(
                 return False, None
             # Global operator epoch: a credential rotation bumps it —
             # every session issued before the change is revoked.
-            from vnc_remote_secure.security.sessions import (
-                operator_session_epoch)
+            from vnc_remote_secure.security.sessions import operator_session_epoch
             if session['created'] < operator_session_epoch():
                 return False, None
             return True, session['username']

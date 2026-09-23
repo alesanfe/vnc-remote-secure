@@ -208,6 +208,7 @@ def _check_shared_state(checks):
     if backend == 'sqlite':
         try:
             import sqlite3 as _sq
+
             from vnc_remote_secure.core.paths import get_run_dir
             db_path = os.environ.get(
                 'SHARED_STATE_DB_PATH',

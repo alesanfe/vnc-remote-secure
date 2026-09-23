@@ -328,8 +328,8 @@ class TestRecoveryCodeLogin:
         user = 'adm-' + _s.token_hex(4)
         ip = '10.99.' + str(_s.randbelow(250) + 1) + '.1'
         from vnc_remote_secure.security import auth_gateway as gw
-        from vnc_remote_secure.security.rate_limit import RateLimiter
         from vnc_remote_secure.security.mfa import hash_recovery_code
+        from vnc_remote_secure.security.rate_limit import RateLimiter
         limiter = RateLimiter()
         limiter.max_attempts = 20
         monkeypatch.setattr(gw, 'get_auth_limiter', lambda: limiter)
@@ -454,8 +454,7 @@ class TestBearerPermissionDenied:
             'vnc_remote_secure.security.ephemeral_sessions.'
             'check_permission',
             lambda *a, **k: False)
-        from vnc_remote_secure.security.auth_gateway import (
-            authorize_request)
+        from vnc_remote_secure.security.auth_gateway import authorize_request
         allowed, reason, _ident = authorize_request(
             bearer_token='viewer-tok', required_permission='control')
         assert allowed is False
@@ -465,8 +464,7 @@ class TestBearerPermissionDenied:
             'vnc_remote_secure.security.ephemeral_sessions.'
             'check_permission',
             lambda *a, **k: True)
-        from vnc_remote_secure.security.auth_gateway import (
-            authorize_request)
+        from vnc_remote_secure.security.auth_gateway import authorize_request
         allowed, _reason, ident = authorize_request(
             bearer_token='op-tok', required_permission='control')
         assert allowed is True
@@ -482,8 +480,7 @@ class TestBearerPermissionDenied:
             'check_permission',
             lambda tok, perm, resource=None, client_ip=None:
             seen.update(resource=resource, client_ip=client_ip) or True)
-        from vnc_remote_secure.security.auth_gateway import (
-            authorize_request)
+        from vnc_remote_secure.security.auth_gateway import authorize_request
         authorize_request(
             bearer_token='t', required_permission='view',
             resource='desktop', client_ip='10.0.0.1')

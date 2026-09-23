@@ -95,3 +95,41 @@ class TestFilePermissions:
         assert fix_secret_file_permissions(str(test_file))
         mode = os.stat(test_file).st_mode & 0o777
         assert mode == 0o600
+
+
+class TestOperatorUsersStore:
+    """operator_users.json holds PBKDF2 password + recovery-code
+    hashes — it must be validated like the signing secret."""
+
+    def test_store_checked_for_permissions(
+            self, tmp_path, monkeypatch):
+        import os
+
+        from vnc_remote_secure.security import file_permissions
+        data_dir = tmp_path / 'data'
+        data_dir.mkdir(exist_ok=True)
+        store = data_dir / 'operator_users.json'
+        store.write_text('{"op": {"password_hash": "x"}}')
+        run_dir = tmp_path / 'run'
+        run_dir.mkdir(exist_ok=True)
+        log_dir = tmp_path / 'log'
+        log_dir.mkdir(exist_ok=True)
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.paths.get_data_dir',
+            lambda: str(data_dir))
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.paths.get_run_dir',
+            lambda: str(run_dir))
+        monkeypatch.setattr(
+            'vnc_remote_secure.core.paths.get_log_dir',
+            lambda: str(log_dir))
+        if os.name != 'nt':
+            os.chmod(store, 0o644)  # world-readable = critical
+        else:
+            _grant_everyone_read(store)
+        findings = file_permissions.validate_secret_files(
+            str(tmp_path))
+        hits = [f for f in findings
+                if 'operator_users.json' in f['file']]
+        assert hits, 'operator store must be permission-checked'
+        assert hits[0]['severity'] in ('critical', 'warning')

@@ -286,6 +286,43 @@ def _build_child_env():
     }
 
 
+def _child_rlimits():
+    """Return a ``preexec_fn`` bounding a terminal child's resources.
+
+    POSIX only. Limits inherited across exec (setpriv/runuser/exec),
+    so they apply to the shell and its descendants:
+
+    - ``RLIMIT_NPROC`` — per-uid process count (fork bombs).
+    - ``RLIMIT_AS`` — address space (memory exhaustion).
+    - ``RLIMIT_CPU`` — CPU seconds (a cmd can outpace CMD_TIMEOUT
+      wall-clock only up to this).
+    - ``RLIMIT_NOFILE`` — descriptor count.
+    - ``RLIMIT_FSIZE`` — a runaway `> file` cannot fill the disk.
+    - ``RLIMIT_CORE`` — core dumps disabled (they can embed secrets).
+    """
+    def _apply():
+        # POSIX-only module; unreachable on Windows (guarded above).
+        import resource  # pylint: disable=import-error
+        limits = (
+            (resource.RLIMIT_NPROC, 128),
+            (resource.RLIMIT_AS, 1 << 30),       # 1 GiB
+            (resource.RLIMIT_CPU, 300),
+            (resource.RLIMIT_NOFILE, 256),
+            (resource.RLIMIT_FSIZE, 256 << 20),  # 256 MiB
+            (resource.RLIMIT_CORE, 0),
+        )
+        for res, soft in limits:
+            try:
+                hard = resource.getrlimit(res)[1]
+                cap = soft if hard == resource.RLIM_INFINITY else min(
+                    soft, hard)
+                resource.setrlimit(res, (cap, cap))
+            except (OSError, ValueError):
+                # A limit the platform lacks must not abort the spawn.
+                pass
+    return _apply
+
+
 def _restricted_user_prefix():
     """Return argv prefix to drop privileges to ``WEBTERM_USER``.
 
@@ -686,8 +723,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         # (cookie/bearer/Basic) are not permission-bound.
         self._terminal_write = True
         if eph:
-            from vnc_remote_secure.security.ephemeral_sessions import (
-                check_session_permission)
+            from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
             self._terminal_write = check_session_permission(
                 eph, 'terminal_write', resource='terminal',
                 client_ip=client_ip_from(
@@ -820,6 +856,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         if opened_at:
             try:
                 import time as _time
+
                 from vnc_remote_secure.security.audit import audit_log
                 audit_log('terminal_close',
                           detail=f'duration={_time.time() - opened_at:.0f}s')
@@ -966,7 +1003,12 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 self._set_busy(False)
 
         elif msg_type == 'complete':
-            self._handle_completion(msg.get('input', ''))
+            # Path completion globs the server filesystem — a
+            # view-only session could enumerate filenames under the
+            # cwd even though it cannot run commands. Gate it behind
+            # the same permission as execution.
+            if getattr(self, '_terminal_write', True):
+                self._handle_completion(msg.get('input', ''))
 
     def _set_busy(self, busy):
         """Send busy state to client."""
@@ -1052,6 +1094,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 # Own process group so _kill_process_tree can SIGKILL
                 # the shell AND its children without hitting ours.
                 kwargs['start_new_session'] = True
+                # Resource limits bound a single command's blast
+                # radius — a fork bomb or memory hog can otherwise
+                # exhaust the host inside CMD_TIMEOUT seconds.
+                kwargs['preexec_fn'] = _child_rlimits()
             # A previous command may still be running if two 'command'
             # messages raced — overwriting current_process here would
             # orphan it from interrupt/on_close cleanup.

@@ -79,8 +79,7 @@ class TestParseDuration:
 
     def test_empty_returns_default(self):
         from vnc_remote_secure.cli.commands.session import _parse_duration
-        from vnc_remote_secure.core.constants import (
-            DEFAULT_SESSION_IDLE_TIMEOUT)
+        from vnc_remote_secure.core.constants import DEFAULT_SESSION_IDLE_TIMEOUT
         assert _parse_duration('') == DEFAULT_SESSION_IDLE_TIMEOUT
         assert _parse_duration(None) == DEFAULT_SESSION_IDLE_TIMEOUT
 
@@ -146,8 +145,7 @@ class TestShareBaseUrl:
             'vnc_remote_secure.security.certificates.create_ssl_context',
             lambda *a: object() if env.get('_TLS', True) else None,
             raising=False)
-        from vnc_remote_secure.cli.commands.session import (
-            _share_base_url)
+        from vnc_remote_secure.cli.commands.session import _share_base_url
         return _share_base_url()
 
     def test_nginx_tls_default_port_no_suffix(self, monkeypatch, clear_env):
@@ -191,8 +189,7 @@ class TestShareBaseUrl:
         monkeypatch.setattr(
             'vnc_remote_secure.core.config.get_config',
             lambda: {'tls_enabled': True}, raising=False)
-        from vnc_remote_secure.cli.commands.session import (
-            _share_base_url)
+        from vnc_remote_secure.cli.commands.session import _share_base_url
         assert _share_base_url().startswith('https://')
 
 

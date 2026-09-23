@@ -110,8 +110,7 @@ def _secrets_rotate(args):
     # via shared state without a restart).
     if name in ('USER_UI_PASSWORD', 'TTYD_PASSWD'):
         try:
-            from vnc_remote_secure.security.sessions import (
-                bump_operator_epoch)
+            from vnc_remote_secure.security.sessions import bump_operator_epoch
             bump_operator_epoch()
             print("  All operator sessions revoked (credential changed)")
         except Exception:  # noqa: BLE001 - rotation already succeeded
@@ -133,8 +132,7 @@ def _secrets_rotate_signing(args):
     keeps the old key verifiable for the retire window so in-flight
     sessions and share links do not die at once.
     """
-    from vnc_remote_secure.security.authentication import (
-        rotate_signing_secret)
+    from vnc_remote_secure.security.authentication import rotate_signing_secret
     ok, err = rotate_signing_secret()
     if not ok:
         print(f"Error: {err}")
@@ -164,8 +162,7 @@ def _secrets_recovery_codes(args):
     never wired up. Codes are printed ONCE — only hashes persist.
     """
     from vnc_remote_secure.core.config import set_env_persistent
-    from vnc_remote_secure.security.mfa import (
-        generate_recovery_codes, hash_recovery_code)
+    from vnc_remote_secure.security.mfa import generate_recovery_codes, hash_recovery_code
 
     codes = generate_recovery_codes(8)
     hashes = ','.join(hash_recovery_code(c) for c in codes)

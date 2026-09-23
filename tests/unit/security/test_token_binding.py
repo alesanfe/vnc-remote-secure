@@ -157,19 +157,15 @@ class TestForeignInstanceId:
 
 class TestMalformedTokenPayloads:
     def test_wrong_part_count_rejected(self):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            verify_ephemeral_token)
-        from vnc_remote_secure.security.token_signing import (
-            sign_token, TOKEN_TYPE_EPHEMERAL)
+        from vnc_remote_secure.security.ephemeral_sessions import verify_ephemeral_token
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_EPHEMERAL, sign_token
         for bad in ('onlyone', 'a:b', 'a:b:c:d:e'):
             assert verify_ephemeral_token(
                 sign_token(TOKEN_TYPE_EPHEMERAL, bad)) is None
 
     def test_non_numeric_fields_rejected(self):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            verify_ephemeral_token)
-        from vnc_remote_secure.security.token_signing import (
-            sign_token, TOKEN_TYPE_EPHEMERAL)
+        from vnc_remote_secure.security.ephemeral_sessions import verify_ephemeral_token
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_EPHEMERAL, sign_token
         assert verify_ephemeral_token(sign_token(
             TOKEN_TYPE_EPHEMERAL, 'tok:notanumber:0')) is None
 
@@ -182,19 +178,16 @@ class TestRevokeByFingerprint:
         import hashlib
         session, signed = fresh_store.create(role='viewer')
         fp = hashlib.sha256(session.token.encode()).hexdigest()[:12]
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import revoke_session
         assert revoke_session(fp) is True
         assert fresh_store.validate(signed) is None
 
     def test_unknown_fingerprint_false(self, fresh_store):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import revoke_session
         assert revoke_session('deadbeefcafe') is False
 
     def test_signed_token_revokes(self, fresh_store):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import revoke_session
         session, signed = fresh_store.create(role='viewer')
         assert revoke_session(signed) is True
         assert fresh_store.validate(signed) is None
@@ -205,8 +198,7 @@ class TestTerminalViewWriteSplit:
     session connects but cannot spawn subprocesses."""
 
     def _sess(self, perms, **kw):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            EphemeralSession)
+        from vnc_remote_secure.security.ephemeral_sessions import EphemeralSession
         return EphemeralSession(token='t', permissions=perms, **kw)
 
     def test_umbrella_satisfies_both(self):

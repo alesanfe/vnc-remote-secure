@@ -37,8 +37,8 @@ def _get_verify_secrets() -> list:
     coexistence window — key rotation must not invalidate in-flight
     tokens (see ``authentication.rotate_signing_secret``).
     """
-    from vnc_remote_secure.security.authentication import (
-        _get_secret as _auth_secret, previous_signing_secrets)
+    from vnc_remote_secure.security.authentication import _get_secret as _auth_secret
+    from vnc_remote_secure.security.authentication import previous_signing_secrets
     return [_auth_secret(), *previous_signing_secrets()]
 
 

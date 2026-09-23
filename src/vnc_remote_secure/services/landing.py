@@ -618,8 +618,7 @@ def _build_sessions_html():
     a store failure renders an empty panel, not a broken page.
     """
     try:
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            get_session_store)
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store
         store = get_session_store()
         store._load_if_changed()
         sessions = store.list_active()
@@ -687,8 +686,7 @@ def _build_sessions_html():
 def _audio_capture_active() -> bool:
     """Return True while the audio service is capturing the mic."""
     try:
-        from vnc_remote_secure.services.audio import (
-            audio_capture_active)
+        from vnc_remote_secure.services.audio import audio_capture_active
         return audio_capture_active()
     except Exception:  # noqa: BLE001
         return False
@@ -790,8 +788,7 @@ def _build_backup_html():
     # here too so the operator sees cert health without a scraper.
     cert_html = ''
     try:
-        from vnc_remote_secure.security.tls_validation import (
-            cert_days_remaining)
+        from vnc_remote_secure.security.tls_validation import cert_days_remaining
         days = cert_days_remaining()
         if days is not None:
             cert_warn = ' ⚠️' if days < 30 else ''
@@ -1045,8 +1042,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         """
         if self._valid_ephemeral_cookie():
             return True, None
-        from vnc_remote_secure.security.http_auth import (
-            authenticate_landing)
+        from vnc_remote_secure.security.http_auth import authenticate_landing
         ok, operator = authenticate_landing(
             self.headers.get('Authorization', ''),
             client_ip=client_ip_from(
@@ -1071,6 +1067,12 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_HEAD(self):  # noqa: N802 - stdlib API
         """Serve HEAD requests through the same auth gate as GET."""
+        from vnc_remote_secure.security.http_auth import request_headers_safe
+        if not request_headers_safe(self.headers):
+            self.send_response(400)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         # HEAD must run the same gate — otherwise SimpleHTTPRequestHandler
         # leaks file metadata (and directory listings under some CPython
         # versions) without authentication.
@@ -1088,6 +1090,14 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Do GET."""
+        from vnc_remote_secure.security.http_auth import request_headers_safe
+        if not request_headers_safe(self.headers):
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Ambiguous request framing', 400)
+            self.wfile.write(body.encode())
+            return
         # Ephemeral share links exchange the signed token for a cookie
         # before any auth check (the link itself is the credential).
         if self._handle_session_exchange():
@@ -1308,13 +1318,18 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
                     {'ultravnc_http': check_port(cfg['vnc_http_port'])}
                     if os.name == 'nt' else {}
                 ),
-                'lan_ips': get_lan_ips(),
-                'system': get_system_metrics(),
                 # Microphone privacy indicator: true while ffmpeg is
                 # capturing (shared-state flag, self-clearing TTL).
                 'audio_capture': _audio_capture_active(),
                 # Credentials are NOT exposed in JSON for security
             }
+            # Internal topology + LAN IPs + resource usage are
+            # operator-grade telemetry. An ephemeral view-only link
+            # holder gets service states only — enough for the portal
+            # cards, not enough to map the host.
+            if getattr(self, '_portal_operator', None) is not None:
+                data['lan_ips'] = get_lan_ips()
+                data['system'] = get_system_metrics()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
@@ -1337,8 +1352,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         Session data comes from to_dict() — token fingerprints and
         metadata only, never raw tokens or passwords.
         """
-        from vnc_remote_secure.security.http_auth import (
-            authenticate_landing)
+        from vnc_remote_secure.security.http_auth import authenticate_landing
         ok, operator = authenticate_landing(
             self.headers.get('Authorization', ''),
             client_ip=client_ip_from(
@@ -1360,8 +1374,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body.encode())
             return
         try:
-            from vnc_remote_secure.security.ephemeral_sessions import (
-                get_session_store)
+            from vnc_remote_secure.security.ephemeral_sessions import get_session_store
             store = get_session_store()
             store._load_if_changed()
             self.send_response(200)
@@ -1386,6 +1399,16 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         forms always send Origin; curl/API clients legitimately omit
         it).
         """
+        from vnc_remote_secure.security.http_auth import request_headers_safe
+        if not request_headers_safe(self.headers):
+            # Ambiguous body framing (Transfer-Encoding or duplicate
+            # Content-Length) — reject before touching the body.
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Ambiguous request framing', 400)
+            self.wfile.write(body.encode())
+            return
         path = self.path.split('?', 1)[0]
         if path == '/sessions/revoke-all':
             self._post_revoke_all()
@@ -1431,8 +1454,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body.encode())
             return
 
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import revoke_session
         revoked = revoke_session(token_id)
         try:
             from vnc_remote_secure.security.audit import audit_log
@@ -1458,8 +1480,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         success; on failure it has already written the error response
         (401/403) and returns ``None``.
         """
-        from vnc_remote_secure.security.http_auth import (
-            authenticate_landing, client_ip_from)
+        from vnc_remote_secure.security.http_auth import authenticate_landing
         ok, operator = authenticate_landing(
             self.headers.get('Authorization', ''),
             client_ip=client_ip_from(
@@ -1475,14 +1496,28 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body.encode())
             return None
 
-        from vnc_remote_secure.security.auth_gateway import (
-            check_origin, get_allowed_origins)
+        from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
         origin = self.headers.get('Origin', '')
         if origin and not check_origin(origin, get_allowed_origins()):
             self.send_response(403)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             body, _ = error_json('Invalid origin', 403)
+            self.wfile.write(body.encode())
+            return None
+
+        # Fetch Metadata CSRF defense-in-depth: browsers mark every
+        # cross-site-initiated request with ``Sec-Fetch-Site:
+        # cross-site`` — a forbidden header a malicious page cannot
+        # strip or forge. It protects the case where Origin is absent
+        # (some form posts, redirects). Non-browser clients (curl,
+        # scripts) never send it, so automation is unaffected.
+        if self.headers.get('Sec-Fetch-Site', '').lower() == 'cross-site':
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json(
+                'Cross-site request rejected', 403)
             self.wfile.write(body.encode())
             return None
 
@@ -1514,8 +1549,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         operator = self._operator_gate('admin_sessions')
         if operator is None:
             return
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            get_session_store, revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
         store = get_session_store()
         store._load_if_changed()
         count = 0
@@ -1547,8 +1581,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         if operator is None:
             return
         try:
-            from vnc_remote_secure.security.shared_state import (
-                get_backend)
+            from vnc_remote_secure.security.shared_state import get_backend
             if stop:
                 get_backend().set_ttl('gamepad', 'stopped', '1',
                                       86400 * 365)

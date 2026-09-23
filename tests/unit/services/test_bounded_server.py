@@ -118,6 +118,7 @@ class TestPerIpCap:
 
     def _server(self, per_ip=3):
         import socketserver
+
         from vnc_remote_secure.services.bounded_server import _BoundedMixin
 
         class S(_BoundedMixin, socketserver.ThreadingTCPServer):

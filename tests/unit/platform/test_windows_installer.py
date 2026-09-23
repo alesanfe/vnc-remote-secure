@@ -243,6 +243,7 @@ class TestWinvncHashVerification:
 
     def _call(self, monkeypatch, tmp_path, manifest=None, data=b'exe'):
         import json
+
         import vnc_remote_secure
         mdir = tmp_path / 'third_party' / 'manifests'
         mdir.mkdir(parents=True)
@@ -261,8 +262,7 @@ class TestWinvncHashVerification:
             (realmdir / 'ultravnc.json').write_text(json.dumps(manifest))
         winvnc = tmp_path / 'winvnc.exe'
         winvnc.write_bytes(data)
-        from vnc_remote_secure.platform.windows.installer import (
-            _verify_winvnc_hash)
+        from vnc_remote_secure.platform.windows.installer import _verify_winvnc_hash
         return _verify_winvnc_hash(str(winvnc))
 
     def test_matching_hash_accepted(self, monkeypatch, tmp_path):

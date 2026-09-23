@@ -77,14 +77,88 @@ def _redact_url(url):
         return '<invalid-url>'
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects: a webhook must go where the operator pointed it.
+
+    Redirect following would let a compromised/typosquatted endpoint
+    bounce the POST (HMAC-signed body included) to an internal address,
+    reopening SSRF even after destination validation.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def _resolved_addrs_public(hostname):
+    """Return True only if EVERY resolved address is a public IP.
+
+    A single private/loopback/link-local/CGNAT/reserved address in the
+    answer is enough to reject — urllib may pick any of them. There is
+    a residual DNS-rebinding window (re-resolution between this check
+    and connect); pinning would break TLS SNI, so this is documented
+    rather than eliminated.
+    """
+    import ipaddress
+    import socket
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except OSError:
+        return False
+    if not infos:
+        return False
+    for _family, _type, _proto, _canon, sockaddr in infos:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            return False
+        if not ip.is_global:
+            return False
+    return True
+
+
+def _validate_webhook_url(url):
+    """Return an error string, or None when the URL is safe to POST to.
+
+    Default policy: HTTPS only, public unicast destinations only.
+    ``ALERT_WEBHOOK_ALLOW_HTTP=true`` and
+    ``ALERT_WEBHOOK_ALLOW_PRIVATE=true`` are explicit opt-outs for
+    operators running a receiver on the LAN.
+    """
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return 'unparseable URL'
+    if p.scheme == 'http' and not _env_flag('ALERT_WEBHOOK_ALLOW_HTTP'):
+        return 'http:// requires ALERT_WEBHOOK_ALLOW_HTTP=true'
+    if p.scheme not in ('https', 'http'):
+        return f'disallowed scheme {p.scheme!r}'
+    if not p.hostname:
+        return 'no hostname'
+    if not _env_flag('ALERT_WEBHOOK_ALLOW_PRIVATE'):
+        if not _resolved_addrs_public(p.hostname):
+            return 'resolves to a non-public address'
+    return None
+
+
 def _post_json(url, payload):
     """POST JSON to a webhook URL. Returns True on HTTP 2xx."""
-    # Webhook URLs are operator-configured, but restrict the scheme so a
-    # config mistake (or tampered .env) cannot turn the alerter into a
-    # file:// or gopher:// reader.
-    if not url.lower().startswith(('https://', 'http://')):
-        logger.warning("Webhook URL rejected — non-HTTP scheme: %s",
-                       _redact_url(url))
+    # Webhook URLs are operator-configured, but a config mistake (or
+    # tampered .env) must not turn the alerter into an SSRF primitive
+    # against loopback/LAN/metadata endpoints or a file:// reader.
+    err = _validate_webhook_url(url)
+    if err:
+        logger.warning("Webhook URL rejected (%s): %s",
+                       err, _redact_url(url))
+        try:
+            from vnc_remote_secure.monitoring.prometheus import inc_counter
+            inc_counter('vnc_remote_alerts_dropped_total',
+                        'reason=url_rejected')
+        except Exception:  # noqa: BLE001
+            pass
         return False
     body = json.dumps(payload).encode('utf-8')
     headers = {'Content-Type': 'application/json'}
@@ -104,8 +178,9 @@ def _post_json(url, payload):
             headers=headers,
             method='POST',
         )
-        # justification: scheme validated before dispatch
-        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310
+        # justification: scheme + destination validated before dispatch
+        with _NO_REDIRECT_OPENER.open(  # nosec B310
+                req, timeout=_HTTP_TIMEOUT) as resp:
             ok = 200 <= resp.status < 300
             if not ok:
                 logger.warning("Webhook %s returned HTTP %s",
@@ -192,8 +267,7 @@ def notify(title, message, severity='info', force=False):
         logger.debug("Alert deduplicated (sent < %ds ago): %s",
                      _DEDUP_WINDOW_S, title)
         try:
-            from vnc_remote_secure.monitoring.prometheus import (
-                inc_counter)
+            from vnc_remote_secure.monitoring.prometheus import inc_counter
             inc_counter('vnc_remote_alerts_dropped_total',
                         'reason=dedup')
         except Exception:  # noqa: BLE001
@@ -214,8 +288,7 @@ def notify(title, message, severity='info', force=False):
     if sent == 0:
         logger.debug("No alert channel configured or reachable for: %s", title)
         try:
-            from vnc_remote_secure.monitoring.prometheus import (
-                inc_counter)
+            from vnc_remote_secure.monitoring.prometheus import inc_counter
             inc_counter('vnc_remote_alerts_dropped_total',
                         'reason=no_channel')
         except Exception:  # noqa: BLE001

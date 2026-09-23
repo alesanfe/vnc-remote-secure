@@ -407,8 +407,7 @@ class WindowsAdapter(PlatformAdapter):
         keyboard/mouse injection as the driverless fallback.
         """
         try:
-            from vnc_remote_secure.platform.windows.gamepad import (
-                ViGEmInjector)
+            from vnc_remote_secure.platform.windows.gamepad import ViGEmInjector
             injector = ViGEmInjector()
             logger.info("Gamepad backend: ViGEm X360 virtual controller")
             return injector
@@ -417,8 +416,7 @@ class WindowsAdapter(PlatformAdapter):
                          "vgamepad missing): %s — falling back to "
                          "SendInput", e)
         try:
-            from vnc_remote_secure.platform.windows.gamepad import (
-                WindowsInputInjector)
+            from vnc_remote_secure.platform.windows.gamepad import WindowsInputInjector
             injector = WindowsInputInjector()
             logger.info(
                 "Gamepad backend: SendInput key/mouse injection "

@@ -73,6 +73,7 @@ class TestConfigValidateRc:
 
     def _run(self, monkeypatch, severities):
         from argparse import Namespace
+
         from vnc_remote_secure.cli.commands import config as cc
         monkeypatch.setattr(
             'vnc_remote_secure.core.config_inspector.validate_config',

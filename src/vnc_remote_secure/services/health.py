@@ -284,6 +284,15 @@ class _HealthHandler(http.server.BaseHTTPRequestHandler):
             {'intact': intact, 'message': message}))
 
     def do_GET(self):  # noqa: N802 - stdlib API
+        from vnc_remote_secure.security.http_auth import request_headers_safe
+        if not request_headers_safe(self.headers):
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(
+                error_json('Ambiguous request framing', 400)[0]
+                .encode('utf-8'))
+            return
         # Strip the query string once: Flask routes match path-only and
         # nginx forwards the request URI verbatim, so /health?x=1 must
         # not 404 here while succeeding through the proxy. (The /audit

@@ -74,8 +74,7 @@ def _print_install_summary(project_root):
     print(f"  Profile:    {config.get('security_profile') or 'default'}")
     print(f"  TLS:        {'enabled' if tls else 'DISABLED'}")
     try:
-        from vnc_remote_secure.security.tls_validation import (
-            cert_days_remaining)
+        from vnc_remote_secure.security.tls_validation import cert_days_remaining
         days = cert_days_remaining()
         if days is not None:
             warn = ' — EXPIRES SOON' if days < 30 else ''
@@ -83,15 +82,13 @@ def _print_install_summary(project_root):
     except Exception:  # noqa: BLE001
         pass
     try:
-        from vnc_remote_secure.core.paths import (
-            get_config_dir, get_data_dir)
+        from vnc_remote_secure.core.paths import get_config_dir, get_data_dir
         print(f"  Config:     {get_config_dir()}")
         print(f"  Data:       {get_data_dir()}")
     except Exception:  # noqa: BLE001
         print(f"  Config:     {os.path.join(project_root, '.env')}")
     try:
-        from vnc_remote_secure.core.config_inspector import (
-            validate_config)
+        from vnc_remote_secure.core.config_inspector import validate_config
         findings = validate_config()
         crit = sum(1 for f in findings
                    if f.get('severity') == 'critical')

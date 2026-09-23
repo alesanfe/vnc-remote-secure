@@ -265,3 +265,35 @@ class TestChainTipWitness:
         audit_log('logout', user='alice')
         intact, msg = audit.verify_chain()
         assert intact is True, f'chain poisoned by failed write: {msg}'
+
+    def test_rotation_links_anchor_to_previous_tip(
+            self, tmp_path, monkeypatch):
+        """The fresh anchor must embed the rotated file's tail hash as
+        prev_tip — a fabricated replacement log cannot claim continuity
+        with a different history."""
+        import json as _json
+
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        monkeypatch.setenv('AUDIT_LOG_MAX_BYTES', '200')
+        audit._startup_verified = True
+        audit._chain_hash = audit._ANCHOR_HASH
+        audit._write_anchor()
+        for i in range(20):
+            audit.audit_log(f'event-{i}', detail='x' * 50)
+        rotated = f.with_suffix('.jsonl.1')
+        if not rotated.exists():
+            # Rotation may not have fired if entries stayed small —
+            # force the path deterministically.
+            monkeypatch.setenv('AUDIT_LOG_MAX_BYTES', '1')
+            audit.audit_log('trigger', detail='x')
+        assert rotated.exists()
+        tail = _json.loads(
+            rotated.read_text().strip().split('\n')[-1])
+        anchor = _json.loads(
+            f.read_text().strip().split('\n')[0])
+        assert anchor['event'] == 'anchor'
+        assert anchor.get('prev_tip') == tail['hash']
+        ok, _msg = audit.verify_chain()
+        assert ok

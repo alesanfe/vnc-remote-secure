@@ -103,10 +103,48 @@ def upgrade_check() -> dict:
     }
 
 
+def _version_key(ver: str):
+    """Best-effort version ordering tuple for downgrade detection."""
+    try:
+        from packaging.version import Version
+        return (0, Version(ver))
+    except Exception:  # noqa: BLE001 - packaging missing/unparseable
+        # Fallback: numeric tuple, zero-padded — good enough for
+        # semver-ish strings, never worse than refusing to compare.
+        try:
+            return (1, tuple(int(p) for p in ver.split('.')))
+        except (ValueError, AttributeError):
+            return (2, ver)
+
+
+def _is_index_spec(spec: str) -> bool:
+    """True when ``spec`` resolves against the package index.
+
+    Local paths, URLs and VCS strings are exempt from index-only flags
+    like ``--only-binary :all:``.
+    """
+    return not (os.path.sep in spec or '://' in spec
+                or spec.endswith(('.whl', '.tar.gz', '.zip'))
+                or spec.startswith(('.', '/', 'git+')))
+
+
 def _pip_install(spec: str) -> tuple[bool, str]:
-    """Run ``pip install`` for ``spec``; returns (ok, tail_of_output)."""
-    cmd = [sys.executable, '-m', 'pip', 'install', '--upgrade',
-           '--disable-pip-version-check', spec]
+    """Run ``pip install`` for ``spec``; returns (ok, tail_of_output).
+
+    ``--isolated`` ignores ``PIP_*`` environment variables and pip
+    config files — a tampered ``PIP_INDEX_URL``/``PIP_TRUSTED_HOST``
+    cannot redirect the upgrade to a hostile index or disable TLS
+    verification. Proxy variables still apply (they are read by the
+    HTTP stack, not by pip config).
+    """
+    cmd = [sys.executable, '-m', 'pip', '--isolated', 'install',
+           '--upgrade', '--disable-pip-version-check']
+    if _is_index_spec(spec):
+        # Index installs take wheels only — a sdist install would run
+        # arbitrary build-time code (setup.py) on this host.
+        cmd.append('--only-binary')
+        cmd.append(':all:')
+    cmd.append(spec)
     try:
         res = subprocess.run(
             cmd, capture_output=True, text=True,
@@ -120,12 +158,13 @@ def _pip_install(spec: str) -> tuple[bool, str]:
     return True, out
 
 
-def _verify_new_install(expected_prev: str) -> tuple[bool, str]:
+def _verify_new_install(_expected_prev: str) -> tuple[bool, str]:
     """Verify the freshly installed package in a NEW process.
 
     The current interpreter still holds the OLD modules — checking
     here would report the old version forever. A subprocess sees the
-    new install.
+    new install. ``_expected_prev`` is kept for call-site clarity —
+    the installed version is compared by the caller, not here.
     """
     try:
         res = subprocess.run(
@@ -158,6 +197,22 @@ def perform_upgrade(source: str | None = None) -> dict:
     result = {'ok': False, 'previous': previous, 'rolled_back': False,
               'backup': None}
 
+    # Anti-downgrade guard BEFORE the backup: a pinned ``==`` spec
+    # naming an OLDER version than the installed one is a downgrade
+    # attempt — the upgrade path must not silently install it
+    # (rollback downgrades through perform_rollback, which does not
+    # pass through here). Checked before spending I/O on a backup for
+    # an operation that will be refused.
+    if '==' in spec:
+        pinned = spec.rsplit('==', 1)[1].strip()
+        if (previous != 'unknown'
+                and _version_key(pinned) < _version_key(previous)):
+            result['error'] = (
+                f'refusing downgrade: requested {pinned} < installed '
+                f'{previous} (use "vnc-remote rollback" for a controlled '
+                'revert)')
+            return result
+
     # 1. Backup BEFORE touching anything — the rollback receipt only
     #    matters if the pre-upgrade state is captured first.
     try:
@@ -185,6 +240,19 @@ def perform_upgrade(source: str | None = None) -> dict:
     ok, ver = _verify_new_install(previous)
     if not ok:
         result['error'] = f'post-upgrade verification failed: {ver}'
+        result['rolled_back'] = perform_rollback()['ok']
+        return result
+
+    # Post-install downgrade check covers sources whose version cannot
+    # be known upfront (local wheel, VCS ref): if the resolved version
+    # is older than what we started with, revert automatically.
+    if (previous != 'unknown'
+            and _version_key(ver) < _version_key(previous)):
+        logger.warning(
+            "Installed version %s is older than %s — rolling back",
+            ver, previous)
+        result['error'] = (
+            f'install resolved to older version {ver} — reverted')
         result['rolled_back'] = perform_rollback()['ok']
         return result
 

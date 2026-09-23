@@ -21,11 +21,9 @@ def _get_platform_metrics():
     """
     try:
         if platform.system() == 'Windows':
-            from vnc_remote_secure.platform.windows.metrics import (
-                get_system_metrics)
+            from vnc_remote_secure.platform.windows.metrics import get_system_metrics
         else:
-            from vnc_remote_secure.platform.linux.metrics import (
-                get_system_metrics)
+            from vnc_remote_secure.platform.linux.metrics import get_system_metrics
         return get_system_metrics()
     except Exception:  # noqa: BLE001 - health checks are best-effort
         logger.debug("Platform metrics unavailable", exc_info=True)

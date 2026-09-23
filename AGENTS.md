@@ -338,3 +338,18 @@ addressed in future work but are tracked here for transparency.
   `<run_dir>/auth_secret.key`, and the session stores. On POSIX,
   `WEBTERM_USER` (requires the service running as root) drops the
   shell to a restricted user; there is no equivalent on Windows.
+
+- **F-036 Pre-audit verification pass (RESOLVED + DOCUMENTED).** An
+  evidence-based review of the boundary hypotheses an external audit
+  would target closed 18 gaps: RFB filter fail-open, webhook SSRF,
+  audit-rotation chain continuity, missing operator-store permission
+  checks, stale signing-secret cache, no PBKDF2 rehash-on-login,
+  upgrade supply-chain (PIP_* injection / downgrades / sdists),
+  CSRF on landing POSTs, status.json disclosure to ephemeral
+  sessions, silent revocation/expiry degradation, temp-user process
+  leaks, stuck SendInput keys, audio head-of-line blocking, gamepad
+  event floods, missing terminal rlimits, view-only path completion,
+  request-smuggling framing, and plaintext backups under hardened
+  profiles. The full CONFIRMED/COVERED/PARTIAL/LIMITATION matrix —
+  including the residuals a third-party auditor will still flag —
+  lives in `docs/security/pre-audit-verification.md`.

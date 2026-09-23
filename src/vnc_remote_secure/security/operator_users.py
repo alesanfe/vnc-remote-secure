@@ -79,14 +79,32 @@ def _save(data: dict) -> None:
             'Could not restrict %s to 0o600: %s', path, exc)
 
 
+# Current password-hash policy. Hashes stored with fewer iterations
+# are transparently upgraded on the next successful login
+# (rehash-on-login), so raising this constant migrates existing
+# accounts without a password reset.
+_PBKDF2_ITERATIONS = 600_000
+
+
 def hash_password(password: str) -> str:
     """Hash ``password`` as ``pbkdf2:sha256:N$salt$hash``."""
     salt = os.urandom(16).hex()
-    iterations = 600_000
     dk = hashlib.pbkdf2_hmac(
         'sha256', password.encode('utf-8'), salt.encode('utf-8'),
-        iterations)
-    return f'pbkdf2:sha256:{iterations}${salt}${dk.hex()}'
+        _PBKDF2_ITERATIONS)
+    return f'pbkdf2:sha256:{_PBKDF2_ITERATIONS}${salt}${dk.hex()}'
+
+
+def _stored_iterations(stored: str) -> int:
+    """Return the iteration count of a ``pbkdf2:sha256:N$…`` hash."""
+    try:
+        scheme = stored.split('$', 1)[0]
+        parts = scheme.split(':')
+        if parts[0] != 'pbkdf2' or len(parts) != 3:
+            return 0
+        return int(parts[2])
+    except (ValueError, IndexError):
+        return 0
 
 
 def _valid_username(username: str) -> bool:
@@ -204,6 +222,21 @@ def verify(username: str, password: str):
     ok = verify_password(password, stored)
     if not ok or rec is None or rec.get('disabled'):
         return None
+    # Rehash-on-login: a hash minted under a weaker iteration policy
+    # is upgraded silently while the plaintext is still in hand.
+    if _stored_iterations(stored) < _PBKDF2_ITERATIONS:
+        try:
+            data = load_store()
+            if username in data:
+                data[username]['password_hash'] = hash_password(password)
+                _save(data)
+                logger.info(
+                    'Upgraded password hash for %r to %d iterations',
+                    username, _PBKDF2_ITERATIONS)
+        except OSError:
+            # Rehash is best-effort — the login already succeeded; a
+            # read-only store must not lock the operator out.
+            logger.debug('Could not rehash password for %r', username)
     return {'username': username,
             'role': rec.get('role', 'viewer'),
             'permissions': sorted(_permissions_for(

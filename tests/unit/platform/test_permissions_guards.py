@@ -41,8 +41,11 @@ class TestLinuxUsernameGuard:
         with patch.object(linux_perms, 'run_cmd',
                           side_effect=lambda cmd, **kw: seen.append(cmd) or _FakeResult()):
             assert linux_perms.remove_user('remote') is True
-        assert seen
-        assert '--' in seen[0]
+        # Process cleanup (loginctl/pkill) runs first; the userdel
+        # call keeps its '--' end-of-options guard.
+        userdel_calls = [c for c in seen if c[0] == 'userdel']
+        assert userdel_calls
+        assert '--' in userdel_calls[0]
         assert 'remote' in seen[0]
 
     def test_set_user_password_rejects_flag_injection(self):
@@ -70,3 +73,32 @@ class TestWindowsBuiltinGuard:
                           return_value=_FakeResult()) as ps:
             assert win_perms.remove_user('remote') is True
             ps.assert_called_once()
+
+
+class TestLinuxTempUserProcessCleanup:
+    """userdel -r leaves the user's processes alive � remove_user must
+    terminate them first (loginctl terminate-user + pkill -9)."""
+
+    def test_processes_killed_before_userdel(self):
+        from unittest.mock import patch
+        calls = []
+
+        def _fake(cmd, **kw):
+            calls.append(cmd[0])
+            return _FakeResult(0)
+
+        with patch.object(linux_perms, 'run_cmd', _fake):
+            assert linux_perms.remove_user('remote') is True
+        # loginctl + pkill run BEFORE userdel.
+        assert calls.index('userdel') > calls.index('pkill')
+        assert calls.index('userdel') > calls.index('loginctl')
+
+    def test_cleanup_failure_still_removes(self):
+        """A missing loginctl/pkill must not block userdel."""
+        from unittest.mock import patch
+
+        def _fake(cmd, **kw):
+            return _FakeResult(1 if cmd[0] != 'userdel' else 0)
+
+        with patch.object(linux_perms, 'run_cmd', _fake):
+            assert linux_perms.remove_user('remote') is True

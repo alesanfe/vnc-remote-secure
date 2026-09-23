@@ -51,6 +51,31 @@ def check_bearer_token(auth_header, expected_token):
         return False
 
 
+def request_headers_safe(headers) -> bool:
+    """Reject request-smuggling header shapes before body handling.
+
+    ``http.server`` parses bodies only via ``Content-Length`` — it has
+    no ``Transfer-Encoding`` support. A request carrying BOTH (or a
+    duplicated Content-Length) is ambiguous: front proxies and this
+    server can disagree on where the request ends, the classic TE/CL
+    desync. nginx normalizes upstream traffic, but a direct client on
+    the service port does not get that protection.
+
+    Returns ``True`` when the headers are unambiguous.
+    """
+    get_all = getattr(headers, 'get_all', None)
+    if get_all:
+        if get_all('Transfer-Encoding'):
+            return False
+        cl = get_all('Content-Length')
+        if cl is not None and len([v for v in cl if v.strip()]) > 1:
+            return False
+    else:
+        if headers.get('Transfer-Encoding'):
+            return False
+    return True
+
+
 def _peer_is_trusted_proxy(peer_ip: str, proxy_ips: set) -> bool:
     """Return True when ``peer_ip`` is an allowed proxy.
 
@@ -201,8 +226,7 @@ def authenticate_landing(auth_header, client_ip=None):
     """
     limiter = None
     if client_ip:
-        from vnc_remote_secure.security.rate_limit import (
-            get_auth_limiter)
+        from vnc_remote_secure.security.rate_limit import get_auth_limiter
         limiter = get_auth_limiter()
         if _is_locked(limiter, client_ip):
             return False, None
@@ -217,8 +241,7 @@ def authenticate_landing(auth_header, client_ip=None):
             username = None
     if username:
         try:
-            from vnc_remote_secure.security.operator_users import (
-                load_store, verify)
+            from vnc_remote_secure.security.operator_users import load_store, verify
             if username in load_store():
                 rec = verify(username, password or '')
                 if limiter is not None:

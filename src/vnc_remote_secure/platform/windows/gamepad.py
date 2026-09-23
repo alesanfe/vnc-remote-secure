@@ -22,7 +22,9 @@ class ViGEmInjector:
     """
 
     def __init__(self):
-        import vgamepad as vg  # noqa: F401 - ImportError when absent
+        # Optional Windows-only dependency — ImportError means the
+        # backend is unavailable and the adapter falls back.
+        import vgamepad as vg  # noqa: F401 # pylint: disable=import-error
         self._vg = vg
         self._pad = vg.VX360Gamepad()
         self.available = True
@@ -103,6 +105,10 @@ class WindowsInputInjector:
 
     def __init__(self):
         self.available = True
+        # Keys currently held down — tracked so close() can release
+        # them; SendInput has no "release everything" call and a
+        # stuck key would keep typing into the user's session.
+        self._held = set()
         # Map gamepad buttons to virtual key codes
         self.key_map = {
             "button_0": 0x1D,  # 'A' key (cross button)
@@ -156,6 +162,10 @@ class WindowsInputInjector:
         inp.ki.dwFlags = flags
 
         ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+        if value == 0:
+            self._held.discard(vk)
+        else:
+            self._held.add(vk)
 
     def inject_axis(self, axis, value):
         """Inject axis."""
@@ -210,4 +220,47 @@ class WindowsInputInjector:
         ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
 
     def close(self):
-        """Close (no-op on Windows — nothing to clean up)."""
+        """Release every held key — disconnect must not leave stuck input.
+
+        Unlike the ViGEm path (``pad.reset()`` clears the virtual pad),
+        SendInput has no reset: each key still in ``_held`` gets an
+        explicit KEYUP. Best-effort — a SendInput failure mid-release
+        still attempts the remaining keys.
+        """
+        if not self._held:
+            return
+        for vk in list(self._held):
+            try:
+                self._send_keyup(vk)
+            except Exception:  # noqa: BLE001 - release is best-effort
+                pass
+        self._held.clear()
+
+    @staticmethod
+    def _send_keyup(vk):
+        """Send a single KEYUP event for ``vk`` via SendInput."""
+        import ctypes
+        from ctypes import wintypes
+
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [("wVk", wintypes.WORD),
+                        ("wScan", wintypes.WORD),
+                        ("dwFlags", wintypes.DWORD),
+                        ("time", wintypes.DWORD),
+                        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
+
+        class INPUT(ctypes.Structure):
+            class _INPUT(ctypes.Union):
+                _fields_ = [("ki", KEYBDINPUT)]
+            _anonymous_ = ("_input",)
+            _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT)]
+
+        inp = INPUT()
+        inp.type = INPUT_KEYBOARD  # pylint: disable=attribute-defined-outside-init
+        inp.ki.wVk = vk
+        inp.ki.dwFlags = KEYEVENTF_KEYUP
+        ctypes.windll.user32.SendInput(
+            1, ctypes.byref(inp), ctypes.sizeof(inp))

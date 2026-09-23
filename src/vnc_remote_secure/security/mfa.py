@@ -182,16 +182,17 @@ def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
 
 
 def generate_recovery_codes(count: int = 8) -> list:
-    """Generate one-time recovery codes (format: XXXX-XXXX-XXXX).
+    """Generate one-time recovery codes (format: XXXX-XXXX-XXXX-XXXX).
 
-    Uses 6 bytes (48 bits) of entropy per code, formatted as three
-    4-char hex groups. This balances human-typability with sufficient
-    entropy to resist brute force.
+    16 bytes (128 bits) of CSPRNG entropy per code — enough that the
+    fast SHA-256 hash of each code stays un-brute-forceable even
+    offline. Codes are shown once; only hashes persist.
     """
     codes = []
     for _ in range(count):
-        raw = secrets.token_hex(6)  # 12 hex chars = 48 bits
-        codes.append(f"{raw[:4]}-{raw[4:8]}-{raw[8:12]}".upper())
+        raw = secrets.token_hex(16)  # 32 hex chars = 128 bits
+        codes.append('-'.join(
+            raw[i:i + 4] for i in range(0, 32, 4)).upper())
     return codes
 
 

@@ -885,12 +885,38 @@ def _mark_revoked_shared(token: str, expires_at: float) -> None:
                      exc)
 
 
+_revocation_warned_at = 0.0
+
+
 def _is_revoked_shared(token: str) -> bool:
-    """Return True when the token was revoked in any process via the backend."""
+    """Return True when the token was revoked in any process via the backend.
+
+    Backend failure falls back to the local JSON ``revoked`` flag
+    rather than denying every session — a sqlite hiccup must not be a
+    self-DoS for all active sessions (new *activations* already fail
+    closed via ``_claim_consumed``/``_claim_use``). The residual risk —
+    a cross-process revocation whose JSON flag was lost to the
+    merge-write race goes unenforced while the backend is down — is
+    surfaced via a throttled warning + metric so operators see the
+    degraded-enforcement window.
+    """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         return bool(get_backend().get(_NS_EPH_REVOKED, token))
-    except Exception:  # noqa: BLE001 - backend down: JSON flag suffices
+    except Exception:  # noqa: BLE001 - degraded, not silent
+        global _revocation_warned_at
+        now = time.time()
+        if now - _revocation_warned_at > 60:
+            _revocation_warned_at = now
+            logger.warning(
+                "Revocation backend unavailable — enforcing local "
+                "JSON flags only (cross-process revocations may lag)")
+        try:
+            from vnc_remote_secure.monitoring.prometheus import inc_counter
+            inc_counter('vnc_remote_shared_state_errors_total',
+                        'op=revocation_check')
+        except Exception:  # noqa: BLE001
+            pass
         return False
 
 

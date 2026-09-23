@@ -121,8 +121,7 @@ def _session_create(store, args):
 
     permissions = None
     if getattr(args, 'permissions', None):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            ALL_PERMISSIONS)
+        from vnc_remote_secure.security.ephemeral_sessions import ALL_PERMISSIONS
         permissions = {p.strip() for p in args.permissions.split(',')
                        if p.strip()}
         unknown = permissions - ALL_PERMISSIONS
@@ -219,8 +218,7 @@ def _session_revoke(args, store=None):
     # revoke, so a compromised deployment can be locked down in one
     # command instead of one token at a time.
     if getattr(args, 'all', False):
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            get_session_store, revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
         store = store or get_session_store()
         # list_active returns public ids (token fingerprints), not the
         # tokens — resolve real tokens from the store for revoke.
@@ -237,8 +235,7 @@ def _session_revoke(args, store=None):
     # compromised admin account).
     by_user = getattr(args, 'by_user', None)
     if by_user:
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            get_session_store, revoke_session)
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
         store = store or get_session_store()
         revoked = 0
         for token, sess in list(store._sessions.items()):

@@ -73,8 +73,9 @@ class TestCheckRateLimitEdges:
 
     def test_boundary_at_max(self, monkeypatch):
         """Requests == max allowed; max+1 denied."""
-        from vnc_remote_secure.security import rate_limit as rl
         import itertools
+
+        from vnc_remote_secure.security import rate_limit as rl
         counter = itertools.count(1)
         monkeypatch.setattr(rl, 'get_backend', lambda: type('B', (), {
             'increment': lambda self, *a, **k: next(counter)})())

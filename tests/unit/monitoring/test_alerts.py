@@ -9,7 +9,9 @@ def _clean_alert_env(monkeypatch):
     """Ensure no alert-related env leaks between tests."""
     for var in ('ALERTS_ENABLED', 'DISCORD_ENABLED', 'DISCORD_WEBHOOK_URL',
                 'ALERT_WEBHOOK_URL', 'ALERT_EMAIL_TO', 'ALERT_SMTP_SERVER',
-                'ALERT_EMAIL_FROM', 'ALERT_SMTP_USER', 'ALERT_SMTP_PASS'):
+                'ALERT_EMAIL_FROM', 'ALERT_SMTP_USER', 'ALERT_SMTP_PASS',
+                'ALERT_WEBHOOK_ALLOW_HTTP',
+                'ALERT_WEBHOOK_ALLOW_PRIVATE'):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -96,8 +98,6 @@ class TestWebhookSchemeGuard:
         assert hits == []
 
     def test_http_and_https_allowed(self, monkeypatch):
-        import urllib.request
-
         class _Resp:
             status = 200
 
@@ -107,18 +107,26 @@ class TestWebhookSchemeGuard:
             def __exit__(self, *a):
                 return False
 
-        monkeypatch.setattr(urllib.request, 'urlopen',
-                            lambda *a, **k: _Resp())
         from vnc_remote_secure.monitoring import alerts
-        assert alerts._post_json('http://h/x', {}) is True
+        # https:// always permitted (public host); http:// requires
+        # the explicit ALERT_WEBHOOK_ALLOW_HTTP opt-in.
+        monkeypatch.setattr(alerts, '_resolved_addrs_public',
+                            lambda host: True)
+        monkeypatch.setattr(alerts._NO_REDIRECT_OPENER, 'open',
+                            lambda *a, **k: _Resp())
         assert alerts._post_json('https://h/x', {}) is True
+        # http:// without opt-in is rejected.
+        assert alerts._post_json('http://h/x', {}) is False
+        monkeypatch.setenv('ALERT_WEBHOOK_ALLOW_HTTP', 'true')
+        assert alerts._post_json('http://h/x', {}) is True
 
     def test_urlopen_exception_returns_false(self, monkeypatch):
-        import urllib.request
-        monkeypatch.setattr(
-            urllib.request, 'urlopen',
-            lambda *a, **k: (_ for _ in ()).throw(OSError('no')))
         from vnc_remote_secure.monitoring import alerts
+        monkeypatch.setattr(alerts, '_resolved_addrs_public',
+                            lambda host: True)
+        monkeypatch.setattr(
+            alerts._NO_REDIRECT_OPENER, 'open',
+            lambda *a, **k: (_ for _ in ()).throw(OSError('no')))
         assert alerts._post_json('https://h/x', {}) is False
 
 
@@ -151,10 +159,13 @@ class TestWebhookHmac:
 
             def __exit__(self, *a):
                 return False
+        from vnc_remote_secure.monitoring import alerts
         monkeypatch.setattr(
-            'urllib.request.urlopen',
+            alerts._NO_REDIRECT_OPENER, 'open',
             lambda req, timeout=0: captured.update(
                 req=req) or FakeResp())
+        monkeypatch.setattr(alerts, '_resolved_addrs_public',
+                            lambda host: True)
         monkeypatch.setenv('ALERT_WEBHOOK_URL', 'https://hook.local/x')
         if secret:
             monkeypatch.setenv('ALERT_WEBHOOK_SECRET', secret)
@@ -205,3 +216,102 @@ def test_notify_correlation_id_shared(monkeypatch):
     alerts.notify('t', 'm', severity='warning')
     assert seen['discord'] == seen['webhook']
     assert len(seen['discord']) == 12
+
+
+class TestWebhookUrlValidation:
+    """SSRF policy on operator-configured webhook URLs.
+
+    Default: HTTPS only, public unicast only, no redirect following.
+    ALERT_WEBHOOK_ALLOW_HTTP / ALERT_WEBHOOK_ALLOW_PRIVATE are the
+    explicit opt-outs for LAN receivers.
+    """
+
+    def _gai_private(self, monkeypatch, ip='10.0.0.5'):
+        import socket
+        monkeypatch.setattr(
+            socket, 'getaddrinfo',
+            lambda *a, **k: [(socket.AF_INET, 0, 0, '', (ip, 443))])
+
+    def test_http_rejected_by_default(self, monkeypatch):
+        self._gai_private(monkeypatch, '93.184.216.34')
+        err = alerts._validate_webhook_url('http://example.com/hook')
+        assert err is not None
+        assert 'ALLOW_HTTP' in err
+
+    def test_http_allowed_with_optin(self, monkeypatch):
+        self._gai_private(monkeypatch, '93.184.216.34')
+        monkeypatch.setenv('ALERT_WEBHOOK_ALLOW_HTTP', 'true')
+        assert alerts._validate_webhook_url(
+            'http://example.com/hook') is None
+
+    def test_non_http_scheme_rejected(self):
+        assert alerts._validate_webhook_url(
+            'file:///etc/passwd') is not None
+        assert alerts._validate_webhook_url(
+            'gopher://x/1') is not None
+
+    def test_loopback_rejected(self, monkeypatch):
+        self._gai_private(monkeypatch, '127.0.0.1')
+        assert alerts._validate_webhook_url(
+            'https://localhost/hook') is not None
+
+    def test_private_ip_rejected(self, monkeypatch):
+        self._gai_private(monkeypatch, '192.168.1.10')
+        assert alerts._validate_webhook_url(
+            'https://internal/hook') is not None
+
+    def test_link_local_metadata_rejected(self, monkeypatch):
+        """Cloud metadata endpoints (169.254.x) must be unreachable."""
+        self._gai_private(monkeypatch, '169.254.169.254')
+        assert alerts._validate_webhook_url(
+            'https://metadata/hook') is not None
+
+    def test_private_allowed_with_optin(self, monkeypatch):
+        self._gai_private(monkeypatch, '192.168.1.10')
+        monkeypatch.setenv('ALERT_WEBHOOK_ALLOW_PRIVATE', 'true')
+        assert alerts._validate_webhook_url(
+            'https://internal/hook') is None
+
+    def test_public_ip_accepted(self, monkeypatch):
+        self._gai_private(monkeypatch, '93.184.216.34')
+        assert alerts._validate_webhook_url(
+            'https://example.com/hook') is None
+
+    def test_one_bad_addr_fails_all(self, monkeypatch):
+        """A hostname resolving to public AND private is rejected �
+        urllib may pick either."""
+        import socket
+        monkeypatch.setattr(
+            socket, 'getaddrinfo',
+            lambda *a, **k: [
+                (socket.AF_INET, 0, 0, '', ('93.184.216.34', 443)),
+                (socket.AF_INET, 0, 0, '', ('10.0.0.5', 443))])
+        assert alerts._validate_webhook_url(
+            'https://mixed.example/hook') is not None
+
+    def test_dns_failure_rejected(self, monkeypatch):
+        import socket
+        monkeypatch.setattr(
+            socket, 'getaddrinfo',
+            lambda *a, **k: (_ for _ in ()).throw(OSError('nxdomain')))
+        assert alerts._validate_webhook_url(
+            'https://no-such-host.invalid/hook') is not None
+
+    def test_post_json_rejects_private_url(self, monkeypatch):
+        self._gai_private(monkeypatch, '127.0.0.1')
+        assert alerts._post_json(
+            'https://localhost/hook', {'a': 1}) is False
+
+    def test_no_redirect_following(self, monkeypatch):
+        """A 302 must surface as an HTTPError, not be followed."""
+        import urllib.error
+        self._gai_private(monkeypatch, '93.184.216.34')
+
+        def _raise(req, timeout=None):
+            raise urllib.error.HTTPError(
+                req.full_url, 302, 'Found', {}, None)
+
+        monkeypatch.setattr(
+            alerts._NO_REDIRECT_OPENER, 'open', _raise)
+        assert alerts._post_json(
+            'https://example.com/hook', {'a': 1}) is False

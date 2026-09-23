@@ -99,9 +99,10 @@ def cert_days_remaining() -> int | None:
     if not (cert and _os.path.exists(cert)):
         return None
     try:
+        import datetime as _dt
+
         from cryptography import x509
         from cryptography.hazmat.backends import default_backend
-        import datetime as _dt
         with open(cert, 'rb') as f:
             parsed = x509.load_pem_x509_certificate(
                 f.read(), default_backend())

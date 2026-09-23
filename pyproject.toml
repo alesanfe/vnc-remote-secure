@@ -112,7 +112,7 @@ ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
 # Optional/platform-specific dependencies without published type stubs.
-module = ["evdev", "psutil", "waitress"]
+module = ["evdev", "psutil", "waitress", "vgamepad"]
 ignore_missing_imports = true
 
 [tool.pylint.messages_control]

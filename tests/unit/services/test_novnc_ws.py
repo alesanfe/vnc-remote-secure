@@ -211,3 +211,63 @@ class TestRelayCleanup:
             lambda *a, **k: (True, 'tok'), raising=False)
         h._proxy_websocket()
         assert unreg == ['conn_7']
+
+
+class TestRfbFilterFailClosed:
+    """A restricted session whose filter cannot be built must NOT
+    degrade to unfiltered proxying (fail-closed)."""
+
+    def test_store_failure_fails_closed(self, monkeypatch):
+        """_build_rfb_filter raises _RfbFilterError so the caller
+        denies the upgrade instead of proxying byte-transparent."""
+        import pytest
+
+        from vnc_remote_secure.services.novnc import _RfbFilterError
+
+        class _BrokenStore:
+            def _load_if_changed(self):
+                pass
+
+            def get(self, tok):
+                raise RuntimeError("store corrupted")
+
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
+            lambda: _BrokenStore())
+        with pytest.raises(_RfbFilterError):
+            H._build_rfb_filter('tok')
+
+
+class TestProxyWebsocketFilterDenial:
+    """The websockify path must 403 when a restricted session's RFB
+    filter cannot be constructed - never proxy byte-transparent."""
+
+    def test_filter_error_denies_upgrade(self, monkeypatch, stub_handler):
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
+            lambda: ['https://ok.example'], raising=False)
+        import socket as _s
+        closed = []
+        upstream = type('U', (), {
+            'close': lambda self: closed.append(1),
+            'sendall': lambda self, b: None})()
+        monkeypatch.setattr(_s, 'create_connection',
+                            lambda *a, **k: upstream)
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.'
+            '_AuthedSimpleHTTPRequestHandler._build_rfb_filter',
+            staticmethod(lambda tok: (_ for _ in ()).throw(
+                __import__(
+                    'vnc_remote_secure.services.novnc',
+                    fromlist=['_RfbFilterError'])._RfbFilterError('x'))))
+        relayed = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc.relay_rfb_stream',
+            lambda *a: relayed.append(1))
+        h = stub_handler(H, headers={
+            'Origin': 'https://ok.example',
+            'Cookie': 'vnc_ephemeral=tok'})
+        h._proxy_websocket()
+        assert h.send_response.call_args[0][0] == 403
+        assert closed == [1]
+        assert relayed == []

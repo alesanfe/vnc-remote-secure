@@ -450,8 +450,7 @@ def audit_internal_listeners(config: dict) -> list:
         A list of human-readable findings (empty = clean).
     """
     try:
-        from vnc_remote_secure.core.doctor import (
-            _is_loopback_addr, _list_listeners)
+        from vnc_remote_secure.core.doctor import _is_loopback_addr, _list_listeners
     except ImportError:
         return []
     listeners = _list_listeners()
@@ -725,8 +724,7 @@ def start_all(config: dict | None = None) -> dict:
             if config.get('security_profile') in (
                     'public-hardened', 'private-overlay'):
                 try:
-                    from vnc_remote_secure.monitoring.alerts import (
-                        notify)
+                    from vnc_remote_secure.monitoring.alerts import notify
                     notify('Public listener detected',
                            '; '.join(findings), severity='critical')
                 except Exception:  # noqa: BLE001

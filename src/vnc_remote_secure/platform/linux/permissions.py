@@ -38,12 +38,42 @@ def create_user(username, system=True, shell='/usr/sbin/nologin'):
     return result.returncode == 0
 
 
+def _terminate_user_processes(username):
+    """Kill every process the user still owns (best-effort).
+
+    ``userdel -r`` removes the account but leaves running processes
+    alive — a terminal subprocess or an attacker-respawned job would
+    survive account deletion under a non-existent uid. ``loginctl
+    terminate-user`` handles systemd-logind session teardown (user
+    managers, scopes); ``pkill -u`` is the fallback for non-systemd
+    hosts. Neither failing is fatal: userdel still runs.
+    """
+    log = logging.getLogger(__name__)
+    r = run_cmd(['loginctl', 'terminate-user', username],
+                capture_output=True, text=True)
+    if r.returncode != 0:
+        log.debug("loginctl terminate-user %s: %s",
+                  username, (r.stderr or '').strip())
+    # SIGKILL (-9): a graceful TERM lets a stubborn process linger
+    # past userdel and get orphaned under the deleted uid. The
+    # username is -u's argument (validated — no leading dash), not a
+    # pattern.
+    r = run_cmd(['pkill', '-9', '-u', username],
+                capture_output=True, text=True)
+    if r.returncode not in (0, 1):  # 1 = no processes matched
+        log.debug("pkill -u %s: %s", username, (r.stderr or '').strip())
+
+
 def remove_user(username):
     """Remove a Linux user and its home directory.
 
     Refuses reserved/builtin names: the caller (TEMP_USER env) could
     otherwise pass e.g. ``root`` and ``userdel -r`` would attempt to
     delete a system account.
+
+    The user's processes are terminated first — ``userdel`` alone
+    leaves them running (it only warns), and an orphaned process under
+    a deleted uid keeps its access.
     """
     if not _valid_username(username):
         return False
@@ -52,6 +82,7 @@ def remove_user(username):
         logging.getLogger(__name__).warning(
             "Refusing to remove reserved user %s", username)
         return False
+    _terminate_user_processes(username)
     result = run_cmd(
         ['userdel', '-r', '--', username],
         capture_output=True, text=True,

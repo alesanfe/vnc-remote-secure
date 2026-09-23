@@ -19,8 +19,7 @@ def _security_check(args) -> int:
 
     # --- Posture score ---
     try:
-        from vnc_remote_secure.security.posture import (
-            calculate_posture)
+        from vnc_remote_secure.security.posture import calculate_posture
         report = calculate_posture()
         score = report.get('score', 0)
         blocking = report.get('blocking_findings', [])
@@ -37,8 +36,7 @@ def _security_check(args) -> int:
 
     # --- Config validation ---
     try:
-        from vnc_remote_secure.core.config_inspector import (
-            validate_config)
+        from vnc_remote_secure.core.config_inspector import validate_config
         findings = validate_config()
         for f in findings:
             sev = f.get('severity', 'warning')
@@ -53,8 +51,7 @@ def _security_check(args) -> int:
 
     # --- Listener audit (public binds on internal ports) ---
     try:
-        from vnc_remote_secure.core.service_manager import (
-            audit_internal_listeners)
+        from vnc_remote_secure.core.service_manager import audit_internal_listeners
         findings = audit_internal_listeners(config)
         for f in findings:
             print(f"  [CRITICAL] listener: {f}")

@@ -93,10 +93,9 @@ class TestSessionCookieBoundaries:
         """Pre-upgrade 3-field cookies must still verify — a regression
         silently logs out every pre-upgrade session."""
         import time
-        from vnc_remote_secure.security.sessions import (
-            verify_session_cookie)
-        from vnc_remote_secure.security.token_signing import (
-            sign_token, TOKEN_TYPE_SESSION)
+
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, sign_token
         now = int(time.time())
         payload = f'alice:{now}:{now + 3600}'
         cookie = sign_token(TOKEN_TYPE_SESSION, payload)
@@ -107,15 +106,13 @@ class TestSessionCookieBoundaries:
 
     def test_non_integer_fields_rejected(self):
         from vnc_remote_secure.security.sessions import verify_session_cookie
-        from vnc_remote_secure.security.token_signing import (
-            sign_token, TOKEN_TYPE_SESSION)
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, sign_token
         cookie = sign_token(TOKEN_TYPE_SESSION, 'a:notanint:x:y')
         assert verify_session_cookie(cookie) is None
 
     def test_wrong_field_count_rejected(self):
         from vnc_remote_secure.security.sessions import verify_session_cookie
-        from vnc_remote_secure.security.token_signing import (
-            sign_token, TOKEN_TYPE_SESSION)
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, sign_token
         assert verify_session_cookie(
             sign_token(TOKEN_TYPE_SESSION, 'a:b')) is None
         assert verify_session_cookie(
@@ -125,9 +122,12 @@ class TestSessionCookieBoundaries:
         """Refresh must update last_seen only — never extend the
         absolute expiry."""
         import time
+
         from vnc_remote_secure.security.sessions import (
-            create_session_cookie, refresh_session_cookie,
-            verify_session_cookie)
+            create_session_cookie,
+            refresh_session_cookie,
+            verify_session_cookie,
+        )
         cookie = create_session_cookie('alice')['value']
         s1 = verify_session_cookie(cookie)
         # Force last_seen into the past so refresh fires.
@@ -151,7 +151,9 @@ class TestSessionCookieBoundaries:
         """username:created must be identical pre/post refresh — else
         revoke misses re-issued cookies."""
         from vnc_remote_secure.security.sessions import (
-            create_session_cookie, session_revocation_key)
+            create_session_cookie,
+            session_revocation_key,
+        )
         cookie = create_session_cookie('alice')['value']
         k1 = session_revocation_key(cookie)
         assert k1
@@ -161,16 +163,14 @@ class TestSessionCookieBoundaries:
 class TestSameSiteWhitelist:
     def test_injected_samesite_falls_back(self, monkeypatch):
         monkeypatch.setenv('SESSION_SAMESITE', 'Lax\r\nX-Injected: 1')
-        from vnc_remote_secure.security.sessions import (
-            get_cookie_attributes)
+        from vnc_remote_secure.security.sessions import get_cookie_attributes
         attrs = get_cookie_attributes()
         assert attrs['samesite'].lower() in ('lax', 'strict', 'none')
         assert '\r' not in attrs['samesite']
 
     def test_valid_samesite_passes(self, monkeypatch):
         monkeypatch.setenv('SESSION_SAMESITE', 'Strict')
-        from vnc_remote_secure.security.sessions import (
-            get_cookie_attributes)
+        from vnc_remote_secure.security.sessions import get_cookie_attributes
         assert get_cookie_attributes()['samesite'] == 'Strict'
 
 
@@ -180,9 +180,9 @@ class TestOperatorEpoch:
 
     def test_old_session_rejected_after_bump(self, monkeypatch):
         import time
+
         from vnc_remote_secure.security import sessions
-        from vnc_remote_secure.security.auth_gateway import (
-            check_authenticated)
+        from vnc_remote_secure.security.auth_gateway import check_authenticated
         cookie = sessions.create_session_cookie('admin')['value']
         # The cookie verifies BEFORE the bump.
         ok, _u = check_authenticated(cookie)
@@ -196,9 +196,9 @@ class TestOperatorEpoch:
 
     def test_new_session_survives(self, monkeypatch):
         import time
+
         from vnc_remote_secure.security import sessions
-        from vnc_remote_secure.security.auth_gateway import (
-            check_authenticated)
+        from vnc_remote_secure.security.auth_gateway import check_authenticated
         # Epoch in the PAST must not reject fresh sessions.
         monkeypatch.setattr(
             sessions, 'operator_session_epoch',

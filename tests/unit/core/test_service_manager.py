@@ -363,8 +363,8 @@ class TestAuditInternalListeners:
         return cfg
 
     def _with_listeners(self, monkeypatch, listeners):
-        import vnc_remote_secure.core.service_manager as sm
         import vnc_remote_secure.core.doctor as doc
+        import vnc_remote_secure.core.service_manager as sm
         monkeypatch.setattr(
             doc, '_list_listeners', lambda: listeners)
         monkeypatch.setattr(

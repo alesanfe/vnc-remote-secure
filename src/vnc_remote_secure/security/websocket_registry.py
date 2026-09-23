@@ -55,6 +55,7 @@ def _redact(session_id: str) -> str:
 
 # Shared-state namespace for cross-process revocation propagation.
 _NS_REVOKED = 'websocket_revoked_sessions'
+_expiry_warned_at = 0.0
 
 # Type for a close callback. The callback should close the WebSocket
 # connection. This abstraction allows the registry to work with
@@ -400,11 +401,21 @@ def _session_expired(session_id: str) -> bool:
     """
     try:
         import time
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            get_session_store)
+
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store
         sess = get_session_store().get(session_id)
         return sess is not None and time.time() > sess.expires_at
     except Exception:  # noqa: BLE001 - expiry check must not kill watcher
+        # Degraded-enforcement window: while the store is unreadable an
+        # expired session's live sockets stay open. Log once per
+        # minute so the window is visible, not silent.
+        global _expiry_warned_at
+        now = time.time()
+        if now - _expiry_warned_at > 60:
+            _expiry_warned_at = now
+            logger.warning(
+                "Session expiry check unavailable — live WebSockets "
+                "for expired sessions are not being swept")
         return False
 
 
@@ -444,8 +455,7 @@ def _sweep_revoked_session(session_id: str) -> bool:
         return False
     closed = get_registry().revoke_session(session_id)
     try:
-        from vnc_remote_secure.monitoring.prometheus import (
-            inc_counter, set_gauge)
+        from vnc_remote_secure.monitoring.prometheus import inc_counter, set_gauge
         inc_counter('vnc_remote_ws_connections_closed_total',
                     f'reason={reason}',
                     value=closed if isinstance(closed, int) else 1)

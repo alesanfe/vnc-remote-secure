@@ -31,6 +31,16 @@ DEFAULT_TOKEN_LIFETIME = 1800
 
 
 _cached_secret = None
+_cached_secret_mtime = 0.0
+_cached_secret_checked = 0.0
+
+# How often a cached file-backed secret is re-stat'ed for rotation.
+# `vnc-remote secrets rotate` rewrites auth_secret.key; long-running
+# service processes must pick the new key up or they keep signing
+# tokens with a retired secret (valid during the coexistence window,
+# silently rejected afterwards). A stat() every few seconds is cheap
+# relative to the HMAC work callers do per request.
+_SECRET_RECHECK_INTERVAL = 5.0
 
 
 def _secret_file_path():
@@ -82,21 +92,28 @@ def _get_secret():
     stable across process restarts. This is essential for ephemeral
     session tokens to remain valid across CLI invocations.
     """
-    global _cached_secret
+    global _cached_secret, _cached_secret_mtime, _cached_secret_checked
     load_env_file()
     secret = os.environ.get('AUTH_SECRET') or os.environ.get('FLASK_SECRET_KEY')
     if secret:
         return secret.encode('utf-8')
-    if _cached_secret is None:
+    if _cached_secret is None or _secret_file_changed():
         # Try to load a previously persisted secret.
         path = _secret_file_path()
+        loaded = None
         try:
             with open(path, encoding='utf-8') as f:
-                _cached_secret = f.read().strip()
+                loaded = f.read().strip()
+            # Record the baseline mtime now — otherwise the first
+            # `_secret_file_changed` probe would adopt a post-rotation
+            # file as the baseline and keep signing with the stale key.
+            try:
+                _cached_secret_mtime = os.stat(path).st_mtime
+            except OSError:
+                pass
             # Keys written before the ACL hardening existed may still
-            # be world-readable — re-restrict on load (once per process,
-            # guarded by _cached_secret).
-            if _cached_secret:
+            # be world-readable — re-restrict on load.
+            if loaded:
                 try:
                     from vnc_remote_secure.security.certificates import _restrict_key_permissions
                     _restrict_key_permissions(path, writable=True)
@@ -113,6 +130,10 @@ def _get_secret():
                    else logger.warning)
             log("Could not read persisted auth secret at %s: %s",
                 path, exc, exc_info=True)
+        if loaded:
+            if loaded != _cached_secret:
+                logger.info("Reloaded rotated auth secret from %s", path)
+            _cached_secret = loaded
         if not _cached_secret:
             _cached_secret = secrets.token_hex(32)
             try:
@@ -120,7 +141,38 @@ def _get_secret():
             except OSError as exc:
                 # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs path+error, not the secret)
                 logger.warning("Could not persist auth secret at %s: %s", path, exc, exc_info=True)
+        # Baseline mtime must also cover the generate path — otherwise
+        # the first probe adopts a post-rotation file as baseline. The
+        # probe timestamp is armed too so the next call doesn't stat
+        # immediately after a load we just performed.
+        _cached_secret_checked = time.time()
+        try:
+            _cached_secret_mtime = os.stat(path).st_mtime
+        except OSError:
+            pass
     return _cached_secret.encode('utf-8')
+
+
+def _secret_file_changed() -> bool:
+    """True when the persisted secret file changed since last load.
+
+    Rate-limited by ``_SECRET_RECHECK_INTERVAL`` so per-request HMAC
+    calls do not stat the filesystem every time.
+    """
+    global _cached_secret_checked, _cached_secret_mtime
+    now = time.time()
+    if now - _cached_secret_checked < _SECRET_RECHECK_INTERVAL:
+        return False
+    _cached_secret_checked = now
+    try:
+        mtime = os.stat(_secret_file_path()).st_mtime
+    except OSError:
+        return False
+    if _cached_secret_mtime and mtime != _cached_secret_mtime:
+        _cached_secret_mtime = mtime
+        return True
+    _cached_secret_mtime = mtime
+    return False
 
 
 def _load_previous_secrets() -> list:
@@ -170,7 +222,7 @@ def rotate_signing_secret(retire_in: float = 7 * 86400) -> tuple:
     signing key — in-flight tokens stay valid instead of dying at
     once. Returns ``(ok, error_message)``.
     """
-    global _cached_secret
+    global _cached_secret, _cached_secret_mtime
     if os.environ.get('AUTH_SECRET') or os.environ.get('FLASK_SECRET_KEY'):
         return (False, 'secret is configured via environment '
                        '(AUTH_SECRET/FLASK_SECRET_KEY) — rotate it '
@@ -187,6 +239,10 @@ def rotate_signing_secret(retire_in: float = 7 * 86400) -> tuple:
                          __import__('json').dumps(entries))
     _cached_secret = secrets.token_hex(32)
     _persist_secret_file(_secret_file_path(), _cached_secret)
+    try:
+        _cached_secret_mtime = os.stat(_secret_file_path()).st_mtime
+    except OSError:
+        pass
     try:
         from vnc_remote_secure.security.audit import audit_log
         audit_log('signing_key_rotate', user='system',
@@ -213,8 +269,7 @@ def authenticate(username, password):
     # against their own credentials/role; the env credentials remain
     # the bootstrap admin for deployments without a store.
     try:
-        from vnc_remote_secure.security.operator_users import (
-            load_store, verify)
+        from vnc_remote_secure.security.operator_users import load_store, verify
         if str(username) in load_store():
             return verify(str(username), password) is not None
     except Exception as exc:  # noqa: BLE001 - store failure falls back to env

@@ -144,8 +144,14 @@ def _stored_tip() -> str | None:
         return None
 
 
-def _write_anchor():
-    """Write the initial anchor entry to a fresh audit log."""
+def _write_anchor(prev_tip: str | None = None):
+    """Write the initial anchor entry to a fresh audit log.
+
+    ``prev_tip`` — the tail hash of the file this log is chained from
+    (set on rotation). It is part of the hashed entry, so a fabricated
+    replacement file cannot claim continuity with a different history:
+    the anchor hash would not match the recorded chain.
+    """
     global _chain_hash
     entry = {
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
@@ -156,14 +162,16 @@ def _write_anchor():
         'result': 'success',
         'detail': 'Audit chain anchor — genesis entry',
     }
+    if prev_tip:
+        entry['prev_tip'] = prev_tip
     entry['hash'] = _compute_hash(_ANCHOR_HASH, entry)
-    _chain_hash = entry['hash']
+    _chain_hash = str(entry['hash'])
     path = Path(_audit_log_file())
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         f.write(json.dumps(entry, separators=(',', ':')) + '\n')
     _set_secure_perms(path)
-    _record_tip(entry['hash'])
+    _record_tip(str(entry['hash']))
 
 
 def _set_secure_perms(path):
@@ -240,6 +248,17 @@ def _maybe_rotate():
         return
     if size < _audit_log_max_bytes():
         return
+    # Capture the tail hash BEFORE renaming — the new file's anchor
+    # embeds it as ``prev_tip`` so the rotated history and the fresh
+    # log are cryptographically linked. A full-file swap for a
+    # fabricated log then fails chain continuity at the anchor.
+    prev_tip = None
+    try:
+        last = path.read_text(
+            encoding='utf-8').strip().split('\n')[-1]
+        prev_tip = json.loads(last).get('hash')
+    except (OSError, json.JSONDecodeError, IndexError):
+        prev_tip = None
     rotated = path.with_suffix('.jsonl.1')
     try:
         if rotated.exists():
@@ -250,7 +269,7 @@ def _maybe_rotate():
         logger.warning("Could not rotate audit log: %s", exc)
         return
     # Write a fresh anchor to the new log.
-    _write_anchor()
+    _write_anchor(prev_tip=prev_tip)
 
 
 def verify_chain_on_startup():

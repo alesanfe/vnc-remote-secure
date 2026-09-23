@@ -51,6 +51,10 @@ from vnc_remote_secure.core.constants import (
 _RELAY_IDLE_TIMEOUT = 300
 
 
+class _RfbFilterError(Exception):
+    """A restricted ephemeral session's RFB filter could not be built."""
+
+
 def _check_novnc_auth(headers, client_ip=None):
     """Validate a request against the central auth gateway.
 
@@ -194,6 +198,12 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         return True
 
     def do_GET(self):  # noqa: N802 - stdlib API
+        from vnc_remote_secure.security.http_auth import request_headers_safe
+        if not request_headers_safe(self.headers):
+            self.send_response(400)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if not self._require_auth():
             return
         if self.path.split('?', 1)[0] == '/websockify' and \
@@ -203,6 +213,12 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_HEAD(self):  # noqa: N802 - stdlib API
+        from vnc_remote_secure.security.http_auth import request_headers_safe
+        if not request_headers_safe(self.headers):
+            self.send_response(400)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         # HEAD must go through the same gate — otherwise directory
         # listings and file metadata leak without authentication.
         if not self._require_auth():
@@ -301,8 +317,15 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return RfbInputFilter(
                 allow_keyboard=keyboard, allow_pointer=pointer,
                 allow_clipboard_write=clip)
-        except Exception:  # noqa: BLE001 - filter is best-effort
-            return None
+        except Exception as exc:  # noqa: BLE001 - fail CLOSED
+            # A restricted session whose filter cannot be built must
+            # not fall back to byte-transparent proxying — that would
+            # silently grant full RFB input to a view-only session.
+            logger.exception(
+                "RFB filter construction failed for ephemeral "
+                "session — denying upgrade")
+            raise _RfbFilterError(
+                "cannot enforce restricted-session input policy") from exc
 
     def _register_ws(self, token, upstream):
         """Register the connection for live revocation (best-effort)."""
@@ -372,6 +395,8 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         # Re-register for live revocation (best-effort).
         conn_id = None
         rfb_filter = None
+        bearer = ''
+        cookies = {}
         try:
             auth = self.headers.get('Authorization', '')
             bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
@@ -383,14 +408,29 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             # must not leave this socket alive.
             token = (cookies.get('vnc_ephemeral') or bearer
                      or cookies.get('vnc_session') or '')
+        except Exception:  # noqa: BLE001 - header parse is best-effort
+            token = ''
+        try:
             rfb_filter = self._build_rfb_filter(
                 self._ephemeral_token(cookies, bearer))
-            if token:
+        except _RfbFilterError:
+            # Restricted session, filter unavailable: deny rather than
+            # proxy unfiltered (fail-closed, see _build_rfb_filter).
+            self.send_response(403)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            with contextlib.suppress(OSError):
+                upstream.close()
+            return
+        except Exception:  # noqa: BLE001 - unfiltered path errors
+            rfb_filter = None
+        if token:
+            try:
                 conn_id = self._register_ws(token, upstream)
                 if conn_id is None:
                     return
-        except Exception:  # noqa: BLE001 - registration is best-effort
-            conn_id = None
+            except Exception:  # noqa: BLE001 - registration best-effort
+                conn_id = None
 
         # Rebuild and forward the original upgrade request verbatim.
         request = f"{self.command} {self.path} HTTP/1.1\r\n"

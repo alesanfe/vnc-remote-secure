@@ -148,8 +148,8 @@ class TestUnknownEnvKeys:
             'vnc_remote_secure.core.paths.find_project_root',
             lambda: str(tmp_path))
         # find_project_root may be bound into the inspector module too
-        from vnc_remote_secure.core import config_inspector as ci
         import vnc_remote_secure.core.paths as paths_mod
+        from vnc_remote_secure.core import config_inspector as ci
         monkeypatch.setattr(
             paths_mod, 'find_project_root', lambda: str(tmp_path))
         return ci

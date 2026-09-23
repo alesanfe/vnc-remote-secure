@@ -81,6 +81,7 @@ class TestRunDirSquatGuard:
     def _posix_env(self, monkeypatch, tmp_path, uid, owner_uid):
         import os as _os
         import types
+
         from vnc_remote_secure.core import paths
         for name in ('config', 'data', 'log', 'run', 'ssl'):
             d = tmp_path / name

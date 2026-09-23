@@ -39,6 +39,11 @@ from vnc_remote_secure.core.constants import (
 
 logger = logging.getLogger(__name__)
 
+# Per-client event budget per second — a physical gamepad emits ~60 Hz
+# axis updates; 240/s is generous headroom before treating the stream
+# as a flood (each event is a SendInput/uinput syscall on the host).
+_MAX_EVENTS_PER_SEC = 240
+
 DEFAULT_PORT = DEFAULT_GAMEPAD_PORT
 DEFAULT_HOST = DEFAULT_BIND_HOST
 
@@ -285,6 +290,13 @@ class GamepadServer:
         }))
 
         try:
+            # Rate limit: a real gamepad emits ~60 Hz axis updates;
+            # 240 events/s per client is generous headroom. An
+            # unbounded flood of SendInput/uinput calls is a CPU DoS
+            # on the host and can starve the asyncio loop.
+            import time as _time
+            window_start = _time.monotonic()
+            events_in_window = 0
             async for message in websocket:
                 # Local kill-switch: a remote holding the session must
                 # not keep injecting once the operator at the machine
@@ -293,6 +305,18 @@ class GamepadServer:
                     await websocket.close(
                         code=1008,
                         reason='gamepad injection stopped locally')
+                    break
+                now = _time.monotonic()
+                if now - window_start >= 1.0:
+                    window_start = now
+                    events_in_window = 0
+                events_in_window += 1
+                if events_in_window > _MAX_EVENTS_PER_SEC:
+                    logger.warning(
+                        "Gamepad event flood from %s — disconnecting",
+                        client_ip)
+                    await websocket.close(
+                        code=1008, reason='event rate limit exceeded')
                     break
                 try:
                     event = json.loads(message)

@@ -146,6 +146,7 @@ class TestAudioToctouRevoke:
 
     def test_revoked_between_check_and_register(self, monkeypatch):
         import asyncio
+
         from vnc_remote_secure.services import audio
         monkeypatch.setattr(
             'vnc_remote_secure.security.auth_gateway.check_websocket_upgrade',
@@ -179,6 +180,7 @@ class TestAudioFfmpegFailure:
 
     def test_ffmpeg_fail_closes_1011_unregisters(self, monkeypatch):
         import asyncio
+
         from vnc_remote_secure.services import audio
         unreg = []
         monkeypatch.setattr(

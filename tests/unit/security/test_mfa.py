@@ -119,12 +119,26 @@ class TestRecoveryCodes:
         codes = generate_recovery_codes(8)
         assert len(codes) == 8
 
-    def test_format_is_XXXX_XXXX_XXXX(self):
+    def test_format_is_grouped_hex_128bit(self):
+        """128-bit codes formatted as 8 hyphen-separated hex groups
+        (XXXX-XXXX-…-XXXX, 39 chars) — the previous 48-bit format was
+        brute-forceable and was raised during the security pass."""
         codes = generate_recovery_codes(4)
         for c in codes:
-            assert len(c) == 14  # XXXX-XXXX-XXXX
-            assert c[4] == '-'
-            assert c[9] == '-'
+            assert len(c) == 39
+            groups = c.split('-')
+            assert len(groups) == 8
+            assert all(len(g) == 4 for g in groups)
+            int(c.replace('-', ''), 16)  # valid hex
+
+    def test_entropy_is_128_bits(self):
+        """token_hex(16) -> 32 hex chars of payload, not the old 12."""
+        import re
+        codes = generate_recovery_codes(20)
+        for c in codes:
+            payload = c.replace('-', '')
+            assert len(payload) == 32
+            assert re.fullmatch(r'[0-9A-F]{32}', payload)
 
     def test_hash_is_sha256(self):
         h = hash_recovery_code('ABCD-1234')
@@ -194,8 +208,7 @@ class TestTotpWindowBoundaries:
     """TOTP_WINDOW=1: steps -1/0/+1 accepted, ±2 rejected."""
 
     def test_code_at_window_edge_accepted(self):
-        from vnc_remote_secure.security.mfa import (
-            _base32_decode, _hotp, TOTP_DIGITS)
+        from vnc_remote_secure.security.mfa import TOTP_DIGITS, _base32_decode, _hotp
         secret = generate_totp_secret()
         now = int(time.time())
         # Ascending order matters: each accepted code is consumed, and
@@ -206,8 +219,7 @@ class TestTotpWindowBoundaries:
             assert verify_totp(secret, code, timestamp=now) is True, delta
 
     def test_code_beyond_window_rejected(self):
-        from vnc_remote_secure.security.mfa import (
-            _base32_decode, _hotp, TOTP_DIGITS)
+        from vnc_remote_secure.security.mfa import TOTP_DIGITS, _base32_decode, _hotp
         secret = generate_totp_secret()
         now = int(time.time())
         for delta in (-2, 2):

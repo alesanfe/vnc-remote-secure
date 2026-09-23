@@ -78,7 +78,9 @@ def _add_session_args(subparsers):
              "(pins to whoever activates the link first)")
     p_create.add_argument('--resource', default=None,
                           choices=['desktop', 'terminal', 'audio', 'gamepad'],
-                          help='Bind the token to a single resource')
+                          help='Bind the token to a single resource '
+                               '(RECOMMENDED — unbound tokens reach '
+                               'every resource their permissions allow)')
     _add_common_args(p_create, suppress_defaults=True)
     p_list = p_session_sub.add_parser('list', help='List active sessions')
     _add_common_args(p_list, suppress_defaults=True)

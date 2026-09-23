@@ -32,6 +32,14 @@
       "type": "string",
       "description": "SMTP username for alert emails."
     },
+    "ALERT_WEBHOOK_ALLOW_HTTP": {
+      "type": "boolean",
+      "description": "Allow http:// webhook URLs (SSRF protection is HTTPS-only by default). Use only for LAN receivers."
+    },
+    "ALERT_WEBHOOK_ALLOW_PRIVATE": {
+      "type": "boolean",
+      "description": "Allow webhook URLs that resolve to private/loopback/link-local addresses. Use only for LAN receivers."
+    },
     "ALERT_WEBHOOK_SECRET": {
       "type": "string",
       "description": "HMAC secret for signing outbound webhook alerts (X-VncRemote-Signature header)."
@@ -121,9 +129,13 @@
       "type": "string",
       "description": "Bind address for internal backend services."
     },
+    "BACKUP_ALLOW_PLAINTEXT": {
+      "type": "boolean",
+      "description": "Explicit opt-out allowing unencrypted backups under hardened security profiles. Backups contain .env, TLS private keys and the auth signing secret — prefer BACKUP_PASSWORD."
+    },
     "BACKUP_PASSWORD": {
       "type": "string",
-      "description": "When set, backups are Fernet-encrypted (.enc.tar.gz) and restore decrypts automatically."
+      "description": "When set, backups are Fernet-encrypted (.enc.tar.gz) and restore decrypts automatically. Required under hardened profiles unless BACKUP_ALLOW_PLAINTEXT is set."
     },
     "RFB_MAX_CLIPBOARD": {
       "type": "integer",

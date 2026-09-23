@@ -148,8 +148,9 @@ def test_start_vnc_port_in_use_raises(monkeypatch):
 class TestVncPortEdges:
     def test_malformed_display_fails_closed(self):
         """_vnc_port on a garbage display must not silently bind 5900."""
-        from vnc_remote_secure.services.vnc import _vnc_port
         import pytest
+
+        from vnc_remote_secure.services.vnc import _vnc_port
         for bad in ('abc', ':', '::1', '', ':x', ':'):
             with pytest.raises((ValueError, RuntimeError)):
                 _vnc_port(bad)
@@ -161,7 +162,8 @@ class TestVncPortEdges:
 
     def test_display_above_range_rejected(self):
         """A display that would push the port past 65535 must fail."""
-        from vnc_remote_secure.services.vnc import _vnc_port
         import pytest
+
+        from vnc_remote_secure.services.vnc import _vnc_port
         with pytest.raises((ValueError, RuntimeError)):
             _vnc_port(':60000')

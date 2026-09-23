@@ -60,8 +60,7 @@ def _require_permission(permission: str, actor: str):
     even with a valid session); ``None`` when allowed. The built-in
     env-authenticated operator resolves to ``admin`` (all perms).
     """
-    from vnc_remote_secure.security.operator_users import (
-        has_permission)
+    from vnc_remote_secure.security.operator_users import has_permission
     if has_permission(actor, permission):
         return None
     try:

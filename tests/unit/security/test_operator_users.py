@@ -147,3 +147,55 @@ class TestAuthenticateLanding:
         from vnc_remote_secure.security import http_auth
         ok, rec = http_auth.authenticate_landing('')
         assert not ok and rec is None
+
+
+class TestRehashOnLogin:
+    """A hash minted under a weaker iteration policy is transparently
+    upgraded on the next successful login."""
+
+    def _weak_hash(self, password):
+        import hashlib
+        salt = 'aa' * 16
+        dk = hashlib.pbkdf2_hmac(
+            'sha256', password.encode(), salt.encode(), 1000)
+        return f'pbkdf2:sha256:1000${salt}${dk.hex()}'
+
+    def test_stale_iterations_upgraded(self, store):
+        data = {'alice': {
+            'password_hash': self._weak_hash('Correct Horse 1!'),
+            'role': 'operator', 'disabled': False,
+            'created_at': 1}}
+        store.write_text(json.dumps(data))
+        rec = ops.verify('alice', 'Correct Horse 1!')
+        assert rec is not None
+        reloaded = json.loads(store.read_text())
+        new_hash = reloaded['alice']['password_hash']
+        assert new_hash.startswith(
+            f'pbkdf2:sha256:{ops._PBKDF2_ITERATIONS}$')
+        # And the rehashed password still verifies.
+        assert ops.verify('alice', 'Correct Horse 1!') is not None
+
+    def test_current_iterations_not_rewritten(self, store):
+        ops.add_user('bob', 'RightPass 1!', 'viewer')
+        before = json.loads(store.read_text())['bob']['password_hash']
+        assert ops.verify('bob', 'RightPass 1!') is not None
+        after = json.loads(store.read_text())['bob']['password_hash']
+        assert after == before
+
+    def test_failed_login_does_not_rehash(self, store):
+        data = {'carol': {
+            'password_hash': self._weak_hash('RightPass 1!'),
+            'role': 'viewer', 'disabled': False, 'created_at': 1}}
+        store.write_text(json.dumps(data))
+        assert ops.verify('carol', 'wrong') is None
+        reloaded = json.loads(store.read_text())
+        assert reloaded['carol']['password_hash'].startswith(
+            'pbkdf2:sha256:1000$')
+
+    def test_stored_iterations_parser(self):
+        assert ops._stored_iterations(
+            'pbkdf2:sha256:600000$salt$hash') == 600000
+        assert ops._stored_iterations('pbkdf2:sha256:1000$a$b') == 1000
+        assert ops._stored_iterations('garbage') == 0
+        assert ops._stored_iterations('') == 0
+        assert ops._stored_iterations('scrypt:1$x$y') == 0

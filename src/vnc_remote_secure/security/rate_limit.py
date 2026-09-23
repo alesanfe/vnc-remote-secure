@@ -117,8 +117,7 @@ class RateLimiter:
             # Lockouts are a security signal — a brute-force sweep
             # shows up here before it shows in logs.
             try:
-                from vnc_remote_secure.monitoring.prometheus import (
-                    inc_counter)
+                from vnc_remote_secure.monitoring.prometheus import inc_counter
                 inc_counter('vnc_remote_auth_lockouts_total')
             except Exception:  # noqa: BLE001
                 pass

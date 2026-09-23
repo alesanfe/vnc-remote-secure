@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 
 from vnc_remote_secure.core import doctor
 
-
 DOCTOR_ENV_KEYS = ('NGINX_ENABLED', 'AUDIO_STREAM_ENABLED',
                    'GAMEPAD_ENABLED', 'USER_UI_ENABLED',
                    'HEALTH_WEB_ENABLED')

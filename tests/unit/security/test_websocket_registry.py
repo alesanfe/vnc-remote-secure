@@ -222,8 +222,7 @@ class TestCloseCallbackFailures:
     the session's OTHER connections or corrupt the registry."""
 
     def test_raising_callback_others_still_closed(self):
-        from vnc_remote_secure.security.websocket_registry import (
-            WebSocketRegistry)
+        from vnc_remote_secure.security.websocket_registry import WebSocketRegistry
         reg = WebSocketRegistry()
         closed = []
         reg.register('s1', lambda: closed.append('a'), resource='vnc')
@@ -252,8 +251,7 @@ class TestCloseCallbackFailures:
             wsr.clear_revoked_shared(sid)
 
     def test_unregister_unknown_conn_id_noop(self):
-        from vnc_remote_secure.security.websocket_registry import (
-            WebSocketRegistry)
+        from vnc_remote_secure.security.websocket_registry import WebSocketRegistry
         reg = WebSocketRegistry()
         reg.unregister('ghost')  # must not raise
 
@@ -264,6 +262,7 @@ class TestExpirySweep:
 
     def test_expired_session_swept(self, monkeypatch):
         import time
+
         from vnc_remote_secure.security import websocket_registry as w
         closed = []
         monkeypatch.setattr(w, 'is_revoked_shared', lambda t: False)
@@ -281,6 +280,7 @@ class TestExpirySweep:
 
     def test_live_session_not_swept(self, monkeypatch):
         import time
+
         from vnc_remote_secure.security import websocket_registry as w
         monkeypatch.setattr(w, 'is_revoked_shared', lambda t: False)
         monkeypatch.setattr(

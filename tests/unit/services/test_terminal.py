@@ -315,6 +315,7 @@ class TestOnMessage:
 
     def _ws(self):
         from unittest.mock import MagicMock
+
         from vnc_remote_secure.services import terminal as term
         ws = object.__new__(term.TerminalWebSocket)
         ws.write_message = MagicMock()
@@ -369,6 +370,7 @@ class TestGatewayReject:
 
     def _ws_stub(self):
         from unittest.mock import MagicMock
+
         from vnc_remote_secure.services import terminal as term
         ws = object.__new__(term.TerminalWebSocket)
         ws.request = MagicMock()
@@ -414,6 +416,7 @@ class TestOnCloseCleanup:
 
     def test_close_unregisters_and_terminates(self):
         from unittest.mock import MagicMock
+
         from vnc_remote_secure.services import terminal as term
         ws = object.__new__(term.TerminalWebSocket)
         ws._ws_conn_id = 'ws_7'
@@ -444,6 +447,7 @@ class TestInterrupt:
     def test_interrupt_terminates_running_process(self):
         import json
         from unittest.mock import MagicMock
+
         from vnc_remote_secure.services import terminal as term
         ws = object.__new__(term.TerminalWebSocket)
         ws.write_message = MagicMock()
@@ -458,6 +462,7 @@ class TestInterrupt:
     def test_interrupt_no_process_just_prompt(self):
         import json
         from unittest.mock import MagicMock
+
         from vnc_remote_secure.services import terminal as term
         ws = object.__new__(term.TerminalWebSocket)
         ws.write_message = MagicMock()
@@ -475,8 +480,7 @@ class TestIdleTimeout:
     def _ws(self, monkeypatch, timeout='10'):
         from unittest.mock import MagicMock
         monkeypatch.setenv('TERMINAL_IDLE_TIMEOUT', timeout)
-        from vnc_remote_secure.services.terminal import (
-            TerminalWebSocket)
+        from vnc_remote_secure.services.terminal import TerminalWebSocket
         ws = object.__new__(TerminalWebSocket)
         ws._idle_timeout = int(timeout)
         ws._last_activity = 0.0
@@ -531,8 +535,8 @@ class TestMessageRateLimit:
     def _ws(self, monkeypatch):
         from collections import deque
         from unittest.mock import MagicMock
-        from vnc_remote_secure.services.terminal import (
-            TerminalWebSocket)
+
+        from vnc_remote_secure.services.terminal import TerminalWebSocket
         ws = object.__new__(TerminalWebSocket)
         ws._msg_times = deque()
         ws._msg_rate = 5
@@ -566,3 +570,37 @@ class TestMessageRateLimit:
             except Exception:
                 pass
         assert ws._closed == []
+
+
+class TestChildRlimits:
+    """_child_rlimits bounds fork bombs / memory hogs in terminal
+    children — POSIX-only, verified in a real subprocess so the test
+    process itself is never limited."""
+
+    def test_returns_callable_posix(self):
+        import sys
+        if sys.platform == 'win32':
+            import pytest
+            pytest.skip('POSIX only')
+        from vnc_remote_secure.services.terminal import _child_rlimits
+        assert callable(_child_rlimits())
+
+    def test_limits_apply_in_subprocess(self):
+        import subprocess
+        import sys
+        if sys.platform == 'win32':
+            import pytest
+            pytest.skip('POSIX only')
+        code = (
+            'import resource,sys;'
+            'from vnc_remote_secure.services.terminal import _child_rlimits;'
+            '_child_rlimits()();'
+            'print(resource.getrlimit(resource.RLIMIT_NPROC),'
+            'resource.getrlimit(resource.RLIMIT_AS))')
+        r = subprocess.run(
+            [sys.executable, '-c', code],
+            capture_output=True, text=True, timeout=30)
+        assert r.returncode == 0, r.stderr
+        out = r.stdout.strip()
+        assert '(128, 128)' in out
+        assert f'({1 << 30}, {1 << 30})' in out

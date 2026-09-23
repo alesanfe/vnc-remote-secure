@@ -341,6 +341,26 @@ def create_backup(output: str | None = None) -> str:
                 "Backup encryption failed — no plaintext backup was "
                 f"kept: {e}") from e
     else:
+        # Hardened profiles refuse plaintext archives of secrets: the
+        # bundle carries .env, TLS private keys and the signing secret
+        # — a stolen archive is a full session-forgery kit. Operators
+        # who genuinely want plaintext must say so explicitly.
+        try:
+            from vnc_remote_secure.security.profiles import resolve_profile
+            profile = resolve_profile()
+        except Exception:  # noqa: BLE001 - profiles missing → warn-only
+            profile = ''
+        if (profile in ('public-hardened', 'private-overlay',
+                        'trusted-lan')
+                and os.environ.get(
+                    'BACKUP_ALLOW_PLAINTEXT', '').lower()
+                not in ('true', '1', 'yes')):
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_tar)
+            raise RuntimeError(
+                f"Profile '{profile}' requires encrypted backups — "
+                "set BACKUP_PASSWORD, or explicitly opt out with "
+                "BACKUP_ALLOW_PLAINTEXT=true")
         logger.warning(
             "BACKUP_PASSWORD not set — backup is unencrypted and contains "
             "secrets (.env, SSL keys). Store it securely."

@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 
 import websockets
 
@@ -47,6 +48,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_PORT = DEFAULT_AUDIO_STREAM_PORT
 DEFAULT_HOST = DEFAULT_BIND_HOST
 DEFAULT_BITRATE = 128
+
+# Per-client send budget during broadcast: audio frames arrive every
+# ~20-50ms, so a client that cannot drain a frame in 2s is stalled —
+# drop it rather than let its write buffer grow unboundedly and stall
+# every other listener behind it.
+_WS_SEND_TIMEOUT = 2.0
+# Bound on simultaneous audio listeners — each holds a websocket +
+# send buffer; unbounded fan-out is a memory DoS on the service.
+_MAX_CLIENTS = 32
 
 
 def find_ffmpeg():
@@ -182,8 +192,7 @@ class AudioStreamServer:
                 # Orphan guard: an abruptly killed audio service must
                 # not leave ffmpeg capturing audio indefinitely —
                 # the Job Object kills it when this process exits.
-                from vnc_remote_secure.services.terminal import (
-                    _assign_to_kill_job)
+                from vnc_remote_secure.services.terminal import _assign_to_kill_job
                 _assign_to_kill_job(self.ffmpeg_process)
             self._ffmpeg_running.set()
             _set_audio_indicator(True)
@@ -268,14 +277,23 @@ class AudioStreamServer:
 
             # Broadcast to all connected clients
             if self.clients:
-                # Remove disconnected clients
+                # Remove disconnected clients. Each send is bounded:
+                # one stalled/slow reader must not head-of-line-block
+                # the whole broadcast and grow its write buffer
+                # unboundedly — it gets dropped instead.
                 disconnected = set()
                 for ws in self.clients:
                     try:
-                        await ws.send(data)
-                    except websockets.ConnectionClosed:
+                        await asyncio.wait_for(
+                            ws.send(data), timeout=_WS_SEND_TIMEOUT)
+                    except (websockets.ConnectionClosed,
+                            asyncio.TimeoutError, OSError):
                         disconnected.add(ws)
-                self.clients -= disconnected
+                if disconnected:
+                    logger.info(
+                        "Dropped %d slow/disconnected audio client(s)",
+                        len(disconnected))
+                    self.clients -= disconnected
 
     @staticmethod
     def _ws_headers(websocket):
@@ -341,6 +359,13 @@ class AudioStreamServer:
         if not allowed:
             logger.warning("Audio WebSocket rejected: %s", reason)
             await websocket.close(code=1008, reason=reason)
+            return None
+        if len(self.clients) >= _MAX_CLIENTS:
+            logger.warning(
+                "Audio WebSocket rejected: client cap %d reached",
+                _MAX_CLIENTS)
+            await websocket.close(
+                code=1013, reason='Too many audio clients')
             return None
         return eph or bearer or cookie_value
 
@@ -488,6 +513,11 @@ def main():
     port = args.port or int(os.environ.get("AUDIO_STREAM_PORT", DEFAULT_PORT))
     device = args.device or os.environ.get("AUDIO_DEVICE", "")
     bitrate = args.bitrate or int(os.environ.get("AUDIO_BITRATE", DEFAULT_BITRATE))
+    if not 32 <= bitrate <= 512:
+        logger.error(
+            "Invalid bitrate %s kbps — expected 32–512 "
+            "(AUDIO_BITRATE/--bitrate)", bitrate)
+        sys.exit(1)
 
     server = AudioStreamServer(host, port, device or None, bitrate)
 

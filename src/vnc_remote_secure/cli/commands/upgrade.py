@@ -22,8 +22,7 @@ def _upgrade_check(_args) -> int:
 
 
 def _upgrade_run(args) -> int:
-    from vnc_remote_secure.core.upgrader import (
-        installed_version, perform_upgrade)
+    from vnc_remote_secure.core.upgrader import installed_version, perform_upgrade
     source = getattr(args, 'source', None)
     if not getattr(args, 'yes', False):
         # Interactive confirmation — an upgrade rewrites the runtime

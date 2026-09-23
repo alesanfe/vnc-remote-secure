@@ -381,3 +381,34 @@ def test_single_controller_rejects_second(monkeypatch):
     # ws2 was closed with the single-controller reason.
     assert ws2.closed
     assert 'control' in (ws2.close_reason or '')
+
+
+class TestEventRateLimit:
+    """A flood of gamepad events is a SendInput/uinput syscall DoS —
+    the per-client budget disconnects the abuser."""
+
+    def test_flood_disconnects_client(self, monkeypatch):
+        injector = _FakeInjector()
+        _patch_adapter(monkeypatch, injector)
+        monkeypatch.setattr(gamepad, '_MAX_EVENTS_PER_SEC', 5)
+        server = gamepad.GamepadServer('127.0.0.1', 7788)
+        messages = [
+            json.dumps({"type": "ping"}) for _ in range(20)]
+        ws = _FakeWebSocket(messages=messages)
+        _run(server.handle_client(ws))
+        assert ws.closed is True
+        assert ws.close_code == 1008
+        assert 'rate' in (ws.close_reason or '').lower()
+
+    def test_under_budget_stays_connected(self, monkeypatch):
+        injector = _FakeInjector()
+        _patch_adapter(monkeypatch, injector)
+        monkeypatch.setattr(gamepad, '_MAX_EVENTS_PER_SEC', 5)
+        server = gamepad.GamepadServer('127.0.0.1', 7788)
+        messages = [
+            json.dumps({"type": "ping"}) for _ in range(4)]
+        ws = _FakeWebSocket(messages=messages)
+        _run(server.handle_client(ws))
+        # Stream ends naturally — no rate-limit close.
+        assert not (ws.closed and ws.close_code == 1008
+                    and 'rate' in (ws.close_reason or ''))

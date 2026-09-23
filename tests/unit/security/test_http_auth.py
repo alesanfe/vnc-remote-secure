@@ -220,8 +220,7 @@ class TestConstantTimeCompare:
         monkeypatch.setattr(
             'vnc_remote_secure.security.http_auth.hmac.compare_digest',
             lambda a, b: calls.append((a, b)) or real(a, b))
-        from vnc_remote_secure.security.http_auth import (
-            check_basic_auth)
+        from vnc_remote_secure.security.http_auth import check_basic_auth
         hdr = 'Basic ' + base64.b64encode(b'u:p').decode()
         check_basic_auth(hdr, 'u', 'p')
         assert calls, 'Basic auth bypassed compare_digest'
@@ -233,8 +232,7 @@ class TestConstantTimeCompare:
         monkeypatch.setattr(
             'vnc_remote_secure.security.http_auth.hmac.compare_digest',
             lambda a, b: calls.append((a, b)) or real(a, b))
-        from vnc_remote_secure.security.http_auth import (
-            check_bearer_token)
+        from vnc_remote_secure.security.http_auth import check_bearer_token
         check_bearer_token('Bearer x', 'x')
         assert calls, 'Bearer auth bypassed compare_digest'
 
@@ -275,3 +273,48 @@ class TestTrustedProxyCidr:
         ip = client_ip_from(
             {'X-Forwarded-For': '203.0.113.9'}, '10.0.0.55')
         assert ip == '203.0.113.9'
+
+
+class TestRequestHeadersSafe:
+    """Request-smuggling rejection: http.server only understands
+    Content-Length — TE or duplicated CL make framing ambiguous."""
+
+    def test_plain_headers_ok(self):
+        assert http_auth.request_headers_safe({}) is True
+        assert http_auth.request_headers_safe(
+            {'Content-Length': '12'}) is True
+
+    def test_transfer_encoding_rejected(self):
+        assert http_auth.request_headers_safe(
+            {'Transfer-Encoding': 'chunked'}) is False
+
+    def test_email_message_duplicate_cl_rejected(self):
+        """With a real http.server header object (email.message) a
+        duplicated Content-Length is visible via get_all."""
+        import email.message
+        m = email.message.Message()
+        m.add_header('Content-Length', '5')
+        m.add_header('Content-Length', '10')
+        assert http_auth.request_headers_safe(m) is False
+
+    def test_email_message_single_cl_ok(self):
+        import email.message
+        m = email.message.Message()
+        m.add_header('Content-Length', '5')
+        assert http_auth.request_headers_safe(m) is True
+
+    def test_email_message_te_and_cl_rejected(self):
+        """TE+CL together is the classic desync — reject."""
+        import email.message
+        m = email.message.Message()
+        m.add_header('Content-Length', '5')
+        m.add_header('Transfer-Encoding', 'chunked')
+        assert http_auth.request_headers_safe(m) is False
+
+    def test_empty_duplicate_cl_ignored(self):
+        """A second EMPTY Content-Length header is not ambiguous."""
+        import email.message
+        m = email.message.Message()
+        m.add_header('Content-Length', '5')
+        m.add_header('Content-Length', '   ')
+        assert http_auth.request_headers_safe(m) is True

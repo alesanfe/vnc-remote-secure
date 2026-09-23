@@ -184,12 +184,14 @@ class TestValidateUserPasswords:
 
     def test_weak_user_vnc_password_rejected(self):
         import pytest
+
         from vnc_remote_secure.core.validation import ValidationError
         with pytest.raises(ValidationError):
             self._v(vnc_password='changeme')
 
     def test_weak_user_landing_password_rejected(self):
         import pytest
+
         from vnc_remote_secure.core.validation import ValidationError
         with pytest.raises(ValidationError):
             self._v(landing_password='changeme')
