@@ -134,3 +134,52 @@ class TestRedactUrl:
         from vnc_remote_secure.monitoring import alerts
         out = alerts._redact_url('http://[bad')
         assert 'bad' not in out or 'invalid' in out
+
+
+class TestWebhookHmac:
+    """ALERT_WEBHOOK_SECRET signs the body — a leaked URL alone
+    cannot forge alerts."""
+
+    def _capture(self, monkeypatch, secret):
+        captured = {}
+
+        class FakeResp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        monkeypatch.setattr(
+            'urllib.request.urlopen',
+            lambda req, timeout=0: captured.update(
+                req=req) or FakeResp())
+        monkeypatch.setenv('ALERT_WEBHOOK_URL', 'https://hook.local/x')
+        if secret:
+            monkeypatch.setenv('ALERT_WEBHOOK_SECRET', secret)
+        else:
+            monkeypatch.delenv('ALERT_WEBHOOK_SECRET', raising=False)
+        from vnc_remote_secure.monitoring import alerts
+        return alerts, captured
+
+    def test_signature_header_present(self, monkeypatch):
+        import hashlib
+        import hmac
+        import json as _json
+        alerts, captured = self._capture(monkeypatch, 's3cret')
+        assert alerts.send_webhook_alert('t', 'm') is True
+        req = captured['req']
+        sig = req.get_header('X-vncremote-signature')
+        assert sig is not None
+        assert sig.startswith('sha256=')
+        body = _json.loads(req.data.decode())
+        expected = hmac.new(b's3cret', req.data,
+                            hashlib.sha256).hexdigest()
+        assert sig == f'sha256={expected}'
+        assert body['title'] == 't'
+
+    def test_no_secret_no_header(self, monkeypatch):
+        alerts, captured = self._capture(monkeypatch, '')
+        alerts.send_webhook_alert('t', 'm')
+        assert captured['req'].get_header('X-vncremote-signature') is None

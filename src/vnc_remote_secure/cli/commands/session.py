@@ -109,9 +109,14 @@ def _session_create(store, args):
         # never activates.
         import ipaddress
         try:
-            ipaddress.ip_address(args.allowed_ip.strip())
+            raw = args.allowed_ip.strip()
+            if '/' in raw:
+                ipaddress.ip_network(raw, strict=False)
+            else:
+                ipaddress.ip_address(raw)
         except ValueError:
-            print(f"Error: --allowed-ip is not a valid IP: {args.allowed_ip!r}")
+            print(f"Error: --allowed-ip is not a valid IP or CIDR: "
+                  f"{args.allowed_ip!r}")
             return 1
 
     _session, signed_token = store.create(
@@ -187,8 +192,26 @@ def _session_list(store, args):
     return 0
 
 
-def _session_revoke(args):
-    """Revoke an ephemeral session by token."""
+def _session_revoke(args, store=None):
+    """Revoke an ephemeral session by token, or all with ``--all``."""
+    # Emergency kill-switch: revoke every active session at once —
+    # closes live WebSockets via the registry just like a single
+    # revoke, so a compromised deployment can be locked down in one
+    # command instead of one token at a time.
+    if getattr(args, 'all', False):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            get_session_store, revoke_session)
+        store = store or get_session_store()
+        # list_active returns public ids (token fingerprints), not the
+        # tokens — resolve real tokens from the store for revoke.
+        revoked = 0
+        for token in list(store._sessions.keys()):
+            if revoke_session(token):
+                revoked += 1
+        _audit_cli('ephemeral_session_revoke_all', 'success',
+                   f'count={revoked}')
+        print(f"Revoked {revoked} session(s).")
+        return 0
     # Accept the token either positionally (natural form:
     # ``vnc-remote session revoke <token>``) or via --token.
     token = getattr(args, 'token', None) or getattr(args, 'token_pos', None)
@@ -235,6 +258,6 @@ def cmd_session(args):
     if action == 'list':
         return _session_list(store, args)
     if action == 'revoke':
-        return _session_revoke(args)
+        return _session_revoke(args, store)
     print(f"Unknown session action: {action}")
     return 1

@@ -32,6 +32,26 @@ logger = logging.getLogger(__name__)
 _INSTANCE_ID = None
 
 
+def _ip_matches(allowed_ip: str, client_ip: str | None) -> bool:
+    """Return True when ``client_ip`` satisfies ``allowed_ip``.
+
+    ``allowed_ip`` accepts a literal address (``203.0.113.7``) or a
+    CIDR range (``10.0.0.0/24``, ``fd00::/8``) — subnet policies let
+    a link survive a client's address churn inside one network.
+    Missing or unparseable values fail closed.
+    """
+    if not client_ip:
+        return False
+    if '/' not in allowed_ip:
+        return client_ip == allowed_ip
+    try:
+        import ipaddress
+        return ipaddress.ip_address(client_ip) in ipaddress.ip_network(
+            allowed_ip, strict=False)
+    except ValueError:
+        return False
+
+
 def _get_instance_id() -> str:
     """Return the deployment-wide instance identifier.
 
@@ -170,7 +190,7 @@ class EphemeralSession:
             return False
         # IP binding is fail-closed: a missing client_ip must not
         # silently skip an operator-configured restriction.
-        if self.allowed_ip and client_ip != self.allowed_ip:
+        if self.allowed_ip and not _ip_matches(self.allowed_ip, client_ip):
             return False
         # Resource binding restricts WHERE a permission may be used —
         # enforced only when the caller names a resource (action-level
@@ -947,7 +967,7 @@ def activate_ephemeral_session(signed_token: str,
         # An empty STRING means a request resolved to no IP (suspicious,
         # e.g. malformed XFF) — denied.
         if session.allowed_ip and client_ip is not None and \
-                session.allowed_ip != client_ip:
+                not _ip_matches(session.allowed_ip, client_ip):
             return None
         if session.single_use:
             # Cross-process single-use claim (see
@@ -997,7 +1017,8 @@ def check_session_permission(
         return False
     # IP binding is fail-closed: a missing/unknown client_ip must not
     # silently skip an operator-configured restriction.
-    if session.allowed_ip and client_ip != session.allowed_ip:
+    if session.allowed_ip and not _ip_matches(
+            session.allowed_ip, client_ip):
         return False
     if session.resource and resource and resource != session.resource:
         return False

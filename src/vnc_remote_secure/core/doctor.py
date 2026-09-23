@@ -330,6 +330,112 @@ def _check_firewall(checks):
             _skip(checks, 'firewall.rules', f'Firewall check unavailable: {e}')
 
 
+def _list_listeners():
+    """Return [(address, port)] of TCP listeners, best-effort.
+
+    psutil is preferred (works on every OS); falls back to parsing
+    ``netstat -an`` — no admin rights needed for a socket listing.
+    Returns ``None`` when enumeration is impossible, so callers can
+    report ``skip`` rather than a false pass.
+    """
+    try:
+        import psutil
+        out = []
+        for conn in psutil.net_connections(kind='tcp'):
+            if conn.status == 'LISTEN' and conn.laddr:
+                out.append((conn.laddr.ip, conn.laddr.port))
+        return out
+    except ImportError:
+        pass
+    except Exception:  # noqa: BLE001 - permission/platform errors
+        return None
+    import re
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ['netstat', '-an'], capture_output=True, text=True,
+            timeout=15, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = []
+    for line in proc.stdout.splitlines():
+        if 'LISTEN' not in line.upper():
+            continue
+        m = re.search(r'(\S+):(\d+)\s+\S+:\S+\s+LISTEN', line)
+        if m:
+            out.append((m.group(1), int(m.group(2))))
+    return out or None
+
+
+def _is_loopback_addr(addr: str) -> bool:
+    """Return True for loopback binds (127.x, ::1)."""
+    return (addr.startswith('127.') or addr in ('::1', '[::1]'))
+
+
+def _check_public_listeners(checks, config):
+    """Fail if an internal-only service listens on a public address.
+
+    The RFB port and the websockify bridge must NEVER be reachable
+    off-host — RFB auth is 8-char DES and the bridge is the auth
+    gateway's trust boundary. Other backend ports are only public when
+    nginx is disabled and the operator explicitly bound them so —
+    reported as ``warn`` then, ``fail`` when nginx is the entry point.
+    """
+    listeners = _list_listeners()
+    if listeners is None:
+        _skip(checks, 'security.public_listeners',
+              'Could not enumerate listening sockets')
+        return
+    from vnc_remote_secure.core.service_manager import _service_port_map
+    ports = _service_port_map(config)
+    nginx = bool(config.get('nginx_enabled'))
+    from vnc_remote_secure.security.profiles import get_profile
+    hardened = get_profile() in (
+        'public-hardened', 'private-overlay')
+    ws_port = ports.get('websockify')
+    rfb_port = ports.get('vnc')
+    public = []
+    rfb_public = False
+    for addr, port in listeners:
+        if _is_loopback_addr(addr):
+            continue
+        if port == ws_port:
+            # The WebSocket→RFB bridge is the auth gateway's trust
+            # boundary — it is never meant to be reachable off-host.
+            _fail(checks, 'security.public_listeners',
+                  f'websockify bridge listening on {addr}:{port} — '
+                  'the auth gateway can be bypassed directly')
+            return
+        if port == rfb_port:
+            rfb_public = addr
+            continue
+        if port in set(ports.values()):
+            public.append(f'{addr}:{port}')
+    if rfb_public and (nginx or hardened):
+        _fail(checks, 'security.public_listeners',
+              f'RFB port {rfb_port} listening publicly — the 8-char '
+              'DES credential is the only barrier; set LoopbackOnly '
+              'or keep the profile honest')
+        return
+    if public:
+        if nginx:
+            _fail(checks, 'security.public_listeners',
+                  'Backend ports public while nginx is the entry '
+                  f'point — gateway bypass possible: '
+                  f'{", ".join(sorted(public))}')
+        else:
+            _warn(checks, 'security.public_listeners',
+                  'Backend ports bound publicly (no nginx): '
+                  f'{", ".join(sorted(public))}')
+    elif rfb_public:
+        _warn(checks, 'security.public_listeners',
+              f'RFB port public on {rfb_public} — direct VNC clients '
+              'rely on an 8-char DES password; prefer nginx+websockify')
+    else:
+        _ok(checks, 'security.public_listeners',
+            'No internal service port bound publicly')
+
+
 def _check_services(checks):
     """Add service checks (ports listening)."""
     # --- Service ports ---
@@ -392,6 +498,8 @@ def _check_services(checks):
             _fail(checks, 'ports.nginx',
                   f'NGINX_ENABLED=true but nothing listens on {ngx_port} '
                   '— the public entry point is down')
+
+    _check_public_listeners(checks, config)
 
 
 def run_doctor(as_json: bool = False) -> dict:

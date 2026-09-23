@@ -467,3 +467,57 @@ class TestResourceBindingValidation:
             signed, 'desktop:view', resource='desktop') is True
         assert check_permission(
             signed, 'terminal:use', resource='terminal') is False
+
+
+class TestCidrIpBinding:
+    """allowed_ip accepts CIDR ranges — subnet policies survive a
+    client roaming inside one network."""
+
+    def test_cidr_match_accepted(self, fresh_store):
+        sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/24')
+        assert sess.is_valid(client_ip='10.0.0.55') is True
+        assert fresh_store.validate(
+            signed, client_ip='10.0.0.55') is sess
+
+    def test_cidr_mismatch_rejected(self, fresh_store):
+        sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/24')
+        assert sess.is_valid(client_ip='10.0.1.5') is False
+        assert fresh_store.validate(
+            signed, client_ip='10.0.1.5') is None
+
+    def test_cidr_boundary_first_last(self, fresh_store):
+        """First and last usable addresses of the range are in."""
+        sess, _ = fresh_store.create(
+            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/30')
+        assert sess.is_valid(client_ip='10.0.0.1') is True
+        assert sess.is_valid(client_ip='10.0.0.2') is True
+        assert sess.is_valid(client_ip='10.0.0.4') is False
+
+    def test_exact_still_works(self, fresh_store):
+        sess, _ = fresh_store.create(
+            role='viewer', expires_in=3600, allowed_ip='203.0.113.7')
+        assert sess.is_valid(client_ip='203.0.113.7') is True
+        assert sess.is_valid(client_ip='203.0.113.8') is False
+
+    def test_invalid_cidr_fails_closed(self, fresh_store):
+        """A garbage CIDR must never become a wildcard."""
+        sess, _ = fresh_store.create(
+            role='viewer', expires_in=3600, allowed_ip='999.0.0.0/8')
+        assert sess.is_valid(client_ip='999.0.0.1') is False
+        assert sess.is_valid(client_ip='10.0.0.1') is False
+
+    def test_check_session_permission_cidr(self, fresh_store):
+        """CIDR binding enforced on the activated-session path too."""
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/24')
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session, check_session_permission)
+        internal = activate_ephemeral_session(
+            signed, client_ip='10.0.0.5')
+        assert internal is not None
+        assert check_session_permission(
+            internal, 'desktop:view', client_ip='10.0.0.9') is True
+        assert check_session_permission(
+            internal, 'desktop:view', client_ip='192.168.1.1') is False

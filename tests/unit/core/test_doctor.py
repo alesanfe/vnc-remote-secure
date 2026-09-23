@@ -113,3 +113,73 @@ def test_blocking_finding_fails_check(monkeypatch, clear_env):
     blk = next(c for c in result['checks'] if c['name'] == 'config.blockers')
     assert blk['status'] == 'fail'
     assert 'plain HTTP' in blk['message']
+
+
+class TestPublicListenersCheck:
+    """security.public_listeners verifies the trust boundary at
+    runtime — websockify/RFB must never be off-host."""
+
+    def _run_check(self, monkeypatch, listeners, nginx=False,
+                   profile='development'):
+        from vnc_remote_secure.core import doctor
+        monkeypatch.setattr(doctor, '_list_listeners',
+                            lambda: listeners)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.profiles.get_profile',
+            lambda: profile, raising=False)
+        checks = []
+        cfg = {'novnc_ws_port': 6081, 'vnc_port': 5900,
+               'ttyd_port': 5000, 'nginx_enabled': nginx,
+               'novnc_port': 6080, 'landing_port': 8000}
+        doctor._check_public_listeners(checks, cfg)
+        return checks[0]
+
+    def test_websockify_public_always_fails(self, monkeypatch):
+        c = self._run_check(monkeypatch, [('0.0.0.0', 6081)])
+        assert c['status'] == 'fail'
+        assert 'websockify' in c['message']
+
+    def test_rfb_public_fails_under_nginx(self, monkeypatch):
+        c = self._run_check(monkeypatch, [('0.0.0.0', 5900)],
+                            nginx=True)
+        assert c['status'] == 'fail'
+        assert 'RFB' in c['message']
+
+    def test_rfb_public_fails_hardened(self, monkeypatch):
+        c = self._run_check(monkeypatch, [('0.0.0.0', 5900)],
+                            profile='public-hardened')
+        assert c['status'] == 'fail'
+
+    def test_rfb_public_warns_direct_mode(self, monkeypatch):
+        """Direct-RFB mode is intentional on a trusted LAN — warn,
+        not fail."""
+        c = self._run_check(monkeypatch, [('0.0.0.0', 5900)])
+        assert c['status'] == 'warn'
+        assert 'DES' in c['message']
+
+    def test_loopback_only_ok(self, monkeypatch):
+        c = self._run_check(monkeypatch,
+                            [('127.0.0.1', 5900), ('127.0.0.1', 6081),
+                             ('127.0.0.1', 6080)])
+        assert c['status'] == 'ok'
+
+    def test_backend_public_under_nginx_fails(self, monkeypatch):
+        c = self._run_check(monkeypatch, [('0.0.0.0', 6080)],
+                            nginx=True)
+        assert c['status'] == 'fail'
+        assert 'bypass' in c['message']
+
+    def test_backend_public_no_nginx_warns(self, monkeypatch):
+        c = self._run_check(monkeypatch, [('0.0.0.0', 5000)])
+        assert c['status'] == 'warn'
+
+    def test_enumeration_failure_skips(self, monkeypatch):
+        """A probe that can't enumerate must not report a false ok."""
+        c = self._run_check(monkeypatch, None)
+        assert c['status'] == 'skip'
+
+    def test_unrelated_public_port_ignored(self, monkeypatch):
+        """Ports that aren't ours (e.g. another app on 8080) don't
+        fire the check."""
+        c = self._run_check(monkeypatch, [('0.0.0.0', 8080)])
+        assert c['status'] == 'ok'

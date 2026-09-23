@@ -194,3 +194,25 @@ class TestShareBaseUrl:
         from vnc_remote_secure.cli.commands.session import (
             _share_base_url)
         assert _share_base_url().startswith('https://')
+
+
+class TestRevokeAll:
+    """session revoke --all is the emergency kill-switch — every
+    active session must be revoked, not just listed."""
+
+    def test_revoke_all(self, monkeypatch, tmp_path):
+        import argparse
+        monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+        monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+        from vnc_remote_secure.security import ephemeral_sessions as es
+        es._INSTANCE_ID = None
+        from vnc_remote_secure.cli.commands import session as sc
+        store = es.get_session_store()
+        _s1, tok1 = store.create(role='viewer', expires_in=3600)
+        _s2, tok2 = store.create(role='viewer', expires_in=3600)
+        assert store.validate(tok1) is not None
+        args = argparse.Namespace(token=None, token_pos=None, all=True)
+        rc = sc._session_revoke(args, store)
+        assert rc == 0
+        assert store.validate(tok1) is None
+        assert store.validate(tok2) is None

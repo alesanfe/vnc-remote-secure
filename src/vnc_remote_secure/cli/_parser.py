@@ -79,6 +79,8 @@ def _add_session_args(subparsers):
                           help='Session token to revoke (positional)')
     p_revoke.add_argument('--token', default=None,
                           help='Session token to revoke')
+    p_revoke.add_argument('--all', action='store_true',
+                          help='Revoke ALL active sessions (emergency)')
     _add_common_args(p_revoke, suppress_defaults=True)
     p_session.set_defaults(func=cmd_session)
 

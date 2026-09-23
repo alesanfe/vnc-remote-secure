@@ -73,11 +73,22 @@ def _post_json(url, payload):
         logger.warning("Webhook URL rejected — non-HTTP scheme: %s",
                        _redact_url(url))
         return False
+    body = json.dumps(payload).encode('utf-8')
+    headers = {'Content-Type': 'application/json'}
+    # HMAC signature (ALERT_WEBHOOK_SECRET): lets the receiver verify
+    # the alert came from this deployment — a leaked webhook URL alone
+    # cannot forge notifications (GitHub-style `sha256=` scheme).
+    secret = os.environ.get('ALERT_WEBHOOK_SECRET', '')
+    if secret:
+        import hashlib
+        import hmac as _hmac
+        sig = _hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        headers['X-VncRemote-Signature'] = f'sha256={sig}'
     try:
         req = urllib.request.Request(
             url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
+            data=body,
+            headers=headers,
             method='POST',
         )
         # justification: scheme validated before dispatch
