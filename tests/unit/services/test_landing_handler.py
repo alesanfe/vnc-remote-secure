@@ -244,23 +244,23 @@ class TestHostHeaderXss:
             assert _safe_ws_host(evil) == '127.0.0.1', evil
 
     def test_landing_page_ignores_malicious_forwarded_host(
-            self, monkeypatch):
+            self, monkeypatch, fake_metrics):
         """A crafted X-Forwarded-Host must not appear in the HTML."""
         from vnc_remote_secure.services import landing
         monkeypatch.setattr(landing, 'check_port', lambda *a, **k: False)
         monkeypatch.setattr(landing, 'get_system_metrics',
-                            lambda: {'hostname': 'h', 'os': 'os', 'uptime': 'u', 'cpu': 'c', 'memory': 'm', 'disk': 'd'})
+                            lambda: fake_metrics)
         page = landing.generate_landing_page(
             forwarded_host='"><script>alert(1)</script>',
             forwarded_proto='https')
         assert '<script>alert(1)' not in page
         assert '"><script' not in page
 
-    def test_forwarded_host_valid_used_in_links(self, monkeypatch):
+    def test_forwarded_host_valid_used_in_links(self, monkeypatch, fake_metrics):
         from vnc_remote_secure.services import landing
         monkeypatch.setattr(landing, 'check_port', lambda *a, **k: False)
         monkeypatch.setattr(landing, 'get_system_metrics',
-                            lambda: {'hostname': 'h', 'os': 'os', 'uptime': 'u', 'cpu': 'c', 'memory': 'm', 'disk': 'd'})
+                            lambda: fake_metrics)
         page = landing.generate_landing_page(
             forwarded_host='vnc.example.com', forwarded_proto='https')
         assert 'https://vnc.example.com/vnc/vnc.html' in page
@@ -270,23 +270,13 @@ class TestExchangeSecureCookie:
     """The vnc_ephemeral cookie must be Secure over TLS — both via
     X-Forwarded-Proto (trusted proxy) and direct TLS sockets."""
 
-    def _handler(self):
-        from unittest.mock import MagicMock
+    def _handler(self, stub_handler):
         from vnc_remote_secure.services.landing import LandingHandler
-        h = object.__new__(LandingHandler)
-        h.path = '/?session=tok'
-        h.headers = {}
-        h.client_address = ('127.0.0.1', 1)
-        h.connection = MagicMock()
-        h.wfile = MagicMock()
-        h.send_response = MagicMock()
-        h.send_header = MagicMock()
-        h.end_headers = MagicMock()
-        return h
+        return stub_handler(LandingHandler, path='/?session=tok')
 
-    def test_secure_flag_when_forwarded_https(self, monkeypatch):
+    def test_secure_flag_when_forwarded_https(self, monkeypatch, stub_handler):
         monkeypatch.setenv('TRUSTED_PROXY', 'true')
-        h = self._handler()
+        h = self._handler(stub_handler)
         h.headers = {'X-Forwarded-Proto': 'https'}
         monkeypatch.setattr(
             'vnc_remote_secure.security.ephemeral_sessions.'
@@ -297,11 +287,11 @@ class TestExchangeSecureCookie:
                   if c[0][0] == 'Set-Cookie'][0][0][1]
         assert 'Secure' in cookie
 
-    def test_no_secure_flag_plain_http(self, monkeypatch):
+    def test_no_secure_flag_plain_http(self, monkeypatch, stub_handler):
         """Plain HTTP must NOT mark the cookie Secure — the browser
         would never return it."""
         monkeypatch.delenv('TRUSTED_PROXY', raising=False)
-        h = self._handler()
+        h = self._handler(stub_handler)
         monkeypatch.setattr(
             'vnc_remote_secure.security.ephemeral_sessions.'
             'activate_ephemeral_session',
@@ -311,11 +301,11 @@ class TestExchangeSecureCookie:
                   if c[0][0] == 'Set-Cookie'][0][0][1]
         assert 'Secure' not in cookie
 
-    def test_forwarded_proto_ignored_without_trust(self, monkeypatch):
+    def test_forwarded_proto_ignored_without_trust(self, monkeypatch, stub_handler):
         """X-Forwarded-Proto=https on an UNTRUSTED direct connection
         must not set Secure — header spoofing would strip the cookie."""
         monkeypatch.delenv('TRUSTED_PROXY', raising=False)
-        h = self._handler()
+        h = self._handler(stub_handler)
         h.headers = {'X-Forwarded-Proto': 'https'}
         monkeypatch.setattr(
             'vnc_remote_secure.security.ephemeral_sessions.'

@@ -135,13 +135,12 @@ class TestSessionActions:
 class TestShareBaseUrl:
     """Share-link derivation — TLS/nginx/port/domain combinations."""
 
-    def _url(self, monkeypatch, **env):
-        for k in ('DUCK_DOMAIN', 'NGINX_ENABLED', 'NGINX_HTTPS_PORT',
-                  'LANDING_PORT', 'TLS_ENABLED', 'DISABLE_SSL',
-                  'SSL_CERT', 'SSL_KEY'):
-            monkeypatch.delenv(k, raising=False)
-        for k, v in env.items():
-            monkeypatch.setenv(k, v)
+    URL_ENV_KEYS = ('DUCK_DOMAIN', 'NGINX_ENABLED', 'NGINX_HTTPS_PORT',
+                    'LANDING_PORT', 'TLS_ENABLED', 'DISABLE_SSL',
+                    'SSL_CERT', 'SSL_KEY')
+
+    def _url(self, monkeypatch, clear_env, **env):
+        clear_env(*self.URL_ENV_KEYS, set=env)
         # Cert resolution must not depend on real files.
         monkeypatch.setattr(
             'vnc_remote_secure.security.certificates.create_ssl_context',
@@ -151,32 +150,32 @@ class TestShareBaseUrl:
             _share_base_url)
         return _share_base_url()
 
-    def test_nginx_tls_default_port_no_suffix(self, monkeypatch):
+    def test_nginx_tls_default_port_no_suffix(self, monkeypatch, clear_env):
         monkeypatch.setenv('_TLS', 'x')
-        url = self._url(monkeypatch, DUCK_DOMAIN='myhost.duckdns.org',
+        url = self._url(monkeypatch, clear_env, DUCK_DOMAIN='myhost.duckdns.org',
                         NGINX_ENABLED='true', TLS_ENABLED='true')
         assert url == 'https://myhost.duckdns.org'
 
-    def test_nginx_tls_nondefault_port(self, monkeypatch):
-        url = self._url(monkeypatch, DUCK_DOMAIN='myhost.duckdns.org',
+    def test_nginx_tls_nondefault_port(self, monkeypatch, clear_env):
+        url = self._url(monkeypatch, clear_env, DUCK_DOMAIN='myhost.duckdns.org',
                         NGINX_ENABLED='true', TLS_ENABLED='true',
                         NGINX_HTTPS_PORT='8443')
         assert url == 'https://myhost.duckdns.org:8443'
 
-    def test_bare_duck_domain_normalized(self, monkeypatch):
+    def test_bare_duck_domain_normalized(self, monkeypatch, clear_env):
         """'mysub' must become mysub.duckdns.org — a bare token is not
         a resolvable hostname."""
-        url = self._url(monkeypatch, DUCK_DOMAIN='mysub',
+        url = self._url(monkeypatch, clear_env, DUCK_DOMAIN='mysub',
                         NGINX_ENABLED='true', TLS_ENABLED='true')
         assert url == 'https://mysub.duckdns.org'
 
-    def test_no_nginx_no_tls_http_landing(self, monkeypatch):
+    def test_no_nginx_no_tls_http_landing(self, monkeypatch, clear_env):
         # _url() clears every TLS-related env var; the ssl-context
         # patch makes cert resolution return None.
         monkeypatch.setattr(
             'vnc_remote_secure.security.certificates.create_ssl_context',
             lambda *a: None, raising=False)
-        url = self._url(monkeypatch, LANDING_PORT='8000', _TLS='')
+        url = self._url(monkeypatch, clear_env, LANDING_PORT='8000', _TLS='')
         assert url == 'http://127.0.0.1:8000'
 
     def test_ssl_context_failure_falls_back(self, monkeypatch):

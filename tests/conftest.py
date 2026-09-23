@@ -175,3 +175,65 @@ def _clear_shared_state_namespaces():
                 be.delete(ns, k)
     except Exception:  # noqa: BLE001 - teardown best-effort
         pass
+
+
+# ---------------------------------------------------------------------------
+# Shared test helpers — reduce per-file boilerplate
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ns():
+    """Namespace factory: ns(session_action='list') -> argparse
+    Namespace. Replaces the per-file _args() builders."""
+    from argparse import Namespace
+    return lambda **kw: Namespace(**kw)
+
+
+@pytest.fixture
+def stub_handler():
+    """Bare http.server-style handler stub with mocked write paths.
+
+    Used by novnc/landing tests that drive handler methods without a
+    real socket: ``stub_handler(LandingHandler, headers={...},
+    path='/?session=x')``.
+    """
+    from unittest.mock import MagicMock
+
+    def _make(cls, headers=None, path='/', client=('127.0.0.1', 1)):
+        h = object.__new__(cls)
+        h.headers = headers or {}
+        h.client_address = client
+        h.path = path
+        h.command = 'GET'
+        h.connection = MagicMock()
+        h.wfile = MagicMock()
+        h.send_response = MagicMock()
+        h.send_header = MagicMock()
+        h.end_headers = MagicMock()
+        h._ws_error = MagicMock()
+        h._record_ws_origin_failure = MagicMock()
+        return h
+    return _make
+
+
+@pytest.fixture
+def clear_env(monkeypatch):
+    """Env scrubber: clear_env('A','B', set={'C':'1'}) — deletes the
+    listed vars, then applies the set dict. Replaces the repeated
+    delenv loops that precede env-sensitive assertions."""
+    def _apply(*keys, set=None):  # noqa: A002 - mirror env API
+        for k in keys:
+            monkeypatch.delenv(k, raising=False)
+        for k, v in (set or {}).items():
+            monkeypatch.setenv(k, v)
+    return _apply
+
+
+# Standard metrics dict for landing-page tests (get_system_metrics stub).
+FAKE_METRICS = {'hostname': 'h', 'os': 'os', 'uptime': 'u',
+                'cpu': 'c', 'memory': 'm', 'disk': 'd'}
+
+
+@pytest.fixture
+def fake_metrics():
+    return dict(FAKE_METRICS)

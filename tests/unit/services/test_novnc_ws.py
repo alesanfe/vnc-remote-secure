@@ -77,31 +77,21 @@ class TestProxyWebsocketGate:
     """_proxy_websocket reject paths — origin gate, upstream down,
     TOCTOU revoke. Exercised via a stub handler, no real socket."""
 
-    def _handler(self, monkeypatch, headers=None):
-        from unittest.mock import MagicMock
-        h = object.__new__(H)
-        h.headers = headers or {}
-        h.client_address = ('127.0.0.1', 1)
-        h._ws_error = MagicMock()
-        h._record_ws_origin_failure = MagicMock()
-        h.command = 'GET'
-        h.path = '/websockify'
-        h.connection = MagicMock()
-        h.wfile = MagicMock()
-        return h
+    def _handler(self, stub_handler, headers=None):
+        return stub_handler(H, headers=headers, path='/websockify')
 
-    def test_bad_origin_403_and_rate_limited(self, monkeypatch):
+    def test_bad_origin_403_and_rate_limited(self, monkeypatch, stub_handler):
         monkeypatch.setattr(
             'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
             lambda: ['https://ok.example'], raising=False)
-        h = self._handler(monkeypatch,
+        h = self._handler(stub_handler,
                           headers={'Origin': 'https://evil.example'})
         h._proxy_websocket()
         h._ws_error.assert_called_once()
         assert h._ws_error.call_args[0][0] == 403
         h._record_ws_origin_failure.assert_called_once()
 
-    def test_upstream_down_502(self, monkeypatch):
+    def test_upstream_down_502(self, monkeypatch, stub_handler):
         monkeypatch.setattr(
             'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
             lambda: ['https://ok.example'], raising=False)
@@ -109,12 +99,12 @@ class TestProxyWebsocketGate:
         monkeypatch.setattr(
             _s, 'create_connection',
             lambda *a, **k: (_ for _ in ()).throw(OSError('down')))
-        h = self._handler(monkeypatch,
+        h = self._handler(stub_handler,
                           headers={'Origin': 'https://ok.example'})
         h._proxy_websocket()
         assert h._ws_error.call_args[0][0] == 502
 
-    def test_toctou_revoke_returns_early(self, monkeypatch):
+    def test_toctou_revoke_returns_early(self, monkeypatch, stub_handler):
         """_register_ws -> None (session revoked mid-upgrade) must
         return without relaying."""
         monkeypatch.setattr(
@@ -125,7 +115,7 @@ class TestProxyWebsocketGate:
                                   'sendall': lambda self, b: None})()
         monkeypatch.setattr(_s, 'create_connection',
                             lambda *a, **k: upstream)
-        h = self._handler(monkeypatch, headers={
+        h = self._handler(stub_handler, headers={
             'Origin': 'https://ok.example',
             'Cookie': 'vnc_session=tok',
         })
@@ -171,13 +161,13 @@ class TestRelayCleanup:
             lambda cid: unreg.append(cid))
         return upstream
 
-    def test_unregister_on_relay_end(self, monkeypatch):
+    def test_unregister_on_relay_end(self, monkeypatch, stub_handler):
         unreg = []
         self._setup(monkeypatch, unreg)
         monkeypatch.setattr(
             'vnc_remote_secure.services.novnc.relay_rfb_stream',
             lambda *a: None)
-        h = TestProxyWebsocketGate()._handler(monkeypatch, headers={
+        h = TestProxyWebsocketGate()._handler(stub_handler, headers={
             'Origin': 'https://ok.example',
             'Cookie': 'vnc_session=tok'})
         monkeypatch.setattr(
@@ -187,13 +177,13 @@ class TestRelayCleanup:
         h._proxy_websocket()
         assert unreg == ['conn_7']
 
-    def test_unregister_on_relay_oserror(self, monkeypatch):
+    def test_unregister_on_relay_oserror(self, monkeypatch, stub_handler):
         unreg = []
         self._setup(monkeypatch, unreg)
         monkeypatch.setattr(
             'vnc_remote_secure.services.novnc.relay_rfb_stream',
             lambda *a: (_ for _ in ()).throw(OSError('reset')))
-        h = TestProxyWebsocketGate()._handler(monkeypatch, headers={
+        h = TestProxyWebsocketGate()._handler(stub_handler, headers={
             'Origin': 'https://ok.example',
             'Cookie': 'vnc_session=tok'})
         monkeypatch.setattr(
@@ -203,12 +193,12 @@ class TestRelayCleanup:
         h._proxy_websocket()
         assert unreg == ['conn_7']
 
-    def test_unregister_on_header_encode_failure(self, monkeypatch):
+    def test_unregister_on_header_encode_failure(self, monkeypatch, stub_handler):
         """A header value unencodable in latin-1 must close upstream
         AND unregister — not leak the registration."""
         unreg = []
         self._setup(monkeypatch, unreg)
-        h = TestProxyWebsocketGate()._handler(monkeypatch, headers={
+        h = TestProxyWebsocketGate()._handler(stub_handler, headers={
             'Origin': 'https://ok.example',
             'Cookie': 'vnc_session=tok',
             'X-Bad': '\u20ac',  # euro sign — not latin-1
