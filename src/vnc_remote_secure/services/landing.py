@@ -1136,6 +1136,94 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body.encode())
 
+    def do_POST(self):
+        """Handle POST — only /sessions/revoke is mutating.
+
+        Basic auth travels automatically in the browser, so the
+        endpoint is CSRF-able in principle: reject requests whose
+        Origin header is present but not in the allowlist (cross-site
+        forms always send Origin; curl/API clients legitimately omit
+        it).
+        """
+        path = self.path.split('?', 1)[0]
+        if path != '/sessions/revoke':
+            self.send_response(404)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Not found', 404)
+            self.wfile.write(body.encode())
+            return
+
+        from vnc_remote_secure.security.http_auth import (
+            check_landing_auth, client_ip_from)
+        if not check_landing_auth(
+                self.headers.get('Authorization', ''),
+                client_ip=client_ip_from(
+                    self.headers,
+                    self.client_address[0]
+                    if self.client_address else None)):
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Operator credentials required', 401)
+            self.wfile.write(body.encode())
+            return
+
+        from vnc_remote_secure.security.auth_gateway import (
+            check_origin, get_allowed_origins)
+        origin = self.headers.get('Origin', '')
+        if origin and not check_origin(origin, get_allowed_origins()):
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Invalid origin', 403)
+            self.wfile.write(body.encode())
+            return
+
+        # Bounded body read: Content-Length beyond 4 KiB is not a
+        # revoke request, it is padding — reject before reading.
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            length = 0
+        if not 0 < length <= 4096:
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Bad request', 400)
+            self.wfile.write(body.encode())
+            return
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, ValueError):
+            payload = {}
+        token_id = str(payload.get('token_id', '')).strip()
+        if not token_id:
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('token_id required', 400)
+            self.wfile.write(body.encode())
+            return
+
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            revoke_session)
+        revoked = revoke_session(token_id)
+        try:
+            from vnc_remote_secure.security.audit import audit_log
+            audit_log(
+                'portal_session_revoke',
+                result='success' if revoked else 'failure',
+                detail=f'token_id={token_id}')
+        except Exception:  # noqa: BLE001
+            pass
+        self.send_response(200 if revoked else 404)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(
+            {'revoked': bool(revoked)}).encode())
+
     def setup(self):
         """Set up the request (bounded header-read window)."""
         super().setup()
