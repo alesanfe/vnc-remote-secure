@@ -331,7 +331,6 @@ def audit_log(
 
         # Compute chain hash for tamper-evidence.
         entry['hash'] = _compute_hash(_chain_hash, entry)
-        _chain_hash = entry['hash']
 
         # Append to log file (create parent dirs if needed).
         line = json.dumps(entry, separators=(',', ':')) + '\n'
@@ -341,6 +340,12 @@ def audit_log(
             with open(path, 'a', encoding='utf-8') as f:
                 f.write(line)
             _set_secure_perms(path)
+            # Advance the chain only AFTER the entry reached disk —
+            # moving it before the write leaves an unrecoverable gap:
+            # the next entry chains onto a hash whose line never
+            # persisted, and verification then reports "tampered" for
+            # what was merely a full disk.
+            _chain_hash = entry['hash']
             _record_tip(entry['hash'])
         except Exception:
             logger.exception("Failed to write audit log:")

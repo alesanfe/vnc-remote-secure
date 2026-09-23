@@ -237,3 +237,31 @@ class TestChainTipWitness:
         audit.verify_chain_on_startup()
         assert not any('tip mismatch' in w or 'deleted or moved' in w
                        for w in warnings)
+
+    def test_failed_write_does_not_poison_chain(
+            self, audit_file, monkeypatch):
+        """A write failure (ENOSPC, permissions) must not advance the
+        in-memory chain — otherwise the next successful entry chains
+        onto a hash that never reached disk and verification reports
+        tampering for what was a mundane I/O error."""
+        from vnc_remote_secure.security import audit
+        from vnc_remote_secure.security.audit import audit_log
+        audit_log('login', user='alice')
+        # Make the next open() fail.
+        real_open = open
+
+        def _fail(path, *a, **kw):
+            if str(path) == str(audit_file) and 'a' in (
+                    a[0] if a else kw.get('mode', '')):
+                raise OSError(28, 'No space left on device')
+            return real_open(path, *a, **kw)
+        import builtins
+        monkeypatch.setattr(builtins, 'open', _fail)
+        audit_log('failed_write', user='alice')
+        # Restore open WITHOUT undo() — undo would revert the
+        # AUDIT_LOG_FILE fixture too and the next entry would land in
+        # the real audit log.
+        monkeypatch.setattr(builtins, 'open', real_open)
+        audit_log('logout', user='alice')
+        intact, msg = audit.verify_chain()
+        assert intact is True, f'chain poisoned by failed write: {msg}'
