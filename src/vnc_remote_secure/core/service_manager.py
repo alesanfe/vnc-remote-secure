@@ -666,6 +666,14 @@ def start_all(config: dict | None = None) -> dict:
         for service in _enabled_services(config):
             results[service] = _start_service(service, config)
 
+        # Service lifecycle belongs in the audit trail — a stopped or
+        # respawned service is a security-relevant event, not just an
+        # operational one.
+        for service, pid in results.items():
+            _audit_lifecycle(
+                'service_start' if pid else 'service_start_failed',
+                service, pid)
+
         # Alert on start failures (replaces the legacy Bash alerts).
         failed = [s for s, pid in results.items() if not pid]
         if failed:
@@ -714,6 +722,15 @@ _SERVICE_PORT_KEYS = {
     'audio': 'audio_stream_port',
     'gamepad': 'gamepad_port',
 }
+
+
+def _audit_lifecycle(event: str, service: str, pid) -> None:
+    """Record a service lifecycle transition in the audit log."""
+    try:
+        from vnc_remote_secure.security.audit import audit_log
+        audit_log(event, detail=f'service={service} pid={pid}')
+    except Exception:  # noqa: BLE001 - audit must not break lifecycle
+        pass
 
 
 def _start_service(service: str, config: dict) -> int | None:
@@ -941,6 +958,9 @@ def stop_all(force: bool = False) -> dict:
             if pid:
                 results[service] = _kill_pid(pid, service=service,
                                              force=force)
+                _audit_lifecycle(
+                    'service_stop' if results[service]
+                    else 'service_stop_failed', service, pid)
                 if results[service]:
                     _clear_pid(service)
                 # else: keep the pid file so a --force retry (or a
@@ -1172,6 +1192,9 @@ def _auto_restart_dead(dead: list, config: dict) -> dict:
             _kill_pid(pid, service=service)
         _clear_pid(service)
         results[service] = _start_service(service, config)
+        _audit_lifecycle(
+            'service_restart' if results[service]
+            else 'service_restart_failed', service, results[service])
     if throttled:
         _alert_throttled(throttled)
     return results
