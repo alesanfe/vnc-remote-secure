@@ -611,7 +611,72 @@ def _landing_css() -> str:
     return f'    <style>\n{css}    </style>'
 
 
-def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, ssl_note, firewall_html, metrics):
+def _build_sessions_html():
+    """Render the active ephemeral sessions panel with revoke buttons.
+
+    The portal is the admin control surface: an operator should see
+    WHO holds a share link (role, permissions, expiry) and be able to
+    kill it without dropping to the CLI. Revocation is a POST to
+    /sessions/revoke (Origin-checked, operator-auth). Best-effort —
+    a store failure renders an empty panel, not a broken page.
+    """
+    try:
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            get_session_store)
+        store = get_session_store()
+        store._load_if_changed()
+        sessions = store.list_active()
+    except Exception:  # noqa: BLE001
+        sessions = []
+    if not sessions:
+        return ''
+    import time as _time
+    rows = []
+    for s in sessions:
+        remaining = max(0, int(s['expires_at'] - _time.time()))
+        mins, secs = divmod(remaining, 60)
+        flags = []
+        if s.get('view_only'):
+            flags.append('view-only')
+        if s.get('single_use'):
+            flags.append('single-use')
+        if s.get('no_terminal'):
+            flags.append('no-terminal')
+        perms = html.escape(', '.join(s.get('permissions', [])))
+        rows.append(
+            f'<tr><td><code>{html.escape(s["token_id"])}</code></td>'
+            f'<td>{html.escape(s.get("role", ""))}</td>'
+            f'<td title="{perms}">{html.escape(str(len(s.get("permissions", []))))} perm</td>'
+            f'<td>{mins}m{secs:02d}s</td>'
+            f'<td>{html.escape(", ".join(flags))}</td>'
+            f'<td><button class="revoke-btn" '
+            f'data-token="{html.escape(s["token_id"])}">Revocar</button></td></tr>')
+    return f"""
+    <div class="section-title">🔗 Sesiones activas ({len(rows)})</div>
+    <div class="info-card" style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:0.9em">
+    <tr><th>ID</th><th>Rol</th><th>Permisos</th><th>Expira</th><th>Flags</th><th></th></tr>
+    {''.join(rows)}
+    </table>
+    </div>
+    <script>
+    document.querySelectorAll('.revoke-btn').forEach(function(b){{
+      b.addEventListener('click', function(){{
+        if (!confirm('¿Revocar esta sesión? Sus conexiones se cerrarán ahora.')) return;
+        fetch('/sessions/revoke', {{
+          method: 'POST',
+          headers: {{'Content-Type': 'application/json'}},
+          body: JSON.stringify({{token_id: b.dataset.token}})
+        }}).then(function(r){{
+          if (r.ok) {{ b.closest('tr').style.opacity = '0.3'; b.disabled = true; }}
+          else {{ alert('No se pudo revocar'); }}
+        }});
+      }});
+    }});
+    </script>"""
+
+
+def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, ssl_note, firewall_html, metrics):
     """Assemble the final landing page HTML from its section components."""
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -641,6 +706,8 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
     {lan_html}
 
     {creds_html}
+
+    {sessions_html}
 
     {ssl_note}
     {firewall_html}
@@ -703,9 +770,13 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None):
         external_base if (external_base or _config().get('nginx_enabled'))
         else None)
     creds_html = _build_credentials_html()
+    sessions_html = _build_sessions_html()
     features_section = _build_features_section(use_ssl, is_windows_flag)
     firewall_html, ssl_note = _build_firewall_html(is_windows_flag, use_ssl)
-    return _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, ssl_note, firewall_html, metrics)
+    return _build_landing_page_template(
+        metrics_html, cards_html, vnc_direct_html, features_section,
+        lan_html, creds_html, sessions_html, ssl_note, firewall_html,
+        metrics)
 
 
 class LandingHandler(http.server.SimpleHTTPRequestHandler):
