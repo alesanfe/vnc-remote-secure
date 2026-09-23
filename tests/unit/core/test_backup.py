@@ -273,3 +273,34 @@ class TestRestoreNegativePaths:
         plains = [x for x in tmp_path.rglob('*.tar.gz')
                   if not x.name.endswith('.enc.tar.gz')]
         assert plains == []
+
+
+def test_sqlite_snapshot_consistent(tmp_path):
+    """_snapshot_sqlite must produce a complete copy even when the
+    source is WAL-mode (plain file copy loses un-checkpointed
+    frames)."""
+    import sqlite3
+    from vnc_remote_secure.core.backup import _snapshot_sqlite
+    src = str(tmp_path / 'state.db')
+    conn = sqlite3.connect(src)
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('CREATE TABLE t (k TEXT, v TEXT)')
+    conn.execute("INSERT INTO t VALUES ('a', '1')")
+    conn.commit()  # data may live only in the WAL sidecar
+    snap = _snapshot_sqlite(src)
+    conn.close()
+    assert snap is not None
+    assert snap != src
+    snap_conn = sqlite3.connect(snap)
+    rows = snap_conn.execute(
+        'SELECT v FROM t WHERE k=?', ('a',)).fetchall()
+    snap_conn.close()
+    assert rows == [('1',)]
+    import os
+    os.unlink(snap)
+
+
+def test_sqlite_snapshot_missing_source(tmp_path):
+    """A missing/corrupt source returns None (caller falls back)."""
+    from vnc_remote_secure.core.backup import _snapshot_sqlite
+    assert _snapshot_sqlite(str(tmp_path / 'nope.db')) is None

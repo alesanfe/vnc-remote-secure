@@ -187,9 +187,58 @@ def _collect_paths() -> list:
                  'shared_state.db'):
         p = os.path.join(run_dir, name)
         if os.path.isfile(p):
+            if name == 'shared_state.db':
+                # Copying a WAL-mode DB file mid-write can produce an
+                # inconsistent archive (un-checkpointed WAL frames are
+                # lost). Take a consistent snapshot through the SQLite
+                # backup API instead; fall back to the raw file.
+                snap = _snapshot_sqlite(p)
+                if snap:
+                    _TMP_SNAPSHOTS.append(snap)
+                    paths.append((snap, f'run/{name}'))
+                    continue
             paths.append((p, f'run/{name}'))
 
     return paths
+
+
+# Snapshot temp files to delete after the archive is written.
+_TMP_SNAPSHOTS: list = []
+
+
+def _snapshot_sqlite(src: str) -> str | None:
+    """Return a consistent copy of a WAL-mode SQLite file, or None.
+
+    Uses the SQLite online backup API — a plain file copy of a
+    WAL-mode database can miss un-checkpointed frames and archive a
+    torn DB.
+    """
+    import sqlite3
+    import tempfile
+    try:
+        fd, dst = tempfile.mkstemp(
+            prefix='vnc-shared-state-', suffix='.db')
+        os.close(fd)
+        src_conn = sqlite3.connect(f'file:{src}?mode=ro', uri=True)
+        try:
+            dst_conn = sqlite3.connect(dst)
+            try:
+                src_conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
+        finally:
+            src_conn.close()
+        return dst
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _cleanup_snapshots() -> None:
+    """Remove temporary SQLite snapshots after archiving."""
+    for p in _TMP_SNAPSHOTS:
+        with contextlib.suppress(OSError):
+            os.unlink(p)
+    _TMP_SNAPSHOTS.clear()
 
 
 def create_backup(output: str | None = None) -> str:
@@ -237,35 +286,39 @@ def create_backup(output: str | None = None) -> str:
     # rejected by restore's filter='data' and were a traversal gap on
     # interpreters without it.
     tmp_tar = output if not _get_backup_key() else output + '.tmp'
-    with tarfile.open(tmp_tar, 'w:gz', dereference=True) as tar:
-        import io
-        import json as _json
-        # Format manifest: restore uses it to warn on incompatible or
-        # unexpectedly new backup formats instead of guessing.
-        try:
-            from vnc_remote_secure import __version__ as _app_ver
-        except Exception:  # noqa: BLE001
-            _app_ver = 'unknown'
-        manifest = {
-            'format_version': _BACKUP_FORMAT_VERSION,
-            'created': time.time(),
-            'app_version': _app_ver,
-        }
-        man_bytes = _json.dumps(manifest, indent=2).encode('utf-8')
-        man_info = tarfile.TarInfo(name='backup-manifest.json')
-        man_info.size = len(man_bytes)
-        man_info.mtime = time.time()
-        tar.addfile(man_info, io.BytesIO(man_bytes))
-        # Include the service-manager state as a JSON file in the archive.
-        state_bytes = _json.dumps(state, indent=2).encode('utf-8')
-        state_info = tarfile.TarInfo(name='service_state.json')
-        state_info.size = len(state_bytes)
-        state_info.mtime = time.time()
-        tar.addfile(state_info, io.BytesIO(state_bytes))
-        for src, arcname in paths:
-            if os.path.exists(src):
-                tar.add(src, arcname=arcname, recursive=True,
-                        filter=lambda info: None if info.name.endswith('.log') else info)
+    try:
+        with tarfile.open(tmp_tar, 'w:gz', dereference=True) as tar:
+            import io
+            import json as _json
+            # Format manifest: restore uses it to warn on incompatible or
+            # unexpectedly new backup formats instead of guessing.
+            try:
+                from vnc_remote_secure import __version__ as _app_ver
+            except Exception:  # noqa: BLE001
+                _app_ver = 'unknown'
+            manifest = {
+                'format_version': _BACKUP_FORMAT_VERSION,
+                'created': time.time(),
+                'app_version': _app_ver,
+            }
+            man_bytes = _json.dumps(manifest, indent=2).encode('utf-8')
+            man_info = tarfile.TarInfo(name='backup-manifest.json')
+            man_info.size = len(man_bytes)
+            man_info.mtime = time.time()
+            tar.addfile(man_info, io.BytesIO(man_bytes))
+            # Include the service-manager state as a JSON file in the archive.
+            state_bytes = _json.dumps(state, indent=2).encode('utf-8')
+            state_info = tarfile.TarInfo(name='service_state.json')
+            state_info.size = len(state_bytes)
+            state_info.mtime = time.time()
+            tar.addfile(state_info, io.BytesIO(state_bytes))
+            for src, arcname in paths:
+                if os.path.exists(src):
+                    tar.add(src, arcname=arcname, recursive=True,
+                            filter=lambda info: None if info.name.endswith('.log') else info)
+    finally:
+        # Snapshot temp files must not linger even when tarring fails.
+        _cleanup_snapshots()
 
     # Encrypt if BACKUP_PASSWORD is set.
     if _get_backup_key():
