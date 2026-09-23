@@ -57,6 +57,11 @@ ops = [
   "psutil>=5.9,<7.0",
   "waitress>=2.1,<4.0"
 ]
+# Browser E2E (tests/e2e/browser). After installing, run
+# `python -m playwright install chromium` once to fetch the browser.
+e2e = [
+  "playwright>=1.40,<2.0"
+]
 
 [project.scripts]
 vnc-remote = "vnc_remote_secure.cli:main"
