@@ -67,7 +67,8 @@ def _add_session_args(subparsers):
     p_create.add_argument(
         '--permissions', default=None, metavar='LIST',
         help='Comma-separated permission set overriding the role '
-             '(e.g. view,pointer or view,keyboard,clipboard_write)')
+             '(e.g. view,pointer,terminal_view or '
+             'view,keyboard,clipboard_write,terminal_write)')
     p_create.add_argument('--single-use', action='store_true', help='Session expires after first use')
     p_create.add_argument('--max-uses', type=int, default=0,
                           help='Maximum number of uses (0 = unlimited)')

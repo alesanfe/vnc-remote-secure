@@ -109,16 +109,24 @@ PERM_POINTER = 'pointer'
 PERM_CLIPBOARD = 'clipboard'      # umbrella: clipboard_write
 PERM_CLIPBOARD_WRITE = 'clipboard_write'
 PERM_FILE_TRANSFER = 'file_transfer'
-PERM_TERMINAL = 'terminal'
+PERM_TERMINAL = 'terminal'        # umbrella: terminal_view + terminal_write
+PERM_TERMINAL_VIEW = 'terminal_view'    # connect + read-only builtins
+PERM_TERMINAL_WRITE = 'terminal_write'  # command execution
 PERM_AUDIO = 'audio'
 PERM_GAMEPAD = 'gamepad'
-PERM_ADMIN = 'admin'
+PERM_ADMIN = 'admin'              # umbrella: admin_* below
+PERM_ADMIN_USERS = 'admin_users'
+PERM_ADMIN_CONFIG = 'admin_config'
+PERM_ADMIN_SECRETS = 'admin_secrets'
+PERM_ADMIN_AUDIT = 'admin_audit'
 
 ALL_PERMISSIONS = {
     PERM_VIEW, PERM_CONTROL, PERM_KEYBOARD, PERM_POINTER,
     PERM_CLIPBOARD, PERM_CLIPBOARD_WRITE,
-    PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_AUDIO, PERM_GAMEPAD,
-    PERM_ADMIN,
+    PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_TERMINAL_VIEW,
+    PERM_TERMINAL_WRITE, PERM_AUDIO, PERM_GAMEPAD,
+    PERM_ADMIN, PERM_ADMIN_USERS, PERM_ADMIN_CONFIG,
+    PERM_ADMIN_SECRETS, PERM_ADMIN_AUDIT,
 }
 
 # Coarse permissions expand to their fine-grained members: a session
@@ -127,6 +135,9 @@ ALL_PERMISSIONS = {
 _PERMISSION_EXPANSION = {
     PERM_CONTROL: {PERM_KEYBOARD, PERM_POINTER},
     PERM_CLIPBOARD: {PERM_CLIPBOARD_WRITE},
+    PERM_TERMINAL: {PERM_TERMINAL_VIEW, PERM_TERMINAL_WRITE},
+    PERM_ADMIN: {PERM_ADMIN_USERS, PERM_ADMIN_CONFIG,
+                 PERM_ADMIN_SECRETS, PERM_ADMIN_AUDIT},
 }
 
 
@@ -264,7 +275,11 @@ class EphemeralSession:
                 {PERM_CONTROL, PERM_CLIPBOARD,
                  PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_GAMEPAD}):
             return False
-        if self.no_terminal and perm == PERM_TERMINAL:
+        # no_terminal must cover the fine-grained members too — a
+        # terminal_view/terminal_write request would otherwise slip
+        # past a flag that promised "no terminal at all".
+        if self.no_terminal and perm in expand_permissions(
+                {PERM_TERMINAL}):
             return False
         return perm in expand_permissions(self.permissions)
 

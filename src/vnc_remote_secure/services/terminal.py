@@ -136,7 +136,7 @@ class MainHandler(tornado.web.RequestHandler):
             return False
         from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
         return check_session_permission(
-            eph, 'terminal:use', resource='terminal',
+            eph, 'terminal_view', resource='terminal',
             client_ip=client_ip_from(
                 self.request.headers, self.request.remote_ip))
 
@@ -670,7 +670,9 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             cookie_value=cookie_value,
             bearer_token=bearer,
             resource='terminal',
-            required_permission='terminal:use',
+            # terminal_view admits view-only sessions; command
+            # execution is gated separately by terminal_write.
+            required_permission='terminal_view',
             client_ip=client_ip_from(
                 self.request.headers, self.request.remote_ip),
             ephemeral_cookie=eph,
@@ -678,6 +680,18 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         if not allowed:
             self.close(code=1008, reason=reason)
             return False
+        # RBAC split: an ephemeral session needs terminal_write to run
+        # commands; terminal_view only opens a read-only terminal
+        # (builtins work, subprocesses don't). Operator sessions
+        # (cookie/bearer/Basic) are not permission-bound.
+        self._terminal_write = True
+        if eph:
+            from vnc_remote_secure.security.ephemeral_sessions import (
+                check_session_permission)
+            self._terminal_write = check_session_permission(
+                eph, 'terminal_write', resource='terminal',
+                client_ip=client_ip_from(
+                    self.request.headers, self.request.remote_ip))
         if not self._step_up_required(cookie_value, bearer):
             return False
         # Register the connection so revocation can close it live.
@@ -891,6 +905,19 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
 
             if cmd.lower() == 'history':
                 self.write_message(_history_text(self.history))
+                self._send_prompt()
+                self._set_busy(False)
+                return
+
+            # RBAC split: terminal_view connects and uses read-only
+            # builtins, but only terminal_write spawns subprocesses.
+            # Operator sessions (no ephemeral cookie) are not
+            # permission-bound — _terminal_write stays True for them.
+            if not getattr(self, '_terminal_write', True):
+                self.write_message(
+                    '\r\n\x1b[31mView-only terminal session — '
+                    'command execution requires the terminal_write '
+                    'permission.\x1b[0m\r\n')
                 self._send_prompt()
                 self._set_busy(False)
                 return

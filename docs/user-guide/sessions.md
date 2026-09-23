@@ -47,6 +47,32 @@ permission).
   is a separate channel — keep it loopback-only or use a view-only
   VNC password for hard isolation.
 
+### Fine-grained permissions
+
+`--permissions` accepts umbrella and fine-grained names; umbrellas
+expand to their members:
+
+| Umbrella | Members | Effect |
+|----------|---------|--------|
+| `control` | `keyboard`, `pointer` | RFB input filtering |
+| `clipboard` | `clipboard_write` | ClientCutText forwarding |
+| `terminal` | `terminal_view`, `terminal_write` | connect vs execute |
+| `admin` | `admin_users`, `admin_config`, `admin_secrets`, `admin_audit` | administrative surface |
+
+A `terminal_view` session opens the terminal and uses read-only
+builtins (`help`, `history`, `cls`, `exit`) but every command
+execution is refused — the subprocess gate, not the client, enforces
+it. `terminal_write` (or the `terminal` umbrella) spawns commands.
+
+Example — a read-only diagnostics link:
+
+```bash
+vnc-remote session create --resource terminal --permissions terminal_view
+```
+
+`--no-terminal` blocks all three terminal permissions; `--view-only`
+blocks the whole terminal surface.
+
 ## List and revoke
 
 ```bash

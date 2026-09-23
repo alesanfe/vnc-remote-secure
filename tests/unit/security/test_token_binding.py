@@ -198,3 +198,40 @@ class TestRevokeByFingerprint:
         session, signed = fresh_store.create(role='viewer')
         assert revoke_session(signed) is True
         assert fresh_store.validate(signed) is None
+
+
+class TestTerminalViewWriteSplit:
+    """terminal -> {terminal_view, terminal_write}; a view-only
+    session connects but cannot spawn subprocesses."""
+
+    def _sess(self, perms, **kw):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            EphemeralSession)
+        return EphemeralSession(token='t', permissions=perms, **kw)
+
+    def test_umbrella_satisfies_both(self):
+        s = self._sess({'terminal'})
+        assert s.has_permission('terminal_view')
+        assert s.has_permission('terminal_write')
+
+    def test_view_only_blocks_write(self):
+        s = self._sess({'terminal_view'})
+        assert s.has_permission('terminal_view')
+        assert not s.has_permission('terminal_write')
+        assert not s.has_permission('terminal')
+
+    def test_no_terminal_blocks_members(self):
+        """no_terminal must cover the fine-grained members, not
+        just the umbrella name."""
+        s = self._sess({'terminal'}, no_terminal=True)
+        assert not s.has_permission('terminal_view')
+        assert not s.has_permission('terminal_write')
+
+    def test_admin_umbrella_expands(self):
+        s = self._sess({'admin'})
+        assert s.has_permission('admin_users')
+        assert s.has_permission('admin_audit')
+        s2 = self._sess({'admin_users'})
+        assert s2.has_permission('admin_users')
+        assert not s2.has_permission('admin')
+        assert not s2.has_permission('admin_secrets')
