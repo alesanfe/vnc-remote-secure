@@ -263,3 +263,63 @@ def test_sqlite_stats_accumulate(tmp_path):
     after = sqlite_stats()
     assert after['ops'] == before['ops'] + 3
     assert after['total_ms'] >= before['total_ms']
+
+
+class TestBackendFallbackPolicy:
+    """A sqlite init failure degrades to MemoryBackend — loudly —
+    unless SHARED_STATE_STRICT refuses to run degraded."""
+
+    def _broken_sqlite(self, monkeypatch, tmp_path):
+        reset_backend()
+        shared_state._backend_fallback = False
+        monkeypatch.setenv('SHARED_STATE_BACKEND', 'sqlite')
+        # Point at a path whose parent is a FILE — mkdir/open fails.
+        blocker = tmp_path / 'blocker'
+        blocker.write_text('x')
+        monkeypatch.setenv(
+            'SHARED_STATE_DB_PATH', str(blocker / 'state.db'))
+
+    def test_fallback_degrades_with_flag(self, monkeypatch, tmp_path):
+        self._broken_sqlite(monkeypatch, tmp_path)
+        monkeypatch.delenv('SHARED_STATE_STRICT', raising=False)
+        b = get_backend()
+        assert isinstance(b, MemoryBackend)
+        assert shared_state.backend_degraded() is True
+        shared_state._backend_fallback = False
+        reset_backend()
+
+    def test_strict_refuses_degraded_backend(
+            self, monkeypatch, tmp_path):
+        import pytest as _pytest
+        self._broken_sqlite(monkeypatch, tmp_path)
+        monkeypatch.setenv('SHARED_STATE_STRICT', 'true')
+        with _pytest.raises(RuntimeError, match='SHARED_STATE_STRICT'):
+            get_backend()
+        reset_backend()
+
+    def test_revocation_check_denies_under_strict(self, monkeypatch):
+        """SHARED_STATE_STRICT: a revocation check that cannot reach
+        the backend must deny the session, not silently admit it."""
+        from vnc_remote_secure.security import ephemeral_sessions as eph
+        monkeypatch.setenv('SHARED_STATE_STRICT', 'true')
+
+        def _boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.shared_state.get_backend',
+            _boom)
+        assert eph._is_revoked_shared('tok') is True
+
+    def test_revocation_check_default_fails_open_local(
+            self, monkeypatch):
+        """Default: backend outage degrades to local flags (logged +
+        metric) rather than DoS-ing every session."""
+        from vnc_remote_secure.security import ephemeral_sessions as eph
+        monkeypatch.delenv('SHARED_STATE_STRICT', raising=False)
+
+        def _boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.shared_state.get_backend',
+            _boom)
+        assert eph._is_revoked_shared('tok') is False

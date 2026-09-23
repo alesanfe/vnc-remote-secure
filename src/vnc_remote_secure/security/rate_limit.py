@@ -18,11 +18,13 @@ from vnc_remote_secure.security.shared_state import get_backend
 # Default limits (configurable via env vars)
 DEFAULT_MAX_ATTEMPTS = 5
 DEFAULT_LOCKOUT_SECONDS = 900  # 15 minutes
+DEFAULT_LOCKOUT_MAX_SECONDS = 86400  # 24 h cap on escalation
 DEFAULT_WINDOW_SECONDS = 600   # 10 minutes
 
 # Shared-state namespaces.
 _NS_ATTEMPTS = 'rate_limit_attempts'
 _NS_LOCKOUTS = 'rate_limit_lockouts'
+_NS_STRIKES = 'rate_limit_lockout_strikes'
 
 
 class RateLimiter:
@@ -48,6 +50,41 @@ class RateLimiter:
         self.window_seconds = window_seconds or int(
             os.environ.get('AUTH_WINDOW_SECONDS', str(DEFAULT_WINDOW_SECONDS))
         )
+        self.lockout_max_seconds = int(
+            os.environ.get('AUTH_LOCKOUT_MAX_SECONDS',
+                           str(DEFAULT_LOCKOUT_MAX_SECONDS))
+        )
+        self.escalation = os.environ.get(
+            'AUTH_LOCKOUT_ESCALATION', 'true').lower() not in (
+                '0', 'false', 'no')
+
+    def _next_lockout(self, key: str) -> float:
+        """Return the duration for this key's next lockout.
+
+        Progressive escalation: each consecutive lockout doubles the
+        duration (``lockout_seconds * 2^(strikes-1)``), capped at
+        ``lockout_max_seconds``. A persistent brute-force sweep then
+        costs the attacker exponentially more time per attempt, while
+        a one-off typo still pays only the base 15 min. Strikes decay
+        with the lockout so a quiet period resets the escalation;
+        ``record_success`` clears them explicitly.
+        """
+        backend = get_backend()
+        if not self.escalation:
+            return float(self.lockout_seconds)
+        try:
+            strikes = int(backend.get(_NS_STRIKES, key) or 0) + 1
+        except (TypeError, ValueError):
+            strikes = 1
+        duration = min(
+            float(self.lockout_seconds) * (2 ** (strikes - 1)),
+            float(self.lockout_max_seconds))
+        # The strike record must outlive the lockout it produced or
+        # escalation would never progress.
+        backend.set_ttl(
+            _NS_STRIKES, key, strikes,
+            int(duration) + self.window_seconds + 60)
+        return duration
 
     # Each failed attempt is stored as its own TTL'd record keyed
     # ``<key>\x00<ts>\x00<rand>`` — insert-only, so recording a failure
@@ -112,8 +149,9 @@ class RateLimiter:
         record_key = f'{key}{self._SEP}{now}{self._SEP}{_secrets.token_hex(4)}'
         backend.set_ttl(_NS_ATTEMPTS, record_key, True, self.window_seconds)
         if self._attempt_count(key) >= self.max_attempts:
-            backend.set_ttl(_NS_LOCKOUTS, key, now + self.lockout_seconds,
-                            self.lockout_seconds)
+            duration = self._next_lockout(key)
+            backend.set_ttl(_NS_LOCKOUTS, key, now + duration,
+                            int(duration) + 60)
             # Lockouts are a security signal — a brute-force sweep
             # shows up here before it shows in logs.
             try:
@@ -127,6 +165,10 @@ class RateLimiter:
         backend = get_backend()
         self._clear_attempts(key)
         backend.delete(_NS_LOCKOUTS, key)
+        # A successful login also resets lockout escalation — strikes
+        # exist to slow brute force, not to permanently penalize a
+        # legitimate user who mistyped.
+        backend.delete(_NS_STRIKES, key)
 
     def remaining_attempts(self, key: str) -> int:
         """Return how many attempts remain before lockout."""

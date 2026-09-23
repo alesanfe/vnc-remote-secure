@@ -685,6 +685,10 @@ def start_all(config: dict | None = None) -> dict:
                            "returning existing PIDs")
             return status_all()
 
+        # A crashed run (SIGKILL/power loss) never ran stop, so the
+        # temp user may still exist — sweep it before services spawn.
+        _sweep_stale_temp_user()
+
         results = {}
         for service in _enabled_services(config):
             results[service] = _start_service(service, config)
@@ -1281,6 +1285,56 @@ def _alert_watchdog_transitions(newly_dead, dead, results, auto):
                    severity='warning')
     except Exception:  # noqa: BLE001 - alerting is best-effort
         pass
+
+
+def _sweep_stale_temp_user() -> None:
+    """Remove a temp user left behind by a crashed run.
+
+    ``stop`` removes the temp user, but SIGKILL/power loss never ran
+    stop — on the next start the account would linger indefinitely.
+    Removal is guarded: if the account still OWNS processes, an
+    active (orphaned) session may be using it and deleting the user
+    under live processes orphans their files/IPC — warn instead.
+    """
+    if is_windows():
+        return
+    if os.environ.get('KEEP_TEMP_USER', 'false').lower() in (
+            'true', '1', 'yes'):
+        return
+    temp_user = os.environ.get('TEMP_USER', 'remote')
+    if not temp_user:
+        return
+    try:
+        import pwd
+        pwd.getpwnam(temp_user)  # type: ignore[attr-defined]
+    except KeyError:
+        return  # not present — nothing stale
+    except ImportError:
+        return
+    try:
+        r = subprocess.run(
+            ['pgrep', '-u', temp_user],
+            capture_output=True, timeout=10, check=False)
+        if r.returncode == 0 and r.stdout.strip():
+            logger.warning(
+                "Temp user %s still owns processes (orphaned session?) "
+                "— left in place; clean it up manually or via stop",
+                temp_user)
+            return
+    except Exception:  # noqa: BLE001 - can't prove it's safe
+        logger.debug(
+            "Could not enumerate %s processes — skipping temp-user "
+            "sweep", temp_user)
+        return
+    try:
+        from vnc_remote_secure.platform.base import get_adapter
+        if get_adapter().remove_runtime_user(temp_user):
+            logger.info(
+                "Swept stale temp user %s left by a crashed run",
+                temp_user)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Stale temp-user sweep failed for %s: %s",
+                     temp_user, e)
 
 
 def _cleanup_temp_user() -> None:

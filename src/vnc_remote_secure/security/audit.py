@@ -124,19 +124,98 @@ def _compute_hash(prev_hash: str, entry: dict) -> str:
 # lines leaves a perfectly valid (shorter) chain. The stored tip is
 # the cross-restart witness for that.
 _TIP_NS = 'audit_chain'
+_audit_write_alerted_at = 0.0
+
+
+def _alert_audit_write_failure() -> None:
+    """Escalate a persisted-audit failure (throttled to 1/min).
+
+    A write failure used to be a log line only — the audited action
+    proceeded silently unaudited. Operators must see this: either fix
+    the sink or set ``AUDIT_STRICT=true`` to abort instead.
+    """
+    global _audit_write_alerted_at
+    now = time.time()
+    if now - _audit_write_alerted_at < 60:
+        return
+    _audit_write_alerted_at = now
+    try:
+        from vnc_remote_secure.monitoring.alerts import notify
+        notify('Audit log write failure',
+               'The audit log (or its mirror) could not be written — '
+               'security events are not being persisted. Check disk '
+               'space and permissions, or set AUDIT_STRICT=true to '
+               'fail actions instead.',
+               severity='critical')
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_audit_write_errors_total')
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _tip_sidecar_path() -> str:
+    """Path of the HMAC-signed tip sidecar next to the audit log."""
+    return _audit_log_file() + '.tip'
+
+
+def _tip_signature(chain_hash: str) -> str:
+    """HMAC the tip with the signing secret.
+
+    The shared-state tip witness can be defeated by an attacker who
+    rewrites BOTH the log and shared_state.db. The sidecar's signature
+    requires AUTH_SECRET — without it a forged tip cannot validate,
+    so truncation stays detectable even with write access to state.
+    """
+    import hmac
+
+    from vnc_remote_secure.security.token_signing import _get_secret as _auth_secret
+    return hmac.new(
+        _auth_secret(), f'audit-tip:{chain_hash}'.encode('utf-8'),
+        hashlib.sha256).hexdigest()
 
 
 def _record_tip(chain_hash: str) -> None:
-    """Persist the chain tip to shared state (best-effort)."""
+    """Persist the chain tip (shared state + signed sidecar)."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         get_backend().set_ttl(_TIP_NS, 'tip', chain_hash, 86400 * 365)
     except Exception:  # noqa: BLE001 - checkpoint must not break logging
         pass
+    try:
+        side = Path(_tip_sidecar_path())
+        side.write_text(f'{chain_hash} {_tip_signature(chain_hash)}')
+        _set_secure_perms(side)
+    except Exception:  # noqa: BLE001 - best-effort; shared state remains
+        pass
 
 
 def _stored_tip() -> str | None:
-    """Return the last recorded chain tip, or None."""
+    """Return the last recorded chain tip, or None.
+
+    The signed sidecar takes precedence: it cannot be forged without
+    AUTH_SECRET. An invalid signature is itself tamper evidence — a
+    sentinel that cannot equal any real hash is returned so the
+    startup comparison flags the anomaly instead of trusting it.
+    """
+    try:
+        side = Path(_tip_sidecar_path())
+        if side.exists():
+            parts = side.read_text(
+                encoding='utf-8').strip().split()
+            if len(parts) == 2:
+                tip, sig = parts
+                import hmac as _hmac
+                if _hmac.compare_digest(sig, _tip_signature(tip)):
+                    return tip
+                logger.warning(
+                    "Audit tip sidecar signature mismatch — possible "
+                    "tampering; treating as corrupted witness")
+                return 'INVALID-TIP-SIDECAR'
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         return get_backend().get(_TIP_NS, 'tip')
@@ -392,6 +471,15 @@ def audit_log(
             _record_tip(_chain_hash)
         except Exception:
             logger.exception("Failed to write audit log:")
+            _alert_audit_write_failure()
+            if os.environ.get('AUDIT_STRICT', '').lower() in (
+                    '1', 'true', 'yes'):
+                # Fail-closed mode: the audited action aborts when its
+                # record cannot persist — for deployments where an
+                # unaudited action is worse than a failed one. Callers
+                # that wrap audit_log in try/except still swallow;
+                # audit-integrity callers must not.
+                raise
 
         # Optional mirror sink: append the same line to a second,
         # independently-controlled path (a mounted network share or
@@ -410,6 +498,7 @@ def audit_log(
                     mf.write(line)
             except Exception:
                 logger.exception("Failed to write audit mirror:")
+                _alert_audit_write_failure()
 
     # Also log at INFO level for console visibility.
     logger.info(

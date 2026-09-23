@@ -84,13 +84,43 @@ def _claim_recovery_code(code_hash: str) -> bool:
         return False
 
 
+def _lan_service_ports() -> set:
+    """Ports the LAN-facing services actually listen on.
+
+    The ``ALLOWED_LAN_IPS`` origin exception is bounded to these —
+    otherwise a rogue page served from ANY port on an allowed host
+    (e.g. ``http://<lan-ip>:9999``) would pass Origin validation and
+    could ride the browser's cookies into a WebSocket upgrade.
+    """
+    from vnc_remote_secure.core.constants import (
+        DEFAULT_HEALTH_PORT,
+        DEFAULT_LANDING_PORT,
+        DEFAULT_NGINX_HTTPS_PORT,
+        DEFAULT_NOVNC_PORT,
+        DEFAULT_TTYD_PORT,
+        DEFAULT_USER_UI_PORT,
+    )
+    ports = {
+        os.environ.get('LANDING_PORT', str(DEFAULT_LANDING_PORT)),
+        os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)),
+        os.environ.get('TTYD_PORT', str(DEFAULT_TTYD_PORT)),
+        os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT)),
+        os.environ.get('USER_UI_PORT', str(DEFAULT_USER_UI_PORT)),
+        os.environ.get('NGINX_HTTPS_PORT', str(DEFAULT_NGINX_HTTPS_PORT)),
+        os.environ.get('NGINX_PORT', ''),
+        os.environ.get('NGINX_HTTP_PORT', ''),
+    }
+    return {p for p in ports if p}
+
+
 def check_origin(origin: str, allowed_origins: list) -> bool:
     """Validate the Origin header for WebSocket/CSRF protection.
 
     Rejects empty/null origins and any origin not in the allowlist.
     Origins whose host is listed in ``ALLOWED_LAN_IPS`` are accepted
-    regardless of scheme/port — previously only the terminal applied
-    this exception, so LAN clients got 403 on noVNC/audio/gamepad.
+    only for http/https on the ports the LAN-facing services actually
+    bind — previously the exception ignored scheme/port entirely, so
+    a hostile page on ANY port of an allowed host passed validation.
     """
     if not origin or origin == 'null':
         return False
@@ -98,11 +128,28 @@ def check_origin(origin: str, allowed_origins: list) -> bool:
         return True
     try:
         from urllib.parse import urlparse
-        host = urlparse(origin).hostname or ''
+        parsed = urlparse(origin)
+        host = parsed.hostname or ''
+        if parsed.scheme not in ('http', 'https'):
+            return False
         lan_ips = [ip.strip() for ip in
                    os.environ.get('ALLOWED_LAN_IPS', '').split(',')
                    if ip.strip()]
-        return bool(host and host in lan_ips)
+        if not (host and host in lan_ips):
+            return False
+        # Loopback entries keep the permissive any-port behaviour: a
+        # process that can serve a hostile page on THIS host can read
+        # .env directly — the port check buys nothing there, but local
+        # tooling (dev servers on random ports) keeps working.
+        if host in ('127.0.0.1', 'localhost', '::1'):
+            return True
+        try:
+            port = parsed.port
+        except ValueError:
+            return False
+        if port is None:
+            return True  # scheme-default (443/80) — the nginx entry
+        return str(port) in _lan_service_ports()
     except Exception:
         return False
 

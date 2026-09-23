@@ -16,6 +16,7 @@ signing mechanism while remaining type-separated.
 """
 import contextlib
 import logging
+import os
 import secrets
 import threading
 import time
@@ -65,7 +66,6 @@ def _get_instance_id() -> str:
     global _INSTANCE_ID
     if _INSTANCE_ID is not None:
         return _INSTANCE_ID
-    import os
     try:
         from vnc_remote_secure.core.paths import get_run_dir
         path = os.path.join(get_run_dir(), 'instance.id')
@@ -398,7 +398,6 @@ class SessionStore:
 
     def _persist_path(self) -> str:
         """Return the path to the persistence file."""
-        import os
 
         from vnc_remote_secure.core.paths import get_run_dir
         return os.path.join(get_run_dir(), 'ephemeral_sessions.json')
@@ -406,7 +405,6 @@ class SessionStore:
     def _load(self):
         """Load sessions from disk into memory."""
         import json
-        import os
         path = self._persist_path()
         if not os.path.exists(path):
             self._last_mtime = 0.0
@@ -437,7 +435,6 @@ class SessionStore:
         process revocation silently failed for already-cached tokens.
         An mtime compare keeps the per-request cost near zero.
         """
-        import os
         try:
             mtime = os.path.getmtime(self._persist_path())
         except OSError:
@@ -459,7 +456,6 @@ class SessionStore:
         never persisted hands the operator a dead share link.
         """
         import json
-        import os
         path = self._persist_path()
         try:
             # Pull terminal flags (revoked, used, use_count) from the
@@ -555,7 +551,21 @@ class SessionStore:
 
         Returns:
             Tuple of (EphemeralSession, signed_token_string).
+
+        Raises:
+            ValueError: when ``EPHEMERAL_REQUIRE_RESOURCE=true`` and no
+                resource binding was given — an unbound token reaches
+                every resource its permissions allow, so hardened
+                deployments can require the binding.
         """
+        if (not resource
+                and os.environ.get(
+                    'EPHEMERAL_REQUIRE_RESOURCE', '').lower()
+                in ('1', 'true', 'yes')):
+            raise ValueError(
+                'resource binding required: '
+                'EPHEMERAL_REQUIRE_RESOURCE=true is set — pass '
+                '--resource (desktop|terminal|audio|gamepad)')
         token = secrets.token_urlsafe(32)
         session = EphemeralSession(
             token=token,
@@ -917,6 +927,12 @@ def _is_revoked_shared(token: str) -> bool:
                         'op=revocation_check')
         except Exception:  # noqa: BLE001
             pass
+        if os.environ.get('SHARED_STATE_STRICT', '').lower() in (
+                '1', 'true', 'yes'):
+            # Strict mode: a revocation check that cannot consult the
+            # shared backend denies the session — a possibly-revoked
+            # token must not keep access while enforcement is down.
+            return True
         return False
 
 

@@ -45,11 +45,13 @@ class TestRateLimiter:
         assert rl.remaining_attempts('user2') == 2
 
     def test_lockout_expires(self):
+        # Unique key: lockout-escalation strikes persist in the shared
+        # backend and would leak from earlier tests using 'user1'.
         rl = RateLimiter(max_attempts=1, lockout_seconds=1, window_seconds=10)
-        rl.record_failure('user1')
-        assert rl.is_locked('user1')
+        rl.record_failure('expiry-user')
+        assert rl.is_locked('expiry-user')
         time.sleep(1.1)
-        assert not rl.is_locked('user1')
+        assert not rl.is_locked('expiry-user')
 
     def test_window_pruning(self):
         rl = RateLimiter(max_attempts=2, lockout_seconds=60, window_seconds=1)
@@ -57,6 +59,47 @@ class TestRateLimiter:
         time.sleep(1.1)
         # Old attempt should be pruned
         assert rl.remaining_attempts('user1') == 2
+
+
+class TestLockoutEscalation:
+    """Progressive lockout: a persistent brute-force sweep must cost
+    exponentially more than a one-off typo."""
+
+    def test_second_lockout_doubles(self):
+        rl = RateLimiter(max_attempts=1, lockout_seconds=1,
+                         window_seconds=60)
+        rl.record_failure('u')
+        first = rl.get_lockout_remaining('u')
+        time.sleep(1.1)
+        rl.is_locked('u')  # expire + clean
+        rl.record_failure('u')
+        second = rl.get_lockout_remaining('u')
+        assert second > first
+
+    def test_escalation_capped_at_max(self):
+        rl = RateLimiter(max_attempts=1, lockout_seconds=60,
+                         window_seconds=60)
+        rl.lockout_max_seconds = 120
+        dur = 0
+        for _ in range(6):
+            dur = rl._next_lockout('u')
+        # 60*2^5 = 1920 → capped at 120
+        assert dur == 120
+
+    def test_escalation_disabled(self, monkeypatch):
+        monkeypatch.setenv('AUTH_LOCKOUT_ESCALATION', 'false')
+        rl = RateLimiter(max_attempts=1, lockout_seconds=60,
+                         window_seconds=60)
+        assert rl._next_lockout('u') == 60
+        assert rl._next_lockout('u') == 60
+
+    def test_success_resets_strikes(self):
+        rl = RateLimiter(max_attempts=1, lockout_seconds=60,
+                         window_seconds=60)
+        rl._next_lockout('u')
+        rl._next_lockout('u')
+        rl.record_success('u')
+        assert rl._next_lockout('u') == rl.lockout_seconds
 
 
 class TestCheckRateLimitEdges:

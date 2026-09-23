@@ -262,6 +262,43 @@ class TestRfbInputFilter:
         assert frame[1] & 0x80
         assert decode_ws_payload(frame) == payload
 
+    def test_cut_text_control_bytes_stripped(self):
+        """Terminal-escape bytes in a cut text must not reach the
+        remote clipboard — they can execute on paste (paste-jacking).
+        The length field must be rewritten to the sanitized size or
+        the stream desynchronises."""
+        f = RfbInputFilter(allow_clipboard=True)
+        drive_handshake(f)
+        evil = b'ls\x1b]8;;http://x\x07rm -rf\x1b[31m'
+        out = f.client_to_server(ws_client_frame(cut_text(evil)))
+        assert out is not None
+        forwarded = decode_all_payloads(out)
+        assert forwarded.startswith(b'\x06')
+        mlen = int.from_bytes(forwarded[4:8], 'big')
+        payload = forwarded[8:8 + mlen]
+        assert b'\x1b' not in payload
+        assert b'\x07' not in payload
+        # Whole sanitized message — stream stays in sync.
+        assert len(forwarded) == 8 + mlen
+
+    def test_cut_text_newlines_and_tab_kept(self):
+        """Legitimate whitespace (LF/CR/TAB) is clipboard content,
+        not control flow — it survives sanitization."""
+        f = RfbInputFilter(allow_clipboard=True)
+        drive_handshake(f)
+        text = b'line1\nline2\ttabbed\rend'
+        out = f.client_to_server(ws_client_frame(cut_text(text)))
+        assert decode_all_payloads(out) == cut_text(text)
+
+    def test_cut_text_all_controls_dropped(self):
+        """A payload that is nothing but control bytes produces an
+        empty cut text — dropped entirely."""
+        f = RfbInputFilter(allow_clipboard=True)
+        drive_handshake(f)
+        out = f.client_to_server(
+            ws_client_frame(cut_text(b'\x1b\x07\x00')))
+        assert out == b''
+
 
 class TestGranularPermissions:
     """keyboard/pointer/clipboard_write can be granted independently —

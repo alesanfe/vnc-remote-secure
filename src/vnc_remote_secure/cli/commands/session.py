@@ -135,18 +135,23 @@ def _session_create(store, args):
                   "permission")
             return 1
 
-    _session, signed_token = store.create(
-        expires_in=expires_in,
-        role=role,
-        single_use=args.single_use,
-        view_only=args.view_only,
-        no_terminal=args.no_terminal,
-        allowed_ip=args.allowed_ip,
-        created_by=os.environ.get('USERNAME') or os.environ.get('USER', 'admin'),
-        resource=args.resource,
-        max_uses=args.max_uses,
-        permissions=permissions,
-    )
+    try:
+        _session, signed_token = store.create(
+            expires_in=expires_in,
+            role=role,
+            single_use=args.single_use,
+            view_only=args.view_only,
+            no_terminal=args.no_terminal,
+            allowed_ip=args.allowed_ip,
+            created_by=os.environ.get('USERNAME') or os.environ.get('USER', 'admin'),
+            resource=args.resource,
+            max_uses=args.max_uses,
+            permissions=permissions,
+        )
+    except ValueError as e:
+        # e.g. EPHEMERAL_REQUIRE_RESOURCE rejects unbound tokens.
+        print(f"Error: {e}")
+        return 1
 
     base_url = _share_base_url()
 

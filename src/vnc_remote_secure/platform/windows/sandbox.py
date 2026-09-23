@@ -440,7 +440,25 @@ def spawn_sandboxed(args, cwd=None, env=None):
 
 
 def sandbox_mode():
-    """Return the configured Windows terminal sandbox mode."""
+    """Return the configured Windows terminal sandbox mode.
+
+    ``auto`` falls back to an unsandboxed spawn when AppContainer
+    setup fails — acceptable on development hosts, but under a
+    hardened security profile (``public-hardened``/``private-overlay``)
+    an unsandboxed terminal child can read the service account's
+    secrets, so ``auto`` is promoted to ``strict`` there. An explicit
+    ``off`` is honoured regardless — the operator said so.
+    """
     mode = os.environ.get(
         'TERMINAL_WINDOWS_SANDBOX', 'auto').strip().lower()
-    return mode if mode in ('auto', 'strict', 'off') else 'auto'
+    if mode not in ('auto', 'strict', 'off'):
+        mode = 'auto'
+    if mode == 'auto':
+        try:
+            from vnc_remote_secure.security.profiles import resolve_profile
+            if resolve_profile() in ('public-hardened',
+                                     'private-overlay'):
+                return 'strict'
+        except Exception:  # noqa: BLE001 - profiles module optional
+            pass
+    return mode

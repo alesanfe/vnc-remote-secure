@@ -314,6 +314,94 @@ class TestExpirySweep:
         assert w._sweep_revoked_session('tok') is False
 
 
+class TestOperatorSessionSweep:
+    """An operator ``vnc_session`` whose absolute lifetime or epoch
+    has passed must lose its live sockets — a dead cookie must not
+    keep a privileged stream open."""
+
+    def _patch_dead(self, w, monkeypatch):
+        monkeypatch.setattr(w, 'is_revoked_shared', lambda t: False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'get_session_store',
+            lambda: type('S', (), {'get': lambda s, t: None})())
+        closed = []
+        monkeypatch.setattr(
+            w, 'get_registry',
+            lambda: type('R', (), {
+                'revoke_session': staticmethod(closed.append)})())
+        return closed
+
+    def _operator_cookie(self, created, expires, last_seen=None):
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, sign_token
+        ls = last_seen if last_seen is not None else created
+        return sign_token(
+            TOKEN_TYPE_SESSION,
+            f'admin:{created}:{ls}:{expires}')
+
+    def test_absolute_expiry_swept(self, monkeypatch):
+        import time
+
+        from vnc_remote_secure.security import websocket_registry as w
+        closed = self._patch_dead(w, monkeypatch)
+        cookie = self._operator_cookie(
+            int(time.time()) - 90000, int(time.time()) - 10)
+        assert w._sweep_revoked_session(cookie) is True
+        assert closed == [cookie]
+
+    def test_epoch_bump_swept(self, monkeypatch):
+        """A credential rotation (operator_session_epoch bump) must
+        force-close live sockets — the session is revoked en masse."""
+        import time
+
+        from vnc_remote_secure.security import websocket_registry as w
+        closed = self._patch_dead(w, monkeypatch)
+        cookie = self._operator_cookie(
+            int(time.time()) - 3600, int(time.time()) + 3600)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.sessions.'
+            'operator_session_epoch',
+            lambda: time.time())
+        assert w._sweep_revoked_session(cookie) is True
+        assert closed == [cookie]
+
+    def test_live_operator_session_kept(self, monkeypatch):
+        import time
+
+        from vnc_remote_secure.security import websocket_registry as w
+        self._patch_dead(w, monkeypatch)
+        cookie = self._operator_cookie(
+            int(time.time()) - 100, int(time.time()) + 3600)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.sessions.'
+            'operator_session_epoch',
+            lambda: 0.0)
+        assert w._sweep_revoked_session(cookie) is False
+
+    def test_idle_sliding_not_enforced_midstream(self, monkeypatch):
+        """HTTP last_seen staleness alone must NOT kill a live
+        desktop — only the absolute cap + epoch apply mid-stream."""
+        import time
+
+        from vnc_remote_secure.security import websocket_registry as w
+        self._patch_dead(w, monkeypatch)
+        cookie = self._operator_cookie(
+            int(time.time()) - 50000, int(time.time()) + 3600,
+            last_seen=int(time.time()) - 49000)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.sessions.'
+            'operator_session_epoch',
+            lambda: 0.0)
+        assert w._sweep_revoked_session(cookie) is False
+
+    def test_non_session_token_ignored(self, monkeypatch):
+        """Ephemeral/internal tokens never hit the operator path."""
+        from vnc_remote_secure.security import websocket_registry as w
+        self._patch_dead(w, monkeypatch)
+        assert w._operator_session_dead('ephemeral:abc.sig') is None
+        assert w._operator_session_dead('tok') is None
+
+
 def test_connection_cap_refuses(monkeypatch):
     """Past WS_MAX_CONNECTIONS, registrations are refused — a
     connection flood must not exhaust fds/threads."""

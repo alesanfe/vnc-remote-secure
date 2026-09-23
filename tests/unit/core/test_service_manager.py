@@ -100,7 +100,7 @@ def test_status_all_reports_live_pid(tmp_path, monkeypatch):
     """status_all reports a live PID as running."""
     monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))
     # The pytest process is not a vnc_remote_secure service, and it does
-    # not listen on the VNC port — stub identity and port probes so the
+    # not listen on the VNC port â€” stub identity and port probes so the
     # test exercises only PID liveness.
     monkeypatch.setattr(sm, '_pid_is_ours', lambda *a, **k: True)
     monkeypatch.setattr(sm, '_port_accepting', lambda *a, **k: True)
@@ -177,7 +177,7 @@ def test_enabled_services_respects_feature_flags():
     assert 'user_ui' in services
     assert 'audio' in services
     assert 'gamepad' in services
-    # nginx is Linux-only — on Windows the landing portal is the public
+    # nginx is Linux-only â€” on Windows the landing portal is the public
     # entry point and nginx is never supervised by the service manager.
     if is_windows():
         assert 'nginx' not in services
@@ -244,7 +244,7 @@ def test_save_and_restore_state_roundtrip(tmp_path, monkeypatch):
     """save_state captures PIDs and restore_state recovers live ones."""
     monkeypatch.setattr(sm, '_pid_dir', lambda: str(tmp_path))
     # restore_state verifies the PID belongs to this deployment before
-    # adopting it — stub identity so the pytest process qualifies.
+    # adopting it â€” stub identity so the pytest process qualifies.
     monkeypatch.setattr(sm, '_pid_is_ours', lambda *a, **k: True)
     sm._write_pid('vnc', os.getpid())
     state = sm.save_state()
@@ -332,7 +332,7 @@ class TestPidIdentityGuards:
         assert killed  # SIGTERM sent
 
     def test_pid_alive_windows_exact_match(self, monkeypatch):
-        """tasklist CSV match must be exact — pid 12 must not match
+        """tasklist CSV match must be exact â€” pid 12 must not match
         a row for pid 12345."""
         from vnc_remote_secure.core import service_manager as sm
         monkeypatch.setattr(sm, 'is_windows', lambda: True)
@@ -353,7 +353,7 @@ class TestPidIdentityGuards:
 
 class TestAuditInternalListeners:
     """A service that bound publicly when it must be loopback-only
-    is a perimeter breach — the post-start audit must catch it."""
+    is a perimeter breach â€” the post-start audit must catch it."""
 
     def _cfg(self, **kw):
         cfg = {'vnc_port': 5901, 'novnc_ws_port': 5700,
@@ -393,7 +393,7 @@ class TestAuditInternalListeners:
         assert sm.audit_internal_listeners(self._cfg()) == []
 
     def test_backend_public_only_with_nginx(self, monkeypatch):
-        """Without nginx the backends ARE the public entry points —
+        """Without nginx the backends ARE the public entry points â€”
         flagging them would be a false positive."""
         sm = self._with_listeners(
             monkeypatch,
@@ -408,3 +408,73 @@ class TestAuditInternalListeners:
     def test_enumeration_failure_no_findings(self, monkeypatch):
         sm = self._with_listeners(monkeypatch, None)
         assert sm.audit_internal_listeners(self._cfg()) == []
+
+
+class TestStaleTempUserSweep:
+    """A crashed run never ran stop â€” the temp user must be swept at
+    the next start, but ONLY when it owns no processes (a live
+    orphaned session may still need the account)."""
+
+    def _linux(self, monkeypatch, user_exists=True, procs=b''):
+        import sys
+        import types
+
+        from vnc_remote_secure.core import service_manager as sm
+        monkeypatch.setattr(sm, 'is_windows', lambda: False)
+        monkeypatch.delenv('KEEP_TEMP_USER', raising=False)
+        monkeypatch.setenv('TEMP_USER', 'remote')
+        pwd = types.ModuleType('pwd')
+        if user_exists:
+            pwd.getpwnam = lambda u: object()
+        else:
+            def _missing(u):
+                raise KeyError(u)
+            pwd.getpwnam = _missing
+        monkeypatch.setitem(sys.modules, 'pwd', pwd)
+
+        class R:
+            returncode = 0 if procs else 1
+            stdout = procs
+        monkeypatch.setattr(
+            sm.subprocess, 'run', lambda *a, **k: R())
+        removed = []
+        monkeypatch.setattr(
+            'vnc_remote_secure.platform.base.get_adapter',
+            lambda: type('A', (), {
+                'remove_runtime_user': staticmethod(
+                    lambda u: removed.append(u) or True)})(),
+            raising=False)
+        return sm, removed
+
+    def test_stale_user_removed(self, monkeypatch):
+        sm, removed = self._linux(monkeypatch, procs=b'')
+        sm._sweep_stale_temp_user()
+        assert removed == ['remote']
+
+    def test_user_with_processes_kept(self, monkeypatch):
+        """pgrep -u returns PIDs â†’ the account is in use â€” deleting
+        it would orphan live processes."""
+        sm, removed = self._linux(monkeypatch, procs=b'1234\n')
+        sm._sweep_stale_temp_user()
+        assert removed == []
+
+    def test_absent_user_noop(self, monkeypatch):
+        sm, removed = self._linux(monkeypatch, user_exists=False)
+        sm._sweep_stale_temp_user()
+        assert removed == []
+
+    def test_keep_temp_user_noop(self, monkeypatch):
+        sm, removed = self._linux(monkeypatch)
+        monkeypatch.setenv('KEEP_TEMP_USER', 'true')
+        sm._sweep_stale_temp_user()
+        assert removed == []
+
+    def test_non_linux_noop(self, monkeypatch):
+        from vnc_remote_secure.core import service_manager as sm
+        monkeypatch.setattr(sm, 'is_windows', lambda: True)
+        calls = []
+        monkeypatch.setattr(
+            sm.subprocess, 'run',
+            lambda *a, **k: calls.append(1))
+        sm._sweep_stale_temp_user()
+        assert calls == []

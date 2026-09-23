@@ -74,6 +74,23 @@ def _max_clipboard() -> int:
         return 1024 * 1024
 
 
+def _sanitize_cut_text(raw: bytes) -> bytes:
+    """Strip control bytes from a ``ClientCutText`` RFB message.
+
+    RFB cut text is Latin-1. C0 controls (except TAB/LF/CR), DEL and
+    the C1 range can carry escape sequences that execute when the
+    shared clipboard is pasted into a terminal on the remote side
+    (paste-jacking). The message is rebuilt with the sanitized payload
+    and a corrected length field; an all-control payload becomes an
+    empty cut text, which the caller drops.
+    """
+    payload = bytes(
+        b for b in raw[8:]
+        if (b >= 0x20 and not 0x7F <= b <= 0x9F)
+        or b in (0x09, 0x0A, 0x0D))
+    return raw[:4] + len(payload).to_bytes(4, 'big') + payload
+
+
 def _ws_frame(payload: bytes) -> bytes:
     """Encode ``payload`` as a single masked binary WebSocket frame.
 
@@ -402,6 +419,9 @@ class RfbInputFilter:
                         "RFB filter: ClientCutText %d bytes exceeds "
                         "cap %d — dropped", mlen, _max_clipboard())
                     continue
+                raw = _sanitize_cut_text(raw)
+                if len(raw) <= 8:
+                    continue  # payload was all control bytes — drop
             out += _ws_frame(raw)
         return bytes(out)
 

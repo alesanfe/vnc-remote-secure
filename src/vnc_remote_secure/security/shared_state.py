@@ -422,6 +422,16 @@ class SQLiteBackend(StateBackend):
 # ---------------------------------------------------------------------------
 
 _backend: StateBackend | None = None
+# True when the configured sqlite backend failed and the process is
+# running on the degraded in-memory fallback — callers can enforce
+# fail-closed semantics on security-critical reads.
+_backend_fallback = False
+
+
+def backend_degraded() -> bool:
+    """True when shared state is running on the in-memory fallback
+    after a sqlite init failure (cross-process guarantees degraded)."""
+    return _backend_fallback
 
 
 def sqlite_stats() -> dict:
@@ -447,7 +457,7 @@ def get_backend() -> StateBackend:
     - ``sqlite``: SQLite file at ``SHARED_STATE_DB_PATH`` (defaults to
       ``<run_dir>/shared_state.db``).
     """
-    global _backend
+    global _backend, _backend_fallback
     if _backend is not None:
         return _backend
     choice = os.environ.get(
@@ -467,7 +477,24 @@ def get_backend() -> StateBackend:
                 "to in-memory state — cross-process single-use and "
                 "revocation guarantees are degraded until this is fixed",
                 exc)
+            try:
+                from vnc_remote_secure.monitoring.prometheus import inc_counter
+                inc_counter('vnc_remote_shared_state_errors_total',
+                            'op=backend_init_fallback')
+            except Exception:  # noqa: BLE001
+                pass
+            if os.environ.get('SHARED_STATE_STRICT', '').lower() in (
+                    '1', 'true', 'yes'):
+                # Fail-closed mode: a degraded backend weakens
+                # single-use/revocation/rate-limit guarantees to
+                # per-process scope — under strict policy that is a
+                # startup failure, not a degradation.
+                raise RuntimeError(
+                    'SHARED_STATE_STRICT: sqlite backend failed to '
+                    'initialise — refusing to run with degraded '
+                    'in-memory shared state') from exc
             _backend = MemoryBackend()
+            _backend_fallback = True
     else:
         _backend = MemoryBackend()
         logger.debug("Shared state backend: memory")
@@ -476,7 +503,8 @@ def get_backend() -> StateBackend:
 
 def reset_backend():
     """Reset the global backend (for testing)."""
-    global _backend
+    global _backend, _backend_fallback
     if _backend is not None:
         _backend.close()
     _backend = None
+    _backend_fallback = False

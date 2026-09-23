@@ -94,6 +94,29 @@ class TestResourceBinding:
         )
         assert check_permission(signed, PERM_VIEW, resource='desktop')
 
+    def test_require_resource_rejects_unbound(
+            self, fresh_store, monkeypatch):
+        """EPHEMERAL_REQUIRE_RESOURCE=true turns the opt-in binding
+        into a hard requirement — an unbound token reaches every
+        resource its permissions allow."""
+        import pytest as _pytest
+        monkeypatch.setenv('EPHEMERAL_REQUIRE_RESOURCE', 'true')
+        with _pytest.raises(ValueError, match='resource'):
+            fresh_store.create(role='viewer', expires_in=300)
+
+    def test_require_resource_allows_bound(
+            self, fresh_store, monkeypatch):
+        monkeypatch.setenv('EPHEMERAL_REQUIRE_RESOURCE', 'true')
+        session, _signed = fresh_store.create(
+            role='viewer', expires_in=300, resource='desktop')
+        assert session.resource == 'desktop'
+
+    def test_require_resource_off_by_default(self, fresh_store):
+        """Default remains opt-in — unbound tokens still allowed."""
+        session, _signed = fresh_store.create(
+            role='viewer', expires_in=300)
+        assert session.resource is None
+
 
 # ---------------------------------------------------------------------------
 # TEST-SEC-006: Origin validation

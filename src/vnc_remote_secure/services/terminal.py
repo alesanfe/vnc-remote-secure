@@ -164,9 +164,11 @@ class MainHandler(tornado.web.RequestHandler):
         auth = self.request.headers.get('Authorization', '')
         if not (self._ephemeral_authorized()
                 or self._session_authorized()
-                or check_terminal_auth(
-                    auth, client_ip=client_ip_from(
-                        self.request.headers, self.request.remote_ip))):
+                or (_basic_auth_enabled()
+                    and check_terminal_auth(
+                        auth, client_ip=client_ip_from(
+                            self.request.headers,
+                            self.request.remote_ip)))):
             from vnc_remote_secure.core.errors import error_json
             body, status = error_json('Unauthorized', 401)
             self.set_status(status)
@@ -176,6 +178,18 @@ class MainHandler(tornado.web.RequestHandler):
             return
         self.set_header('Content-Type', 'text/html')
         self.write(_html_page())
+
+
+def _basic_auth_enabled() -> bool:
+    """Whether the legacy TTYD_* Basic credential surface is enabled.
+
+    ``TERMINAL_BASIC_AUTH=false`` removes it: Basic is the broadest
+    credential type the terminal accepts (a reusable shared password
+    with no expiry/revocation), so hardened deployments can force
+    token-only auth (ephemeral cookie, bearer, operator session).
+    """
+    return os.environ.get('TERMINAL_BASIC_AUTH', 'true').lower() not in (
+        '0', 'false', 'no')
 
 
 def _is_origin_allowed(origin):
@@ -690,6 +704,12 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 elif part.startswith('vnc_ephemeral='):
                     eph = part.split('=', 1)[1].strip()
         if not (eph or bearer or cookie_value):
+            if not _basic_auth_enabled():
+                # TERMINAL_BASIC_AUTH=false: the legacy TTYD_*
+                # credential surface is disabled — only token
+                # credentials (ephemeral/bearer/session) authenticate.
+                self.close(code=1008, reason='Basic auth disabled')
+                return False
             if not check_terminal_auth(
                     auth, client_ip=client_ip_from(
                         self.request.headers, self.request.remote_ip)):
@@ -773,7 +793,6 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         # server — close it rather than leave it authenticated forever.
         # Activity = client input AND server output (a user watching a
         # long-running tail stays connected). 0 disables.
-        import tornado.ioloop
         try:
             self._idle_timeout = int(
                 os.environ.get('TERMINAL_IDLE_TIMEOUT', '900'))
@@ -806,14 +825,12 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
 
     def _touch_activity(self):
         try:
-            import tornado.ioloop
             self._last_activity = tornado.ioloop.IOLoop.current().time()
         except Exception:  # noqa: BLE001
             pass
 
     def _check_idle(self):
         """Close the socket when no input/output for idle_timeout s."""
-        import tornado.ioloop
         if (tornado.ioloop.IOLoop.current().time()
                 - getattr(self, '_last_activity', 0)
                 > self._idle_timeout):

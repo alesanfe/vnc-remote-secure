@@ -604,3 +604,42 @@ class TestChildRlimits:
         out = r.stdout.strip()
         assert '(128, 128)' in out
         assert f'({1 << 30}, {1 << 30})' in out
+
+
+class TestBasicAuthGate:
+    """TERMINAL_BASIC_AUTH=false removes the legacy TTYD_* Basic
+    credential surface — only token credentials authenticate."""
+
+    def test_default_enabled(self, monkeypatch):
+        monkeypatch.delenv('TERMINAL_BASIC_AUTH', raising=False)
+        from vnc_remote_secure.services.terminal import _basic_auth_enabled
+        assert _basic_auth_enabled() is True
+
+    def test_disabled(self, monkeypatch):
+        monkeypatch.setenv('TERMINAL_BASIC_AUTH', 'false')
+        from vnc_remote_secure.services.terminal import _basic_auth_enabled
+        assert _basic_auth_enabled() is False
+
+    def test_ws_basic_path_closed_when_disabled(self, monkeypatch):
+        """With Basic disabled, an upgrade carrying only a Basic
+        header is refused before the credential is even checked —
+        check_terminal_auth must NOT be consulted."""
+        from unittest.mock import MagicMock
+
+        from vnc_remote_secure.services import terminal as term
+        monkeypatch.setenv('TERMINAL_BASIC_AUTH', 'false')
+        ws = object.__new__(term.TerminalWebSocket)
+        ws.request = MagicMock()
+        ws.request.headers.get = lambda h, d='': (
+            'Basic dTpw' if h == 'Authorization' else d)
+        closed = []
+        ws.close = lambda code=None, reason='': closed.append(
+            (code, reason))
+        consulted = []
+        monkeypatch.setattr(
+            term, 'check_terminal_auth',
+            lambda *a, **k: consulted.append(1) or True)
+        assert ws._authenticate() is False
+        assert closed and closed[0][0] == 1008
+        assert 'Basic auth disabled' in closed[0][1]
+        assert consulted == []

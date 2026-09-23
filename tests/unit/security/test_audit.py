@@ -297,3 +297,179 @@ class TestChainTipWitness:
         assert anchor.get('prev_tip') == tail['hash']
         ok, _msg = audit.verify_chain()
         assert ok
+
+
+class TestAuditWriteFailurePolicy:
+    """A persisted-audit failure must be visible (alert+metric) and
+    optionally fail-closed (AUDIT_STRICT)."""
+
+    def _break_open(self, monkeypatch):
+        import builtins
+        real_open = builtins.open
+
+        def _fail(path, *a, **kw):
+            if 'audit' in str(path):
+                raise OSError(28, 'No space left on device')
+            return real_open(path, *a, **kw)
+        monkeypatch.setattr(builtins, 'open', _fail)
+        return real_open
+
+    def test_write_failure_alerts(
+            self, tmp_path, monkeypatch, caplog):
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        audit._startup_verified = True
+        audit._chain_hash = audit._ANCHOR_HASH
+        audit._audit_write_alerted_at = 0.0
+        alerts_sent = []
+        import builtins
+        real_open = builtins.open
+
+        def _fail(path, *a, **kw):
+            if str(f) in str(path) and any(
+                    c in (a[0] if a else kw.get('mode', 'r'))
+                    for c in 'wax+'):
+                raise OSError(28, 'No space left on device')
+            return real_open(path, *a, **kw)
+        monkeypatch.setattr(builtins, 'open', _fail)
+        monkeypatch.setattr(
+            'vnc_remote_secure.monitoring.alerts.notify',
+            lambda *a, **k: alerts_sent.append(a[0]))
+        audit.audit_log('evt', user='alice')
+        monkeypatch.setattr(builtins, 'open', real_open)
+        assert alerts_sent == ['Audit log write failure']
+
+    def test_write_failure_throttled(self, tmp_path, monkeypatch):
+        """A disk-full burst must not flood the alert channel —
+        one escalation per minute."""
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        audit._startup_verified = True
+        audit._chain_hash = audit._ANCHOR_HASH
+        audit._audit_write_alerted_at = 0.0
+        alerts_sent = []
+        import builtins
+        real_open = builtins.open
+
+        def _fail(path, *a, **kw):
+            if str(f) in str(path) and any(
+                    c in (a[0] if a else kw.get('mode', 'r'))
+                    for c in 'wax+'):
+                raise OSError(28, 'No space left on device')
+            return real_open(path, *a, **kw)
+        monkeypatch.setattr(builtins, 'open', _fail)
+        monkeypatch.setattr(
+            'vnc_remote_secure.monitoring.alerts.notify',
+            lambda *a, **k: alerts_sent.append(1))
+        for _ in range(5):
+            audit.audit_log('evt', user='alice')
+        monkeypatch.setattr(builtins, 'open', real_open)
+        assert len(alerts_sent) == 1
+
+    def test_audit_strict_raises(self, tmp_path, monkeypatch):
+        """AUDIT_STRICT=true: the audited action aborts when its
+        record cannot persist — an unaudited action is worse than a
+        failed one."""
+        import pytest as _pytest
+
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        monkeypatch.setenv('AUDIT_STRICT', 'true')
+        audit._startup_verified = True
+        audit._chain_hash = audit._ANCHOR_HASH
+        import builtins
+        real_open = builtins.open
+
+        def _fail(path, *a, **kw):
+            if str(f) in str(path) and any(
+                    c in (a[0] if a else kw.get('mode', 'r'))
+                    for c in 'wax+'):
+                raise OSError(28, 'No space left on device')
+            return real_open(path, *a, **kw)
+        monkeypatch.setattr(builtins, 'open', _fail)
+        with _pytest.raises(OSError):
+            audit.audit_log('evt', user='alice')
+        monkeypatch.setattr(builtins, 'open', real_open)
+
+    def test_audit_strict_off_by_default(
+            self, tmp_path, monkeypatch):
+        """Default policy: failure alerts but the action proceeds."""
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        monkeypatch.delenv('AUDIT_STRICT', raising=False)
+        audit._startup_verified = True
+        audit._chain_hash = audit._ANCHOR_HASH
+        audit._audit_write_alerted_at = 9e18  # silence the alert
+        import builtins
+        real_open = builtins.open
+
+        def _fail(path, *a, **kw):
+            if str(f) in str(path) and any(
+                    c in (a[0] if a else kw.get('mode', 'r'))
+                    for c in 'wax+'):
+                raise OSError(28, 'No space left on device')
+            return real_open(path, *a, **kw)
+        monkeypatch.setattr(builtins, 'open', _fail)
+        audit.audit_log('evt', user='alice')  # must NOT raise
+        monkeypatch.setattr(builtins, 'open', real_open)
+
+
+class TestSignedTipSidecar:
+    """The chain-tip sidecar is HMAC-signed with AUTH_SECRET — an
+    attacker who can rewrite the log AND shared_state.db still cannot
+    forge a valid witness for a truncated tail."""
+
+    def _fresh(self, tmp_path, monkeypatch):
+        from vnc_remote_secure.security import audit
+        f = tmp_path / 'audit.jsonl'
+        monkeypatch.setenv('AUDIT_LOG_FILE', str(f))
+        audit._startup_verified = True
+        audit._chain_hash = audit._ANCHOR_HASH
+        audit._write_anchor()
+        return audit, f
+
+    def test_sidecar_written_and_verified(
+            self, tmp_path, monkeypatch):
+        audit, f = self._fresh(tmp_path, monkeypatch)
+        audit.audit_log('evt', user='a')
+        side = f.with_name(f.name + '.tip')
+        assert side.exists()
+        tip, sig = side.read_text().strip().split()
+        assert audit._stored_tip() == tip
+
+    def test_forged_sidecar_detected(self, tmp_path, monkeypatch):
+        """An unsigned replacement sidecar must NOT pass — the
+        sentinel cannot equal any real tail hash, so the startup
+        comparison flags tampering."""
+        audit, f = self._fresh(tmp_path, monkeypatch)
+        audit.audit_log('evt', user='a')
+        side = f.with_name(f.name + '.tip')
+        # Attacker truncates the log and writes a matching unsigned tip.
+        lines = f.read_text().strip().split('\n')
+        f.write_text('\n'.join(lines[:1]) + '\n')
+        import json as _json
+        forged_tip = _json.loads(lines[0])['hash']
+        side.write_text(f'{forged_tip} deadbeef')
+        stored = audit._stored_tip()
+        assert stored == 'INVALID-TIP-SIDECAR'
+        assert stored != forged_tip
+
+    def test_valid_sidecar_beats_shared_state(
+            self, tmp_path, monkeypatch):
+        """The signed sidecar takes precedence over the (rewritable)
+        shared-state witness."""
+        audit, f = self._fresh(tmp_path, monkeypatch)
+        audit.audit_log('evt', user='a')
+        # Corrupt the shared-state tip; sidecar must still win.
+        try:
+            from vnc_remote_secure.security.shared_state import get_backend
+            get_backend().set_ttl('audit_chain', 'tip', 'corrupt', 60)
+        except Exception:  # noqa: BLE001
+            pass
+        side = f.with_name(f.name + '.tip')
+        tip = side.read_text().strip().split()[0]
+        assert audit._stored_tip() == tip

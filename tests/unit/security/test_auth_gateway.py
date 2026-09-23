@@ -25,6 +25,44 @@ class TestOriginValidation:
     def test_rejects_unlisted_origin(self):
         assert not check_origin('https://evil.com', ['https://localhost'])
 
+    def test_lan_ip_arbitrary_port_rejected(self, monkeypatch):
+        """ALLOWED_LAN_IPS must not admit origins from ports we do
+        not serve — a rogue page on :9999 of an allowed host used to
+        pass validation."""
+        monkeypatch.setenv('ALLOWED_LAN_IPS', '10.0.0.5')
+        monkeypatch.setenv('LANDING_PORT', '8443')
+        assert not check_origin(
+            'http://10.0.0.5:9999', [])
+
+    def test_lan_ip_service_port_accepted(self, monkeypatch):
+        monkeypatch.setenv('ALLOWED_LAN_IPS', '10.0.0.5')
+        monkeypatch.setenv('LANDING_PORT', '8443')
+        assert check_origin('http://10.0.0.5:8443', [])
+
+    def test_lan_ip_default_port_accepted(self, monkeypatch):
+        """No explicit port = scheme-default — the nginx entry."""
+        monkeypatch.setenv('ALLOWED_LAN_IPS', '10.0.0.5')
+        assert check_origin('https://10.0.0.5', [])
+
+    def test_lan_ip_non_http_scheme_rejected(self, monkeypatch):
+        monkeypatch.setenv('ALLOWED_LAN_IPS', '10.0.0.5')
+        assert not check_origin('ftp://10.0.0.5', [])
+        assert not check_origin('ws://10.0.0.5:8443', [])
+
+    def test_lan_ip_not_configured_rejected(self, monkeypatch):
+        monkeypatch.delenv('ALLOWED_LAN_IPS', raising=False)
+        assert not check_origin('https://10.0.0.5', [])
+
+    def test_loopback_lan_ip_any_port(self, monkeypatch):
+        """Loopback keeps any-port acceptance — a hostile local
+        process can read .env directly, so the port check buys
+        nothing; dev servers on random ports keep working."""
+        monkeypatch.setenv('ALLOWED_LAN_IPS', '127.0.0.1')
+        assert check_origin('http://127.0.0.1:54321', [])
+        # ...but the port check still applies to NON-loopback.
+        monkeypatch.setenv('ALLOWED_LAN_IPS', '10.0.0.5')
+        assert not check_origin('http://10.0.0.5:54321', [])
+
     def test_allowed_origins_include_localhost(self):
         origins = get_allowed_origins()
         assert 'http://localhost:8000' in origins

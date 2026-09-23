@@ -83,7 +83,6 @@ class _ConnectionEntry:
         # handlers). Needed when close_callback() returns a coroutine —
         # scheduling it requires the loop it was created on.
         self.loop = loop
-        import time
         self.created_at = created_at or time.time()
 
 
@@ -400,7 +399,6 @@ def _session_expired(session_id: str) -> bool:
     sessions) are not looked up here and never match.
     """
     try:
-        import time
 
         from vnc_remote_secure.security.ephemeral_sessions import get_session_store
         sess = get_session_store().get(session_id)
@@ -436,6 +434,49 @@ def _max_connections_per_ip() -> int:
         return 32
 
 
+def _operator_session_dead(session_id: str) -> str | None:
+    """Return a close reason for a dead operator session cookie.
+
+    A ``vnc_session`` cookie registered at upgrade time can die
+    mid-stream two ways that MUST close its live sockets:
+
+    - absolute ``expires`` crossed (``SESSION_MAX_LIFETIME``) →
+      ``'expired'``
+    - ``created`` predates the operator-session epoch (credential
+      rotation bumps it via ``bump_operator_epoch``) → ``'revoked'``
+
+    The HTTP sliding idle timeout is deliberately NOT enforced here:
+    ``last_seen`` only advances on HTTP requests, so enforcing it
+    would kill an actively-used desktop that simply hasn't polled an
+    HTTP endpoint. The absolute cap still bounds total stream life.
+    """
+    if not session_id.startswith('session:'):
+        return None
+    try:
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, verify_token
+        payload = verify_token(TOKEN_TYPE_SESSION, session_id)
+        if payload is None:
+            # A cookie that verified at upgrade and no longer does
+            # (key fully retired past the coexistence window, or a
+            # corrupted value) is dead — close it.
+            return 'expired'
+        parts = payload.split(':')
+        if len(parts) == 4:
+            _u, created_s, _last_seen_s, expires_s = parts
+        elif len(parts) == 3:
+            _u, created_s, expires_s = parts
+        else:
+            return 'expired'
+        if time.time() > int(expires_s):
+            return 'expired'
+        from vnc_remote_secure.security.sessions import operator_session_epoch
+        if int(created_s) < operator_session_epoch():
+            return 'revoked'
+        return None
+    except Exception:  # noqa: BLE001 - watcher must not die
+        return None
+
+
 def _sweep_revoked_session(session_id: str) -> bool:
     """Close the session's connections on revocation OR expiry."""
     reason = None
@@ -451,6 +492,8 @@ def _sweep_revoked_session(session_id: str) -> bool:
             pass
     elif _session_expired(session_id):
         reason = 'expired'
+    else:
+        reason = _operator_session_dead(session_id)
     if reason is None:
         return False
     closed = get_registry().revoke_session(session_id)
@@ -511,15 +554,13 @@ def start_revocation_watcher_thread(session_id: str,
     Used by the noVNC relay, whose connections live in
     ``http.server`` worker threads rather than an event loop.
     """
-    import time as _time
-
     def _run():
         while True:
             if _sweep_revoked_session(session_id):
                 return
             if get_registry().get_active_count(session_id) == 0:
                 return
-            _time.sleep(interval)
+            time.sleep(interval)
 
     t = threading.Thread(
         target=_run, daemon=True,

@@ -70,20 +70,23 @@ external-style review, checked against the actual code. Statuses:
 - **Mid-stream expiry for ephemeral sessions** — 5 s watcher closes
   sockets on revocation OR `expires_at`.
 
-## Partial — enforced with documented residual
+## Partial — resolved since the first pass
 
-| Area | Residual |
-|------|----------|
-| Terminal WS credentials | Broadest surface: ephemeral cookie + Bearer + session cookie + Basic (`TTYD_*`) — the Basic fallback is intentional but widens credential-type confusion |
-| Ephemeral resource binding | Opt-in at creation (`--resource` defaults to None); unbound tokens reach every resource their permissions allow — operators should always pass `--resource` |
-| Operator-session mid-stream expiry | Watchers cover ephemeral expiry + revocation; an operator `vnc_session` hitting idle/max lifetime mid-stream is not force-closed (terminal's 15-min idle cap mitigates the terminal path) |
-| Rate limiting | Per-account+per-IP on auth paths; general limiter is per-IP only (rotation bypasses non-auth endpoints); fixed 900 s lockout, no escalation |
-| Clipboard | 1 MiB cap + write-direction permission enforced; payload bytes are not sanitized and server→client read direction has no separate permission |
-| `ALLOWED_LAN_IPS` origins | Accepted regardless of scheme/port (deliberate LAN exception) |
-| Audit write failure | Action proceeds with a logged error (fail-open by design — audit availability vs enforcement); `AUDIT_MIRROR_FILE` is the opt-in mitigation |
-| `_is_revoked_shared` backend outage | Falls back to the local JSON flag — a lost-to-race revocation may lag while the backend is down (now visible via warning+metric) |
-| Shared-state `MemoryBackend` fallback | Degrades single-use/revocation/rate-limit guarantees to per-process scope — logged loudly at init |
-| Windows sandbox `auto` mode | Falls back to unsandboxed spawn on AppContainer failure — set `TERMINAL_WINDOWS_SANDBOX=strict` for hardened deployments |
+| Area | Closure |
+|------|---------|
+| Terminal WS credentials | `TERMINAL_BASIC_AUTH=false` removes the `TTYD_*` Basic path on the page AND the WS upgrade — token credentials (ephemeral/bearer/session) only |
+| Ephemeral resource binding | `EPHEMERAL_REQUIRE_RESOURCE=true` makes `SessionStore.create()` raise `ValueError` on a missing binding; the CLI surfaces a clean error |
+| Operator-session mid-stream expiry | The WS sweep force-closes `vnc_session` cookies on absolute expiry and operator-epoch bump (credential rotation). The HTTP sliding idle stays HTTP-only by design — a live desktop isn't killed for not polling HTTP |
+| Rate limiting | Progressive escalation: each consecutive lockout doubles (`AUTH_LOCKOUT_ESCALATION`, default on) up to `AUTH_LOCKOUT_MAX_SECONDS` (24 h); success resets strikes. Non-auth paths remain per-IP only (no authenticated principal to key on) |
+| Clipboard | ClientCutText payloads are sanitized — C0/DEL/C1 control bytes stripped (TAB/LF/CR kept), length field rewritten, all-control payloads dropped. Server→client `desktop:clipboard_read` remains a limitation: filtering it needs a full RFB decoder (FramebufferUpdate rect lengths are encoding-dependent) |
+| `ALLOWED_LAN_IPS` origins | Non-loopback LAN hosts now require http/https + a port the services actually bind — `http://<lan-ip>:9999` no longer passes. Loopback keeps any-port acceptance: a hostile local process can read `.env` directly, the check buys nothing there |
+| Audit write failure | Throttled `notify()` alert + `vnc_remote_audit_write_errors_total` on every primary/mirror failure; `AUDIT_STRICT=true` aborts the audited action instead |
+| `_is_revoked_shared` backend outage | `SHARED_STATE_STRICT=true` denies the session when the check cannot reach the backend; default stays local-flag fallback + warning + metric (availability choice) |
+| Shared-state `MemoryBackend` fallback | `backend_degraded()` + `op=backend_init_fallback` metric; `SHARED_STATE_STRICT=true` refuses to start degraded |
+| Windows sandbox `auto` | `auto` is promoted to `strict` under `public-hardened`/`private-overlay` — no silent unsandboxed children on hardened profiles; explicit `off` is always honoured |
+| Temp user after crash | `_sweep_stale_temp_user()` at `start_all` removes the account when it owns no processes; it is kept (with a warning) when processes are alive — a live orphaned session may still need it |
+| Audit tip witness | Additional `<log>.tip` sidecar signed with `HMAC(AUTH_SECRET)` — rewriting both the log and `shared_state.db` still cannot forge a valid witness; a bad signature is itself flagged |
+| Webhook DNS-rebinding | `_post_pinned` dials the exact IP that passed the public check (TLS SNI/hostname verification unchanged); re-resolution to private refuses the send; single request — redirects impossible |
 
 ## Architectural limitations (cannot be closed in code)
 
@@ -98,19 +101,14 @@ external-style review, checked against the actual code. Statuses:
   or AppContainer (Windows) applies.
 - **In-memory secrets are not zeroized.** Python strings cannot be
   reliably wiped; `_cached_secret` lives until process exit.
-- **Audit tip witness lives in `shared_state.db`.** An attacker who can
-  rewrite both files defeats truncation detection — `AUDIT_MIRROR_FILE`
-  to an independent sink is the mitigation.
 - **Windows SendInput ≠ XInput.** Without ViGEmBus, games see no
   gamepad; documented. SendInput keys are now released on disconnect.
 - **Session-0**: UltraVNC must run in the interactive session — full
   service-account isolation would break capture (F-035).
-- **Temp-user lifecycle**: created at install, removed on clean stop.
-  A crash leaves it until the next successful stop — a start-time
-  sweep would break the running-session user it exists for.
-- **DNS-rebinding window on webhooks**: resolved addresses are
-  validated pre-connect, but re-resolution between check and connect
-  cannot be pinned without breaking TLS SNI.
+- **Temp-user orphan processes**: a crash can leave temp-user-owned
+  processes running; the start-time sweep removes the account only
+  when it owns none (removing it under live processes orphans their
+  files/IPC) — orphaned processes are logged for manual cleanup.
 
 ## Operational tasks (outside the code)
 

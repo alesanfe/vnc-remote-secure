@@ -100,11 +100,26 @@
       "type": "string",
       "description": "Optional second append-only audit sink (e.g. a mounted network share or WORM store) so tampering with the primary log leaves the mirror intact."
     },
+    "AUDIT_STRICT": {
+      "type": "boolean",
+      "description": "Fail-closed auditing: abort the audited action when its record cannot be persisted (default off — failures alert instead)."
+    },
     "AUTH_LOCKOUT_SECONDS": {
       "type": "integer",
       "minimum": 1,
-      "description": "Lockout duration in seconds after too many attempts.",
+      "description": "Base lockout duration in seconds after too many attempts (escalates on repeat lockouts).",
       "default": 900
+    },
+    "AUTH_LOCKOUT_ESCALATION": {
+      "type": "boolean",
+      "description": "Progressive lockout: each consecutive lockout doubles the duration up to AUTH_LOCKOUT_MAX_SECONDS. Default true.",
+      "default": true
+    },
+    "AUTH_LOCKOUT_MAX_SECONDS": {
+      "type": "integer",
+      "minimum": 60,
+      "description": "Cap for progressive lockout escalation (default 86400 = 24 h).",
+      "default": 86400
     },
     "AUTH_MAX_ATTEMPTS": {
       "type": "integer",
@@ -420,6 +435,10 @@
       "default": 65536,
       "description": "Maximum request body size in bytes accepted by the Flask user-management UI (mitigates memory-DoS via oversized POSTs)."
     },
+    "EPHEMERAL_REQUIRE_RESOURCE": {
+      "type": "boolean",
+      "description": "Require --resource binding on new ephemeral sessions — an unbound token reaches every resource its permissions allow."
+    },
     "SESSION_SAMESITE": {
       "type": "string",
       "enum": [
@@ -442,6 +461,10 @@
     "SHARED_STATE_DB_PATH": {
       "type": "string",
       "description": "Filesystem path for the SQLite shared-state database when SHARED_STATE_BACKEND=sqlite. Defaults to <run_dir>/shared_state.db."
+    },
+    "SHARED_STATE_STRICT": {
+      "type": "boolean",
+      "description": "Fail-closed shared state: refuse startup when the sqlite backend cannot initialise (instead of the in-memory fallback) and deny sessions when revocation checks cannot consult the backend."
     },
     "SSL_CERT": {
       "type": "string",
@@ -494,6 +517,10 @@
         "https"
       ],
       "description": "Protocol nginx uses to reach the terminal backend (auto-detected when unset)."
+    },
+    "TERMINAL_BASIC_AUTH": {
+      "type": "boolean",
+      "description": "Allow the legacy TTYD_* Basic-auth credential surface on the web terminal (default true). Set false to accept only token credentials (ephemeral cookie, bearer, operator session)."
     },
     "TERMINAL_IDLE_TIMEOUT": {
       "type": "integer",
