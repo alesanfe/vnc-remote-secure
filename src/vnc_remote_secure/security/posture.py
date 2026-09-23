@@ -272,6 +272,28 @@ def _check_temp_user_posture(findings):
     )
 
 
+def _check_shared_state_posture(findings):
+    """Add findings about the shared-state backend.
+
+    Rate limits, revocations and single-use claims are only
+    cross-process on sqlite — a memory backend (or a degraded
+    fallback) silently narrows every one of them to this process.
+    """
+    from vnc_remote_secure.security.shared_state import backend_degraded
+    backend = _env_val('SHARED_STATE_BACKEND', 'sqlite')
+    degraded = backend_degraded()
+    _add_finding(
+        findings,
+        'Shared-state backend (cross-process auth)',
+        backend == 'sqlite' and not degraded,
+        warn_msg=(f'SHARED_STATE_BACKEND={backend}'
+                  + (' degraded to in-memory fallback' if degraded else '')
+                  + ' — revocation/single-use/rate-limit guarantees '
+                  'are per-process only'),
+        points=8,
+    )
+
+
 def calculate_posture() -> dict:
     """Calculate the security posture score and individual checks.
 
@@ -291,6 +313,7 @@ def calculate_posture() -> dict:
     _check_network_posture(findings)
     _check_session_posture(findings)
     _check_temp_user_posture(findings)
+    _check_shared_state_posture(findings)
 
     # Compute the score from the collected findings.
     score = 100

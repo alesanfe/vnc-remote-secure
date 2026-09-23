@@ -56,6 +56,7 @@ def _redact(session_id: str) -> str:
 # Shared-state namespace for cross-process revocation propagation.
 _NS_REVOKED = 'websocket_revoked_sessions'
 _expiry_warned_at = 0.0
+_revoke_check_warned_at = 0.0
 
 # Type for a close callback. The callback should close the WebSocket
 # connection. This abstraction allows the registry to work with
@@ -368,8 +369,35 @@ def is_revoked_shared(session_id: str) -> bool:
     by a different process (e.g. the CLI) are visible to long-running
     service processes. Close callbacks remain process-local, but this
     check prevents new WebSocket upgrades for revoked sessions.
+
+    Backend outage policy matches ``ephemeral_sessions
+    ._is_revoked_shared``: ``SHARED_STATE_STRICT=true`` denies the
+    session; otherwise the check degrades to not-revoked with a
+    throttled warning + metric (availability choice — a lost-to-race
+    revocation may lag while the backend is down).
     """
-    return bool(get_backend().get(_NS_REVOKED, session_id))
+    try:
+        return bool(get_backend().get(_NS_REVOKED, session_id))
+    except Exception:  # noqa: BLE001 - see docstring for the policy
+        global _revoke_check_warned_at
+        now = time.time()
+        if now - _revoke_check_warned_at > 60:
+            _revoke_check_warned_at = now
+            logger.warning(
+                "Shared revocation check failed — treating sessions "
+                "as %s", 'revoked' if _strict() else 'not revoked')
+        try:
+            from vnc_remote_secure.monitoring.prometheus import inc_counter
+            inc_counter('vnc_remote_shared_state_errors_total',
+                        'op=revocation_check')
+        except Exception:  # noqa: BLE001
+            pass
+        return _strict()
+
+
+def _strict() -> bool:
+    from vnc_remote_secure.security.shared_state import shared_state_strict
+    return shared_state_strict()
 
 
 def clear_revoked_shared(session_id: str):
@@ -406,7 +434,8 @@ def _session_expired(session_id: str) -> bool:
     except Exception:  # noqa: BLE001 - expiry check must not kill watcher
         # Degraded-enforcement window: while the store is unreadable an
         # expired session's live sockets stay open. Log once per
-        # minute so the window is visible, not silent.
+        # minute so the window is visible, not silent. Under
+        # SHARED_STATE_STRICT the session is treated as dead instead.
         global _expiry_warned_at
         now = time.time()
         if now - _expiry_warned_at > 60:
@@ -414,7 +443,7 @@ def _session_expired(session_id: str) -> bool:
             logger.warning(
                 "Session expiry check unavailable — live WebSockets "
                 "for expired sessions are not being swept")
-        return False
+        return _strict()
 
 
 def _max_connections() -> int:
@@ -474,7 +503,9 @@ def _operator_session_dead(session_id: str) -> str | None:
             return 'revoked'
         return None
     except Exception:  # noqa: BLE001 - watcher must not die
-        return None
+        # Under strict policy a failed liveness check denies — an
+        # unverifiable privileged session is worse than a dropped one.
+        return 'revoked' if _strict() else None
 
 
 def _sweep_revoked_session(session_id: str) -> bool:

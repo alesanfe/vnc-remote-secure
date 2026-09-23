@@ -584,6 +584,21 @@ class TestServerSideFilter:
         # Handshake tail forwarded; the cut text is NOT.
         assert payloads == hs[-8:]
 
+    def test_pixel_format_change_mid_stream(self):
+        """SetPixelFormat post-handshake changes rect byte sizes —
+        the server parser must track it (16bpp Raw = w*h*2, not *4)."""
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        # Client switches to 16bpp (bpp field = byte 0 of pixfmt).
+        pixfmt16 = (b'\x10\x10\x00\x01'
+                    + b'\x00\x1f\x00\x3f\x00\x1f'
+                    + b'\x0b\x05\x00' + b'\x00\x00\x00')
+        f.client_to_server(
+            ws_client_frame(b'\x00\x00\x00\x00' + pixfmt16))
+        r = rect(0, 4, 4, b'P' * 32)          # Raw 4x4 @16bpp = 32B
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
     def test_server_stream_mixed_messages(self):
         f = RfbInputFilter(allow_clipboard_read=False)
         drive_handshake(f)

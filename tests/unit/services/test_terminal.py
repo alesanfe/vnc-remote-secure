@@ -643,3 +643,40 @@ class TestBasicAuthGate:
         assert closed and closed[0][0] == 1008
         assert 'Basic auth disabled' in closed[0][1]
         assert consulted == []
+
+    def test_static_path_basic_denied_when_disabled(self, monkeypatch):
+        """The xterm static handler's Basic fallback must obey the
+        same gate — otherwise the page assets accept a credential the
+        WS upgrade refuses."""
+        from unittest.mock import MagicMock
+
+        from vnc_remote_secure.services import terminal as term
+        monkeypatch.setenv('TERMINAL_BASIC_AUTH', 'false')
+        h = object.__new__(term.XtermStaticHandler)
+        h.request = MagicMock()
+        h.request.headers.get = lambda k, d='': (
+            'Basic dTpw' if k == 'Authorization' else d)
+        h.request.remote_ip = '127.0.0.1'
+        consulted = []
+        monkeypatch.setattr(
+            term, 'check_terminal_auth',
+            lambda *a, **k: consulted.append(1) or True)
+        assert h._authorized() is False
+        assert consulted == []
+
+    def test_static_path_basic_allowed_when_enabled(
+            self, monkeypatch):
+        """Default: the Basic fallback on the static path still works
+        when the credential is valid."""
+        from unittest.mock import MagicMock
+
+        from vnc_remote_secure.services import terminal as term
+        monkeypatch.delenv('TERMINAL_BASIC_AUTH', raising=False)
+        h = object.__new__(term.XtermStaticHandler)
+        h.request = MagicMock()
+        h.request.headers.get = lambda k, d='': (
+            'Basic dTpw' if k == 'Authorization' else d)
+        h.request.remote_ip = '127.0.0.1'
+        monkeypatch.setattr(
+            term, 'check_terminal_auth', lambda *a, **k: True)
+        assert h._authorized() is True

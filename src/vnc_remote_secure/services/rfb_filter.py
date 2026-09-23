@@ -61,10 +61,8 @@ _VAR_LEN = {
 # gated like KeyEvent/PointerEvent for view-only sessions.
 _TYPE_SET_DESKTOP_SIZE = 251
 
-# Messages always permitted (display-related, not input).
-_ALLOWED_TYPES = set(_FIXED_LEN) | set(_VAR_LEN)
-
 # Input message types gated by session permissions.
+_TYPE_SET_PIXEL_FORMAT = 0
 _TYPE_SET_ENCODINGS = 2
 _TYPE_KEY_EVENT = 4
 _TYPE_POINTER_EVENT = 5
@@ -778,6 +776,13 @@ class RfbInputFilter:
                 # rect length is decidable — renegotiate to the safe
                 # subset so Tight/TRLE never legitimately arrive.
                 raw = _rewrite_encodings(raw)
+            elif mtype == _TYPE_SET_PIXEL_FORMAT:
+                # SetPixelFormat changes rect byte sizes mid-stream —
+                # the server parser must track it or it desyncs.
+                new_pix = max(1, raw[4] // 8)
+                self._srv.pix_size = new_pix
+                if self._srv_parser is not None:
+                    self._srv_parser.pix = new_pix
             elif mtype == _TYPE_KEY_EVENT and not self.allow_keyboard:
                 continue  # dropped: no desktop:keyboard/control
             elif mtype in (_TYPE_POINTER_EVENT, _TYPE_SET_DESKTOP_SIZE) \

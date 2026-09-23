@@ -928,8 +928,8 @@ def _is_revoked_shared(token: str) -> bool:
                         'op=revocation_check')
         except Exception:  # noqa: BLE001
             pass
-        if os.environ.get('SHARED_STATE_STRICT', '').lower() in (
-                '1', 'true', 'yes'):
+        from vnc_remote_secure.security.shared_state import shared_state_strict
+        if shared_state_strict():
             # Strict mode: a revocation check that cannot consult the
             # shared backend denies the session — a possibly-revoked
             # token must not keep access while enforcement is down.

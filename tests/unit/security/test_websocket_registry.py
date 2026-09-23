@@ -402,6 +402,107 @@ class TestOperatorSessionSweep:
         assert w._operator_session_dead('tok') is None
 
 
+class TestSharedRevocationDegradation:
+    """is_revoked_shared must match the ephemeral-side policy:
+    backend outage → warn+metric+deny (strict) or degrade (default);
+    an unhandled exception must NEVER escape into the watcher."""
+
+    def test_backend_error_default_not_revoked(self, monkeypatch):
+        from vnc_remote_secure.security import websocket_registry as w
+        monkeypatch.delenv('SHARED_STATE_STRICT', raising=False)
+
+        def _boom():
+            raise RuntimeError('db gone')
+        # websocket_registry binds get_backend at module level; the
+        # session-clearing fixture teardown needs it back.
+        monkeypatch.setattr(w, 'get_backend', _boom)
+        assert w.is_revoked_shared('tok') is False
+        monkeypatch.undo()
+
+    def test_backend_error_strict_denies(self, monkeypatch):
+        from vnc_remote_secure.security import websocket_registry as w
+        monkeypatch.setenv('SHARED_STATE_STRICT', 'true')
+
+        def _boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(w, 'get_backend', _boom)
+        assert w.is_revoked_shared('tok') is True
+        monkeypatch.undo()
+
+    def test_expiry_check_strict_dead(self, monkeypatch):
+        """_session_expired treats an unreadable store as dead under
+        strict — the same fail-closed rule as revocation."""
+        from vnc_remote_secure.security import websocket_registry as w
+        monkeypatch.setenv('SHARED_STATE_STRICT', 'true')
+
+        def _boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'get_session_store', _boom)
+        assert w._session_expired('tok') is True
+
+    def test_operator_dead_strict_revoked(self, monkeypatch):
+        """An unverifiable operator cookie denies under strict."""
+        import time
+
+        from vnc_remote_secure.security import websocket_registry as w
+        monkeypatch.setenv('SHARED_STATE_STRICT', 'true')
+
+        def _boom():
+            raise RuntimeError('secret read failed')
+        # Force the except path: a valid-shaped cookie whose epoch
+        # check cannot run.
+        from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, sign_token
+        cookie = sign_token(
+            TOKEN_TYPE_SESSION,
+            f'admin:{int(time.time())}:{int(time.time())}:'
+            f'{int(time.time()) + 3600}')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.sessions.'
+            'operator_session_epoch', _boom)
+        assert w._operator_session_dead(cookie) == 'revoked'
+
+    def test_operator_epoch_strict_inf(self, monkeypatch):
+        """Unreadable epoch → inf under strict = every session dead."""
+        from vnc_remote_secure.security import sessions
+        monkeypatch.setenv('SHARED_STATE_STRICT', 'true')
+
+        def _boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.shared_state.get_backend',
+            _boom)
+        assert sessions.operator_session_epoch() == float('inf')
+
+    def test_operator_epoch_default_zero(self, monkeypatch):
+        from vnc_remote_secure.security import sessions
+        monkeypatch.delenv('SHARED_STATE_STRICT', raising=False)
+
+        def _boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.shared_state.get_backend',
+            _boom)
+        assert sessions.operator_session_epoch() == 0.0
+
+    def test_bump_epoch_strict_raises(self, monkeypatch):
+        """Under strict a failed epoch bump must report — silently
+        missing it leaves rotated-credential sessions alive."""
+        import pytest as _pytest
+
+        from vnc_remote_secure.security import sessions
+        monkeypatch.setenv('SHARED_STATE_STRICT', 'true')
+
+        def _boom():
+            raise RuntimeError('db gone')
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.shared_state.get_backend',
+            _boom)
+        with _pytest.raises(RuntimeError):
+            sessions.bump_operator_epoch()
+
+
 def test_connection_cap_refuses(monkeypatch):
     """Past WS_MAX_CONNECTIONS, registrations are refused — a
     connection flood must not exhaust fds/threads."""

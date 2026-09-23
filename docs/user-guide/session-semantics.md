@@ -85,7 +85,7 @@ fine-grained permission does NOT grant the umbrella:
 | Umbrella | Members |
 |---|---|
 | `control` | `keyboard`, `pointer` |
-| `clipboard` | `clipboard_write` |
+| `clipboard` | `clipboard_write`, `clipboard_read` |
 
 `audio` is a standalone permission (system-audio capture of the
 desktop — privacy-sensitive). Roles `support`, `operator` and
@@ -101,17 +101,20 @@ control should not silently enable a privileged driver path.
 
 - `desktop:keyboard` → RFB `KeyEvent`; `desktop:pointer` →
   `PointerEvent` + `SetDesktopSize`; `desktop:clipboard_write` →
-  `ClientCutText` (client→server clipboard push). Dropped at the
-  protocol layer by the RFB filter, not just hidden in the UI.
+  `ClientCutText` (client→server clipboard push);
+  `desktop:clipboard_read` → `ServerCutText` (server→client
+  clipboard pull). Dropped at the protocol layer by the RFB filter,
+  not just hidden in the UI — the filter decodes the full
+  server→client stream (SetEncodings is renegotiated to the
+  length-decidable subset so FramebufferUpdate rects stay parseable).
 - Roles keep umbrella semantics — `support` = view+control+clipboard
-  still means full input + clipboard.
+  still means full input + both clipboard directions.
 - `session create --permissions view,pointer` creates a
-  pointer-without-keyboard session (can't type, can click).
+  pointer-without-keyboard session (can't type, can click);
+  `--permissions view,clipboard_write` allows pushing clipboard
+  content out but not receiving the remote side's.
 - `view_only` blocks every input/clipboard permission even if a
   caller granted a fine-grained one explicitly.
-- Clipboard *read* (server→client clipboard content) is not
-  separately gated — blocking it requires parsing
-  FramebufferUpdates; treat clipboard permission as clipboard write.
 
 ## Deployment binding (`instance_id`)
 

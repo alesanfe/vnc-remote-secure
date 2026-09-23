@@ -34,6 +34,12 @@ class TestPrometheusMetrics:
         assert status == 200
         assert 'vnc_remote_up' in body or 'vnc_remote_process_start_time' in body
 
+    def test_shared_state_degraded_gauge_present(self):
+        """The degraded-backend gauge must always render — 0 or 1 —
+        so an in-memory fallback is never silent."""
+        output = render_metrics()
+        assert 'vnc_remote_shared_state_degraded' in output
+
     def test_process_start_time_present(self):
         output = render_metrics()
         assert 'vnc_remote_process_start_time' in output

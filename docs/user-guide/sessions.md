@@ -42,7 +42,9 @@ permission).
 - `--view-only` — blocks control channels (gamepad, terminal, file
   transfer) **and** filters RFB input at the protocol layer: the
   noVNC WebSocket relay drops KeyEvent/PointerEvent/ClientCutText
-  messages for sessions without `desktop:control`/`desktop:clipboard`
+  client→server for sessions without `desktop:control`/
+  `desktop:clipboard_write`, and ServerCutText server→client for
+  sessions without `desktop:clipboard_read`
   (see `services/rfb_filter.py`). Direct RFB access to the VNC port
   is a separate channel — keep it loopback-only or use a view-only
   VNC password for hard isolation.
@@ -55,7 +57,7 @@ expand to their members:
 | Umbrella | Members | Effect |
 |----------|---------|--------|
 | `control` | `keyboard`, `pointer` | RFB input filtering |
-| `clipboard` | `clipboard_write` | ClientCutText forwarding |
+| `clipboard` | `clipboard_write`, `clipboard_read` | ClientCutText / ServerCutText forwarding |
 | `terminal` | `terminal_view`, `terminal_write` | connect vs execute |
 | `admin` | `admin_users`, `admin_config`, `admin_secrets`, `admin_audit` | administrative surface |
 

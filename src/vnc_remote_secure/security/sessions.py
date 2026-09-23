@@ -135,18 +135,29 @@ def bump_operator_epoch() -> None:
             _NS_OPERATOR_EPOCH, 'all', time.time(),
             _get_env_int('SESSION_MAX_LIFETIME', 86400) + 86400)
     except Exception:  # noqa: BLE001 - best-effort; rotation already
+        # Under strict policy the invalidation MUST land — a silent
+        # miss leaves rotated-credential sessions alive. Re-raise so
+        # the credential change reports the failure.
         logger.debug("Could not bump operator session epoch")
-        pass
+        from vnc_remote_secure.security.shared_state import shared_state_strict
+        if shared_state_strict():
+            raise
 
 
 def operator_session_epoch() -> float:
-    """Return the operator-session epoch (0 when never bumped)."""
+    """Return the operator-session epoch (0 when never bumped).
+
+    Under ``SHARED_STATE_STRICT`` an unreadable backend returns
+    ``inf`` — every issued session predates it, so all are treated as
+    revoked (fail closed) rather than none (fail open).
+    """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         val = get_backend().get(_NS_OPERATOR_EPOCH, 'all')
         return float(val) if val else 0.0
     except Exception:  # noqa: BLE001
-        return 0.0
+        from vnc_remote_secure.security.shared_state import shared_state_strict
+        return float('inf') if shared_state_strict() else 0.0
 
 
 def session_revocation_key(cookie_value: str) -> str | None:

@@ -1317,6 +1317,11 @@ class XtermStaticHandler(tornado.web.StaticFileHandler):
                 if allowed:
                     return True
                 break
+        if not _basic_auth_enabled():
+            # TERMINAL_BASIC_AUTH=false — token credentials only; the
+            # static assets must not accept the Basic surface the WS
+            # upgrade already refuses.
+            return False
         auth = self.request.headers.get('Authorization', '')
         return check_terminal_auth(
             auth, client_ip=client_ip_from(

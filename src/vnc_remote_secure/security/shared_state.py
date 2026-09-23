@@ -434,6 +434,19 @@ def backend_degraded() -> bool:
     return _backend_fallback
 
 
+def shared_state_strict() -> bool:
+    """Fail-closed shared-state policy flag.
+
+    When true, callers that cannot reach the backend must DENY the
+    protected operation (revocation check → revoked, expiry check →
+    dead, session validation → fail) rather than degrade to
+    process-local state — a revoked/expired session must never be
+    re-admitted because the witness is unreachable.
+    """
+    return os.environ.get('SHARED_STATE_STRICT', '').lower() in (
+        '1', 'true', 'yes')
+
+
 def sqlite_stats() -> dict:
     """Return a snapshot of in-process SQLite op statistics.
 
@@ -483,8 +496,7 @@ def get_backend() -> StateBackend:
                             'op=backend_init_fallback')
             except Exception:  # noqa: BLE001
                 pass
-            if os.environ.get('SHARED_STATE_STRICT', '').lower() in (
-                    '1', 'true', 'yes'):
+            if shared_state_strict():
                 # Fail-closed mode: a degraded backend weakens
                 # single-use/revocation/rate-limit guarantees to
                 # per-process scope — under strict policy that is a

@@ -209,7 +209,18 @@ def render_metrics() -> str:
 
     # --- SQLite op statistics (in-process accumulator snapshot) ---
     try:
-        from vnc_remote_secure.security.shared_state import sqlite_stats
+        from vnc_remote_secure.security.shared_state import backend_degraded, sqlite_stats
+        # Degraded-backend flag: 1 means sqlite init failed and the
+        # process is running on per-process in-memory state —
+        # cross-process revocation/single-use guarantees are OFF.
+        lines.append(
+            '# HELP vnc_remote_shared_state_degraded Shared-state '
+            'backend fell back to in-memory (1=degraded)')
+        lines.append(
+            '# TYPE vnc_remote_shared_state_degraded gauge')
+        lines.append(
+            'vnc_remote_shared_state_degraded '
+            f'{1 if backend_degraded() else 0}')
         st = sqlite_stats()
         if st.get('ops'):
             lines.append(
