@@ -235,6 +235,30 @@ class SQLiteBackend(StateBackend):
             'CREATE INDEX IF NOT EXISTS idx_state_ns ON state(namespace)'
         )
 
+    # In-process op statistics. NOT emitted through the metric
+    # counters — those write into this very database and would
+    # recurse. render_metrics drains the snapshot instead.
+    _STATS = {'ops': 0, 'lock_errors': 0, 'total_ms': 0.0}
+
+    def _exec(self, sql, params=()):
+        """Execute with in-process latency/lock-error accounting.
+
+        ``database is locked`` under contention is the #1 SQLite
+        operational failure — count it, and track latency, so
+        /metrics shows contention before it becomes an outage.
+        """
+        t0 = time.monotonic()
+        try:
+            return self._conn.execute(sql, params)
+        except sqlite3.OperationalError as exc:
+            if 'locked' in str(exc).lower():
+                SQLiteBackend._STATS['lock_errors'] += 1
+            raise
+        finally:
+            SQLiteBackend._STATS['ops'] += 1
+            SQLiteBackend._STATS['total_ms'] += (
+                time.monotonic() - t0) * 1000
+
     def _serialise(self, value):
         return json.dumps(value)
 
@@ -249,7 +273,7 @@ class SQLiteBackend(StateBackend):
     def get(self, namespace: str, key: str):
         """Get."""
         with self._lock:
-            row = self._conn.execute(
+            row = self._exec(
                 'SELECT value, expires_at FROM state WHERE namespace=? AND key=?',
                 (namespace, key),
             ).fetchone()
@@ -264,7 +288,7 @@ class SQLiteBackend(StateBackend):
     def set(self, namespace: str, key: str, value):
         """Set."""
         with self._lock:
-            self._conn.execute(
+            self._exec(
                 'INSERT OR REPLACE INTO state (namespace, key, value, expires_at) '
                 'VALUES (?, ?, ?, NULL)',
                 (namespace, key, self._serialise(value)),
@@ -273,7 +297,7 @@ class SQLiteBackend(StateBackend):
     def delete(self, namespace: str, key: str):
         """Delete."""
         with self._lock:
-            self._conn.execute(
+            self._exec(
                 'DELETE FROM state WHERE namespace=? AND key=?',
                 (namespace, key),
             )
@@ -281,7 +305,7 @@ class SQLiteBackend(StateBackend):
     def set_ttl(self, namespace: str, key: str, value, ttl_seconds: float):
         """Set ttl."""
         with self._lock:
-            self._conn.execute(
+            self._exec(
                 'INSERT OR REPLACE INTO state (namespace, key, value, expires_at) '
                 'VALUES (?, ?, ?, ?)',
                 (namespace, key, self._serialise(value),
@@ -302,7 +326,7 @@ class SQLiteBackend(StateBackend):
             # when the conflicting row is already expired. The previous
             # SELECT-then-REPLACE path let two processes both reclaim an
             # expired key (TOCTOU on single-use claims).
-            cur = self._conn.execute(
+            cur = self._exec(
                 'INSERT INTO state (namespace, key, value, expires_at) '
                 'VALUES (?, ?, ?, ?) '
                 'ON CONFLICT(namespace, key) DO UPDATE SET '
@@ -325,13 +349,13 @@ class SQLiteBackend(StateBackend):
                 # key separators are '\x00'.
                 escaped = prefix.replace('\\', '\\\\') \
                     .replace('%', '\\%').replace('_', '\\_')
-                rows = self._conn.execute(
+                rows = self._exec(
                     "SELECT key, expires_at FROM state "
                     "WHERE namespace=? AND key LIKE ? ESCAPE '\\'",
                     (namespace, escaped + '%'),
                 ).fetchall()
             else:
-                rows = self._conn.execute(
+                rows = self._exec(
                     'SELECT key, expires_at FROM state WHERE namespace=?',
                     (namespace,),
                 ).fetchall()
@@ -360,7 +384,7 @@ class SQLiteBackend(StateBackend):
             # refers to the row that would have been inserted. expires_at
             # is updated only when a TTL is requested (excluded non-NULL);
             # otherwise the current value is kept.
-            self._conn.execute(
+            self._exec(
                 'INSERT INTO state (namespace, key, value, expires_at) '
                 'VALUES (?, ?, ?, ?) '
                 'ON CONFLICT(namespace, key) DO UPDATE SET '
@@ -378,7 +402,7 @@ class SQLiteBackend(StateBackend):
             # a bounded counter immortal), so the row may still read as
             # expired via get(). The returned total is the stored value
             # either way, same as the memory backend.
-            row = self._conn.execute(
+            row = self._exec(
                 'SELECT value FROM state WHERE namespace=? AND key=?',
                 (namespace, key),
             ).fetchone()
@@ -398,6 +422,16 @@ class SQLiteBackend(StateBackend):
 # ---------------------------------------------------------------------------
 
 _backend: StateBackend | None = None
+
+
+def sqlite_stats() -> dict:
+    """Return a snapshot of in-process SQLite op statistics.
+
+    ``{ops, lock_errors, total_ms}`` — consumed by the /metrics
+    render path. In-process by design: the metric counters persist
+    through this backend and would recurse.
+    """
+    return dict(SQLiteBackend._STATS)
 
 
 def _default_sqlite_path() -> str:

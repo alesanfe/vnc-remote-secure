@@ -208,6 +208,38 @@ def render_metrics() -> str:
     except Exception:  # noqa: BLE001
         pass
 
+    # --- SQLite op statistics (in-process accumulator snapshot) ---
+    try:
+        from vnc_remote_secure.security.shared_state import (
+            sqlite_stats)
+        st = sqlite_stats()
+        if st.get('ops'):
+            lines.append(
+                '# HELP vnc_remote_sqlite_ops_total Shared-state DB '
+                'operations')
+            lines.append(
+                '# TYPE vnc_remote_sqlite_ops_total counter')
+            lines.append(
+                f"vnc_remote_sqlite_ops_total {st['ops']}")
+            lines.append(
+                '# HELP vnc_remote_sqlite_lock_errors_total '
+                '"database is locked" errors')
+            lines.append(
+                '# TYPE vnc_remote_sqlite_lock_errors_total counter')
+            lines.append(
+                f"vnc_remote_sqlite_lock_errors_total "
+                f"{st['lock_errors']}")
+            lines.append(
+                '# HELP vnc_remote_sqlite_avg_op_ms Average DB op '
+                'latency (ms)')
+            lines.append(
+                '# TYPE vnc_remote_sqlite_avg_op_ms gauge')
+            lines.append(
+                'vnc_remote_sqlite_avg_op_ms '
+                f"{st['total_ms'] / st['ops']:.3f}")
+    except Exception:  # noqa: BLE001
+        pass
+
     # --- Shared-state DB size (best-effort, scrape-time stat) ---
     try:
         import os as _os

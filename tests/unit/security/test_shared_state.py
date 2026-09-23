@@ -250,3 +250,17 @@ class TestWebSocketRevocationShared:
         b.close()
         b2.close()
         reset_backend()
+
+
+def test_sqlite_stats_accumulate(tmp_path):
+    """Ops and latency accumulate in-process for /metrics export."""
+    from vnc_remote_secure.security.shared_state import (
+        SQLiteBackend, sqlite_stats)
+    before = dict(sqlite_stats())
+    b = SQLiteBackend(str(tmp_path / 's.db'))
+    b.set('ns', 'k', 1)
+    b.get('ns', 'k')
+    b.delete('ns', 'k')
+    after = sqlite_stats()
+    assert after['ops'] == before['ops'] + 3
+    assert after['total_ms'] >= before['total_ms']
