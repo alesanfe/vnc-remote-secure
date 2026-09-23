@@ -106,8 +106,9 @@ PERM_VIEW = 'view'
 PERM_CONTROL = 'control'          # umbrella: keyboard + pointer
 PERM_KEYBOARD = 'keyboard'
 PERM_POINTER = 'pointer'
-PERM_CLIPBOARD = 'clipboard'      # umbrella: clipboard_write
+PERM_CLIPBOARD = 'clipboard'      # umbrella: clipboard_write + _read
 PERM_CLIPBOARD_WRITE = 'clipboard_write'
+PERM_CLIPBOARD_READ = 'clipboard_read'
 PERM_FILE_TRANSFER = 'file_transfer'
 PERM_TERMINAL = 'terminal'        # umbrella: terminal_view + terminal_write
 PERM_TERMINAL_VIEW = 'terminal_view'    # connect + read-only builtins
@@ -122,7 +123,7 @@ PERM_ADMIN_AUDIT = 'admin_audit'
 
 ALL_PERMISSIONS = {
     PERM_VIEW, PERM_CONTROL, PERM_KEYBOARD, PERM_POINTER,
-    PERM_CLIPBOARD, PERM_CLIPBOARD_WRITE,
+    PERM_CLIPBOARD, PERM_CLIPBOARD_WRITE, PERM_CLIPBOARD_READ,
     PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_TERMINAL_VIEW,
     PERM_TERMINAL_WRITE, PERM_AUDIO, PERM_GAMEPAD,
     PERM_ADMIN, PERM_ADMIN_USERS, PERM_ADMIN_CONFIG,
@@ -134,7 +135,7 @@ ALL_PERMISSIONS = {
 # session holding only ``pointer`` does NOT satisfy ``control``.
 _PERMISSION_EXPANSION = {
     PERM_CONTROL: {PERM_KEYBOARD, PERM_POINTER},
-    PERM_CLIPBOARD: {PERM_CLIPBOARD_WRITE},
+    PERM_CLIPBOARD: {PERM_CLIPBOARD_WRITE, PERM_CLIPBOARD_READ},
     PERM_TERMINAL: {PERM_TERMINAL_VIEW, PERM_TERMINAL_WRITE},
     PERM_ADMIN: {PERM_ADMIN_USERS, PERM_ADMIN_CONFIG,
                  PERM_ADMIN_SECRETS, PERM_ADMIN_AUDIT},

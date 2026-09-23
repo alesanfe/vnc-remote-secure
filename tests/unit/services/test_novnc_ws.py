@@ -49,13 +49,15 @@ class TestBuildRfbFilter:
             lambda: _S())
 
     class _Sess:
-        def __init__(self, control, clip):
+        def __init__(self, control, clip, clip_r=None):
             self._c, self._cl = control, clip
+            self._cr = clip if clip_r is None else clip_r
 
         def has_permission(self, perm, resource):
             return {'desktop:keyboard': self._c,
                     'desktop:pointer': self._c,
-                    'desktop:clipboard_write': self._cl}.get(
+                    'desktop:clipboard_write': self._cl,
+                    'desktop:clipboard_read': self._cr}.get(
                         perm, False)
 
     def test_no_token_no_filter(self):
@@ -69,6 +71,16 @@ class TestBuildRfbFilter:
         self._store(monkeypatch, self._Sess(control=False, clip=False))
         f = H._build_rfb_filter('tok')
         assert f is not None
+
+    def test_write_only_clipboard_gets_filter(self, monkeypatch):
+        """clipboard_write without clipboard_read still activates the
+        filter — the server->client stream must be parsed to drop
+        ServerCutText."""
+        self._store(monkeypatch, self._Sess(
+            control=True, clip=True, clip_r=False))
+        f = H._build_rfb_filter('tok')
+        assert f is not None
+        assert f.allow_clipboard_read is False
 
     def test_unknown_session_no_filter(self, monkeypatch):
         self._store(monkeypatch, None)

@@ -86,13 +86,20 @@ def decode_all_payloads(data: bytes) -> bytes:
 
 
 def rfb_server_handshake() -> bytes:
-    """A complete RFB 3.8 server handshake (VncAuth)."""
+    """A complete RFB 3.8 server handshake (VncAuth, 32bpp pixels)."""
+    pixfmt = (b'\x20\x18\x00\x01'          # bpp=32 depth=24 truecolor
+              + b'\x00\xff\x00\xff\x00\xff'  # r/g/b max = 255
+              + b'\x10\x08\x00'            # shifts 16/8/0
+              + b'\x00\x00\x00')           # pad
+    server_init = (b'\x02\x80\x01\xe0'     # fb 640x480
+                   + pixfmt
+                   + b'\x00\x00\x00\x04'   # name length
+                   + b'desk')
     return (b'RFB 003.008\n'            # protocol version
             b'\x01\x02'                # 1 security type: VncAuth(2)
             + secrets.token_bytes(16)   # challenge
             + b'\x00\x00\x00\x00'       # SecurityResult OK
-            + secrets.token_bytes(20)   # ServerInit: fb + pixel-format
-            + b'\x00\x00\x00\x03desk')  # name-len + name
+            + server_init)
 
 
 def rfb_client_handshake() -> bytes:
@@ -350,3 +357,244 @@ def test_oversized_clipboard_dropped_with_permission(monkeypatch):
     # A small clipboard still passes — cap drops, does not kill.
     out2 = f.client_to_server(ws_client_frame(cut_text(b"ok")))
     assert decode_all_payloads(out2) == cut_text(b"ok")
+
+
+# ---------------------------------------------------------------------------
+# Server -> client decoder (desktop:clipboard_read)
+# ---------------------------------------------------------------------------
+
+def srv_cut_text(text=b'hello') -> bytes:
+    return b'\x03\x00\x00\x00' + len(text).to_bytes(4, 'big') + text
+
+
+def rect(enc, w, h, data=b'', x=0, y=0) -> bytes:
+    return (x.to_bytes(2, 'big') + y.to_bytes(2, 'big')
+            + w.to_bytes(2, 'big') + h.to_bytes(2, 'big')
+            + enc.to_bytes(4, 'big', signed=True) + data)
+
+
+def fb_update(*rects) -> bytes:
+    return (b'\x00\x00' + len(rects).to_bytes(2, 'big')
+            + b''.join(rects))
+
+
+def set_encodings(*encs) -> bytes:
+    return (b'\x02\x00' + len(encs).to_bytes(2, 'big')
+            + b''.join(e.to_bytes(4, 'big', signed=True) for e in encs))
+
+
+class TestServerSideFilter:
+    """The server->client stream is decoded: ServerCutText is gated
+    by desktop:clipboard_read, FBUpdates re-emit one rect per
+    message, un-negotiated encodings kill the connection."""
+
+    def test_cut_text_dropped_without_read(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        out = f.track_server(ws_server_frame(srv_cut_text()))
+        assert decode_all_payloads(out) == b''
+
+    def test_cut_text_forwarded_with_read(self):
+        f = RfbInputFilter(allow_clipboard_read=True)
+        drive_handshake(f)
+        out = f.track_server(ws_server_frame(srv_cut_text()))
+        assert decode_all_payloads(out) == srv_cut_text()
+
+    def test_cut_text_sanitized_with_read(self):
+        """Escape sequences in the REMOTE clipboard must not land in
+        the viewer\'s local clipboard either (paste-jacking)."""
+        f = RfbInputFilter(allow_clipboard_read=True)
+        drive_handshake(f)
+        evil = b'ls\x1b[31m\x07rm'
+        out = f.track_server(ws_server_frame(srv_cut_text(evil)))
+        payloads = decode_all_payloads(out)
+        assert payloads.startswith(b'\x03')
+        mlen = int.from_bytes(payloads[4:8], 'big')
+        assert b'\x1b' not in payloads[8:8 + mlen]
+        assert b'\x07' not in payloads[8:8 + mlen]
+
+    def test_cut_text_oversized_dropped(self):
+        f = RfbInputFilter(allow_clipboard_read=True)
+        drive_handshake(f)
+        big = srv_cut_text(b'x' * (2 * 1024 * 1024))
+        out = f.track_server(ws_server_frame(big))
+        assert decode_all_payloads(out) == b''
+
+    def test_bell_forwarded(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        out = f.track_server(ws_server_frame(b'\x02'))
+        assert decode_all_payloads(out) == b'\x02'
+
+    def test_end_of_continuous_forwarded(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        out = f.track_server(ws_server_frame(b'\x96'))
+        assert decode_all_payloads(out) == b'\x96'
+
+    def test_fence_forwarded(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        fence = b'\xf8\x00\x00\x00' + b'\x04' + b'\x00\x00\x00\x01' + b'abcd'
+        out = f.track_server(ws_server_frame(fence))
+        assert decode_all_payloads(out) == fence
+
+    def test_unknown_server_type_dead(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        assert f.track_server(
+            ws_server_frame(b'\xee' + b'x' * 8)) is None
+
+    def test_set_encodings_rewritten_to_safe(self):
+        """Tight(7)/TRLE(15)/unknown(-999) are stripped — the server
+        can only send rects the decoder can size."""
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        out = f.client_to_server(
+            ws_client_frame(set_encodings(7, 16, 5, 0, -999, -223)))
+        payloads = decode_all_payloads(out)
+        assert payloads == set_encodings(16, 5, 0, -223)
+
+    def test_set_encodings_fallback_when_all_stripped(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        out = f.client_to_server(
+            ws_client_frame(set_encodings(7, 15)))
+        # Client still gets video: CopyRect + Raw injected.
+        assert decode_all_payloads(out) == set_encodings(1, 0)
+
+    def test_fbu_raw_rect_forwarded(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        r = rect(0, 2, 2, b'P' * 16)       # Raw 2x2 @32bpp = 16B
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_multi_rect_split(self):
+        """An N-rect update re-emits as N single-rect updates."""
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        r1 = rect(1, 4, 4, b'\x00\x01\x00\x02')          # CopyRect
+        r2 = rect(0, 1, 1, b'P' * 4)                     # Raw 1x1
+        out = f.track_server(ws_server_frame(fb_update(r1, r2)))
+        assert decode_all_payloads(out) == (
+            b'\x00\x00\x00\x01' + r1
+            + b'\x00\x00\x00\x01' + r2)
+
+    def test_fbu_copyrect(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        r = rect(1, 8, 8, b'\x00\x64\x00\x64')
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_rre(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        data = (b'\x00\x00\x00\x01' + b'BGPX'
+                + b'FGPX' + b'\x00\x00\x00\x00\x00\x02\x00\x02')
+        r = rect(2, 4, 4, data)
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_zrle(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        data = b'\x00\x00\x00\x05' + b'ZDATA'
+        r = rect(16, 4, 4, data)
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_hextile_raw_tile(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        data = b'\x01' + b'T' * (4 * 4 * 4)   # subenc=Raw, 4x4 @32bpp
+        r = rect(5, 4, 4, data)
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_hextile_encoded_tile(self):
+        """bg + fg + 2 subrects + 1 coloured subrect per tile."""
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        data = (b'\x1e'                      # bg|fg|subrects|coloured
+                + b'BGPX' + b'FGPX'
+                + b'\x02' + b'\x00\x01' * 2
+                + b'\x01' + b'SRPX' + b'\x00\x02')
+        r = rect(5, 4, 4, data)
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_unknown_encoding_dead(self):
+        """Tight(7) was stripped from SetEncodings — a server sending
+        it anyway is a protocol violation: die, do not desync."""
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        r = rect(7, 4, 4, b'whatever')
+        assert f.track_server(
+            ws_server_frame(fb_update(r))) is None
+
+    def test_fbu_desktop_size_pseudo(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        r = rect(-223, 800, 600)             # DesktopSize: no data
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_cursor_pseudo(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        # 2x2 cursor @32bpp: 16B pixels + 2B mask ((2+7)//8 * 2)
+        r = rect(-239, 2, 2, b'C' * 16 + b'\x03\x03')
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fbu_desktop_name_pseudo(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        r = rect(-307, 0, 0, b'\x00\x00\x00\x04name')
+        out = f.track_server(ws_server_frame(fb_update(r)))
+        assert decode_all_payloads(out) == b'\x00\x00\x00\x01' + r
+
+    def test_fragmented_server_cut_text(self):
+        """A cut text split across WS frames is still dropped —
+        partial data must not leak."""
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        msg = srv_cut_text(b'secret-clipboard-data')
+        out1 = f.track_server(ws_server_frame(msg[:6], fin=False))
+        out2 = f.track_server(
+            ws_server_frame(msg[6:], opcode=0x0, fin=True))
+        assert decode_all_payloads(out1 + out2) == b''
+
+    def test_handshake_tail_plus_msg_same_frame(self):
+        """The WS payload completing ServerInit may carry a cut text
+        in the same frame — it must still be filtered, not pass
+        verbatim with the handshake tail."""
+        f = RfbInputFilter(allow_clipboard_read=False)
+        hs = rfb_server_handshake()
+        f.track_server(ws_server_frame(hs[:-8]))   # all but last 8B
+        # The client handshake frees the parked server tracker
+        # (sec_type) — then one server frame carries both the
+        # handshake tail and a cut text.
+        f.client_to_server(ws_client_frame(rfb_client_handshake()))
+        out = f.track_server(
+            ws_server_frame(hs[-8:] + srv_cut_text(b'leak')))
+        payloads = decode_all_payloads(out)
+        # Handshake tail forwarded; the cut text is NOT.
+        assert payloads == hs[-8:]
+
+    def test_server_stream_mixed_messages(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        drive_handshake(f)
+        stream = (b'\x02'                       # Bell
+                  + srv_cut_text(b'hidden')
+                  + b'\x02')                    # Bell
+        out = f.track_server(ws_server_frame(stream))
+        assert decode_all_payloads(out) == b'\x02\x02'
+
+    def test_handshake_bytes_pass_verbatim(self):
+        f = RfbInputFilter(allow_clipboard_read=False)
+        hs = rfb_server_handshake()
+        out = f.track_server(ws_server_frame(hs))
+        assert decode_all_payloads(out) == hs

@@ -13,12 +13,14 @@ that:
 RFB input filtering — ``view_only`` enforcement:
     The ``/websockify`` relay is byte-transparent by default, but when
     the client authenticates with an ephemeral session that lacks
-    ``desktop:control`` (or ``desktop:clipboard``) the relay activates
-    ``services.rfb_filter.RfbInputFilter``: a protocol-aware filter
-    that parses the client RFB message stream inside the WebSocket
-    frames and drops KeyEvent (4), PointerEvent (5) and ClientCutText
-    (6) messages. Unknown message types or unparseable streams close
-    the connection (fail closed). Regular (non-ephemeral) sessions are
+    ``desktop:control`` (or either clipboard direction) the relay
+    activates ``services.rfb_filter.RfbInputFilter``: a protocol-aware
+    filter that parses the RFB message streams inside the WebSocket
+    frames both ways — dropping KeyEvent (4), PointerEvent (5) and
+    ClientCutText (6) client->server, and ServerCutText (3)
+    server->client unless ``desktop:clipboard_read`` is held. Unknown
+    message types or unparseable streams close the connection (fail
+    closed). Regular (non-ephemeral) sessions are
     not filtered — they are full-control admin sessions.
 
 Security model:
@@ -146,15 +148,25 @@ def relay_rfb_stream(client_sock, upstream, rfb_filter=None):
                     if upstream_hdr_pending:
                         end = data.find(b'\r\n\r\n')
                         if end >= 0:
-                            # Header block complete; only the
-                            # remainder is WebSocket traffic.
-                            rfb_filter.track_server(data[end + 4:])
+                            # Header block complete; the 101 headers
+                            # pass verbatim, the WS remainder is
+                            # filtered.
+                            out = rfb_filter.track_server(
+                                data[end + 4:])
                             upstream_hdr_pending = False
+                            if out is None:
+                                return  # protocol violation: dead
+                            client_sock.sendall(data[:end + 4] + out)
+                            continue
                         # else: still inside the 101 headers —
-                        # nothing reaches the tracker yet.
-                    else:
-                        rfb_filter.track_server(data)
-                    client_sock.sendall(data)
+                        # nothing reaches the filter yet.
+                        client_sock.sendall(data)
+                        continue
+                    out = rfb_filter.track_server(data)
+                    if out is None:
+                        return
+                    if out:
+                        client_sock.sendall(out)
                 continue
             peer = upstream if sock is client_sock else client_sock
             peer.sendall(data)
@@ -304,19 +316,23 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 'desktop:keyboard', 'desktop')
             pointer = sess.has_permission(
                 'desktop:pointer', 'desktop')
-            clip = sess.has_permission(
+            clip_w = sess.has_permission(
                 'desktop:clipboard_write', 'desktop')
-            if keyboard and pointer and clip:
+            clip_r = sess.has_permission(
+                'desktop:clipboard_read', 'desktop')
+            if keyboard and pointer and clip_w and clip_r:
                 return None
             from vnc_remote_secure.services.rfb_filter import (
                 RfbInputFilter,
             )
             logger.info(
                 "RFB input filter active (keyboard=%s pointer=%s "
-                "clipboard_write=%s)", keyboard, pointer, clip)
+                "clipboard_write=%s clipboard_read=%s)",
+                keyboard, pointer, clip_w, clip_r)
             return RfbInputFilter(
                 allow_keyboard=keyboard, allow_pointer=pointer,
-                allow_clipboard_write=clip)
+                allow_clipboard_write=clip_w,
+                allow_clipboard_read=clip_r)
         except Exception as exc:  # noqa: BLE001 - fail CLOSED
             # A restricted session whose filter cannot be built must
             # not fall back to byte-transparent proxying — that would
