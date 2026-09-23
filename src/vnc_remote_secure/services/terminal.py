@@ -425,6 +425,101 @@ def _build_subprocess_args(cmd, shell, cwd):
     return [cmd_exe, '/c', cmd]
 
 
+_kill_job_handle = None
+
+
+def _assign_to_kill_job(proc) -> None:
+    """Windows: assign ``proc`` to a Job Object with KILL_ON_JOB_CLOSE.
+
+    When the last handle to the job closes — i.e. when this terminal
+    service process exits, even abruptly — Windows kills every
+    assigned process. Without it, a crashed/killed terminal service
+    orphans cmd/powershell children that keep an interactive shell
+    alive after the remote command that spawned them is gone. POSIX
+    children share the service's process group and are covered by
+    the manager's killpg path. Best-effort: nested-job hosts (and
+    AppContainer, which uses its own job) can reject the
+    assignment — taskkill /T remains the fallback.
+    """
+    global _kill_job_handle
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        if _kill_job_handle is None:
+            _kill_job_handle = k32.CreateJobObjectW(None, None)
+            if not _kill_job_handle:
+                return
+
+            class _Basic(ctypes.Structure):
+                _fields_ = [
+                    ('PerProcessUserTimeLimit', ctypes.c_int64),
+                    ('PerJobUserTimeLimit', ctypes.c_int64),
+                    ('LimitFlags', ctypes.c_uint32),
+                    ('MinimumWorkingSetSize', ctypes.c_size_t),
+                    ('MaximumWorkingSetSize', ctypes.c_size_t),
+                    ('ActiveProcessLimit', ctypes.c_uint32),
+                    ('Affinity', ctypes.c_size_t),
+                    ('PriorityClass', ctypes.c_uint32),
+                    ('SchedulingClass', ctypes.c_uint32)]
+
+            class _Io(ctypes.Structure):
+                _fields_ = [(k, ctypes.c_uint64) for k in (
+                    'ReadOperationCount', 'WriteOperationCount',
+                    'OtherOperationCount', 'ReadTransferCount',
+                    'WriteTransferCount', 'OtherTransferCount')]
+
+            class _Ext(ctypes.Structure):
+                _fields_ = [
+                    ('BasicLimitInformation', _Basic),
+                    ('IoInfo', _Io),
+                    ('ProcessMemoryLimit', ctypes.c_size_t),
+                    ('JobMemoryLimit', ctypes.c_size_t),
+                    ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                    ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+            # JobObjectExtendedLimitInformation = 9,
+            # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000.
+            info = _Ext()
+            info.BasicLimitInformation.LimitFlags = 0x2000
+            if not k32.SetInformationJobObject(
+                    _kill_job_handle, 9, ctypes.byref(info),
+                    ctypes.sizeof(info)):
+                _kill_job_handle = None
+                return
+        # Resolve a HANDLE: subprocess.Popen exposes _handle; an
+        # asyncio subprocess Process carries it under
+        # _transport._proc; a bare pid needs OpenProcess
+        # (PROCESS_SET_QUOTA|PROCESS_TERMINATE = 0x0101).
+        handle = getattr(proc, '_handle', None)
+        opened = False
+        if handle is None:
+            inner = getattr(getattr(proc, '_transport', None),
+                            '_proc', None)
+            handle = getattr(inner, '_handle', None)
+        if handle is None:
+            pid = getattr(proc, 'pid', None) or (
+                proc if isinstance(proc, int) else None)
+            if not pid:
+                return
+            handle = k32.OpenProcess(0x0101, False, int(pid))
+            opened = bool(handle)
+            if not handle:
+                return
+        try:
+            if not k32.AssignProcessToJobObject(
+                    _kill_job_handle, int(handle)):
+                logger.debug(
+                    'Job assignment refused for pid %s (nested job?)',
+                    getattr(proc, 'pid', proc))
+        finally:
+            if opened:
+                k32.CloseHandle(handle)
+    except Exception as e:  # noqa: BLE001
+        logger.debug('Kill-job unavailable: %s', e)
+
+
 def _kill_process_tree(proc):
     """Kill ``proc`` and its whole process tree.
 
@@ -946,6 +1041,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                     env=child_env,
                     **kwargs
                 )
+            if sys.platform == 'win32':
+                # Orphan guard: shells die with this service even if
+                # the service dies before running cleanup.
+                _assign_to_kill_job(proc)
             self.current_process = proc
         except Exception as e:
             log_exception(e, 'Web Terminal subprocess start')

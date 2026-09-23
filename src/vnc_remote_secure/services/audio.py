@@ -149,6 +149,13 @@ class AudioStreamServer:
                 stderr=subprocess.PIPE,
                 env=child_env,
             )
+            if os.name == 'nt':
+                # Orphan guard: an abruptly killed audio service must
+                # not leave ffmpeg capturing audio indefinitely —
+                # the Job Object kills it when this process exits.
+                from vnc_remote_secure.services.terminal import (
+                    _assign_to_kill_job)
+                _assign_to_kill_job(self.ffmpeg_process)
             self._ffmpeg_running.set()
             logger.info("ffmpeg started (PID: %s)", self.ffmpeg_process.pid)
             return True
