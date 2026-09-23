@@ -324,24 +324,43 @@ class TestDeviceCreationFailure:
         assert body['type'] == 'error'
 
 
-class TestUnknownMessageType:
-    def test_unknown_type_ignored(self, monkeypatch):
-        """An unknown message type must be a no-op — never crash or
-        inject input."""
+class TestMessageDispatch:
+    """_process_gamepad_message is the per-message dispatcher —
+    drive it directly."""
+
+    def _server(self, monkeypatch):
         injector = _FakeInjector()
         _patch_adapter(monkeypatch, injector)
         server = gamepad.GamepadServer('127.0.0.1', 7788)
         server.injector = injector
-        # Feed an unknown event through the per-message dispatcher.
-        handler = None
-        for name in dir(server):
-            if 'handle' in name and 'client' not in name:
-                m = getattr(server, name)
-                if callable(m):
-                    handler = m
-                    break
-        if handler is None:
-            pytest.skip('no per-message handler exposed')
-        handler({'type': 'does-not-exist'})
+        return server, injector
+
+    def test_unknown_type_noop(self, monkeypatch):
+        """Unknown types must not inject input or crash."""
+        server, injector = self._server(monkeypatch)
+        resp = gamepad._process_gamepad_message(
+            server, {'type': 'does-not-exist'}, None)
+        assert resp is None
         assert not injector.buttons
         assert not injector.axes
+
+    def test_button_and_axis_inject(self, monkeypatch):
+        server, injector = self._server(monkeypatch)
+        gamepad._process_gamepad_message(
+            server, {'type': 'button', 'button': 'A', 'value': 1}, None)
+        gamepad._process_gamepad_message(
+            server, {'type': 'axis', 'axis': 'lx', 'value': 0.5}, None)
+        assert injector.buttons == [('A', 1)]
+        assert injector.axes == [('lx', 0.5)]
+
+    def test_ping_pongs(self, monkeypatch):
+        server, _ = self._server(monkeypatch)
+        resp = gamepad._process_gamepad_message(
+            server, {'type': 'ping'}, None)
+        assert resp == {'type': 'pong'}
+
+    def test_malformed_message_no_type(self, monkeypatch):
+        """A message without 'type' must be ignored, not KeyError."""
+        server, injector = self._server(monkeypatch)
+        assert gamepad._process_gamepad_message(server, {}, None) is None
+        assert not injector.buttons
