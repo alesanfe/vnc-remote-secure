@@ -125,6 +125,12 @@
       "type": "string",
       "description": "When set, backups are Fernet-encrypted (.enc.tar.gz) and restore decrypts automatically."
     },
+    "RFB_MAX_CLIPBOARD": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 8388608,
+      "description": "Maximum bytes for a single ClientCutText clipboard message (default 1 MiB) — oversized payloads are dropped to bound server memory and limit the exfil channel."
+    },
     "RESTORE_KEEP_SESSIONS": {
       "type": "boolean",
       "description": "Keep the ephemeral session store when restoring a backup (default off — restored share links are expired to avoid resurrecting sessions revoked after the backup)."

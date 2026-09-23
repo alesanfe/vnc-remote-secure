@@ -64,6 +64,16 @@ _MAX_WS_PAYLOAD = 8 * 1024 * 1024
 _MAX_RFB_BUF = 8 * 1024 * 1024
 
 
+def _max_clipboard() -> int:
+    """Max bytes for a single ClientCutText (default 1 MiB)."""
+    import os
+    try:
+        return max(1024, int(
+            os.environ.get('RFB_MAX_CLIPBOARD', str(1024 * 1024))))
+    except (TypeError, ValueError):
+        return 1024 * 1024
+
+
 def _ws_frame(payload: bytes) -> bytes:
     """Encode ``payload`` as a single masked binary WebSocket frame.
 
@@ -381,8 +391,17 @@ class RfbInputFilter:
             if mtype in (_TYPE_POINTER_EVENT, _TYPE_SET_DESKTOP_SIZE) \
                     and not self.allow_pointer:
                 continue  # dropped: no desktop:pointer/control
-            if mtype == _TYPE_CUT_TEXT and not self.allow_clipboard_write:
-                continue  # dropped: no desktop:clipboard_write/clipboard
+            if mtype == _TYPE_CUT_TEXT:
+                if not self.allow_clipboard_write:
+                    continue  # dropped: no desktop:clipboard_write/clipboard
+                if mlen > _max_clipboard():
+                    # Clipboard size cap: a cut-text is bounded memory
+                    # on the server and a potential exfil channel —
+                    # drop oversized payloads, keep the stream in sync.
+                    logger.warning(
+                        "RFB filter: ClientCutText %d bytes exceeds "
+                        "cap %d — dropped", mlen, _max_clipboard())
+                    continue
             out += _ws_frame(raw)
         return bytes(out)
 

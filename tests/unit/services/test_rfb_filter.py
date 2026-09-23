@@ -297,3 +297,19 @@ class TestGranularPermissions:
         f = RfbInputFilter(allow_clipboard=True)
         assert f.allow_clipboard_write is True
         assert f.allow_clipboard is True
+
+
+def test_oversized_clipboard_dropped_with_permission(monkeypatch):
+    """A ClientCutText past RFB_MAX_CLIPBOARD is dropped even when
+    the session HAS clipboard_write — the cap bounds server memory
+    and the exfil channel."""
+    from vnc_remote_secure.services.rfb_filter import RfbInputFilter
+    monkeypatch.setenv("RFB_MAX_CLIPBOARD", "1024")
+    f = RfbInputFilter(allow_clipboard_write=True)
+    drive_handshake(f)
+    big = b"x" * 2048
+    out = f.client_to_server(ws_client_frame(cut_text(big)))
+    assert out == b""
+    # A small clipboard still passes — cap drops, does not kill.
+    out2 = f.client_to_server(ws_client_frame(cut_text(b"ok")))
+    assert decode_all_payloads(out2) == cut_text(b"ok")
