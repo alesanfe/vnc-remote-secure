@@ -13,6 +13,7 @@ from flask import (
     session,
 )
 
+from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.errors import error_json_response
 from vnc_remote_secure.security.http_auth import check_landing_auth, client_ip_from
 
@@ -44,8 +45,7 @@ def _session_exchange(signed: str):
     # X-Forwarded-Proto only counts behind a configured trusted proxy —
     # a direct client claiming https would receive a Secure cookie the
     # browser never returns over plain HTTP.
-    trusted = os.environ.get(
-        'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+    trusted = env_flag('TRUSTED_PROXY', 'false')
     secure = (request.is_secure
               or (trusted and
                   request.headers.get('X-Forwarded-Proto', '') == 'https'))

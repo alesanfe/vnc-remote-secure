@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 
+from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.constants import (
     DEFAULT_AUDIO_STREAM_PORT,
     DEFAULT_GAMEPAD_PORT,
@@ -431,7 +432,7 @@ def _create_temp_user():
     """
     temp_user = os.environ.get('TEMP_USER', 'remote')
     temp_pass = os.environ.get('TEMP_USER_PASS', '')
-    keep_temp = os.environ.get('KEEP_TEMP_USER', 'false').lower() in ('true', '1', 'yes')
+    keep_temp = env_flag('KEEP_TEMP_USER', 'false')
 
     if not temp_user:
         logger.info("TEMP_USER is empty; skipping temp user creation.")

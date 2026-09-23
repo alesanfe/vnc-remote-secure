@@ -422,97 +422,117 @@ class _ServerMsgParser:
         self._rects_left = 0
         self._rect_pending = 0
 
+    _MORE, _WAIT, _DEAD = range(3)  # per-state step results
+
     def feed(self, data: bytes) -> bytes | None:
         self.buf += data
         out = bytearray()
         while True:
             if self.state == 'idle':
-                if not self.buf:
-                    break
-                t = self.buf[0]
-                if t == _SRV_TYPE_FB_UPDATE:
-                    self.state = 'fbu_hdr'
-                    continue
-                if t in _SRV_FIXED_LEN:
-                    need = _SRV_FIXED_LEN[t]
-                    if len(self.buf) < need:
-                        break
-                    out += self.buf[:need]
-                    del self.buf[:need]
-                    continue
-                if t in _SRV_VAR_LEN:
-                    hdr, tail = _SRV_VAR_LEN[t]
-                    if len(self.buf) < hdr:
-                        break
-                    need = hdr + tail(bytes(self.buf[:hdr]))
-                    if len(self.buf) < need:
-                        break
-                    raw = bytes(self.buf[:need])
-                    del self.buf[:need]
-                    if t == _SRV_TYPE_CUT_TEXT:
-                        if not self.allow_read:
-                            continue  # no desktop:clipboard_read
-                        if need > _max_clipboard():
-                            logger.warning(
-                                "RFB filter: ServerCutText %d bytes "
-                                "exceeds cap %d — dropped",
-                                need, _max_clipboard())
-                            continue
-                        raw = _sanitize_cut_text(raw)
-                        if len(raw) <= 8:
-                            continue
-                    out += raw
-                    continue
-                logger.warning(
-                    "RFB filter: unknown server message type %d — "
-                    "closing", t)
+                step = self._feed_idle(out)
+            elif self.state == 'fbu_hdr':
+                step = self._feed_fbu_hdr(out)
+            elif self.state == 'rect_hdr':
+                step = self._feed_rect_hdr(out)
+            else:  # rect_data
+                step = self._feed_rect_data(out)
+            if step == self._DEAD:
                 return None
-            if self.state == 'fbu_hdr':
-                if len(self.buf) < 4:
-                    break
-                self._rects_left = int.from_bytes(
-                    self.buf[2:4], 'big')
-                del self.buf[:4]
-                if self._rects_left == 0:
-                    out += b'\x00\x00\x00\x00'  # empty update, verbatim
-                    self.state = 'idle'
-                else:
-                    self.state = 'rect_hdr'
-                continue
-            if self.state == 'rect_hdr':
-                if len(self.buf) < 12:
-                    break
-                w = int.from_bytes(self.buf[4:6], 'big')
-                h = int.from_bytes(self.buf[6:8], 'big')
-                enc = int.from_bytes(
-                    self.buf[8:12], 'big', signed=True)
-                datalen = self._rect_data_len(enc, w, h)
-                if datalen == _INCOMPLETE:
-                    break  # length field not fully buffered yet
-                if datalen is None:
-                    logger.warning(
-                        "RFB filter: un-negotiated/unknown rect "
-                        "encoding %d — closing", enc)
-                    return None
-                # Re-emit as a single-rect FramebufferUpdate.
-                out += b'\x00\x00\x00\x01' + bytes(self.buf[:12])
-                del self.buf[:12]
-                self._rect_pending = datalen
-                self._rects_left -= 1
-                self.state = 'rect_data'
-                continue
-            if self.state == 'rect_data':
-                n = min(len(self.buf), self._rect_pending)
-                if n == 0:
-                    break
-                out += self.buf[:n]
-                del self.buf[:n]
-                self._rect_pending -= n
-                if self._rect_pending == 0:
-                    self.state = ('idle' if self._rects_left == 0
-                                  else 'rect_hdr')
-                continue
+            if step == self._WAIT:
+                break
         return bytes(out)
+
+    def _feed_idle(self, out: bytearray) -> int:
+        """One step of message-boundary parsing (idle state)."""
+        if not self.buf:
+            return self._WAIT
+        t = self.buf[0]
+        if t == _SRV_TYPE_FB_UPDATE:
+            self.state = 'fbu_hdr'
+            return self._MORE
+        if t in _SRV_FIXED_LEN:
+            need = _SRV_FIXED_LEN[t]
+            if len(self.buf) < need:
+                return self._WAIT
+            out += self.buf[:need]
+            del self.buf[:need]
+            return self._MORE
+        if t in _SRV_VAR_LEN:
+            hdr, tail = _SRV_VAR_LEN[t]
+            if len(self.buf) < hdr:
+                return self._WAIT
+            need = hdr + tail(bytes(self.buf[:hdr]))
+            if len(self.buf) < need:
+                return self._WAIT
+            raw = bytes(self.buf[:need])
+            del self.buf[:need]
+            if t == _SRV_TYPE_CUT_TEXT:
+                if not self.allow_read:
+                    return self._MORE  # no desktop:clipboard_read
+                if need > _max_clipboard():
+                    logger.warning(
+                        "RFB filter: ServerCutText %d bytes "
+                        "exceeds cap %d — dropped",
+                        need, _max_clipboard())
+                    return self._MORE
+                raw = _sanitize_cut_text(raw)
+                if len(raw) <= 8:
+                    return self._MORE
+            out += raw
+            return self._MORE
+        logger.warning(
+            "RFB filter: unknown server message type %d — "
+            "closing", t)
+        return self._DEAD
+
+    def _feed_fbu_hdr(self, out: bytearray) -> int:
+        """Consume the FramebufferUpdate header (rect count)."""
+        if len(self.buf) < 4:
+            return self._WAIT
+        self._rects_left = int.from_bytes(self.buf[2:4], 'big')
+        del self.buf[:4]
+        if self._rects_left == 0:
+            out += b'\x00\x00\x00\x00'  # empty update, verbatim
+            self.state = 'idle'
+        else:
+            self.state = 'rect_hdr'
+        return self._MORE
+
+    def _feed_rect_hdr(self, out: bytearray) -> int:
+        """Consume one rect header; emit a single-rect update."""
+        if len(self.buf) < 12:
+            return self._WAIT
+        w = int.from_bytes(self.buf[4:6], 'big')
+        h = int.from_bytes(self.buf[6:8], 'big')
+        enc = int.from_bytes(self.buf[8:12], 'big', signed=True)
+        datalen = self._rect_data_len(enc, w, h)
+        if datalen == _INCOMPLETE:
+            return self._WAIT  # length field not fully buffered yet
+        if datalen is None:
+            logger.warning(
+                "RFB filter: un-negotiated/unknown rect "
+                "encoding %d — closing", enc)
+            return self._DEAD
+        # Re-emit as a single-rect FramebufferUpdate.
+        out += b'\x00\x00\x00\x01' + bytes(self.buf[:12])
+        del self.buf[:12]
+        self._rect_pending = datalen
+        self._rects_left -= 1
+        self.state = 'rect_data'
+        return self._MORE
+
+    def _feed_rect_data(self, out: bytearray) -> int:
+        """Stream pending rect payload bytes through."""
+        n = min(len(self.buf), self._rect_pending)
+        if n == 0:
+            return self._WAIT
+        out += self.buf[:n]
+        del self.buf[:n]
+        self._rect_pending -= n
+        if self._rect_pending == 0:
+            self.state = ('idle' if self._rects_left == 0
+                          else 'rect_hdr')
+        return self._MORE
 
     def _rect_data_len(self, enc: int, w: int, h: int):
         """Bytes of rect data after the 12-byte header.

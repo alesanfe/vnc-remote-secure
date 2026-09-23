@@ -343,8 +343,8 @@ def _check_gamepad_capability(checks):
     Session 0 — the check reports whether an interactive session is
     reachable, since 'driver' per se does not apply to SendInput.
     """
-    if os.environ.get('GAMEPAD_ENABLED', 'false').lower() not in (
-            'true', '1', 'yes'):
+    from vnc_remote_secure.core.config import env_flag
+    if not env_flag('GAMEPAD_ENABLED'):
         return
     if sys.platform == 'win32':
         # Best backend first: ViGEmBus gives a REAL XInput controller —

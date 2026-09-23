@@ -21,6 +21,7 @@ import secrets
 import threading
 import time
 
+from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.security.token_signing import (
     TOKEN_TYPE_EPHEMERAL,
     sign_token,
@@ -560,9 +561,7 @@ class SessionStore:
                 deployments can require the binding.
         """
         if (not resource
-                and os.environ.get(
-                    'EPHEMERAL_REQUIRE_RESOURCE', '').lower()
-                in ('1', 'true', 'yes')):
+                and env_flag('EPHEMERAL_REQUIRE_RESOURCE', '')):
             raise ValueError(
                 'resource binding required: '
                 'EPHEMERAL_REQUIRE_RESOURCE=true is set — pass '
@@ -1059,48 +1058,8 @@ def activate_ephemeral_session(signed_token: str,
 
     with store._lock:
         session = store.get(token)
-        if not session:
-            return None
-        if session.revoked:
-            return None
-        if time.time() >= session.expires_at:
-            return None
-        if session.single_use and session.used:
-            return None
-        if session.max_uses > 0 and session.use_count >= session.max_uses:
-            return None
-        # Deployment binding: a share link issued by a different
-        # deployment (foreign instance.id) must not activate here.
-        if session.instance_id and session.instance_id != _get_instance_id():
-            return None
-        # IP binding at activation too — without it a link bound to a
-        # client IP could still be *burned* by a different caller
-        # (single-use DoS on the intended recipient), even though the
-        # per-request check would later reject the attacker.
-        # client_ip=None means "no caller context" (CLI/API paths) —
-        # allowed, the per-request check still enforces the binding.
-        # An empty STRING means a request resolved to no IP (suspicious,
-        # e.g. malformed XFF) — denied.
-        if session.allowed_ip == 'first-observed' and client_ip:
-            # Pin the binding to the first activation IP: the
-            # operator wants "whoever redeems first" rather than a
-            # literal address — useful for mobile clients whose IP is
-            # unknowable at link-creation time.
-            session.allowed_ip = client_ip
-        if session.allowed_ip and client_ip is not None and \
-                not _ip_matches(session.allowed_ip, client_ip):
-            return None
-        if session.single_use:
-            # Cross-process single-use claim (see
-            # consume_ephemeral_session): the in-process lock cannot
-            # stop two services activating the same link at once.
-            if not _claim_consumed(token, session.expires_at):
-                return None
-        elif (session.max_uses > 0
-                # Multi-use: the local read-modify-write of use_count races
-                # across processes — claim one use via the shared-state
-                # atomic increment and reject when the budget is exhausted.
-                and not _claim_use(token, session.max_uses, session.expires_at)):
+        if not session or _activation_denied(
+                session, token, client_ip):
             return None
         session.mark_used()
         store._save()
@@ -1119,6 +1078,49 @@ def activate_ephemeral_session(signed_token: str,
         except Exception:  # noqa: BLE001
             pass
         return token
+
+
+def _activation_denied(session, token: str,
+                       client_ip: str | None) -> bool:
+    """Every reject-before-burn rule for share-link activation."""
+    if session.revoked or time.time() >= session.expires_at:
+        return True
+    if session.single_use and session.used:
+        return True
+    if session.max_uses > 0 and session.use_count >= session.max_uses:
+        return True
+    # Deployment binding: a share link issued by a different
+    # deployment (foreign instance.id) must not activate here.
+    if session.instance_id and session.instance_id != _get_instance_id():
+        return True
+    # IP binding at activation too — without it a link bound to a
+    # client IP could still be *burned* by a different caller
+    # (single-use DoS on the intended recipient), even though the
+    # per-request check would later reject the attacker.
+    # client_ip=None means "no caller context" (CLI/API paths) —
+    # allowed, the per-request check still enforces the binding.
+    # An empty STRING means a request resolved to no IP (suspicious,
+    # e.g. malformed XFF) — denied.
+    if session.allowed_ip == 'first-observed' and client_ip:
+        # Pin the binding to the first activation IP: the
+        # operator wants "whoever redeems first" rather than a
+        # literal address — useful for mobile clients whose IP is
+        # unknowable at link-creation time.
+        session.allowed_ip = client_ip
+    if session.allowed_ip and client_ip is not None and \
+            not _ip_matches(session.allowed_ip, client_ip):
+        return True
+    if session.single_use:
+        # Cross-process single-use claim (see
+        # consume_ephemeral_session): the in-process lock cannot
+        # stop two services activating the same link at once.
+        return not _claim_consumed(token, session.expires_at)
+    # Multi-use: the local read-modify-write of use_count races
+    # across processes — claim one use via the shared-state
+    # atomic increment and reject when the budget is exhausted.
+    return (session.max_uses > 0
+            and not _claim_use(
+                token, session.max_uses, session.expires_at))
 
 
 def check_session_permission(

@@ -25,6 +25,7 @@ Legacy aliases (backwards-compatible):
 import logging
 import os
 
+from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.constants import (
     DEFAULT_LANDING_PORT,
     DEFAULT_SESSION_SAMESITE,
@@ -277,8 +278,8 @@ def validate_profile_consistency() -> list:
     profile = _PROFILE_ALIASES.get(get_profile(), get_profile())
     tls = _is_tls_enabled()
     bind = os.environ.get('BIND_HOST', '127.0.0.1')
-    nginx = os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes')
-    mfa = os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes')
+    nginx = env_flag('NGINX_ENABLED', 'false')
+    mfa = env_flag('MFA_REQUIRED', 'false')
 
     # justification: detection, not a bind
     if not tls and bind == '0.0.0.0' and not nginx:  # nosec B104
@@ -329,8 +330,8 @@ def get_blocking_findings() -> list:
     profile = _PROFILE_ALIASES.get(get_profile(), get_profile())
     tls = _is_tls_enabled()
     bind = os.environ.get('BIND_HOST', '127.0.0.1')
-    mfa = os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes')
-    nginx = os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes')
+    mfa = env_flag('MFA_REQUIRED', 'false')
+    nginx = env_flag('NGINX_ENABLED', 'false')
 
     # Backends must NEVER bind to 0.0.0.0 — only nginx may.
     # justification: detection, not a bind
@@ -386,8 +387,7 @@ def get_blocking_findings() -> list:
     # a strong password for a disabled service would block startups for
     # no security benefit (e.g. USER_UI_ENABLED=false).
     weak_lower = {p.lower() for p in WEAK_PASSWORDS}
-    user_ui_on = os.environ.get(
-        'USER_UI_ENABLED', 'false').lower() in ('true', '1', 'yes')
+    user_ui_on = env_flag('USER_UI_ENABLED', 'false')
 
     def _check_secret(env_name: str, code: str, label: str) -> None:
         value = os.environ.get(env_name, '')

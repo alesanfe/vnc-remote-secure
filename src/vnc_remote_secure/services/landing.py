@@ -19,12 +19,12 @@ import platform
 
 from vnc_remote_secure.core.errors import error_json, log_exception
 from vnc_remote_secure.platform.detection import is_windows
-from vnc_remote_secure.security.http_auth import client_ip_from
+from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
 
 logger = logging.getLogger(__name__)
 
 # Load configuration from .env file (never hardcode credentials)
-from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.config import env_flag, load_env_file
 from vnc_remote_secure.core.constants import (
     DEFAULT_AUDIO_STREAM_PORT,
     DEFAULT_GAMEPAD_PORT,
@@ -931,12 +931,8 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
     def _ephemeral_cookie(self) -> str:
         """Extract the ``vnc_ephemeral`` cookie value, if present."""
-        cookie = self.headers.get('Cookie', '')
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith('vnc_ephemeral='):
-                return part.split('=', 1)[1].strip()
-        return ''
+        return cookie_value(
+            self.headers.get('Cookie', ''), 'vnc_ephemeral')
 
     def _valid_ephemeral_cookie(self) -> bool:
         """Return True when the client holds an activated ephemeral session."""
@@ -1010,8 +1006,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         # TRUSTED_PROXY — a direct client claiming https would get a
         # Secure cookie the browser never returns over plain HTTP.
         import ssl as _ssl
-        trusted = os.environ.get(
-            'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+        trusted = env_flag('TRUSTED_PROXY', 'false')
         is_tls = ((trusted and
                    self.headers.get('X-Forwarded-Proto', '') == 'https')
                   or isinstance(self.connection, _ssl.SSLSocket))
@@ -1146,12 +1141,8 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         when there is no session cookie or no refresh is due.
         """
         try:
-            raw = ''
-            for part in (self.headers.get('Cookie', '') or '').split(';'):
-                part = part.strip()
-                if part.startswith('vnc_session='):
-                    raw = part.split('=', 1)[1].strip()
-                    break
+            raw = cookie_value(
+                self.headers.get('Cookie', ''), 'vnc_session')
             if not raw:
                 return None
             from vnc_remote_secure.security.sessions import (
@@ -1166,8 +1157,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             # X-Forwarded-Proto decides whether the refreshed cookie
             # keeps the Secure flag (a missing flag would downgrade
             # the attribute on re-issue).
-            trusted = os.environ.get(
-                'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+            trusted = env_flag('TRUSTED_PROXY', 'false')
             is_tls = ((trusted and
                        self.headers.get('X-Forwarded-Proto', '') == 'https')
                       or isinstance(self.connection, _ssl.SSLSocket))
@@ -1183,8 +1173,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             # proxy — a direct client can spoof these headers and the
             # portal would render links pointing at the attacker's
             # host. Same TRUSTED_PROXY gate as client_ip_from().
-            trusted = os.environ.get(
-                'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+            trusted = env_flag('TRUSTED_PROXY', 'false')
             content = generate_landing_page(
                 forwarded_host=(
                     self.headers.get('X-Forwarded-Host') if trusted else None),
@@ -1246,8 +1235,7 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             # ws/wss scheme follows the page's transport (X-Forwarded-
             # Proto for proxied, SSLSocket for direct TLS) so browsers
             # never get a mixed-content ws:// from an https:// page.
-            trusted = os.environ.get(
-                'TRUSTED_PROXY', 'false').lower() in ('true', '1', 'yes')
+            trusted = env_flag('TRUSTED_PROXY', 'false')
             fhost = self.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
             fproto = self.headers.get('X-Forwarded-Proto', '').split(',')[0].strip()
             # The Host values land verbatim inside a JS string literal in

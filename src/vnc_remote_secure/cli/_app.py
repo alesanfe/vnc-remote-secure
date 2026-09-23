@@ -2,10 +2,10 @@
 
 Internal to ``vnc_remote_secure.cli`` — not part of the public API.
 """
-import os
 import sys
 
 from vnc_remote_secure.cli._parser import create_parser
+from vnc_remote_secure.core.config import env_flag
 
 
 def main():
@@ -38,7 +38,7 @@ def main():
         # Honour both `--verbose` and the documented `VERBOSE` env var so
         # operators can get full tracebacks without modifying the command.
         verbose = (hasattr(args, 'verbose') and args.verbose) or \
-            os.environ.get('VERBOSE', 'false').lower() in ('true', '1', 'yes')
+            env_flag('VERBOSE', 'false')
         if verbose:
             raise
         print(f"Error: {e}", file=sys.stderr)

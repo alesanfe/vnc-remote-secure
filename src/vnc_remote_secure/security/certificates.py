@@ -155,11 +155,10 @@ def _tls_enabled_env():
         from vnc_remote_secure.core.config import _is_tls_enabled_env
         return _is_tls_enabled_env()
     except ImportError:
-        disable_val = os.environ.get('DISABLE_SSL', '').strip()
-        if disable_val and disable_val.lower() in ('true', '1', 'yes'):
+        from vnc_remote_secure.core.config import env_flag
+        if env_flag('DISABLE_SSL', ''):
             return False
-        tls_val = os.environ.get('TLS_ENABLED', '').strip()
-        return not (tls_val and tls_val.lower() in ('false', '0', 'no'))
+        return env_flag('TLS_ENABLED', 'true')
 
 
 def _resolve_cert_key_paths(cert_file, key_file):

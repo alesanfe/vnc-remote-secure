@@ -19,13 +19,11 @@ import smtplib
 import urllib.request
 from email.message import EmailMessage
 
+from vnc_remote_secure.core.config import env_flag
+
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = 10
-
-
-def _env_flag(name, default='false'):
-    return os.environ.get(name, default).lower() in ('true', '1', 'yes')
 
 
 def _alert_id() -> str:
@@ -143,13 +141,13 @@ def _validate_webhook_url(url):
         p = urlparse(url)
     except ValueError:
         return 'unparseable URL'
-    if p.scheme == 'http' and not _env_flag('ALERT_WEBHOOK_ALLOW_HTTP'):
+    if p.scheme == 'http' and not env_flag('ALERT_WEBHOOK_ALLOW_HTTP'):
         return 'http:// requires ALERT_WEBHOOK_ALLOW_HTTP=true'
     if p.scheme not in ('https', 'http'):
         return f'disallowed scheme {p.scheme!r}'
     if not p.hostname:
         return 'no hostname'
-    if not _env_flag('ALERT_WEBHOOK_ALLOW_PRIVATE'):
+    if not env_flag('ALERT_WEBHOOK_ALLOW_PRIVATE'):
         if not _resolved_addrs_public(p.hostname):
             return 'resolves to a non-public address'
     return None
@@ -194,7 +192,7 @@ def _post_pinned(url, body, headers) -> bool:
     path = p.path or '/'
     if p.query:
         path += '?' + p.query
-    if _env_flag('ALERT_WEBHOOK_ALLOW_PRIVATE'):
+    if env_flag('ALERT_WEBHOOK_ALLOW_PRIVATE'):
         dial = host  # operator opted out of pinning — connect by name
     else:
         dial = next(
@@ -285,8 +283,7 @@ def send_email_alert(title, message):
             # continuing would transmit credentials and the alert body
             # in cleartext. Set ALERT_SMTP_TLS=false only for a known
             # plaintext relay.
-            if os.environ.get('ALERT_SMTP_TLS', 'true').lower() in (
-                    'true', '1', 'yes'):
+            if env_flag('ALERT_SMTP_TLS', 'true'):
                 try:
                     smtp.starttls()
                 except smtplib.SMTPException as exc:
@@ -325,7 +322,7 @@ def notify(title, message, severity='info', force=False):
     Returns:
         Number of channels that accepted the alert.
     """
-    if not (force or _env_flag('ALERTS_ENABLED')):
+    if not (force or env_flag('ALERTS_ENABLED')):
         return 0
 
     import time as _time
@@ -345,7 +342,7 @@ def notify(title, message, severity='info', force=False):
 
     alert_id = _alert_id()
     sent = 0
-    if _env_flag('DISCORD_ENABLED') and send_discord_alert(
+    if env_flag('DISCORD_ENABLED') and send_discord_alert(
             title, message, severity, alert_id=alert_id):
         sent += 1
     if send_webhook_alert(title, message, severity, alert_id=alert_id):

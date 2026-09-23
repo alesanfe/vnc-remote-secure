@@ -11,7 +11,7 @@ import secrets
 import struct
 import time
 
-from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.config import env_flag, load_env_file
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +234,6 @@ def mfa_required_for_login() -> bool:
     - MFA_REQUIRED env var is set to true
     """
     load_env_file()
-    if os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes'):
+    if env_flag('MFA_REQUIRED', 'false'):
         return True
     return is_mfa_enabled()

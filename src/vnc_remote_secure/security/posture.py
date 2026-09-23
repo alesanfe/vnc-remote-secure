@@ -7,13 +7,9 @@ display in the operational dashboard.
 import logging
 import os
 
-from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.config import env_flag, load_env_file
 
 logger = logging.getLogger(__name__)
-
-
-def _env_bool(name: str, default: str = 'false') -> bool:
-    return os.environ.get(name, default).lower() in ('true', '1', 'yes')
 
 
 def _env_val(name: str, default: str = '') -> str:
@@ -93,7 +89,7 @@ def _check_tls_posture(findings):
 def _check_auth_posture(findings):
     """Add findings about authentication (MFA, rate limit, passwords, secrets)."""
     # MFA
-    mfa = _env_bool('MFA_REQUIRED', 'false') or bool(_env_val('TOTP_SECRET'))
+    mfa = env_flag('MFA_REQUIRED', 'false') or bool(_env_val('TOTP_SECRET'))
     _add_finding(
         findings,
         'MFA enabled',
@@ -222,7 +218,7 @@ def _check_network_posture(findings):
     )
 
     # nginx reverse proxy
-    nginx = _env_bool('NGINX_ENABLED', 'false')
+    nginx = env_flag('NGINX_ENABLED', 'false')
     _add_finding(
         findings,
         'Reverse proxy (nginx) enabled',
@@ -262,7 +258,7 @@ def _check_session_posture(findings):
 def _check_temp_user_posture(findings):
     """Add findings about temp user cleanup."""
     # Temp user cleanup
-    keep_user = _env_bool('KEEP_TEMP_USER', 'false')
+    keep_user = env_flag('KEEP_TEMP_USER', 'false')
     _add_finding(
         findings,
         'Temp user removed on exit',

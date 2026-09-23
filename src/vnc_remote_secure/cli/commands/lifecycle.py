@@ -44,6 +44,48 @@ def _apply_no_ssl(args) -> bool:
     return True
 
 
+def _summary_url(config) -> str:
+    """Effective entry-point URL for the post-install summary."""
+    tls = bool(config.get('tls_enabled'))
+    domain = os.environ.get('DUCK_DOMAIN', '').strip() or '127.0.0.1'
+    if config.get('nginx_enabled'):
+        port = int(os.environ.get(
+            'NGINX_HTTPS_PORT' if tls else 'NGINX_HTTP_PORT',
+            '443' if tls else '80'))
+    else:
+        port = int(config.get('landing_port') or 8080)
+    default_port = 443 if tls else 80
+    suffix = '' if port == default_port else f':{port}'
+    return f"{'https' if tls else 'http'}://{domain}{suffix}"
+
+
+def _print_cert_line():
+    """Print the cert-expiry summary line (best-effort)."""
+    try:
+        from vnc_remote_secure.security.tls_validation import cert_days_remaining
+        days = cert_days_remaining()
+        if days is not None:
+            warn = ' — EXPIRES SOON' if days < 30 else ''
+            print(f"  Cert:       {days} days remaining{warn}")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _print_config_findings():
+    """Print the config-validation finding counts (best-effort)."""
+    try:
+        from vnc_remote_secure.core.config_inspector import validate_config
+        findings = validate_config()
+        crit = sum(1 for f in findings
+                   if f.get('severity') == 'critical')
+        warn = len(findings) - crit
+        if crit or warn:
+            print(f"  Warnings:   {crit} critical, {warn} warnings "
+                  "(vnc-remote config validate)")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _print_install_summary(project_root):
     """Print the post-install summary (URL, profile, paths, next steps).
 
@@ -56,48 +98,18 @@ def _print_install_summary(project_root):
         config = get_config()
     except Exception:  # noqa: BLE001
         return
-    tls = bool(config.get('tls_enabled'))
-    domain = (os.environ.get('DUCK_DOMAIN', '').strip()
-              or '127.0.0.1')
-    if config.get('nginx_enabled'):
-        port = int(os.environ.get(
-            'NGINX_HTTPS_PORT' if tls else 'NGINX_HTTP_PORT',
-            '443' if tls else '80'))
-    else:
-        port = int(config.get('landing_port') or 8080)
-    scheme = 'https' if tls else 'http'
-    default_port = 443 if tls else 80
-    url = (f'{scheme}://{domain}'
-           + ('' if port == default_port else f':{port}'))
     print("\n=== Post-install summary ===")
-    print(f"  URL:        {url}")
+    print(f"  URL:        {_summary_url(config)}")
     print(f"  Profile:    {config.get('security_profile') or 'default'}")
-    print(f"  TLS:        {'enabled' if tls else 'DISABLED'}")
-    try:
-        from vnc_remote_secure.security.tls_validation import cert_days_remaining
-        days = cert_days_remaining()
-        if days is not None:
-            warn = ' — EXPIRES SOON' if days < 30 else ''
-            print(f"  Cert:       {days} days remaining{warn}")
-    except Exception:  # noqa: BLE001
-        pass
+    print(f"  TLS:        {'enabled' if config.get('tls_enabled') else 'DISABLED'}")
+    _print_cert_line()
     try:
         from vnc_remote_secure.core.paths import get_config_dir, get_data_dir
         print(f"  Config:     {get_config_dir()}")
         print(f"  Data:       {get_data_dir()}")
     except Exception:  # noqa: BLE001
         print(f"  Config:     {os.path.join(project_root, '.env')}")
-    try:
-        from vnc_remote_secure.core.config_inspector import validate_config
-        findings = validate_config()
-        crit = sum(1 for f in findings
-                   if f.get('severity') == 'critical')
-        warn = len(findings) - crit
-        if crit or warn:
-            print(f"  Warnings:   {crit} critical, {warn} warnings "
-                  "(vnc-remote config validate)")
-    except Exception:  # noqa: BLE001
-        pass
+    _print_config_findings()
     print("\n  Next steps:")
     print("    vnc-remote doctor          # verify the deployment")
     print("    vnc-remote start           # start all services")

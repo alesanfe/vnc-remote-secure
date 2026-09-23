@@ -30,7 +30,7 @@ import time
 from contextlib import suppress
 from typing import Any
 
-from vnc_remote_secure.core.config import get_config, load_env_file
+from vnc_remote_secure.core.config import env_flag, get_config, load_env_file
 from vnc_remote_secure.core.constants import (
     DEFAULT_NGINX_HTTPS_PORT,
     DEFAULT_NOVNC_WS_PORT,
@@ -1298,8 +1298,7 @@ def _sweep_stale_temp_user() -> None:
     """
     if is_windows():
         return
-    if os.environ.get('KEEP_TEMP_USER', 'false').lower() in (
-            'true', '1', 'yes'):
+    if env_flag('KEEP_TEMP_USER', 'false'):
         return
     temp_user = os.environ.get('TEMP_USER', 'remote')
     if not temp_user:
@@ -1339,7 +1338,7 @@ def _sweep_stale_temp_user() -> None:
 
 def _cleanup_temp_user() -> None:
     """Remove the temporary user unless KEEP_TEMP_USER=true."""
-    if os.environ.get('KEEP_TEMP_USER', 'false').lower() in ('true', '1', 'yes'):
+    if env_flag('KEEP_TEMP_USER', 'false'):
         return
     temp_user = os.environ.get('TEMP_USER', 'remote')
     if not temp_user:

@@ -93,20 +93,13 @@ def _authenticate_gamepad_connection(headers, websocket):
     )
     origin = headers.get('Origin', '') if hasattr(headers, 'get') else ''
     cookie = headers.get('Cookie', '') if hasattr(headers, 'get') else ''
-    cookie_value = ''
-    eph = ''
-    if cookie:
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith('vnc_session='):
-                cookie_value = part.split('=', 1)[1].strip()
-            elif part.startswith('vnc_ephemeral='):
-                eph = part.split('=', 1)[1].strip()
+    from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
+    session_cookie = cookie_value(cookie, 'vnc_session')
+    eph = cookie_value(cookie, 'vnc_ephemeral')
     bearer = ''
     auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
     if auth and auth.lower().startswith('bearer '):
         bearer = auth[7:].strip()
-    from vnc_remote_secure.security.http_auth import client_ip_from
     peer_ip = client_ip_from(
         headers,
         websocket.remote_address[0]
@@ -115,7 +108,7 @@ def _authenticate_gamepad_connection(headers, websocket):
     # cookie — resolved by the gateway's single enforcement tree.
     allowed, reason = check_websocket_upgrade(
         origin=origin,
-        cookie_value=cookie_value,
+        cookie_value=session_cookie,
         bearer_token=bearer,
         resource='gamepad',
         required_permission='desktop:gamepad',
@@ -124,7 +117,7 @@ def _authenticate_gamepad_connection(headers, websocket):
     )
     if not allowed:
         return False, None, None, reason
-    token = eph or bearer or cookie_value
+    token = eph or bearer or session_cookie
     conn_id = register_websocket_connection(
         token, websocket.close, resource='gamepad',
         client_ip=peer_ip or '')
@@ -204,6 +197,33 @@ class GamepadServer:
         if self.injector is None:
             logger.warning("Gamepad forwarding not supported on %s", platform.system())
 
+    async def _drop_after_register(self, websocket, conn_id, reason,
+                                   code=1008):
+        """Close a just-registered socket and drop its registry entry.
+
+        Without the unregister the registry keeps a stale entry whose
+        close callback points at a dead websocket until revocation.
+        """
+        if reason:
+            await websocket.close(code=code, reason=reason)
+        else:
+            await websocket.close()
+        self.clients.discard(websocket)
+        try:
+            from vnc_remote_secure.security.auth_gateway import (
+                unregister_websocket_connection,
+            )
+            unregister_websocket_connection(conn_id)
+        except (KeyError, ImportError):
+            logger.debug("Failed to unregister gamepad connection",
+                         exc_info=True)
+
+    async def _fail_device(self, websocket, conn_id, message):
+        """Send an error payload, close, and unregister."""
+        await websocket.send(json.dumps(
+            {"type": "error", "message": message}))
+        await self._drop_after_register(websocket, conn_id, '')
+
     async def handle_client(self, websocket, _path=None):
         """Handle a new gamepad WebSocket client with auth gateway enforcement.
 
@@ -212,9 +232,6 @@ class GamepadServer:
         hold control at a time — a second client is rejected, not
         merged. View-only sessions are rejected.
         """
-        from vnc_remote_secure.security.auth_gateway import (
-            unregister_websocket_connection,
-        )
         headers = _extract_upgrade_headers(websocket)
 
         allowed, _token, conn_id, error_msg = _authenticate_gamepad_connection(
@@ -224,13 +241,8 @@ class GamepadServer:
             await websocket.close(code=1008, reason=error_msg)
             return
         if _injection_stopped():
-            await websocket.close(
-                code=1008, reason='gamepad injection stopped locally')
-            try:
-                unregister_websocket_connection(conn_id)
-            except (KeyError, ImportError):
-                logger.debug("Failed to unregister gamepad connection",
-                             exc_info=True)
+            await self._drop_after_register(
+                websocket, conn_id, 'gamepad injection stopped locally')
             return
 
         # Single-controller policy: two simultaneous gamepad clients
@@ -239,14 +251,9 @@ class GamepadServer:
         if self.clients:
             logger.warning(
                 "Gamepad client rejected: another session holds control")
-            await websocket.close(
-                code=1008,
-                reason='another session controls the gamepad')
-            try:
-                unregister_websocket_connection(conn_id)
-            except (KeyError, ImportError):
-                logger.debug("Failed to unregister gamepad connection",
-                             exc_info=True)
+            await self._drop_after_register(
+                websocket, conn_id,
+                'another session controls the gamepad')
             return
 
         self.clients.add(websocket)
@@ -254,34 +261,16 @@ class GamepadServer:
         logger.info("Gamepad client connected: %s", client_ip)
 
         if not self.injector or not self.injector.available:
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": "Gamepad injection not available on this server"
-            }))
-            await websocket.close()
-            self.clients.discard(websocket)
-            try:
-                unregister_websocket_connection(conn_id)
-            except (KeyError, ImportError):
-                logger.debug("Failed to unregister gamepad connection", exc_info=True)
+            await self._fail_device(
+                websocket, conn_id,
+                "Gamepad injection not available on this server")
             return
 
         # Create virtual device if the injector supports it (Linux uinput)
         if hasattr(self.injector, 'create_device') and not self.injector.create_device():
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": "Failed to create virtual input device"
-            }))
-            await websocket.close()
-            self.clients.discard(websocket)
-            # Unregister like the unavailable-injector branch above —
-            # otherwise the registry keeps a stale entry whose close
-            # callback points at a dead websocket until revocation.
-            try:
-                unregister_websocket_connection(conn_id)
-            except (KeyError, ImportError):
-                logger.debug("Failed to unregister gamepad connection",
-                             exc_info=True)
+            await self._fail_device(
+                websocket, conn_id,
+                "Failed to create virtual input device")
             return
 
         await websocket.send(json.dumps({
@@ -333,6 +322,9 @@ class GamepadServer:
             self.clients.discard(websocket)
             logger.info("Gamepad client disconnected")
             try:
+                from vnc_remote_secure.security.auth_gateway import (
+                    unregister_websocket_connection,
+                )
                 unregister_websocket_connection(conn_id)
             except (KeyError, ImportError):
                 logger.debug("Failed to unregister gamepad connection", exc_info=True)

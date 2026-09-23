@@ -10,7 +10,7 @@ import hmac
 import logging
 import os
 
-from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.config import env_flag, load_env_file
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +115,7 @@ def client_ip_from(headers, peer_ip):
         peer_ip: the socket peer address.
     """
     load_env_file()
-    trusted = os.environ.get('TRUSTED_PROXY', 'false').lower() in (
-        'true', '1', 'yes')
+    trusted = env_flag('TRUSTED_PROXY', 'false')
     # XFF is only meaningful when the request actually came through the
     # trusted proxy. Honoring it for any peer lets a client that can
     # reach a service port directly spoof its identity — rotating
@@ -146,6 +145,23 @@ def client_ip_from(headers, peer_ip):
                     if hop:
                         return hop
     return peer_ip
+
+
+def cookie_value(cookie_header: str, name: str) -> str:
+    """Extract one cookie value from a raw ``Cookie`` header.
+
+    Returns ``''`` when the header is empty or the cookie is absent.
+    Centralises the ``split(';') / strip / startswith`` loop that the
+    WS auth paths used to re-implement per service.
+    """
+    if not cookie_header:
+        return ''
+    prefix = name + '='
+    for part in cookie_header.split(';'):
+        part = part.strip()
+        if part.startswith(prefix):
+            return part.split('=', 1)[1].strip()
+    return ''
 
 
 def _is_locked(limiter, client_ip):

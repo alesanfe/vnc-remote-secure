@@ -36,12 +36,13 @@ from vnc_remote_secure.core.errors import log_exception
 from vnc_remote_secure.security.http_auth import (
     check_terminal_auth,
     client_ip_from,
+    cookie_value,
 )
 
 logger = logging.getLogger(__name__)
 
 # Load configuration from .env file (never hardcode credentials)
-from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.config import env_flag, load_env_file
 
 load_env_file()
 
@@ -125,13 +126,8 @@ class MainHandler(tornado.web.RequestHandler):
 
     def _ephemeral_authorized(self) -> bool:
         """Return True when the vnc_ephemeral cookie grants terminal access."""
-        cookie = self.request.headers.get('Cookie', '')
-        eph = ''
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith('vnc_ephemeral='):
-                eph = part.split('=', 1)[1].strip()
-                break
+        eph = cookie_value(
+            self.request.headers.get('Cookie', ''), 'vnc_ephemeral')
         if not eph:
             return False
         from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
@@ -147,17 +143,15 @@ class MainHandler(tornado.web.RequestHandler):
         cookie, so the page must too or a portal-authenticated user is
         double-challenged with Basic credentials the WS does not need.
         """
-        cookie = self.request.headers.get('Cookie', '')
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith('vnc_session='):
-                raw = part.split('=', 1)[1].strip()
-                from vnc_remote_secure.security.auth_gateway import (
-                    check_authenticated,
-                )
-                allowed, _user = check_authenticated(raw, '')
-                return bool(allowed)
-        return False
+        raw = cookie_value(
+            self.request.headers.get('Cookie', ''), 'vnc_session')
+        if not raw:
+            return False
+        from vnc_remote_secure.security.auth_gateway import (
+            check_authenticated,
+        )
+        allowed, _user = check_authenticated(raw, '')
+        return bool(allowed)
 
     def get(self):
         """Get."""
@@ -188,8 +182,7 @@ def _basic_auth_enabled() -> bool:
     with no expiry/revocation), so hardened deployments can force
     token-only auth (ephemeral cookie, bearer, operator session).
     """
-    return os.environ.get('TERMINAL_BASIC_AUTH', 'true').lower() not in (
-        '0', 'false', 'no')
+    return env_flag('TERMINAL_BASIC_AUTH', 'true')
 
 
 def _is_origin_allowed(origin):
@@ -663,7 +656,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         """Reject WebSocket connections from unknown origins (prevents CSWSH)."""
         return _is_origin_allowed(origin)
 
-    def _step_up_required(self, cookie_value, bearer):
+    def _step_up_required(self, session_cookie, bearer):
         """Enforce step-up auth for operator sessions.
 
         Applies to operator sessions — skipped only when the ephemeral
@@ -671,11 +664,11 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         that is already permission-bound has no username for step-up to
         challenge.
         """
-        if not (bearer or cookie_value):
+        if not (bearer or session_cookie):
             return True
         from vnc_remote_secure.security.auth_gateway import check_authenticated
         from vnc_remote_secure.security.step_up_auth import require_step_up
-        _authed, ws_user = check_authenticated(cookie_value, bearer)
+        _authed, ws_user = check_authenticated(session_cookie, bearer)
         if ws_user:
             step_up_err = require_step_up(ws_user, 'open_terminal')
             if step_up_err:
@@ -694,16 +687,9 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
         cookie = self.request.headers.get('Cookie', '')
         # Extract session cookie value if present.
-        cookie_value = ''
-        eph = ''
-        if cookie:
-            for part in cookie.split(';'):
-                part = part.strip()
-                if part.startswith('vnc_session='):
-                    cookie_value = part.split('=', 1)[1].strip()
-                elif part.startswith('vnc_ephemeral='):
-                    eph = part.split('=', 1)[1].strip()
-        if not (eph or bearer or cookie_value):
+        session_cookie = cookie_value(cookie, 'vnc_session')
+        eph = cookie_value(cookie, 'vnc_ephemeral')
+        if not (eph or bearer or session_cookie):
             if not _basic_auth_enabled():
                 # TERMINAL_BASIC_AUTH=false: the legacy TTYD_*
                 # credential surface is disabled — only token
@@ -724,7 +710,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         )
         allowed, reason = check_websocket_upgrade(
             origin=self.request.headers.get('Origin', ''),
-            cookie_value=cookie_value,
+            cookie_value=session_cookie,
             bearer_token=bearer,
             resource='terminal',
             # terminal_view admits view-only sessions; command
@@ -748,10 +734,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 eph, 'terminal_write', resource='terminal',
                 client_ip=client_ip_from(
                     self.request.headers, self.request.remote_ip))
-        if not self._step_up_required(cookie_value, bearer):
+        if not self._step_up_required(session_cookie, bearer):
             return False
         # Register the connection so revocation can close it live.
-        token = eph or bearer or cookie_value
+        token = eph or bearer or session_cookie
         self._ws_conn_id = register_websocket_connection(
             token, self.close, resource='terminal',
             client_ip=self.request.remote_ip or '',
@@ -903,23 +889,101 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             prompt = f"\x1b[33m{short_cwd}>\x1b[0m"
         self.write_message(prompt)
 
-    def on_message(self, message):
-        """On message."""
-        self._touch_activity()
-        # Rate cap: sliding 1s window — a burst of input is fine, a
-        # sustained flood gets the socket closed.
+    def _rate_limited(self) -> bool:
+        """Sliding 1s-window message cap — a burst of input is fine, a
+        sustained flood gets the socket closed."""
         import time as _time
         now = _time.monotonic()
         times = getattr(self, '_msg_times', None)
-        if times is not None and self._msg_rate > 0:
-            times.append(now)
-            while times and times[0] < now - 1.0:
-                times.popleft()
-            if len(times) > self._msg_rate:
-                logger.warning("Terminal message flood from %s — "
-                               "closing", self.request.remote_ip)
-                self.close(code=1008, reason='rate limit')
-                return
+        if times is None or self._msg_rate <= 0:
+            return False
+        times.append(now)
+        while times and times[0] < now - 1.0:
+            times.popleft()
+        if len(times) > self._msg_rate:
+            logger.warning("Terminal message flood from %s — "
+                           "closing", self.request.remote_ip)
+            self.close(code=1008, reason='rate limit')
+            return True
+        return False
+
+    def _builtin_command(self, cmd: str) -> bool:
+        """Handle read-only builtins; True when ``cmd`` was one."""
+        low = cmd.lower()
+        if low in ('exit', 'quit'):
+            self.write_message('\r\n\x1b[90mGoodbye.\x1b[0m\r\n')
+            self.close()
+            return True
+        if low in ('cls', 'clear'):
+            self.write_message(_clear_text())
+        elif low == 'help':
+            self.write_message(_help_text())
+        elif low == 'history':
+            self.write_message(_history_text(self.history))
+        else:
+            return False
+        self._send_prompt()
+        self._set_busy(False)
+        return True
+
+    def _command_allowed(self, cmd: str) -> bool:
+        """TERMINAL_COMMAND_ALLOWLIST gate (comma-separated regexes).
+
+        A defense-in-depth knob for deployments where the shell cannot
+        drop privileges and terminal access should be scoped to a few
+        diagnostics commands.
+        """
+        allowlist = os.environ.get(
+            'TERMINAL_COMMAND_ALLOWLIST', '').strip()
+        if not allowlist:
+            return True
+        import re
+        patterns = [p.strip() for p in allowlist.split(',') if p.strip()]
+        try:
+            return any(re.fullmatch(p, cmd) for p in patterns)
+        except re.error:
+            logger.exception(
+                "Invalid TERMINAL_COMMAND_ALLOWLIST regex — "
+                "denying command")
+            return False
+
+    def _on_command(self, msg):
+        """Handle a ``command`` terminal message."""
+        cmd = msg.get('cmd', '').strip()
+        if not cmd:
+            self.write_message('\r\n')
+            self._send_prompt()
+            self._set_busy(False)
+            return
+        self.history.append(cmd)
+        if self._builtin_command(cmd):
+            return
+        # RBAC split: terminal_view connects and uses read-only
+        # builtins, but only terminal_write spawns subprocesses.
+        # Operator sessions (no ephemeral cookie) are not
+        # permission-bound — _terminal_write stays True for them.
+        if not getattr(self, '_terminal_write', True):
+            self.write_message(
+                '\r\n\x1b[31mView-only terminal session — '
+                'command execution requires the terminal_write '
+                'permission.\x1b[0m\r\n')
+            self._send_prompt()
+            self._set_busy(False)
+            return
+        if not self._command_allowed(cmd):
+            self.write_message(
+                '\r\n\x1b[31mCommand not allowed by '
+                'TERMINAL_COMMAND_ALLOWLIST\x1b[0m\r\n')
+            self._send_prompt()
+            self._set_busy(False)
+            return
+        self._execute_command(cmd)
+
+    def on_message(self, message):
+        """On message."""
+        self._touch_activity()
+        if self._rate_limited():
+            return
         try:
             msg = json.loads(message)
         except (json.JSONDecodeError, TypeError) as exc:
@@ -929,80 +993,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         msg_type = msg.get('type')
 
         if msg_type == 'command':
-            cmd = msg.get('cmd', '').strip()
-            if not cmd:
-                self.write_message('\r\n')
-                self._send_prompt()
-                self._set_busy(False)
-                return
-
-            # Add to history
-            self.history.append(cmd)
-
-            # Handle built-in commands
-            if cmd.lower() in ('exit', 'quit'):
-                self.write_message('\r\n\x1b[90mGoodbye.\x1b[0m\r\n')
-                self.close()
-                return
-
-            if cmd.lower() in ('cls', 'clear'):
-                self.write_message(_clear_text())
-                self._send_prompt()
-                self._set_busy(False)
-                return
-
-            if cmd.lower() == 'help':
-                self.write_message(_help_text())
-                self._send_prompt()
-                self._set_busy(False)
-                return
-
-            if cmd.lower() == 'history':
-                self.write_message(_history_text(self.history))
-                self._send_prompt()
-                self._set_busy(False)
-                return
-
-            # RBAC split: terminal_view connects and uses read-only
-            # builtins, but only terminal_write spawns subprocesses.
-            # Operator sessions (no ephemeral cookie) are not
-            # permission-bound — _terminal_write stays True for them.
-            if not getattr(self, '_terminal_write', True):
-                self.write_message(
-                    '\r\n\x1b[31mView-only terminal session — '
-                    'command execution requires the terminal_write '
-                    'permission.\x1b[0m\r\n')
-                self._send_prompt()
-                self._set_busy(False)
-                return
-
-            # TERMINAL_COMMAND_ALLOWLIST: comma-separated regexes. When
-            # set, only matching commands may spawn — a defense-in-depth
-            # knob for deployments where the shell cannot drop
-            # privileges (non-root service user) and terminal access
-            # should be scoped to a few diagnostics commands.
-            allowlist = os.environ.get(
-                'TERMINAL_COMMAND_ALLOWLIST', '').strip()
-            if allowlist:
-                import re
-                patterns = [p.strip() for p in allowlist.split(',')
-                            if p.strip()]
-                try:
-                    allowed = any(re.fullmatch(p, cmd) for p in patterns)
-                except re.error:
-                    logger.exception(
-                        "Invalid TERMINAL_COMMAND_ALLOWLIST regex — "
-                        "denying command")
-                    allowed = False
-                if not allowed:
-                    self.write_message(
-                        '\r\n\x1b[31mCommand not allowed by '
-                        'TERMINAL_COMMAND_ALLOWLIST\x1b[0m\r\n')
-                    self._send_prompt()
-                    self._set_busy(False)
-                    return
-
-            self._execute_command(cmd)
+            self._on_command(msg)
 
         elif msg_type == 'interrupt':
             if self.current_process and self.current_process.poll() is None:
@@ -1288,12 +1279,7 @@ class XtermStaticHandler(tornado.web.StaticFileHandler):
 
     def _authorized(self) -> bool:
         cookie = self.request.headers.get('Cookie', '')
-        eph = ''
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith('vnc_ephemeral='):
-                eph = part.split('=', 1)[1].strip()
-                break
+        eph = cookie_value(cookie, 'vnc_ephemeral')
         if eph:
             from vnc_remote_secure.security.ephemeral_sessions import (
                 check_session_permission,
@@ -1306,17 +1292,14 @@ class XtermStaticHandler(tornado.web.StaticFileHandler):
         # WebSocket upgrade already accepts it, so the page's static
         # assets must too or session-authenticated users break on
         # xterm.js fetches (401 JS = blank terminal).
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith('vnc_session='):
-                raw = part.split('=', 1)[1].strip()
-                from vnc_remote_secure.security.auth_gateway import (
-                    check_authenticated,
-                )
-                allowed, _user = check_authenticated(raw, '')
-                if allowed:
-                    return True
-                break
+        raw = cookie_value(cookie, 'vnc_session')
+        if raw:
+            from vnc_remote_secure.security.auth_gateway import (
+                check_authenticated,
+            )
+            allowed, _user = check_authenticated(raw, '')
+            if allowed:
+                return True
         if not _basic_auth_enabled():
             # TERMINAL_BASIC_AUTH=false — token credentials only; the
             # static assets must not accept the Basic surface the WS

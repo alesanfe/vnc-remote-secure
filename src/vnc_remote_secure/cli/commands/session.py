@@ -4,6 +4,7 @@ import json
 import os
 
 from vnc_remote_secure.cli._common import _audit_cli
+from vnc_remote_secure.core.config import env_flag
 
 
 def _parse_duration(s: str) -> int:
@@ -55,8 +56,7 @@ def _share_base_url() -> str:
             os.environ.get('DUCK_DOMAIN', '')) or '127.0.0.1'
     except ImportError:
         host = os.environ.get('DUCK_DOMAIN', '').strip() or '127.0.0.1'
-    nginx_on = os.environ.get('NGINX_ENABLED', 'false').lower() in (
-        'true', '1', 'yes')
+    nginx_on = env_flag('NGINX_ENABLED', 'false')
     # Same TLS resolution as the runtime: TLS_ENABLED/DISABLE_SSL
     # unification lives in config._is_tls_enabled() — a raw env
     # read here would ignore DISABLE_SSL and the default-true.
@@ -67,11 +67,9 @@ def _share_base_url() -> str:
     except Exception:  # noqa: BLE001 - fall back to raw env
         # Same precedence as the canonical resolver:
         # DISABLE_SSL=true is a kill-switch over TLS_ENABLED.
-        _disabled = os.environ.get('DISABLE_SSL', '').lower() in (
-            'true', '1', 'yes')
+        _disabled = env_flag('DISABLE_SSL', '')
         tls_flag = (not _disabled) and (
-            os.environ.get('TLS_ENABLED', 'false').lower() in (
-                'true', '1', 'yes') or bool(os.environ.get('SSL_CERT')))
+            env_flag('TLS_ENABLED', 'false') or bool(os.environ.get('SSL_CERT')))
     # TLS resolution must use the real context builder (env certs
     # or canonical ssl-dir discovery) — not the env flag alone —
     # in both branches, so a deployment whose certs resolve via
@@ -92,6 +90,83 @@ def _share_base_url() -> str:
     return f"{scheme}://{host}:{landing_port}"
 
 
+def _validate_allowed_ip(allowed_ip) -> int:
+    """Return 1 and print an error when ``--allowed-ip`` is malformed."""
+    if not allowed_ip or allowed_ip == 'first-observed':
+        return 0
+    # Fail fast on a malformed IP — the store validates by
+    # string match, so a typo would create a session that
+    # never activates.
+    import ipaddress
+    try:
+        raw = allowed_ip.strip()
+        if '/' in raw:
+            ipaddress.ip_network(raw, strict=False)
+        else:
+            ipaddress.ip_address(raw)
+    except ValueError:
+        print(f"Error: --allowed-ip is not a valid IP, CIDR, or "
+              f"'first-observed': {allowed_ip!r}")
+        return 1
+    return 0
+
+
+def _parse_permissions(raw):
+    """Parse ``--permissions a,b,c``; returns (set, error_code)."""
+    if not raw:
+        return None, 0
+    from vnc_remote_secure.security.ephemeral_sessions import ALL_PERMISSIONS
+    permissions = {p.strip() for p in raw.split(',') if p.strip()}
+    unknown = permissions - ALL_PERMISSIONS
+    if unknown:
+        print(f"Error: unknown permissions: "
+              f"{', '.join(sorted(unknown))}. Valid: "
+              f"{', '.join(sorted(ALL_PERMISSIONS))}")
+        return None, 1
+    if not permissions:
+        print("Error: --permissions must name at least one "
+              "permission")
+        return None, 1
+    return permissions, 0
+
+
+def _print_session_created(args, signed_token, expires_in, role,
+                           base_url):
+    """Emit the create output in JSON or human-readable form."""
+    if args.json:
+        print(json.dumps({
+            'token': signed_token,
+            'url': f"{base_url}/?session={signed_token}",
+            'expires_in': expires_in,
+            'role': role,
+            'view_only': args.view_only,
+            'no_terminal': args.no_terminal,
+            'single_use': args.single_use,
+            'resource': args.resource,
+            'max_uses': args.max_uses,
+        }, indent=2))
+        return
+    print(f"Session created (role: {role}, expires in {expires_in}s)")
+    print(f"URL: {base_url}/?session={signed_token}")
+    if args.view_only:
+        print("  View-only: yes")
+        print("  NOTE: view-only blocks control channels (gamepad,"
+              " terminal, clipboard) and drops RFB input messages"
+              " (KeyEvent/PointerEvent/ClientCutText) in the WebSocket"
+              " relay. Direct access to the VNC port bypasses this —"
+              " keep it loopback-bound.")
+    if args.no_terminal:
+        print("  Web Terminal: disabled")
+    if args.single_use:
+        print("  Single-use: yes")
+    if args.allowed_ip:
+        print(f"  IP restriction: {args.allowed_ip}")
+    if args.resource:
+        print(f"  Resource: {args.resource} only")
+    if args.max_uses:
+        print(f"  Max uses: {args.max_uses}")
+
+
 def _session_create(store, args):
     """Create an ephemeral session and print the share link."""
     from vnc_remote_secure.security.ephemeral_sessions import ROLES
@@ -103,37 +178,13 @@ def _session_create(store, args):
     if args.max_uses < 0:
         print("Error: --max-uses must be >= 0 (0 = unlimited)")
         return 1
-    if args.allowed_ip and args.allowed_ip != 'first-observed':
-        # Fail fast on a malformed IP — the store validates by
-        # string match, so a typo would create a session that
-        # never activates.
-        import ipaddress
-        try:
-            raw = args.allowed_ip.strip()
-            if '/' in raw:
-                ipaddress.ip_network(raw, strict=False)
-            else:
-                ipaddress.ip_address(raw)
-        except ValueError:
-            print(f"Error: --allowed-ip is not a valid IP, CIDR, or "
-                  f"'first-observed': {args.allowed_ip!r}")
-            return 1
+    if _validate_allowed_ip(args.allowed_ip):
+        return 1
 
-    permissions = None
-    if getattr(args, 'permissions', None):
-        from vnc_remote_secure.security.ephemeral_sessions import ALL_PERMISSIONS
-        permissions = {p.strip() for p in args.permissions.split(',')
-                       if p.strip()}
-        unknown = permissions - ALL_PERMISSIONS
-        if unknown:
-            print(f"Error: unknown permissions: "
-                  f"{', '.join(sorted(unknown))}. Valid: "
-                  f"{', '.join(sorted(ALL_PERMISSIONS))}")
-            return 1
-        if not permissions:
-            print("Error: --permissions must name at least one "
-                  "permission")
-            return 1
+    permissions, err = _parse_permissions(
+        getattr(args, 'permissions', None))
+    if err:
+        return 1
 
     try:
         _session, signed_token = store.create(
@@ -153,40 +204,8 @@ def _session_create(store, args):
         print(f"Error: {e}")
         return 1
 
-    base_url = _share_base_url()
-
-    if args.json:
-        print(json.dumps({
-            'token': signed_token,
-            'url': f"{base_url}/?session={signed_token}",
-            'expires_in': expires_in,
-            'role': role,
-            'view_only': args.view_only,
-            'no_terminal': args.no_terminal,
-            'single_use': args.single_use,
-            'resource': args.resource,
-            'max_uses': args.max_uses,
-        }, indent=2))
-    else:
-        print(f"Session created (role: {role}, expires in {expires_in}s)")
-        print(f"URL: {base_url}/?session={signed_token}")
-        if args.view_only:
-            print("  View-only: yes")
-            print("  NOTE: view-only blocks control channels (gamepad,"
-                  " terminal, clipboard) and drops RFB input messages"
-                  " (KeyEvent/PointerEvent/ClientCutText) in the WebSocket"
-                  " relay. Direct access to the VNC port bypasses this —"
-                  " keep it loopback-bound.")
-        if args.no_terminal:
-            print("  Web Terminal: disabled")
-        if args.single_use:
-            print("  Single-use: yes")
-        if args.allowed_ip:
-            print(f"  IP restriction: {args.allowed_ip}")
-        if args.resource:
-            print(f"  Resource: {args.resource} only")
-        if args.max_uses:
-            print(f"  Max uses: {args.max_uses}")
+    _print_session_created(
+        args, signed_token, expires_in, role, _share_base_url())
     # Audited inside SessionStore.create() — a second audit here
     # would emit a duplicate event per session.
     return 0

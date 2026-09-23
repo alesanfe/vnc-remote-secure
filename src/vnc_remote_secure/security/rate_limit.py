@@ -12,7 +12,7 @@ the previous single-process behaviour.
 import os
 import time
 
-from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.config import env_flag, load_env_file
 from vnc_remote_secure.security.shared_state import get_backend
 
 # Default limits (configurable via env vars)
@@ -54,9 +54,7 @@ class RateLimiter:
             os.environ.get('AUTH_LOCKOUT_MAX_SECONDS',
                            str(DEFAULT_LOCKOUT_MAX_SECONDS))
         )
-        self.escalation = os.environ.get(
-            'AUTH_LOCKOUT_ESCALATION', 'true').lower() not in (
-                '0', 'false', 'no')
+        self.escalation = env_flag('AUTH_LOCKOUT_ESCALATION', 'true')
 
     def _next_lockout(self, key: str) -> float:
         """Return the duration for this key's next lockout.

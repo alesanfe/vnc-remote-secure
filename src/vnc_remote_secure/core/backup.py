@@ -21,6 +21,7 @@ import tarfile
 import time
 from contextlib import suppress
 
+from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.paths import (
     find_project_root,
     get_config_dir,
@@ -258,7 +259,7 @@ def create_backup(output: str | None = None) -> str:
     # .env/config.env — without this an operator-configured password
     # would be invisible and the backup would be written UNENCRYPTED
     # (a silent security downgrade).
-    from vnc_remote_secure.core.config import load_env_file
+    from vnc_remote_secure.core.config import env_flag, load_env_file
     load_env_file()
     # Save service-manager state alongside the backup.
     try:
@@ -352,9 +353,7 @@ def create_backup(output: str | None = None) -> str:
             profile = ''
         if (profile in ('public-hardened', 'private-overlay',
                         'trusted-lan')
-                and os.environ.get(
-                    'BACKUP_ALLOW_PLAINTEXT', '').lower()
-                not in ('true', '1', 'yes')):
+                and not env_flag('BACKUP_ALLOW_PLAINTEXT')):
             with contextlib.suppress(OSError):
                 os.unlink(tmp_tar)
             raise RuntimeError(
@@ -572,9 +571,7 @@ def _copy_restored_tree(temp_dir, project_root):
             if not os.path.isfile(s):
                 continue
             if (item == 'ephemeral_sessions.json'
-                    and os.environ.get(
-                        'RESTORE_KEEP_SESSIONS', 'false').lower()
-                    not in ('1', 'true', 'yes')):
+                    and not env_flag('RESTORE_KEEP_SESSIONS')):
                 # Stale-session rule: a share link revoked AFTER the
                 # backup was taken would be resurrected by a blind
                 # copy (revocations live in shared_state, but that

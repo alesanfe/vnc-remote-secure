@@ -31,6 +31,8 @@ import threading
 import time
 from pathlib import Path
 
+from vnc_remote_secure.core.config import env_flag
+
 logger = logging.getLogger(__name__)
 
 
@@ -472,8 +474,7 @@ def audit_log(
         except Exception:
             logger.exception("Failed to write audit log:")
             _alert_audit_write_failure()
-            if os.environ.get('AUDIT_STRICT', '').lower() in (
-                    '1', 'true', 'yes'):
+            if env_flag('AUDIT_STRICT', ''):
                 # Fail-closed mode: the audited action aborts when its
                 # record cannot persist — for deployments where an
                 # unaudited action is worse than a failed one. Callers

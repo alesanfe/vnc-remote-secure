@@ -330,23 +330,16 @@ class AudioStreamServer:
         def get_h(k, d=''):
             return headers.get(k, d) if hasattr(headers, 'get') else d
         cookie = get_h('Cookie')
-        cookie_value = ''
-        eph = ''
-        if cookie:
-            for part in cookie.split(';'):
-                part = part.strip()
-                if part.startswith('vnc_session='):
-                    cookie_value = part.split('=', 1)[1].strip()
-                elif part.startswith('vnc_ephemeral='):
-                    eph = part.split('=', 1)[1].strip()
+        from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
+        session_cookie = cookie_value(cookie, 'vnc_session')
+        eph = cookie_value(cookie, 'vnc_ephemeral')
         auth = get_h('Authorization')
         bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
         # Unified auth: session cookie, bearer, or activated ephemeral
         # cookie — all resolved by the gateway's single enforcement tree.
-        from vnc_remote_secure.security.http_auth import client_ip_from
         allowed, reason = check_websocket_upgrade(
             origin=get_h('Origin'),
-            cookie_value=cookie_value,
+            cookie_value=session_cookie,
             bearer_token=bearer,
             resource='audio',
             required_permission='desktop:audio',

@@ -70,22 +70,16 @@ def _check_novnc_auth(headers, client_ip=None):
     credentials from the headers.
     """
     from vnc_remote_secure.security.auth_gateway import authorize_request
+    from vnc_remote_secure.security.http_auth import cookie_value
     cookie = headers.get('Cookie', '') if hasattr(headers, 'get') else ''
-    cookie_value = ''
-    eph = ''
-    if cookie:
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith('vnc_session='):
-                cookie_value = part.split('=', 1)[1].strip()
-            elif part.startswith('vnc_ephemeral='):
-                eph = part.split('=', 1)[1].strip()
+    session_cookie = cookie_value(cookie, 'vnc_session')
+    eph = cookie_value(cookie, 'vnc_ephemeral')
     bearer = ''
     auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
     if auth and auth.lower().startswith('bearer '):
         bearer = auth[7:].strip()
     allowed, reason, _ = authorize_request(
-        cookie_value=cookie_value,
+        cookie_value=session_cookie,
         bearer_token=bearer,
         ephemeral_cookie=eph,
         resource='desktop',

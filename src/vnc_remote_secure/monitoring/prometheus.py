@@ -125,6 +125,70 @@ def _format_labels(label_str: str) -> str:
     return '{' + safe + '}'
 
 
+def _emit_series(lines: list[str], name: str, help_text: str,
+                 mtype: str, series: dict):
+    """Append HELP/TYPE headers + one sample per label set."""
+    lines.append(f'# HELP {name} {help_text}')
+    lines.append(f'# TYPE {name} {mtype}')
+    for labels, value in series.items():
+        suffix = '' if labels == 'default' else _format_labels(labels)
+        lines.append(f'{name}{suffix} {value}')
+
+
+def _emit_cert_days(lines: list[str]):
+    """Certificate expiry gauge (scrape-time, best-effort)."""
+    try:
+        from vnc_remote_secure.security.tls_validation import cert_days_remaining
+        days = cert_days_remaining()
+        if days is not None:
+            _emit_series(lines, 'vnc_remote_cert_days_remaining',
+                         'Days until TLS certificate expiry', 'gauge',
+                         {'default': days})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _emit_sqlite_stats(lines: list[str]):
+    """Shared-state backend health + op stats (best-effort)."""
+    try:
+        from vnc_remote_secure.security.shared_state import backend_degraded, sqlite_stats
+        # Degraded-backend flag: 1 means sqlite init failed and the
+        # process is running on per-process in-memory state —
+        # cross-process revocation/single-use guarantees are OFF.
+        _emit_series(lines, 'vnc_remote_shared_state_degraded',
+                     'Shared-state backend fell back to in-memory '
+                     '(1=degraded)', 'gauge',
+                     {'default': 1 if backend_degraded() else 0})
+        st = sqlite_stats()
+        if st.get('ops'):
+            _emit_series(lines, 'vnc_remote_sqlite_ops_total',
+                         'Shared-state DB operations', 'counter',
+                         {'default': st['ops']})
+            _emit_series(lines, 'vnc_remote_sqlite_lock_errors_total',
+                         '"database is locked" errors', 'counter',
+                         {'default': st['lock_errors']})
+            _emit_series(lines, 'vnc_remote_sqlite_avg_op_ms',
+                         'Average DB op latency (ms)', 'gauge',
+                         {'default': f"{st['total_ms'] / st['ops']:.3f}"})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _emit_db_size(lines: list[str]):
+    """Shared-state DB file size (scrape-time, best-effort)."""
+    try:
+        import os as _os
+
+        from vnc_remote_secure.security.shared_state import get_backend
+        db_path = getattr(get_backend(), '_db_path', None)
+        if db_path and _os.path.isfile(db_path):
+            _emit_series(lines, 'vnc_remote_shared_state_bytes',
+                         'Shared-state DB size', 'gauge',
+                         {'default': _os.path.getsize(db_path)})
+    except Exception:  # noqa: BLE001 - metric must not break /metrics
+        pass
+
+
 def render_metrics() -> str:
     """Render all metrics in Prometheus text exposition format.
 
@@ -133,138 +197,32 @@ def render_metrics() -> str:
     """
     lines: list[str] = []
     gauges = _shared_gauges()
+    counters = _shared_counters()
 
-    # --- Service status gauge ---
-    lines.append('# HELP vnc_remote_up Service status (1=up, 0=down)')
-    lines.append('# TYPE vnc_remote_up gauge')
-    for labels, value in gauges.get('vnc_remote_up', {'default': 1}).items():
-        if labels == 'default':
-            lines.append(f'vnc_remote_up {value}')
-        else:
-            lines.append(f'vnc_remote_up{_format_labels(labels)} {value}')
+    _emit_series(lines, 'vnc_remote_up',
+                 'Service status (1=up, 0=down)', 'gauge',
+                 gauges.get('vnc_remote_up', {'default': 1}))
+    _emit_series(lines, 'vnc_remote_session_active',
+                 'Active ephemeral sessions', 'gauge',
+                 gauges.get('vnc_remote_session_active', {'default': 0}))
+    _emit_series(lines, 'vnc_remote_auth_attempts_total',
+                 'Login attempts', 'counter',
+                 counters.get('vnc_remote_auth_attempts_total', {}))
+    _emit_series(lines, 'vnc_remote_tls_enabled',
+                 'TLS status (1=enabled, 0=disabled)', 'gauge',
+                 gauges.get('vnc_remote_tls_enabled', {'default': 1}))
+    _emit_series(lines, 'vnc_remote_posture_score',
+                 'Security posture score (0-100)', 'gauge',
+                 gauges.get('vnc_remote_posture_score', {'default': 0}))
+    # health_check_total merged cross-process like auth above —
+    # get_health_status runs in every service process.
+    _emit_series(lines, 'vnc_remote_health_check_total',
+                 'Health check results', 'counter',
+                 counters.get('vnc_remote_health_check_total', {}))
 
-    # --- Active sessions gauge ---
-    lines.append('# HELP vnc_remote_session_active Active ephemeral sessions')
-    lines.append('# TYPE vnc_remote_session_active gauge')
-    for labels, value in gauges.get('vnc_remote_session_active', {'default': 0}).items():
-        if labels == 'default':
-            lines.append(f'vnc_remote_session_active {value}')
-        else:
-            lines.append(f'vnc_remote_session_active{_format_labels(labels)} {value}')
-
-    # --- Auth attempts counter (merged across processes) ---
-    lines.append('# HELP vnc_remote_auth_attempts_total Login attempts')
-    lines.append('# TYPE vnc_remote_auth_attempts_total counter')
-    for labels, value in _shared_counters().get(
-            'vnc_remote_auth_attempts_total', {}).items():
-        if labels == 'default':
-            lines.append(f'vnc_remote_auth_attempts_total {value}')
-        else:
-            lines.append(f'vnc_remote_auth_attempts_total{_format_labels(labels)} {value}')
-
-    # --- TLS enabled gauge ---
-    lines.append('# HELP vnc_remote_tls_enabled TLS status (1=enabled, 0=disabled)')
-    lines.append('# TYPE vnc_remote_tls_enabled gauge')
-    for labels, value in gauges.get('vnc_remote_tls_enabled', {'default': 1}).items():
-        if labels == 'default':
-            lines.append(f'vnc_remote_tls_enabled {value}')
-        else:
-            lines.append(f'vnc_remote_tls_enabled{_format_labels(labels)} {value}')
-
-    # --- Posture score gauge ---
-    lines.append('# HELP vnc_remote_posture_score Security posture score (0-100)')
-    lines.append('# TYPE vnc_remote_posture_score gauge')
-    for labels, value in gauges.get('vnc_remote_posture_score', {'default': 0}).items():
-        if labels == 'default':
-            lines.append(f'vnc_remote_posture_score {value}')
-        else:
-            lines.append(f'vnc_remote_posture_score{_format_labels(labels)} {value}')
-
-    # --- Health check counter (merged across processes — like the
-    # auth counter above; get_health_status runs in every service
-    # process, not only the health server) ---
-    lines.append('# HELP vnc_remote_health_check_total Health check results')
-    lines.append('# TYPE vnc_remote_health_check_total counter')
-    for labels, value in _shared_counters().get(
-            'vnc_remote_health_check_total', {}).items():
-        if labels == 'default':
-            lines.append(f'vnc_remote_health_check_total {value}')
-        else:
-            lines.append(f'vnc_remote_health_check_total{_format_labels(labels)} {value}')
-
-    # --- Certificate days remaining (scrape-time, best-effort) ---
-    try:
-        from vnc_remote_secure.security.tls_validation import cert_days_remaining
-        days = cert_days_remaining()
-        if days is not None:
-            lines.append(
-                '# HELP vnc_remote_cert_days_remaining Days until '
-                'TLS certificate expiry')
-            lines.append(
-                '# TYPE vnc_remote_cert_days_remaining gauge')
-            lines.append(
-                f'vnc_remote_cert_days_remaining {days}')
-    except Exception:  # noqa: BLE001
-        pass
-
-    # --- SQLite op statistics (in-process accumulator snapshot) ---
-    try:
-        from vnc_remote_secure.security.shared_state import backend_degraded, sqlite_stats
-        # Degraded-backend flag: 1 means sqlite init failed and the
-        # process is running on per-process in-memory state —
-        # cross-process revocation/single-use guarantees are OFF.
-        lines.append(
-            '# HELP vnc_remote_shared_state_degraded Shared-state '
-            'backend fell back to in-memory (1=degraded)')
-        lines.append(
-            '# TYPE vnc_remote_shared_state_degraded gauge')
-        lines.append(
-            'vnc_remote_shared_state_degraded '
-            f'{1 if backend_degraded() else 0}')
-        st = sqlite_stats()
-        if st.get('ops'):
-            lines.append(
-                '# HELP vnc_remote_sqlite_ops_total Shared-state DB '
-                'operations')
-            lines.append(
-                '# TYPE vnc_remote_sqlite_ops_total counter')
-            lines.append(
-                f"vnc_remote_sqlite_ops_total {st['ops']}")
-            lines.append(
-                '# HELP vnc_remote_sqlite_lock_errors_total '
-                '"database is locked" errors')
-            lines.append(
-                '# TYPE vnc_remote_sqlite_lock_errors_total counter')
-            lines.append(
-                f"vnc_remote_sqlite_lock_errors_total "
-                f"{st['lock_errors']}")
-            lines.append(
-                '# HELP vnc_remote_sqlite_avg_op_ms Average DB op '
-                'latency (ms)')
-            lines.append(
-                '# TYPE vnc_remote_sqlite_avg_op_ms gauge')
-            lines.append(
-                'vnc_remote_sqlite_avg_op_ms '
-                f"{st['total_ms'] / st['ops']:.3f}")
-    except Exception:  # noqa: BLE001
-        pass
-
-    # --- Shared-state DB size (best-effort, scrape-time stat) ---
-    try:
-        import os as _os
-
-        from vnc_remote_secure.security.shared_state import get_backend
-        db_path = getattr(get_backend(), '_db_path', None)
-        if db_path and _os.path.isfile(db_path):
-            lines.append(
-                '# HELP vnc_remote_shared_state_bytes Shared-state DB size')
-            lines.append(
-                '# TYPE vnc_remote_shared_state_bytes gauge')
-            lines.append(
-                f'vnc_remote_shared_state_bytes '
-                f'{_os.path.getsize(db_path)}')
-    except Exception:  # noqa: BLE001 - metric must not break /metrics
-        pass
+    _emit_cert_days(lines)
+    _emit_sqlite_stats(lines)
+    _emit_db_size(lines)
 
     # --- Generic security counters/gauges not covered above ---
     # Any component may inc_counter/set_gauge a security-relevant
@@ -288,12 +246,12 @@ def render_metrics() -> str:
         if name in _emitted_g:
             continue
         lines.append(f'# TYPE {name} gauge')
-        for labels, value in gauge_entries.items():
+        for labels, gval in gauge_entries.items():
             if labels == 'default':
-                lines.append(f'{name} {value}')
+                lines.append(f'{name} {gval}')
             else:
                 lines.append(
-                    f'{name}{_format_labels(labels)} {value}')
+                    f'{name}{_format_labels(labels)} {gval}')
 
     # --- Process info ---
     lines.append('# HELP vnc_remote_process_start_time Process start time (Unix epoch)')

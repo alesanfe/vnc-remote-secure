@@ -29,6 +29,8 @@ import sqlite3
 import threading
 import time
 
+from vnc_remote_secure.core.config import env_flag
+
 logger = logging.getLogger(__name__)
 
 BACKEND_MEMORY = 'memory'
@@ -443,8 +445,7 @@ def shared_state_strict() -> bool:
     process-local state — a revoked/expired session must never be
     re-admitted because the witness is unreachable.
     """
-    return os.environ.get('SHARED_STATE_STRICT', '').lower() in (
-        '1', 'true', 'yes')
+    return env_flag('SHARED_STATE_STRICT', '')
 
 
 def sqlite_stats() -> dict:

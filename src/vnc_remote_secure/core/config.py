@@ -87,6 +87,20 @@ def _is_tls_enabled_env() -> bool:
     return True
 
 
+_ENV_TRUE = frozenset({'1', 'true', 'yes', 'on'})
+
+
+def env_flag(name: str, default: str = 'false') -> bool:
+    """Parse a boolean environment flag.
+
+    Truthy values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive);
+    anything else is false — including the ``default`` when it is not
+    a truthy literal, so ``env_flag('X', 'true')`` reads as "enabled
+    unless explicitly disabled".
+    """
+    return os.environ.get(name, default).lower() in _ENV_TRUE
+
+
 def _parse_env_file(path):
     """Parse a .env-style file and yield (key, value) pairs."""
     try:
@@ -751,16 +765,16 @@ def _get_hosts_config():
 def _get_feature_toggles():
     """Return the feature toggles dict (mirrors .env.example; defaults are conservative)."""
     return {
-        'nginx_enabled': os.environ.get('NGINX_ENABLED', 'false').lower() in ('true', '1', 'yes'),
-        'fail2ban_enabled': os.environ.get('FAIL2BAN_ENABLED', 'false').lower() in ('true', '1', 'yes'),
-        'healthcheck_enabled': os.environ.get('HEALTHCHECK_ENABLED', 'true').lower() in ('true', '1', 'yes'),
-        'health_web_enabled': os.environ.get('HEALTH_WEB_ENABLED', 'true').lower() in ('true', '1', 'yes'),
-        'user_ui_enabled': os.environ.get('USER_UI_ENABLED', 'false').lower() in ('true', '1', 'yes'),
-        'alerts_enabled': os.environ.get('ALERTS_ENABLED', 'false').lower() in ('true', '1', 'yes'),
-        'audio_stream_enabled': os.environ.get('AUDIO_STREAM_ENABLED', 'false').lower() in ('true', '1', 'yes'),
-        'gamepad_enabled': os.environ.get('GAMEPAD_ENABLED', 'false').lower() in ('true', '1', 'yes'),
+        'nginx_enabled': env_flag('NGINX_ENABLED', 'false'),
+        'fail2ban_enabled': env_flag('FAIL2BAN_ENABLED', 'false'),
+        'healthcheck_enabled': env_flag('HEALTHCHECK_ENABLED', 'true'),
+        'health_web_enabled': env_flag('HEALTH_WEB_ENABLED', 'true'),
+        'user_ui_enabled': env_flag('USER_UI_ENABLED', 'false'),
+        'alerts_enabled': env_flag('ALERTS_ENABLED', 'false'),
+        'audio_stream_enabled': env_flag('AUDIO_STREAM_ENABLED', 'false'),
+        'gamepad_enabled': env_flag('GAMEPAD_ENABLED', 'false'),
         'tls_enabled': _is_tls_enabled_env(),
-        'keep_temp_user': os.environ.get('KEEP_TEMP_USER', 'false').lower() in ('true', '1', 'yes'),
+        'keep_temp_user': env_flag('KEEP_TEMP_USER', 'false'),
     }
 
 
@@ -816,7 +830,7 @@ def _get_session_config():
             'SESSION_IDLE_TIMEOUT', DEFAULT_SESSION_IDLE_TIMEOUT, 1),
         'session_max_lifetime': _safe_int(
             'SESSION_MAX_LIFETIME', DEFAULT_SESSION_MAX_LIFETIME, 1),
-        'session_cookie_secure': os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() in ('true', '1', 'yes'),
+        'session_cookie_secure': env_flag('SESSION_COOKIE_SECURE', 'true'),
         # Flask's own session cookie — 'vnc_session' is reserved for the
         # raw HMAC session token the non-Flask services verify.
         'session_cookie_name': os.environ.get(
@@ -862,7 +876,7 @@ def _get_optional_features_config():
         'audio_bitrate': _safe_int('AUDIO_BITRATE', 128, 1),
 
         # MFA
-        'mfa_required': os.environ.get('MFA_REQUIRED', 'false').lower() in ('true', '1', 'yes'),
+        'mfa_required': env_flag('MFA_REQUIRED', 'false'),
 
         # DuckDNS (optional dynamic DNS)
         'duck_domain': os.environ.get('DUCK_DOMAIN', ''),
@@ -898,12 +912,12 @@ def _get_optional_features_config():
         'duckdns_update_interval': _safe_int('DUCKDNS_UPDATE_INTERVAL', 5, 1) * 60,
 
         # Discord notifications (optional)
-        'discord_enabled': os.environ.get('DISCORD_ENABLED', 'false').lower() in ('true', '1', 'yes'),
+        'discord_enabled': env_flag('DISCORD_ENABLED', 'false'),
         'discord_webhook_url': os.environ.get('DISCORD_WEBHOOK_URL', ''),
 
         # Healthcheck / auto-restart (systemd)
         'healthcheck_interval': _safe_int('HEALTHCHECK_INTERVAL', 30, 1),
-        'auto_restart': os.environ.get('AUTO_RESTART', 'false').lower() in ('true', '1', 'yes'),
+        'auto_restart': env_flag('AUTO_RESTART', 'false'),
 
         # User UI host
         'user_ui_host': _env_host('USER_UI_HOST', 'BIND_HOST'),
@@ -917,7 +931,7 @@ def _get_optional_features_config():
 
         # Reserved / informational
         'vnc_remote_profile': os.environ.get('VNC_REMOTE_PROFILE', ''),
-        'verbose': os.environ.get('VERBOSE', 'false').lower() in ('true', '1', 'yes'),
+        'verbose': env_flag('VERBOSE', 'false'),
     }
 
 

@@ -10,6 +10,7 @@ import logging
 import os
 import threading
 
+from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.constants import (
     DEFAULT_BIND_HOST,
     DEFAULT_HEALTH_PORT,
@@ -83,17 +84,16 @@ def _service_ports():
     }
     # Optional services are probed only when enabled, so a disabled
     # feature does not drag the aggregated status to 'degraded'.
-    _on = ('true', '1', 'yes')
-    if os.environ.get('HEALTH_WEB_ENABLED', 'true').lower() in _on:
+    if env_flag('HEALTH_WEB_ENABLED', 'true'):
         ports['health'] = (_h('HEALTH_WEB_HOST'),
                            _p('HEALTH_WEB_PORT', DEFAULT_HEALTH_PORT))
-    if os.environ.get('USER_UI_ENABLED', 'false').lower() in _on:
+    if env_flag('USER_UI_ENABLED', 'false'):
         ports['user_ui'] = (_h('USER_UI_HOST'),
                             _p('USER_UI_PORT', DEFAULT_USER_UI_PORT))
-    if os.environ.get('AUDIO_STREAM_ENABLED', 'false').lower() in _on:
+    if env_flag('AUDIO_STREAM_ENABLED', 'false'):
         ports['audio'] = (_h('AUDIO_STREAM_HOST'),
                           _p('AUDIO_STREAM_PORT', DEFAULT_AUDIO_STREAM_PORT))
-    if os.environ.get('GAMEPAD_ENABLED', 'false').lower() in _on:
+    if env_flag('GAMEPAD_ENABLED', 'false'):
         ports['gamepad'] = (_h('GAMEPAD_HOST'),
                             _p('GAMEPAD_PORT', DEFAULT_GAMEPAD_PORT))
     return ports
