@@ -886,6 +886,8 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_landing()
         elif path == '/status.json':
             self._serve_status_json()
+        elif path == '/sessions.json':
+            self._serve_sessions_json()
         elif path == '/audio_receiver.html':
             self._serve_template('audio_receiver.html')
         elif path == '/gamepad.html':
@@ -1086,6 +1088,49 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             log_exception(e, 'Landing _serve_status_json')
             body, code = error_json('Failed to build status JSON', 500)
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+    def _serve_sessions_json(self):
+        """List active ephemeral sessions — operator-only.
+
+        The outer auth gate lets activated ephemeral cookies reach
+        portal routes; enumerating OTHER people's sessions is an
+        operator privilege, so this endpoint re-checks the landing
+        Basic credential itself (stateless, no session required).
+        Session data comes from to_dict() — token fingerprints and
+        metadata only, never raw tokens or passwords.
+        """
+        from vnc_remote_secure.security.http_auth import (
+            check_landing_auth, client_ip_from)
+        if not check_landing_auth(
+                self.headers.get('Authorization', ''),
+                client_ip=client_ip_from(
+                    self.headers,
+                    self.client_address[0]
+                    if self.client_address else None)):
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Operator credentials required', 401)
+            self.wfile.write(body.encode())
+            return
+        try:
+            from vnc_remote_secure.security.ephemeral_sessions import (
+                get_session_store)
+            store = get_session_store()
+            store._load_if_changed()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(
+                {'sessions': store.list_active()}, indent=2).encode())
+        except Exception as e:
+            log_exception(e, 'Landing _serve_sessions_json')
+            body, code = error_json('Failed to list sessions', 500)
             self.send_response(code)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()

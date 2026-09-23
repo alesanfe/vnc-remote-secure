@@ -964,6 +964,7 @@ def consume_ephemeral_session(signed_token: str) -> bool:
                 return False
             session.revoke()
             store._save()
+            _metric('exhausted')
             return True  # Return inside lock to prevent race.
         return True  # Multi-use: valid, return inside lock.
 
@@ -1046,6 +1047,13 @@ def activate_ephemeral_session(signed_token: str,
         session.mark_used()
         store._save()
         _metric('activated')
+        if (session.single_use
+                or (session.max_uses > 0
+                    and session.use_count >= session.max_uses)):
+            # A link that just burned its last use is a lifecycle
+            # event distinct from activation — operators should see
+            # budget exhaustion separately in metrics.
+            _metric('exhausted')
         try:
             from vnc_remote_secure.security.audit import audit_log
             audit_log('ephemeral_session_activate',
