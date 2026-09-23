@@ -39,13 +39,28 @@ class TestBackupDereferencesLinks:
         link = ssl_dir / 'fullchain.pem'
         try:
             os.symlink(str(real_cert), link)
+            link_parent = ssl_dir
         except (OSError, NotImplementedError):
-            pytest.skip('symlinks unavailable on this platform/user')
+            # Windows without Developer Mode/admin can't create file
+            # symlinks — directory junctions need no privilege and are
+            # transparent to tarfile, so link the parent dir instead.
+            if os.name != 'nt':
+                raise
+            real_ssl = tmp_path / 'real_ssl'
+            real_ssl.mkdir()
+            (real_ssl / 'fullchain.pem').write_text('CERTDATA')
+            junction = tmp_path / 'ssl_junction'
+            import subprocess
+            subprocess.run(
+                ['cmd', '/c', 'mklink', '/J', str(junction),
+                 str(real_ssl)],
+                check=True, capture_output=True)
+            link_parent = junction
 
         # Point the backup at a minimal tree containing the link.
         monkeypatch.setattr(
             backup_mod, '_collect_paths',
-            lambda: [(str(ssl_dir), 'ssl')])
+            lambda: [(str(link_parent), 'ssl')])
         out = tmp_path / 'out.tar.gz'
         result = backup_mod.create_backup(str(out))
         assert os.path.isfile(result)

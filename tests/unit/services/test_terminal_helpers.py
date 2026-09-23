@@ -127,11 +127,43 @@ def test_build_args_powershell_windows():
     assert args[-1] == 'Get-Item x'
 
 
-@pytest.mark.skipif(os.name == 'nt', reason='POSIX shell path')
-def test_build_args_posix():
+def _posix_os():
+    """Fake os namespace — patching the real os.name would flip
+    pathlib/pytest to PosixPath on Windows mid-test."""
+    import os as _os
+    import types
+    return types.SimpleNamespace(
+        name='posix', environ=_os.environ, path=_os.path)
+
+
+def test_build_args_posix(monkeypatch):
+    """POSIX branch is reachable on any host by rebinding the module's
+    os — the arg layout is pure logic, not platform capability."""
+    import vnc_remote_secure.services.terminal as term
+    monkeypatch.setattr(term, 'os', _posix_os())
+    import shutil
+    monkeypatch.setattr(shutil, 'which', lambda n: None)
+    monkeypatch.setattr(term, '_restricted_user_prefix', lambda: None,
+                        raising=False)
+    monkeypatch.setattr(term, '_sandbox_prefix', lambda: None,
+                        raising=False)
     args = _build_subprocess_args('ls -la', 'bash', '/tmp')
-    assert args[-2] == '-c'
-    assert args[-1] == 'ls -la'
+    assert args == ['/bin/sh', '-c', 'ls -la']
+
+
+def test_build_args_posix_uid_drop_prefix(monkeypatch):
+    """When a restricted-user prefix exists it must precede the shell —
+    sandbox wrapping happens outside the shell args."""
+    import vnc_remote_secure.services.terminal as term
+    monkeypatch.setattr(term, 'os', _posix_os())
+    import shutil
+    monkeypatch.setattr(shutil, 'which', lambda n: '/bin/bash')
+    monkeypatch.setattr(term, '_restricted_user_prefix',
+                        lambda: ['sudo', '-u', 'nobody'], raising=False)
+    monkeypatch.setattr(term, '_sandbox_prefix', lambda: None,
+                        raising=False)
+    args = _build_subprocess_args('id', 'bash', '/tmp')
+    assert args == ['sudo', '-u', 'nobody', '/bin/bash', '-c', 'id']
 
 
 # ---------------------------------------------------------------------------

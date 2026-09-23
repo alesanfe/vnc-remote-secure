@@ -1,5 +1,4 @@
 """Tests for core.paths — platform-aware directory resolution."""
-import os
 import sys
 
 import pytest
@@ -73,19 +72,43 @@ class TestWinBase:
         assert paths._win_base() == str(local)
 
 
-class TestGetTempDirSquat:
-    """On POSIX, a pre-existing group/world-writable or foreign-owned
-    temp dir must NOT be used — symlink/predictable-tmp squatting."""
+class TestRunDirSquatGuard:
+    """The /tmp-fallback squat guard in ensure_dirs must refuse a
+    foreign-owned run dir. Exercised cross-platform by rebinding the
+    module's ``os`` to a fake POSIX-flavoured namespace — patching the
+    real ``os.name`` would break pathlib inside pytest itself."""
 
-    @pytest.mark.skipif(os.name == 'nt', reason='POSIX tmp semantics')
-    def test_world_writable_dir_recreated(self, tmp_path, monkeypatch):
-        import stat
+    def _posix_env(self, monkeypatch, tmp_path, uid, owner_uid):
+        import os as _os
+        import types
         from vnc_remote_secure.core import paths
-        d = tmp_path / 'vnc-remote-tmp'
-        d.mkdir()
-        d.chmod(0o777)  # squatter permissions
-        monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
-        monkeypatch.delenv('TMPDIR', raising=False)
-        out = paths.get_temp_dir()
-        mode = stat.S_IMODE(os.stat(out).st_mode)
-        assert mode & 0o077 == 0, oct(mode)
+        for name in ('config', 'data', 'log', 'run', 'ssl'):
+            d = tmp_path / name
+            d.mkdir(exist_ok=True)
+            monkeypatch.setattr(
+                paths, f'get_{name}_dir', lambda d=d: str(d))
+        monkeypatch.setattr(paths, 'is_windows', lambda: False)
+        monkeypatch.setattr(paths, '_is_root', lambda: False)
+        monkeypatch.delenv('XDG_RUNTIME_DIR', raising=False)
+        fake_os = types.SimpleNamespace(
+            name='posix',
+            environ=_os.environ,
+            lstat=lambda p: types.SimpleNamespace(st_uid=owner_uid),
+            geteuid=lambda: uid,
+            makedirs=_os.makedirs,
+            chmod=_os.chmod,
+            path=_os.path,
+        )
+        monkeypatch.setattr(paths, 'os', fake_os)
+        return paths
+
+    def test_foreign_owned_run_dir_refused(self, tmp_path, monkeypatch):
+        paths = self._posix_env(monkeypatch, tmp_path,
+                                uid=1000, owner_uid=9999)
+        with pytest.raises(RuntimeError, match='owned by uid'):
+            paths.ensure_dirs()
+
+    def test_own_run_dir_accepted(self, tmp_path, monkeypatch):
+        paths = self._posix_env(monkeypatch, tmp_path,
+                                uid=1000, owner_uid=1000)
+        paths.ensure_dirs()  # must not raise
