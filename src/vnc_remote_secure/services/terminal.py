@@ -397,12 +397,32 @@ def _sandbox_prefix():
     return args
 
 
+# Shell allowlist for WEBTERM_SHELL (§6): an arbitrary binary as
+# "shell" would execute `binary -c <remote command>` — restricting
+# to real shells keeps the env var from becoming a code-exec
+# primitive via configuration.
+_ALLOWED_SHELLS = frozenset({
+    'bash', 'sh', 'zsh', 'dash', 'ksh',
+    'cmd.exe', 'cmd', 'powershell.exe', 'powershell', 'pwsh.exe', 'pwsh',
+})
+
+
+def _shell_allowed(shell: str) -> bool:
+    """Return True when ``shell`` is in the terminal shell allowlist."""
+    return os.path.basename(shell).lower() in _ALLOWED_SHELLS
+
+
 def _build_subprocess_args(cmd, shell, cwd):
     """Build the subprocess argument list for the configured shell."""
     import shutil as _shutil
     if os.name == 'posix':
         # POSIX shell (bash/sh/zsh): the configured WEBTERM_SHELL or a
         # sane fallback — cmd.exe does not exist here.
+        if shell and not _shell_allowed(shell):
+            logger.warning(
+                "WEBTERM_SHELL=%r not in the shell allowlist — "
+                "falling back to bash/sh", shell)
+            shell = ''
         resolved = (_shutil.which(shell) if shell else None) \
             or _shutil.which('bash') or '/bin/sh'
         # Prefer a real uid drop (strongest); fall back to the

@@ -207,3 +207,15 @@ def test_origin_localhost_port_allowed(monkeypatch):
 
 def test_origin_evil_rejected():
     assert _is_origin_allowed('https://evil.example.com') is False
+
+
+def test_webterm_shell_allowlist():
+    """WEBTERM_SHELL=/usr/bin/python would run `python -c <remote
+    input>` — a code-exec primitive via config. Non-shell binaries
+    are rejected by the allowlist."""
+    from vnc_remote_secure.services.terminal import _shell_allowed
+    assert not _shell_allowed('/usr/bin/python')
+    assert not _shell_allowed('python3')
+    assert _shell_allowed('/bin/bash')
+    assert _shell_allowed('zsh')
+    assert _shell_allowed('powershell.exe')
