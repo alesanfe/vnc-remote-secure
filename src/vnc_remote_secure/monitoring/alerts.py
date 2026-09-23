@@ -191,6 +191,13 @@ def notify(title, message, severity='info', force=False):
     if now - _last_sent.get(key, -_DEDUP_WINDOW_S) < _DEDUP_WINDOW_S:
         logger.debug("Alert deduplicated (sent < %ds ago): %s",
                      _DEDUP_WINDOW_S, title)
+        try:
+            from vnc_remote_secure.monitoring.prometheus import (
+                inc_counter)
+            inc_counter('vnc_remote_alerts_dropped_total',
+                        'reason=dedup')
+        except Exception:  # noqa: BLE001
+            pass
         return 0
     _last_sent[key] = now
 
@@ -206,6 +213,13 @@ def notify(title, message, severity='info', force=False):
         sent += 1
     if sent == 0:
         logger.debug("No alert channel configured or reachable for: %s", title)
+        try:
+            from vnc_remote_secure.monitoring.prometheus import (
+                inc_counter)
+            inc_counter('vnc_remote_alerts_dropped_total',
+                        'reason=no_channel')
+        except Exception:  # noqa: BLE001
+            pass
     else:
         # The id lands in the local log so an inbound alert can be
         # correlated back to the event that raised it.
