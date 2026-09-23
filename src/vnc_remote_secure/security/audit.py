@@ -92,6 +92,22 @@ def _load_chain_hash():
         _chain_hash = ''
 
 
+def _load_last_seq() -> int:
+    """Load the sequence number of the last audit entry (0 when none)."""
+    try:
+        path = Path(_audit_log_file())
+        if path.exists():
+            lines = path.read_text(encoding='utf-8').strip().split('\n')
+            if lines:
+                last = json.loads(lines[-1])
+                seq = last.get('seq')
+                if isinstance(seq, int):
+                    return seq
+    except (OSError, json.JSONDecodeError):
+        pass
+    return -1
+
+
 def _compute_hash(prev_hash: str, entry: dict) -> str:
     """Compute the chain hash for a new entry."""
     # Hash includes the previous hash and the entry content (excluding
@@ -133,6 +149,7 @@ def _write_anchor():
     global _chain_hash
     entry = {
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        'seq': 0,
         'event': 'anchor',
         'user': 'system',
         'ip': 'unknown',
@@ -311,6 +328,12 @@ def audit_log(
         # cross-process file lock serializes read-hash → compute →
         # append so concurrent writers cannot fork the chain.
         _load_chain_hash()
+        # Monotonic sequence number: a file restored to an earlier
+        # valid prefix shows a lower seq than the last tip's — the
+        # tip witness catches that, but seq also flags *middle* gaps
+        # during verify_chain (a spliced file with recomputed hashes
+        # still reveals deletion unless every seq is rewritten too).
+        entry_seq = _load_last_seq() + 1
 
         # Scrub secrets from free-text fields before they hit disk —
         # a caller that interpolates a credential into ``detail`` or
@@ -319,6 +342,7 @@ def audit_log(
 
         entry = {
             'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'seq': entry_seq,
             'event': event,
             'user': user,
             'ip': ip,
@@ -392,6 +416,7 @@ def verify_chain() -> tuple:
         return True, 'Empty audit log'
 
     prev_hash = ''
+    prev_seq = None
     for i, line in enumerate(lines):
         try:
             entry = json.loads(line)
@@ -403,6 +428,17 @@ def verify_chain() -> tuple:
             if entry.get('event') != 'anchor':
                 return False, 'Missing anchor entry at line 1'
             prev_hash = _ANCHOR_HASH
+        # Sequence continuity: entries written before seq existed
+        # have no field — skip those; a present-but-non-consecutive
+        # seq means a middle deletion that survived hashing.
+        seq = entry.get('seq')
+        if seq is not None and prev_seq is not None \
+                and seq != prev_seq + 1:
+            return False, (
+                f'Sequence gap at line {i + 1}: expected '
+                f'{prev_seq + 1}, found {seq} — entries deleted')
+        if seq is not None:
+            prev_seq = seq
         computed = _compute_hash(prev_hash, entry)
         if computed != stored_hash:
             return False, f'Hash mismatch at line {i + 1}: chain broken'
