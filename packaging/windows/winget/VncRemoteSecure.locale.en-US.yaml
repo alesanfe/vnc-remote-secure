@@ -1,0 +1,22 @@
+PackageIdentifier: VncRemoteSecure
+PackageVersion: "0.2.0"
+PackageLocale: en-US
+Publisher: VNC Remote Secure Contributors
+PackageName: VNC Remote Secure
+License: MIT
+ShortDescription: Secure browser-based remote access via noVNC, web terminal and hardened session sharing
+Description: |-
+  Self-hosted remote access platform: browser VNC through noVNC,
+  a web terminal, health monitoring, HTTPS/TLS, ephemeral shareable
+  remote sessions with RBAC, MFA, rate limiting and hash-chained
+  audit logging. Windows and Linux with a unified Python CLI.
+Moniker: vnc-remote-secure
+Tags:
+- vnc
+- novnc
+- remote-access
+- remote-desktop
+- self-hosted
+- terminal
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

@@ -175,3 +175,57 @@ def test_non_ascii_username_authenticate_fails_closed(monkeypatch):
     # A UTF-8 configured credential still works when the input matches.
     monkeypatch.setenv('USER_UI_PASSWORD', 'Café-Päss1!')
     assert authentication.authenticate('admin', 'Café-Päss1!') is True
+
+
+# ---------------------------------------------------------------------------
+# Mutation-killing edge cases (mutmut survivors → real gaps)
+# ---------------------------------------------------------------------------
+
+
+def test_payload_containing_dot_verifies():
+    """A payload with internal dots must survive rsplit('.', 1).
+
+    A split('.', 1) or rsplit('.', 2) mutation would split at the
+    wrong separator and corrupt the signed material — the signature
+    is over the full payload, dots included.
+    """
+    payload = "user.name:expires.at:nonce"
+    token = sign_token(TOKEN_TYPE_BEARER, payload)
+    assert verify_token(TOKEN_TYPE_BEARER, token) == payload
+
+
+def test_forged_token_dot_in_payload_fails():
+    """A hand-crafted token where the payload carries a dot must
+    not verify — the signature was never computed over it."""
+    assert verify_token(
+        TOKEN_TYPE_SESSION, "session:a.b:cigsig") is None
+
+
+def test_non_ascii_signature_returns_none_not_raise():
+    """A non-ASCII signature fails closed (None), never raises.
+
+    verify() encodes the sig with errors='replace' — a strict or
+    invalid error mode would raise UnicodeEncodeError/LookupError
+    and crash the caller instead of rejecting the token.
+    """
+    token = sign_token(TOKEN_TYPE_SESSION, "data")
+    bad = token[:-2] + "\u00e9\u00e9"  # non-ASCII sig tail
+    assert verify_token(TOKEN_TYPE_SESSION, bad) is None
+
+
+def test_non_ascii_token_returns_none_not_raise():
+    """Whole-token non-ASCII fuzz must fail closed too."""
+    assert verify_token(TOKEN_TYPE_SESSION, "session:\u00e9.\u00e9") is None
+
+
+def test_unpaired_surrogate_signature_returns_none_not_raise():
+    """A lone surrogate in the sig fails closed, never raises.
+
+    Surrogates are the ONLY characters that actually trigger the
+    errors='replace' path (plain non-ASCII like é encodes fine
+    in UTF-8 — the handler never fires). A mutant changing 'replace'
+    to an invalid handler name would raise LookupError and crash the
+    caller instead of rejecting the token.
+    """
+    bad = "session:data.\ud800deadbeef"
+    assert verify_token(TOKEN_TYPE_SESSION, bad) is None

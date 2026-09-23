@@ -62,6 +62,18 @@ vnc-remote verify backup <file>      # backup integrity
 python -m pytest tests/unit/security/test_rate_limit.py \
                  tests/unit/security/test_mfa.py \
                  tests/unit/security/test_token_binding.py -q
+
+# Mutation gate on token signing (baseline: 60/65 killed, 5 provably
+# equivalent — see pyproject.toml [tool.mutmut] and CI 'mutation' job)
+mutmut run && mutmut results
+```
+
+A one-shot evidence bundle — every command above plus checksums,
+pip-freeze, git state and this document — is produced by:
+
+```bash
+python scripts/security/collect-audit-evidence.py   # --quick skips pytest
+# output: audit-evidence/<utc-timestamp>/{*.txt, manifest.json}
 ```
 
 ## 4. Claim inventory (auditor should test each)

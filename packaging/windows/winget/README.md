@@ -1,28 +1,37 @@
 # WinGet manifests
 
-This directory will contain the WinGet manifest files (YAML) required to
-publish VNC Remote Secure to the
-[Windows Package Manager](https://github.com/microsoft/winget-cli) community
-repository (`winget-pkgs`).
+WinGet manifest files (schema 1.9) for publishing VNC Remote Secure to
+the [Windows Package Manager](https://github.com/microsoft/winget-cli)
+community repository (`winget-pkgs`).
 
-## Planned contents
+## Contents
 
 | File                                  | Purpose                                              |
 |---------------------------------------|------------------------------------------------------|
-| `vnc-remote-secure.yaml`              | Package version 1 manifest (identifier, version).   |
-| `vnc-remote-secure.installer.yaml`    | Installer definitions (MSI URL, arch, SHA256).       |
-| `vnc-remote-secure.locale.en-US.yaml` | Default locale metadata (description, tags, license).|
-| `vnc-remote-secure.installer.1.0.0.yaml` | Per-version installer manifest.                   |
+| `VncRemoteSecure.yaml`                | Version manifest (identifier, version).              |
+| `VncRemoteSecure.installer.yaml`      | Installer definition (MSI type, arch, switches, hash).|
+| `VncRemoteSecure.locale.en-US.yaml`   | Locale metadata (description, tags, license).        |
 
-## Validation (future)
+## Per-release steps
+
+1. Build + sign the MSI: `packaging\windows\build-installer.ps1` then
+   `signtool sign` (or CI's signing job).
+2. Publish the MSI to the GitHub release.
+3. In `VncRemoteSecure.installer.yaml` fill:
+   - `InstallerUrl` — the release download URL
+   - `InstallerSha256` — from `dist\SHA256SUMS.txt`
+   - `ReleaseDate`
+4. Bump `PackageVersion` in all three manifests (keep it in sync with
+   `pyproject.toml`).
+
+## Validation
 
 ```powershell
-winget validate .\packaging\windows\winget\
+winget validate --manifest .\packaging\windows\winget\
 winget install --manifest .\packaging\windows\winget\
 ```
 
 ## Status
 
-No manifests are published yet. The MSI produced by
-[`packaging/windows/build-installer.ps1`](../build-installer.ps1) must be
-signed and hosted before submission to the winget-pkgs repository.
+Manifests exist and parse. They are NOT submittable until the
+placeholder URL/hash are replaced by a signed release artifact.

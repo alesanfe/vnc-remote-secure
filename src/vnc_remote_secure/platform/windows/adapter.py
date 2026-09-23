@@ -400,10 +400,31 @@ class WindowsAdapter(PlatformAdapter):
             logger.exception("Error listing devices:")
 
     def create_gamepad_injector(self):
-        """Return a WindowsInputInjector (or None if unavailable)."""
+        """Return the best available injector (or None).
+
+        Preference order: ViGEm (real XInput virtual controller — the
+        client game actually sees a gamepad) then SendInput
+        keyboard/mouse injection as the driverless fallback.
+        """
         try:
-            from vnc_remote_secure.platform.windows.gamepad import WindowsInputInjector
-            return WindowsInputInjector()
+            from vnc_remote_secure.platform.windows.gamepad import (
+                ViGEmInjector)
+            injector = ViGEmInjector()
+            logger.info("Gamepad backend: ViGEm X360 virtual controller")
+            return injector
+        except Exception as e:
+            logger.debug("ViGEm injector unavailable (driver or "
+                         "vgamepad missing): %s — falling back to "
+                         "SendInput", e)
+        try:
+            from vnc_remote_secure.platform.windows.gamepad import (
+                WindowsInputInjector)
+            injector = WindowsInputInjector()
+            logger.info(
+                "Gamepad backend: SendInput key/mouse injection "
+                "(install ViGEmBus + `pip install vgamepad` for a "
+                "real XInput controller)")
+            return injector
         except Exception as e:
             logger.debug("Windows gamepad injector unavailable: %s", e)
             return None

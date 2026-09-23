@@ -1,0 +1,19 @@
+Source: vnc-remote-secure
+Section: net
+Priority: optional
+Maintainer: VNC Remote Secure Contributors <security@localhost>
+Build-Depends: debhelper-compat (= 13), python3-all, python3-setuptools, pybuild-plugin-pyproject
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: vnc-remote-secure
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends},
+         python3-flask, python3-tornado, python3-cryptography,
+         python3-websockets, tigervnc-standalone-server, ffmpeg
+Recommends: nginx, certbot
+Description: Secure browser-based remote access
+ Self-hosted remote access platform: browser VNC through noVNC,
+ a web terminal, health monitoring, HTTPS/TLS, ephemeral shareable
+ remote sessions with RBAC, MFA, rate limiting and hash-chained
+ audit logging. Unified Python CLI (vnc-remote).

@@ -27,6 +27,9 @@ dpkg-buildpackage -us -uc -b
 
 ## Status
 
-No `.deb` is produced yet. Use
-[`packaging/linux/install.sh`](../install.sh) for manual installation,
-or run `vnc-remote install` via the Python CLI.
+All files above except `compat` exist (`debhelper-compat (= 13)` in
+`control` replaces it). Build with `dpkg-buildpackage` on a Debian
+system with `debhelper`, `pybuild-plugin-pyproject` and
+`python3-all` installed. The `postinst` creates the `vnc-remote`
+system user and state dirs; `vnc-remote install` completes the
+OS-integration (firewall, certs, config.env).

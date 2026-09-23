@@ -1,0 +1,30 @@
+# WinGet installer manifest.
+# InstallerSha256 and InstallerUrl MUST be regenerated per release —
+# scripts/release/build_artifacts.py produces the MSI + SHA256SUMS;
+# copy the MSI hash here before submitting to winget-pkgs.
+PackageIdentifier: VncRemoteSecure
+PackageVersion: "0.2.0"
+InstallerLocale: en-US
+InstallerType: wix          # MSI
+Scope: machine
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+InstallerSwitches:
+  Silent: /qn
+  SilentWithProgress: /qb
+  Interactive: /qf
+UpgradeBehavior: install
+ProductCode: "{7c9e2a41-3f6b-4d5a-9e12-8a4f1c6b2d90}"
+ReleaseDate: "2026-01-01"   # set at release time
+Installers:
+- Architecture: x64
+  # REPLACE-WITH-RELEASE-URL — the signed MSI published to the
+  # GitHub release, e.g.
+  # https://github.com/<org>/vnc-remote-secure/releases/download/v0.2.0/vnc-remote-secure-0.2.0.msi
+  InstallerUrl: https://example.invalid/REPLACE-WITH-RELEASE-URL.msi
+  # REPLACE-WITH-MSI-SHA256 — from dist/SHA256SUMS.txt
+  InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+ManifestType: installer
+ManifestVersion: 1.9.0

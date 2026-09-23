@@ -1,0 +1,15 @@
+#!/bin/sh
+# Pre-removal: stop the supervised stack before the files go away.
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        if command -v vnc-remote >/dev/null 2>&1; then
+            vnc-remote stop || true
+        fi
+        systemctl stop vnc-remote.service 2>/dev/null || true
+        ;;
+esac
+
+#DEBHELPER#
+exit 0

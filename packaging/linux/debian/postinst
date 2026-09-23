@@ -1,0 +1,24 @@
+#!/bin/sh
+# Post-install: create the service user, state dirs and reload systemd.
+# OS-integration (firewall, certs, config.env) is owned by
+# `vnc-remote install` — run it after the package lands.
+set -e
+
+case "$1" in
+    configure)
+        if ! getent passwd vnc-remote >/dev/null 2>&1; then
+            useradd --system --no-create-home \
+                --shell /usr/sbin/nologin vnc-remote || true
+        fi
+        mkdir -p /var/lib/vnc-remote-secure \
+                 /var/log/vnc-remote-secure \
+                 /etc/vnc-remote-secure
+        chmod 700 /var/lib/vnc-remote-secure /etc/vnc-remote-secure
+        chown -R vnc-remote:vnc-remote \
+            /var/lib/vnc-remote-secure /var/log/vnc-remote-secure || true
+        systemctl daemon-reload || true
+        ;;
+esac
+
+#DEBHELPER#
+exit 0

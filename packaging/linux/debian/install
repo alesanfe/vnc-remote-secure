@@ -1,0 +1,2 @@
+src/vnc_remote_secure/native/linux/systemd/vnc-remote.service lib/systemd/system/
+packaging/linux/install.sh usr/share/vnc-remote-secure/

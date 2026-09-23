@@ -12,7 +12,7 @@ implementation differs per OS by design (platform adapters).
 | Web terminal | Tornado executor | Tornado executor | No PTY either side (ConPTY deliberately avoided); `WEBTERM_SHELL` allowlist |
 | Terminal resource limits | process groups + SIGKILL tree | Job Objects (`KILL_ON_JOB_CLOSE`) | Windows uses `taskkill /T` fallback |
 | Audio streaming | ffmpeg (`-f pulse`/alsa) | ffmpeg (`-f dshow`) | Per-device availability varies |
-| Gamepad forwarding | uinput via `evdev` (real virtual device) | `SendInput` key/mouse injection (ctypes) | **Not parity**: Windows injects keyboard/mouse events, not an XInput gamepad — games expecting a controller won't see one. Real XInput needs ViGEmBus (third-party driver) — not bundled |
+| Gamepad forwarding | uinput via `evdev` (real virtual device) | **ViGEm X360 virtual controller** (`vgamepad`, `[windows-gamepad]` extra) with `SendInput` fallback | Parity when the ViGEmBus driver is installed — games see a real XInput controller. Without the driver, `SendInput` injects keyboard/mouse (no gamepad). `doctor` reports which backend is active |
 | Systemd / service mode | `vnc-remote.service` unit | Windows Service (SCM) | Both supervised by the same service manager |
 | Process cleanup | process groups (`setsid` + `killpg`) | `CREATE_NEW_PROCESS_GROUP` + Job Objects | Orphan grandchildren reaped on both |
 | PID-reuse-safe kill | ✅ start-time + cmdline identity | ✅ same check | `--force` bypass exists on both |

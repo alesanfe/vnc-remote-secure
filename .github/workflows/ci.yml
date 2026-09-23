@@ -111,9 +111,6 @@ jobs:
   mutation:
     name: Mutation Testing (token signing)
     runs-on: ubuntu-latest
-    # Informational for now: the gate flips to hard-fail once the
-    # surviving-mutant baseline is known and acceptable.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Set up Python
@@ -122,18 +119,24 @@ jobs:
           python-version: '3.12'
       - name: Install package + mutmut
         run: pip install -e ".[dev]" mutmut
-      # Scope: token_signing is small, pure, and exhaustively tested —
-      # a surviving mutant here means the signature checks tolerate
-      # behavioral changes they must not. Whole-package mutation is
-      # hours of CI; expand the scope as the baseline stabilizes.
-      - name: Run mutmut on token_signing
+      # Scope + runner configured in pyproject.toml [tool.mutmut].
+      # Baseline measured 2026-01 (mutmut 3.8): 60/65 killed; the 5
+      # survivors are PROVABLY equivalent mutants — 'utf-8'->'UTF-8'
+      # and 'ascii'->'ASCII' (Python normalizes codec names), a
+      # trailing-comma call, and an or->and change on a redundant
+      # guard clause. A NEW survivor = a real test gap in signature
+      # verification; the gate fails the job.
+      - name: Run mutmut and gate on survivors
         run: |
-          mutmut run \
-            --paths-to-mutate=src/vnc_remote_secure/security/token_signing.py \
-            --tests-dir=tests/unit/security/ \
-            --runner "python -m pytest -x -q tests/unit/security/test_token_signing.py" \
-          || true
-          mutmut results || true
+          mutmut run
+          SURVIVED=$(mutmut results | grep -c 'survived' || true)
+          mutmut results | grep 'survived' || true
+          echo "surviving mutants: $SURVIVED (baseline: 5 equivalent)"
+          if [ "$SURVIVED" -gt 5 ]; then
+            echo "::error::New surviving mutants — the signature"
+            echo "::error::checks tolerate a behavioral change."
+            exit 1
+          fi
       - name: Upload mutmut results
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

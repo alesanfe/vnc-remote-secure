@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Production WiX source for VNC Remote Secure (WiX v3 schema —
+  matches the candle/light v3 toolset build-installer.ps1 looks for).
+
+  Layout mirrors the Python installer (platform/windows/installer.py)
+  so both install paths produce the same on-disk state:
+
+    %ProgramData%\VncRemoteSecure\
+      service-run.py            service launcher (adds src/ to sys.path)
+      src\vnc_remote_secure\    the Python package (heat-harvested)
+      config.env                seeded from .env.example on first
+                                `vnc-remote install`, never overwritten
+      {run,log,data,ssl,config}\ runtime dirs (created by ensure_dirs)
+
+  Service registration, firewall rules, certificates and ACLs are
+  deliberately NOT done by this MSI — they are runtime OS-integration
+  steps owned by `vnc-remote install` (the Python installer), which
+  resolves python.exe, the restricted user and the real paths at
+  install time. The MSI drops files + PATH; `vnc-remote install`
+  finishes the job — same flow documented for manual installs.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="VNC Remote Secure" Language="1033"
+           Version="$(var.PackageVersion)"
+           Manufacturer="VNC Remote Secure Contributors"
+           UpgradeCode="7c9e2a41-3f6b-4d5a-9e12-8a4f1c6b2d90">
+    <Package Description="VNC Remote Secure — secure browser-based remote access"
+             Manufacturer="VNC Remote Secure Contributors"
+             InstallerVersion="300" Compressed="yes"
+             InstallScope="perMachine"
+             Comments="See https://github.com/cognition/vnc-remote-secure" />
+    <Media Id="1" Cabinet="vncrs.cab" EmbedCab="yes" />
+
+    <!-- Upgrade rule: remove older versions of this product. -->
+    <Upgrade Id="7c9e2a41-3f6b-4d5a-9e12-8a4f1c6b2d90">
+      <UpgradeVersion OnlyDetect="no" IncludeMinimum="yes"
+                      IncludeMaximum="no" Minimum="0.0.0"
+                      Maximum="$(var.PackageVersion)"
+                      Property="PREVIOUSVERSIONSINSTALLED" />
+      <UpgradeVersion OnlyDetect="yes" IncludeMinimum="no"
+                      Minimum="$(var.PackageVersion)"
+                      Property="NEWERVERSIONDETECTED" />
+    </Upgrade>
+    <InstallExecuteSequence>
+      <RemoveExistingProducts After="InstallInitialize" />
+      <Custom Action="PreventDowngrade"
+              After="FindRelatedProducts">NEWERVERSIONDETECTED</Custom>
+    </InstallExecuteSequence>
+    <CustomAction Id="PreventDowngrade" Error="A newer version of VNC Remote Secure is already installed." />
+
+    <!-- Refuse to install without a Python on PATH — the MSI drops
+         files that are useless without the interpreter. -->
+    <Property Id="PYTHONFOUND">
+      <RegistrySearch Id="PyCorePath" Root="HKLM" Win64="yes"
+                      Key="SOFTWARE\Python\PythonCore"
+                      Type="raw" />
+      <RegistrySearch Id="PyCorePath32" Root="HKCU"
+                      Key="SOFTWARE\Python\PythonCore"
+                      Type="raw" />
+    </Property>
+    <Condition Message="VNC Remote Secure requires Python 3.11+ installed (registering under SOFTWARE\Python\PythonCore).">
+      PYTHONFOUND
+    </Condition>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramDataFolder">
+        <Directory Id="APPDATADIR" Name="VncRemoteSecure">
+          <!-- Service launcher: puts src/ on sys.path so the service
+               runs without a pip install (sc.exe cannot set env). -->
+          <Component Id="ServiceLauncher"
+                     Guid="b3f1c2d4-5e6a-4b7c-8d9e-0f1a2b3c4d5e"
+                     Permanent="yes">
+            <File Id="service_run_py" Name="service-run.py"
+                  Source="$(var.SupportDir)\service-run.py"
+                  KeyPath="yes" />
+          </Component>
+          <!-- Package tree — files come from the heat-harvested
+               fragment (app-files.wxs) via ComponentGroupRef. -->
+          <Directory Id="PKG_SRC_DIR" Name="src" />
+          <!-- Runtime state dirs (owner-only at runtime; the MSI
+               just creates the skeleton). -->
+          <Directory Id="RUN_DIR" Name="run" />
+          <Directory Id="LOG_DIR" Name="log" />
+          <Directory Id="DATA_DIR" Name="data" />
+          <Directory Id="SSL_DIR" Name="ssl" />
+          <Directory Id="CONFIG_DIR" Name="config" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="BIN_PARENT" Name="VncRemoteSecure">
+          <Directory Id="BINDIR" Name="bin">
+            <!-- CLI shim so `vnc-remote` works on PATH without pip. -->
+            <Component Id="CliShim"
+                       Guid="c4d2e3f5-6a7b-4c8d-9e0f-1a2b3c4d5e6f">
+              <File Id="vnc_remote_cmd" Name="vnc-remote.cmd"
+                    Source="$(var.SupportDir)\vnc-remote.cmd"
+                    KeyPath="yes" />
+              <Environment Id="PathEnv" Name="PATH" Action="set"
+                           System="yes" Part="last" Separator=";"
+                           Value="[BINDIR]" Permanent="no" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Complete" Title="VNC Remote Secure" Level="1"
+             Description="Package, service launcher and CLI shim">
+      <ComponentRef Id="ServiceLauncher" />
+      <ComponentRef Id="CliShim" />
+      <!-- Heat-harvested package files (app-files.wxs fragment). -->
+      <ComponentGroupRef Id="AppFilesGroup" />
+    </Feature>
+  </Product>
+</Wix>

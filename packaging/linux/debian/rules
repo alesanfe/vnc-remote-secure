@@ -1,0 +1,11 @@
+#!/usr/bin/make -f
+export PYBUILD_NAME=vnc-remote-secure
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+# The systemd unit ships in the package tree; install it under
+# /lib/systemd/system via debian/install — dh_installsystemd picks
+# it up automatically.
+override_dh_installsystemd:
+	dh_installsystemd --name=vnc-remote

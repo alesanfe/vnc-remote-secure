@@ -1,0 +1,16 @@
+#!/bin/sh
+# Post-removal: purge state only on `purge` — an upgrade or plain
+# remove must keep /var/lib (sessions, backups, certs) and /etc config.
+set -e
+
+case "$1" in
+    purge)
+        rm -rf /var/lib/vnc-remote-secure /var/log/vnc-remote-secure
+        rm -rf /etc/vnc-remote-secure
+        getent passwd vnc-remote >/dev/null 2>&1 && \
+            userdel vnc-remote || true
+        ;;
+esac
+
+#DEBHELPER#
+exit 0

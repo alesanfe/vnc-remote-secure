@@ -62,6 +62,27 @@ ops = [
 e2e = [
   "playwright>=1.40,<2.0"
 ]
+# Real XInput virtual controller on Windows (requires the ViGEmBus
+# kernel driver installed separately). Without it the gamepad
+# service falls back to SendInput key/mouse injection.
+windows-gamepad = [
+  "vgamepad>=0.1.0,<2.0"
+]
+
+[tool.mutmut]
+# Mutation testing scope: start with the security-critical pure
+# module — a surviving mutant in token signing means the signature
+# checks tolerate behavioral change they must not. Expand
+# source_paths as the baseline stabilizes (whole-package mutation
+# is hours of CI).
+source_paths = ["src/vnc_remote_secure/security/token_signing.py"]
+# The mutant env only receives source_paths — copy the rest of the
+# package unchanged so intra-package imports resolve, and point the
+# runner at ONLY the relevant test file (the whole tests dir pulls
+# unrelated suites whose deps may be missing).
+also_copy = ["src"]
+tests_dir = ["tests/unit/security/test_token_signing.py"]
+runner = "python -m pytest -x -q tests/unit/security/test_token_signing.py"
 
 [project.scripts]
 vnc-remote = "vnc_remote_secure.cli:main"

@@ -1,0 +1,7 @@
+# WinGet version manifest — the package identity.
+# Submit to microsoft/winget-pkgs once the signed MSI is published.
+PackageIdentifier: VncRemoteSecure
+PackageVersion: "0.2.0"
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.9.0

@@ -346,6 +346,17 @@ def _check_gamepad_capability(checks):
             'true', '1', 'yes'):
         return
     if sys.platform == 'win32':
+        # Best backend first: ViGEmBus gives a REAL XInput controller —
+        # with it the SendInput/Session-0 caveat stops applying.
+        try:
+            import vgamepad  # noqa: F401  # pylint: disable=unused-import
+            _ok(checks, 'gamepad.capability',
+                'ViGEm available — real X360 XInput virtual '
+                'controller (works even without an interactive '
+                'session)')
+            return
+        except ImportError:
+            pass
         try:
             import ctypes
             # WTSGetActiveConsoleSessionId: 0xFFFFFFFF when no
@@ -355,15 +366,17 @@ def _check_gamepad_capability(checks):
             if session == 0xFFFFFFFF:
                 _fail(checks, 'gamepad.capability',
                       'GAMEPAD_ENABLED but no interactive console '
-                      'session — SendInput cannot inject from '
-                      'Session 0. Run the service in the user session '
-                      'or install a virtual controller driver')
+                      'session and no ViGEmBus driver — SendInput '
+                      'cannot inject from Session 0. Install ViGEmBus '
+                      '+ `pip install vgamepad` or run the service in '
+                      'the user session')
             else:
-                _ok(checks, 'gamepad.capability',
-                    'SendInput injection available (interactive '
-                    'session present). Note: injects keyboard/mouse '
-                    'events, not an XInput gamepad — ViGEmBus needed '
-                    'for real controller emulation')
+                _warn(checks, 'gamepad.capability',
+                      'SendInput injection only (interactive session '
+                      'present) — injects keyboard/mouse events, NOT '
+                      'an XInput gamepad. Install ViGEmBus + '
+                      '`pip install vgamepad` for real controller '
+                      'emulation')
         except Exception:  # noqa: BLE001 - probe is best-effort
             _warn(checks, 'gamepad.capability',
                   'Could not verify interactive session for SendInput')

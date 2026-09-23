@@ -1,10 +1,101 @@
-"""Windows gamepad input injection via SendInput (ctypes).
+"""Windows gamepad input injection.
 
-This module is consumed by the Windows platform adapter to provide a
-platform-specific injector for the gamepad forwarding service. Keeping the
-injector in the platform layer avoids circular imports between
-``services.gamepad`` and ``platform.*.adapter``
+Two backends, chosen at adapter time:
+
+- :class:`ViGEmInjector` — a REAL virtual Xbox 360 controller via
+  ViGEmBus (the ``vgamepad`` package). Games see an actual XInput
+  device. Requires the third-party ViGEmBus driver installed.
+- :class:`WindowsInputInjector` — SendInput (ctypes) keyboard/mouse
+  injection. No driver needed, but no game either sees a gamepad.
+
+The adapter prefers ViGEm and falls back to SendInput, keeping the
+service functional on machines without the driver.
 """
+
+
+class ViGEmInjector:
+    """Virtual Xbox 360 controller via ViGEmBus (``vgamepad``).
+
+    Raises ``ImportError``/``Exception`` at construction when the
+    package or the kernel driver is absent — the adapter treats that
+    as "backend unavailable" and falls back to SendInput.
+    """
+
+    def __init__(self):
+        import vgamepad as vg  # noqa: F401 - ImportError when absent
+        self._vg = vg
+        self._pad = vg.VX360Gamepad()
+        self.available = True
+        b = vg.XUSB_BUTTON
+        self._button_map = {
+            'button_0': b.XUSB_GAMEPAD_A,
+            'button_1': b.XUSB_GAMEPAD_B,
+            'button_2': b.XUSB_GAMEPAD_X,
+            'button_3': b.XUSB_GAMEPAD_Y,
+            'button_4': b.XUSB_GAMEPAD_LEFT_SHOULDER,
+            'button_5': b.XUSB_GAMEPAD_RIGHT_SHOULDER,
+            'button_6': b.XUSB_GAMEPAD_LEFT_THUMB,
+            'button_7': b.XUSB_GAMEPAD_RIGHT_THUMB,
+            'button_8': b.XUSB_GAMEPAD_BACK,
+            'button_9': b.XUSB_GAMEPAD_START,
+            'button_10': b.XUSB_GAMEPAD_GUIDE,
+            'button_12': b.XUSB_GAMEPAD_DPAD_UP,
+            'button_13': b.XUSB_GAMEPAD_DPAD_DOWN,
+            'button_14': b.XUSB_GAMEPAD_DPAD_LEFT,
+            'button_15': b.XUSB_GAMEPAD_DPAD_RIGHT,
+        }
+        # vgamepad sets both stick components atomically — track the
+        # last sent values so an axis event updates only its own axis.
+        self._left = [0.0, 0.0]
+        self._right = [0.0, 0.0]
+
+    def inject_button(self, button_code, value):
+        """Inject a gamepad button press/release."""
+        btn = self._button_map.get(str(button_code))
+        if btn is None:
+            return
+        try:
+            pressed = int(value) != 0
+        except (TypeError, ValueError):
+            return
+        if pressed:
+            self._pad.press_button(button=btn)
+        else:
+            self._pad.release_button(button=btn)
+        self._pad.update()
+
+    def inject_axis(self, axis, value):
+        """Inject a stick axis movement (-1.0..1.0)."""
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return
+        value = max(-1.0, min(1.0, value))
+        if axis == 'axis_0':
+            self._left[0] = value
+        elif axis == 'axis_1':
+            self._left[1] = value
+        elif axis == 'axis_2':
+            self._right[0] = value
+        elif axis == 'axis_3':
+            self._right[1] = value
+        else:
+            return
+        self._pad.left_joystick_float(
+            x_value_float=self._left[0],
+            y_value_float=self._left[1])
+        self._pad.right_joystick_float(
+            x_value_float=self._right[0],
+            y_value_float=self._right[1])
+        self._pad.update()
+
+    def close(self):
+        """Release every input and reset the virtual controller."""
+        try:
+            self._pad.reset()
+            self._pad.update()
+        except Exception:  # noqa: BLE001 - close is best-effort
+            pass
 
 
 class WindowsInputInjector:

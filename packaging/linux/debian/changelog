@@ -1,0 +1,6 @@
+vnc-remote-secure (0.2.0-1) unstable; urgency=medium
+
+  * Initial Debian packaging: pybuild rules, systemd unit install,
+    postinst/prerm maintainer scripts.
+
+ -- VNC Remote Secure Contributors <security@localhost>  Thu, 01 Jan 2026 00:00:00 +0000
