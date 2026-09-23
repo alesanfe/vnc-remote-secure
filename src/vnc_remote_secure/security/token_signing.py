@@ -30,6 +30,18 @@ def _get_secret() -> bytes:
     return _auth_secret()
 
 
+def _get_verify_secrets() -> list:
+    """Return signing secrets accepted for verification.
+
+    The current secret first, then retired secrets still inside their
+    coexistence window — key rotation must not invalidate in-flight
+    tokens (see ``authentication.rotate_signing_secret``).
+    """
+    from vnc_remote_secure.security.authentication import (
+        _get_secret as _auth_secret, previous_signing_secrets)
+    return [_auth_secret(), *previous_signing_secrets()]
+
+
 def sign_token(token_type: str, payload: str) -> str:
     """Sign a payload and return ``<type>:<payload>.<signature>``.
 
@@ -73,15 +85,15 @@ def verify_token(token_type: str, token: str) -> str | None:
     if '.' not in rest:
         return None
     payload, sig = rest.rsplit('.', 1)
-    secret = _get_secret()
     signed_material = f"{token_type}:{payload}"
-    expected_sig = hmac.new(secret, signed_material.encode('utf-8'),
-                            hashlib.sha256).hexdigest()
     # The token is client-controlled — a non-ASCII sig makes
     # compare_digest(str, str) raise TypeError instead of failing
     # closed. Encode both sides to bytes.
-    if not hmac.compare_digest(
-            sig.encode('utf-8', 'replace'),
-            expected_sig.encode('ascii')):
-        return None
-    return payload
+    sig_bytes = sig.encode('utf-8', 'replace')
+    for secret in _get_verify_secrets():
+        expected_sig = hmac.new(
+            secret, signed_material.encode('utf-8'),
+            hashlib.sha256).hexdigest()
+        if hmac.compare_digest(sig_bytes, expected_sig.encode('ascii')):
+            return payload
+    return None

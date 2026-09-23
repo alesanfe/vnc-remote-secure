@@ -192,6 +192,51 @@ def render_metrics() -> str:
         else:
             lines.append(f'vnc_remote_health_check_total{_format_labels(labels)} {value}')
 
+    # --- Shared-state DB size (best-effort, scrape-time stat) ---
+    try:
+        import os as _os
+        from vnc_remote_secure.security.shared_state import get_backend
+        db_path = getattr(get_backend(), '_db_path', None)
+        if db_path and _os.path.isfile(db_path):
+            lines.append(
+                '# HELP vnc_remote_shared_state_bytes Shared-state DB size')
+            lines.append(
+                '# TYPE vnc_remote_shared_state_bytes gauge')
+            lines.append(
+                f'vnc_remote_shared_state_bytes '
+                f'{_os.path.getsize(db_path)}')
+    except Exception:  # noqa: BLE001 - metric must not break /metrics
+        pass
+
+    # --- Generic security counters/gauges not covered above ---
+    # Any component may inc_counter/set_gauge a security-relevant
+    # metric (revocations, expiry closes, rate-limit rejections) and
+    # have it exported here without a per-metric render block.
+    _emitted = {'vnc_remote_auth_attempts_total',
+                'vnc_remote_health_check_total'}
+    for name, entries in sorted(_shared_counters().items()):
+        if name in _emitted:
+            continue
+        lines.append(f'# TYPE {name} counter')
+        for labels, value in entries.items():
+            if labels == 'default':
+                lines.append(f'{name} {value}')
+            else:
+                lines.append(
+                    f'{name}{_format_labels(labels)} {value}')
+    _emitted_g = {'vnc_remote_up', 'vnc_remote_session_active',
+                  'vnc_remote_tls_enabled', 'vnc_remote_posture_score'}
+    for name, entries in sorted(gauges.items()):
+        if name in _emitted_g:
+            continue
+        lines.append(f'# TYPE {name} gauge')
+        for labels, value in entries.items():
+            if labels == 'default':
+                lines.append(f'{name} {value}')
+            else:
+                lines.append(
+                    f'{name}{_format_labels(labels)} {value}')
+
     # --- Process info ---
     lines.append('# HELP vnc_remote_process_start_time Process start time (Unix epoch)')
     lines.append('# TYPE vnc_remote_process_start_time gauge')

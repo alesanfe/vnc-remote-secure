@@ -466,3 +466,59 @@ class TestInterrupt:
         ws.current_process = None
         ws.on_message(json.dumps({'type': 'interrupt'}))
         ws._send_prompt.assert_called_once()
+
+
+class TestIdleTimeout:
+    """An unattended terminal is an authenticated shell — the idle
+    timeout must close it; activity (input OR output) resets it."""
+
+    def _ws(self, monkeypatch, timeout='10'):
+        from unittest.mock import MagicMock
+        monkeypatch.setenv('TERMINAL_IDLE_TIMEOUT', timeout)
+        from vnc_remote_secure.services.terminal import (
+            TerminalWebSocket)
+        ws = object.__new__(TerminalWebSocket)
+        ws._idle_timeout = int(timeout)
+        ws._last_activity = 0.0
+        ws._idle_cb = None
+        ws._closed_with = []
+        ws.write_message = MagicMock()
+        ws.close = lambda **kw: ws._closed_with.append(kw)
+        return ws
+
+    def test_idle_close(self, monkeypatch):
+        import tornado.ioloop
+        ws = self._ws(monkeypatch)
+        monkeypatch.setattr(
+            tornado.ioloop.IOLoop, 'current',
+            staticmethod(lambda: type('L', (), {'time':
+                                                lambda s: 20.0})()))
+        ws._check_idle()
+        assert ws._closed_with == [
+            {'code': 1000, 'reason': 'idle timeout'}]
+
+    def test_activity_prevents_close(self, monkeypatch):
+        import tornado.ioloop
+        ws = self._ws(monkeypatch)
+        ws._last_activity = 15.0
+        monkeypatch.setattr(
+            tornado.ioloop.IOLoop, 'current',
+            staticmethod(lambda: type('L', (), {'time':
+                                                lambda s: 20.0})()))
+        ws._check_idle()
+        assert ws._closed_with == []
+
+    def test_zero_disables(self, monkeypatch):
+        ws = self._ws(monkeypatch, timeout='0')
+        # With timeout=0 the PeriodicCallback is never installed.
+        assert ws._idle_cb is None
+
+    def test_touch_updates_activity(self, monkeypatch):
+        import tornado.ioloop
+        ws = self._ws(monkeypatch)
+        monkeypatch.setattr(
+            tornado.ioloop.IOLoop, 'current',
+            staticmethod(lambda: type('L', (), {'time':
+                                                lambda s: 42.0})()))
+        ws._touch_activity()
+        assert ws._last_activity == 42.0

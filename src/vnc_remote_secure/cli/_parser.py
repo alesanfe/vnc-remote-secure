@@ -100,6 +100,11 @@ def _add_secrets_args(subparsers):
     p_srotate = p_secrets_sub.add_parser('rotate', help='Rotate a secret (generates new value)')
     p_srotate.add_argument('--name', dest='secret_name', required=True, help='Secret to rotate (TTYD_PASSWD, TEMP_USER_PASS, VNC_PASSWORD, HEALTH_AUTH_TOKEN, LANDING_PASSWORD, USER_UI_PASSWORD, AUTH_SECRET, FLASK_SECRET_KEY, BACKUP_PASSWORD)')
     _add_common_args(p_srotate, suppress_defaults=True)
+    p_srotsign = p_secrets_sub.add_parser(
+        'rotate-signing',
+        help='Rotate the token signing secret with a 7-day coexistence '
+             'window (in-flight tokens stay valid)')
+    _add_common_args(p_srotsign, suppress_defaults=True)
     p_sredact = p_secrets_sub.add_parser('redact', help='Show redacted value of a secret')
     p_sredact.add_argument('--name', dest='secret_name', required=True, help='Secret name to redact')
     _add_common_args(p_sredact, suppress_defaults=True)
@@ -120,6 +125,12 @@ def _add_config_args(subparsers):
     p_ceff = p_config_sub.add_parser('show-effective', help='Show effective config with provenance')
     p_ceff.add_argument('--profile', help='Profile to evaluate (default: from .env)')
     _add_common_args(p_ceff, suppress_defaults=True)
+    p_cexp = p_config_sub.add_parser(
+        'explain',
+        help='Explain how one variable resolves (value, source, precedence)')
+    p_cexp.add_argument('var_name', help='Variable name to explain')
+    p_cexp.add_argument('--profile', help='Profile to evaluate (default: from .env)')
+    _add_common_args(p_cexp, suppress_defaults=True)
     p_cval = p_config_sub.add_parser('validate', help='Validate config for contradictions')
     p_cval.add_argument('--profile', help='Profile to validate against')
     _add_common_args(p_cval, suppress_defaults=True)

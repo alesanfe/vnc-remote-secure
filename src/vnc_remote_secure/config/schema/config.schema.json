@@ -461,6 +461,12 @@
       ],
       "description": "Protocol nginx uses to reach the terminal backend (auto-detected when unset)."
     },
+    "TERMINAL_IDLE_TIMEOUT": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 86400,
+      "description": "Seconds of terminal inactivity before the WebSocket is closed (default 900; 0 disables). Activity counts client input and server output."
+    },
     "TTYD_HOST": {
       "type": "string",
       "description": "Bind address for the web terminal (ttyd on Linux, Tornado on Windows)."

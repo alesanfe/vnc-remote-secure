@@ -593,6 +593,23 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self.history = []
         logger.info("Client connected from %s", self.request.remote_ip)
 
+        # Idle timeout: an unattended terminal is an open shell on the
+        # server — close it rather than leave it authenticated forever.
+        # Activity = client input AND server output (a user watching a
+        # long-running tail stays connected). 0 disables.
+        import tornado.ioloop
+        try:
+            self._idle_timeout = int(
+                os.environ.get('TERMINAL_IDLE_TIMEOUT', '900'))
+        except ValueError:
+            self._idle_timeout = 900
+        self._last_activity = tornado.ioloop.IOLoop.current().time()
+        self._idle_cb = None
+        if self._idle_timeout > 0:
+            self._idle_cb = tornado.ioloop.PeriodicCallback(
+                self._check_idle, 30_000)
+            self._idle_cb.start()
+
         self.write_message("\x1b[36m\r\n  VNC Remote Secure - Web Terminal\r\n\x1b[0m")
         self.write_message(
             f"\x1b[90m  Shell: {_config()['webterm_shell']} | "
@@ -601,6 +618,33 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self.write_message("\x1b[90m  Type 'help' for commands, 'exit' to disconnect.\r\n\x1b[0m")
         self.write_message("\r\n")
         self._send_prompt()
+
+    def _touch_activity(self):
+        try:
+            import tornado.ioloop
+            self._last_activity = tornado.ioloop.IOLoop.current().time()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _check_idle(self):
+        """Close the socket when no input/output for idle_timeout s."""
+        import tornado.ioloop
+        if (tornado.ioloop.IOLoop.current().time()
+                - getattr(self, '_last_activity', 0)
+                > self._idle_timeout):
+            logger.info("Terminal idle for %ss — closing",
+                        self._idle_timeout)
+            try:
+                self.write_message(
+                    "\r\n\x1b[33m[session closed: idle timeout]\x1b[0m\r\n")
+            except Exception:  # noqa: BLE001
+                pass
+            self.close(code=1000, reason='idle timeout')
+
+    def write_message(self, message, binary=False):
+        """Track server->client output as activity (watching counts)."""
+        self._touch_activity()
+        return super().write_message(message, binary=binary)
 
     def on_close(self):
         """Clean up on WebSocket close.
@@ -619,6 +663,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             except Exception as e:
                 logger.debug("Failed to unregister WebSocket: %s", e)
             self._ws_conn_id = None
+        idle_cb = getattr(self, '_idle_cb', None)
+        if idle_cb is not None:
+            idle_cb.stop()
+            self._idle_cb = None
         logger.info("Client disconnected")
         # current_process is only assigned after successful auth —
         # sockets rejected in open() raise AttributeError noise here.
@@ -644,6 +692,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
 
     def on_message(self, message):
         """On message."""
+        self._touch_activity()
         try:
             msg = json.loads(message)
         except (json.JSONDecodeError, TypeError) as exc:

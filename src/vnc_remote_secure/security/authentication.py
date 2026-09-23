@@ -39,6 +39,41 @@ def _secret_file_path():
     return os.path.join(get_run_dir(), 'auth_secret.key')
 
 
+def _previous_secrets_path():
+    """Return the path to retired signing secrets (verify-only)."""
+    from vnc_remote_secure.core.paths import get_run_dir
+    return os.path.join(get_run_dir(), 'auth_secret.previous')
+
+
+def _persist_secret_file(path, value):
+    """Write a secret atomically with owner-only permissions.
+
+    A truncated secret would invalidate every issued token and break
+    the deployment — write to a temp file and rename.
+    """
+    import tempfile
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(path), suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(value)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    # The file signs every bearer/session/ephemeral token —
+    # it must be owner-only like a private key, or any
+    # local user can forge valid sessions.
+    try:
+        from vnc_remote_secure.security.certificates import _restrict_key_permissions
+        _restrict_key_permissions(path, writable=True)
+    except Exception:  # noqa: BLE001
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
+
+
 def _get_secret():
     """Return the signing secret, generating and persisting one if not configured.
 
@@ -73,33 +108,84 @@ def _get_secret():
         if not _cached_secret:
             _cached_secret = secrets.token_hex(32)
             try:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                # Atomic write: a truncated secret would invalidate
-                # every issued token and break the deployment.
-                import tempfile
-                fd, tmp = tempfile.mkstemp(
-                    dir=os.path.dirname(path), suffix='.tmp')
-                try:
-                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                        f.write(_cached_secret)
-                    os.replace(tmp, path)
-                except BaseException:
-                    with contextlib.suppress(OSError):
-                        os.unlink(tmp)
-                    raise
-                # The file signs every bearer/session/ephemeral token —
-                # it must be owner-only like a private key, or any
-                # local user can forge valid sessions.
-                try:
-                    from vnc_remote_secure.security.certificates import _restrict_key_permissions
-                    _restrict_key_permissions(path, writable=True)
-                except Exception:  # noqa: BLE001
-                    with contextlib.suppress(OSError):
-                        os.chmod(path, 0o600)
+                _persist_secret_file(path, _cached_secret)
             except OSError as exc:
                 # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs path+error, not the secret)
                 logger.warning("Could not persist auth secret at %s: %s", path, exc, exc_info=True)
     return _cached_secret.encode('utf-8')
+
+
+def _load_previous_secrets() -> list:
+    """Return unexpired retired secrets as ``[{secret, retire_after}]``.
+
+    Entries past ``retire_after`` are dropped on load — a retired key
+    lives only for the configured coexistence window.
+    """
+    path = _previous_secrets_path()
+    try:
+        with open(path, encoding='utf-8') as f:
+            import json
+            entries = json.load(f)
+    except (OSError, ValueError):
+        return []
+    now = time.time()
+    live = [e for e in entries
+            if isinstance(e, dict)
+            and isinstance(e.get('secret'), str)
+            and e.get('retire_after', 0) > now]
+    if len(live) != len(entries):
+        try:
+            _persist_secret_file(path, json.dumps(live))
+        except OSError:
+            pass
+    return live
+
+
+def previous_signing_secrets() -> list:
+    """Return retired signing secrets still inside their window.
+
+    Only honored for file-backed secrets: when the operator pins the
+    secret via ``AUTH_SECRET``/``FLASK_SECRET_KEY`` they own rotation
+    entirely — a stale previous file must not grant extra keys.
+    """
+    if os.environ.get('AUTH_SECRET') or os.environ.get('FLASK_SECRET_KEY'):
+        return []
+    return [e['secret'].encode('utf-8')
+            for e in _load_previous_secrets()]
+
+
+def rotate_signing_secret(retire_in: float = 7 * 86400) -> tuple:
+    """Rotate the persisted signing secret with a coexistence window.
+
+    The current secret moves to the retired set (verify-only until
+    ``retire_in`` seconds elapse) and a fresh secret becomes the only
+    signing key — in-flight tokens stay valid instead of dying at
+    once. Returns ``(ok, error_message)``.
+    """
+    global _cached_secret
+    if os.environ.get('AUTH_SECRET') or os.environ.get('FLASK_SECRET_KEY'):
+        return (False, 'secret is configured via environment '
+                       '(AUTH_SECRET/FLASK_SECRET_KEY) — rotate it '
+                       'there; file rotation is disabled')
+    old = _get_secret().decode('utf-8')  # ensures persisted current key
+    entries = _load_previous_secrets()
+    if not any(e['secret'] == old for e in entries):
+        entries.append({
+            'secret': old,
+            'retire_after': time.time() + retire_in,
+            'retired_at': time.time(),
+        })
+    _persist_secret_file(_previous_secrets_path(),
+                         __import__('json').dumps(entries))
+    _cached_secret = secrets.token_hex(32)
+    _persist_secret_file(_secret_file_path(), _cached_secret)
+    try:
+        from vnc_remote_secure.security.audit import audit_log
+        audit_log('signing_key_rotate', user='system',
+                  detail=f'coexistence_window={int(retire_in)}s')
+    except Exception:  # noqa: BLE001
+        pass
+    return True, None
 
 
 def authenticate(username, password):

@@ -112,6 +112,25 @@ def _secrets_rotate(args):
     return 0
 
 
+def _secrets_rotate_signing(args):
+    """Rotate the file-backed signing secret with a coexistence window.
+
+    Unlike ``secrets rotate --name AUTH_SECRET`` (hard cutover), this
+    keeps the old key verifiable for the retire window so in-flight
+    sessions and share links do not die at once.
+    """
+    from vnc_remote_secure.security.authentication import (
+        rotate_signing_secret)
+    ok, err = rotate_signing_secret()
+    if not ok:
+        print(f"Error: {err}")
+        return 1
+    print("Signing secret rotated. The previous key stays valid for "
+          "7 days (verify-only); new tokens sign with the new key.")
+    _audit_cli('signing_key_rotate', 'success', 'window=7d')
+    return 0
+
+
 def _secrets_redact(args):
     if not args.secret_name:
         print("Error: --name required")
@@ -184,6 +203,7 @@ def cmd_secrets(args):
     handlers = {
         'status': _secrets_status,
         'rotate': _secrets_rotate,
+        'rotate-signing': _secrets_rotate_signing,
         'redact': _secrets_redact,
         'check': _secrets_check,
     }

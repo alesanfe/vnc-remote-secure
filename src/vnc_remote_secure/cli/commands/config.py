@@ -22,6 +22,31 @@ def _config_show_effective(args):
     return 0
 
 
+def _config_explain(args):
+    """Explain how one variable resolves: value, source, precedence."""
+    from vnc_remote_secure.core.config_inspector import (
+        compute_effective_config)
+
+    name = args.var_name.upper()
+    profile = getattr(args, 'profile', None)
+    effective = compute_effective_config(profile_name=profile)
+    entry = next((e for e in effective if e['name'] == name), None)
+    if entry is None:
+        print(f"Unknown config variable: {name}")
+        return 1
+    if args.json:
+        print(json.dumps(entry, indent=2))
+    else:
+        print(f"{entry['name']} = {entry['value']}")
+        print(f"  source: {entry['source']}")
+        print("  precedence: hardcoded-default < platform-default "
+              "< profile < .env < env")
+        if entry['source'] == 'security-policy':
+            print("  note: value enforced by the security profile — "
+                  "cannot be overridden")
+    return 0
+
+
 def _config_validate(args):
     """Validate the configuration for a profile."""
     from vnc_remote_secure.core.config_inspector import validate_config
@@ -170,6 +195,7 @@ def cmd_config(args):
 
     actions = {
         'show-effective': _config_show_effective,
+        'explain': _config_explain,
         'validate': _config_validate,
         'diff': _config_diff,
         'migrate': _config_migrate,

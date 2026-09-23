@@ -353,10 +353,22 @@ def _session_expired(session_id: str) -> bool:
 
 def _sweep_revoked_session(session_id: str) -> bool:
     """Close the session's connections on revocation OR expiry."""
-    if is_revoked_shared(session_id) or _session_expired(session_id):
-        get_registry().revoke_session(session_id)
-        return True
-    return False
+    reason = None
+    if is_revoked_shared(session_id):
+        reason = 'revoked'
+    elif _session_expired(session_id):
+        reason = 'expired'
+    if reason is None:
+        return False
+    closed = get_registry().revoke_session(session_id)
+    try:
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter('vnc_remote_ws_connections_closed_total',
+                    f'reason={reason}',
+                    value=closed if isinstance(closed, int) else 1)
+    except Exception:  # noqa: BLE001 - metrics must not break cleanup
+        pass
+    return True
 
 
 async def watch_shared_revocation_async(session_id: str,

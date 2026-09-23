@@ -48,6 +48,22 @@ The project creates a temporary user for remote sessions:
 - All authentication attempts logged
 - Resources removed when sessions end
 
+### Signing-key rotation
+- All bearer/session/ephemeral tokens are HMAC-SHA256 signed with one
+  secret (`AUTH_SECRET`/`FLASK_SECRET_KEY` env, or the persisted
+  `auth_secret.key` in the run dir).
+- `vnc-remote secrets rotate-signing` rotates the file-backed key
+  with a **7-day coexistence window**: the old key moves to
+  `auth_secret.previous` (verify-only) so in-flight sessions and share
+  links do not die at once; new tokens sign with the new key only.
+- Retired keys expire automatically — `retire_after` prunes them on
+  load. Rotation is audited (`signing_key_rotate`).
+- When the secret is pinned via environment, CLI rotation is refused —
+  the operator owns rotation and must stage it themselves (e.g. set
+  the new env value after old tokens expire).
+- `secrets rotate --name AUTH_SECRET` remains available for an
+  immediate hard cutover (invalidates all tokens at once).
+
 ## 🛡️ Network Security
 
 ### SSL/TLS
