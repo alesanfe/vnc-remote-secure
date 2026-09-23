@@ -396,3 +396,74 @@ class TestSecretsNotInLogs:
         allowed, reason = check_permission_for_action(fake_token, PERM_VIEW)
         assert allowed is False
         assert 'fakeSecretToken123456789' not in reason
+
+
+class TestExpiryEnforcement:
+    """An expired session must fail is_valid/validate/check_permission
+    — the expiry check sits on the authorization critical path."""
+
+    def test_expired_is_invalid(self, fresh_store):
+        sess, signed = fresh_store.create(
+            role='viewer', expires_in=-1)  # already expired
+        assert sess.is_valid() is False
+        assert fresh_store.validate(signed) is None
+
+    def test_expired_check_permission_denied(self, fresh_store):
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=-1)
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            check_permission)
+        assert check_permission(signed, 'desktop:view') is False
+
+    def test_expired_activate_returns_none(self, fresh_store):
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=-1)
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            activate_ephemeral_session)
+        assert activate_ephemeral_session(signed) is None
+
+    def test_max_uses_boundary(self, fresh_store):
+        """max_uses=1: first consume ok, second must fail (boundary at
+        the counter, not just single_use flag)."""
+        sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600, max_uses=1)
+        assert sess.is_valid() is True
+        sess.use_count = 1
+        assert sess.is_valid() is False
+        assert fresh_store.validate(signed) is None
+
+    def test_expiry_boundary_just_inside(self, fresh_store):
+        """expires_in=0 creates expires_at ~= now — must not be
+        treated as still-valid after the clock advances."""
+        import time
+        sess, signed = fresh_store.create(role='viewer', expires_in=0)
+        # Boundary: exactly at expiry is invalid (>), one second before
+        # would be valid — freeze time just inside validity.
+        sess.expires_at = time.time() + 1
+        assert sess.is_valid() is True
+        sess.expires_at = time.time() - 0.001
+        assert sess.is_valid() is False
+
+
+class TestResourceBindingValidation:
+    """A token minted for resource='desktop' must not validate for
+    resource='terminal' at the is_valid/validate layer — not just at
+    has_permission."""
+
+    def test_wrong_resource_is_invalid(self, fresh_store):
+        sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600, resource='desktop')
+        assert sess.is_valid(resource='desktop') is True
+        assert sess.is_valid(resource='terminal') is False
+        assert fresh_store.validate(signed, resource='terminal') is None
+        assert fresh_store.validate(signed, resource='desktop') is sess
+
+    def test_check_permission_wrong_resource_denied(self, fresh_store):
+        _sess, signed = fresh_store.create(
+            role='viewer', expires_in=3600, resource='desktop')
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            check_permission)
+        assert check_permission(
+            signed, 'desktop:view', resource='desktop') is True
+        assert check_permission(
+            signed, 'terminal:use', resource='terminal') is False

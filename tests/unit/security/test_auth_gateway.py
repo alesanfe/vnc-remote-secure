@@ -443,3 +443,48 @@ class TestAuthorizeRequestEphemeral:
             required_permission='desktop:view')
         assert ok is True
         assert ident == 'eph-bearer'
+
+
+class TestBearerPermissionDenied:
+    """An ephemeral bearer token must be REJECTED when it lacks the
+    required permission — 'any valid token' is not authorization."""
+
+    def test_bearer_insufficient_permission_denied(self, monkeypatch):
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'check_permission',
+            lambda *a, **k: False)
+        from vnc_remote_secure.security.auth_gateway import (
+            authorize_request)
+        allowed, reason, _ident = authorize_request(
+            bearer_token='viewer-tok', required_permission='control')
+        assert allowed is False
+
+    def test_bearer_granted_permission_allowed(self, monkeypatch):
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'check_permission',
+            lambda *a, **k: True)
+        from vnc_remote_secure.security.auth_gateway import (
+            authorize_request)
+        allowed, _reason, ident = authorize_request(
+            bearer_token='op-tok', required_permission='control')
+        assert allowed is True
+        assert ident == 'op-tok'
+
+    def test_bearer_permission_receives_resource_and_ip(
+            self, monkeypatch):
+        """check_permission must get the real resource+client_ip —
+        dropping them silently un-binds resource/IP-bound tokens."""
+        seen = {}
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.ephemeral_sessions.'
+            'check_permission',
+            lambda tok, perm, resource=None, client_ip=None:
+            seen.update(resource=resource, client_ip=client_ip) or True)
+        from vnc_remote_secure.security.auth_gateway import (
+            authorize_request)
+        authorize_request(
+            bearer_token='t', required_permission='view',
+            resource='desktop', client_ip='10.0.0.1')
+        assert seen == {'resource': 'desktop', 'client_ip': '10.0.0.1'}

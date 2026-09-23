@@ -205,3 +205,35 @@ class TestMalformedAuthHeaders:
 
     def test_bearer_wrong_scheme(self):
         assert http_auth.check_bearer_token('Basic dGg=', 'tok') is False
+
+
+class TestConstantTimeCompare:
+    """Credential compares must go through hmac.compare_digest — an
+    early-exit == leaks a per-byte timing oracle. The property is
+    only observable via the call, so spy on it."""
+
+    def test_basic_uses_compare_digest(self, monkeypatch):
+        import base64
+        import hmac
+        calls = []
+        real = hmac.compare_digest
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.http_auth.hmac.compare_digest',
+            lambda a, b: calls.append((a, b)) or real(a, b))
+        from vnc_remote_secure.security.http_auth import (
+            check_basic_auth)
+        hdr = 'Basic ' + base64.b64encode(b'u:p').decode()
+        check_basic_auth(hdr, 'u', 'p')
+        assert calls, 'Basic auth bypassed compare_digest'
+
+    def test_bearer_uses_compare_digest(self, monkeypatch):
+        import hmac
+        calls = []
+        real = hmac.compare_digest
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.http_auth.hmac.compare_digest',
+            lambda a, b: calls.append((a, b)) or real(a, b))
+        from vnc_remote_secure.security.http_auth import (
+            check_bearer_token)
+        check_bearer_token('Bearer x', 'x')
+        assert calls, 'Bearer auth bypassed compare_digest'
