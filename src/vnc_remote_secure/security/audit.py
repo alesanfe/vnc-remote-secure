@@ -509,6 +509,21 @@ def audit_log(
     return entry
 
 
+def audit_event(event: str, **kwargs):
+    """Best-effort :func:`audit_log` — never raises.
+
+    Most callers audit opportunistically (the audited action already
+    happened); they each wrapped ``audit_log`` in the same
+    ``try/except Exception: pass``. Centralised here. Integrity
+    callers under ``AUDIT_STRICT`` — which need the write failure to
+    abort the action — must keep calling ``audit_log`` directly.
+    """
+    try:
+        return audit_log(event, **kwargs)
+    except Exception:  # noqa: BLE001 - audit must not break the request
+        return None
+
+
 def verify_chain() -> tuple:
     """Verify the integrity of the audit log chain.
 

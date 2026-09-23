@@ -61,7 +61,7 @@ PROFILES = {
         'description': 'Local development and testing (127.0.0.1 only)',
         'TLS_ENABLED': 'false',
         'BIND_HOST': '127.0.0.1',
-        'BACKEND_BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': BACKEND_BIND_HOST,
         'PUBLIC_BIND_HOST': '127.0.0.1',
         'HEALTH_WEB_HOST': '127.0.0.1',
         'NGINX_ENABLED': 'false',
@@ -75,7 +75,7 @@ PROFILES = {
         'description': 'Trusted LAN with self-signed TLS via nginx (was home-lan)',
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
-        'BACKEND_BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': BACKEND_BIND_HOST,
         # justification: public profile default
         'PUBLIC_BIND_HOST': '0.0.0.0',  # nosec B104
         'HEALTH_WEB_HOST': '127.0.0.1',
@@ -92,7 +92,7 @@ PROFILES = {
         'description': 'Private overlay network (was private-vpn)',
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
-        'BACKEND_BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': BACKEND_BIND_HOST,
         # justification: public profile default
         'PUBLIC_BIND_HOST': '0.0.0.0',  # nosec B104
         'HEALTH_WEB_HOST': '127.0.0.1',
@@ -107,7 +107,7 @@ PROFILES = {
         'description': 'Public internet with maximum security (was internet-hardened)',
         'TLS_ENABLED': 'true',
         'BIND_HOST': '127.0.0.1',
-        'BACKEND_BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': BACKEND_BIND_HOST,
         # justification: public profile default
         'PUBLIC_BIND_HOST': '0.0.0.0',  # nosec B104
         'HEALTH_WEB_HOST': '127.0.0.1',
@@ -187,7 +187,7 @@ def locked_vars_for(profile: str | None = None) -> dict:
     if resolved not in ('public-hardened', 'private-overlay', 'trusted-lan'):
         return {}
     locked = {
-        'BACKEND_BIND_HOST': '127.0.0.1',
+        'BACKEND_BIND_HOST': BACKEND_BIND_HOST,
         'TLS_ENABLED': 'true',
         'DISABLE_SSL': 'false',
         'NGINX_ENABLED': 'true',

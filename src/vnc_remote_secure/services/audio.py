@@ -327,18 +327,20 @@ class AudioStreamServer:
         )
         headers = self._ws_headers(websocket)
 
-        def get_h(k, d=''):
-            return headers.get(k, d) if hasattr(headers, 'get') else d
-        cookie = get_h('Cookie')
-        from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
+        from vnc_remote_secure.security.http_auth import (
+            client_ip_from,
+            cookie_value,
+            extract_bearer_token,
+            header_get,
+        )
+        cookie = header_get(headers, 'Cookie')
         session_cookie = cookie_value(cookie, 'vnc_session')
         eph = cookie_value(cookie, 'vnc_ephemeral')
-        auth = get_h('Authorization')
-        bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
+        bearer = extract_bearer_token(header_get(headers, 'Authorization'))
         # Unified auth: session cookie, bearer, or activated ephemeral
         # cookie — all resolved by the gateway's single enforcement tree.
         allowed, reason = check_websocket_upgrade(
-            origin=get_h('Origin'),
+            origin=header_get(headers, 'Origin'),
             cookie_value=session_cookie,
             bearer_token=bearer,
             resource='audio',
@@ -372,7 +374,7 @@ class AudioStreamServer:
         # Validate auth via the central gateway.
         from vnc_remote_secure.security.auth_gateway import (
             register_websocket_connection,
-            unregister_websocket_connection,
+            unregister_websocket_quiet,
         )
         token = await self._authenticate_ws(websocket)
         if token is None:
@@ -408,11 +410,7 @@ class AudioStreamServer:
                 # early return happens before the try/finally, so
                 # without it the registry keeps a stale entry whose
                 # close callback points at a dead websocket.
-                try:
-                    unregister_websocket_connection(conn_id)
-                except (KeyError, ImportError):
-                    logger.debug("Failed to unregister audio connection",
-                                 exc_info=True)
+                unregister_websocket_quiet(conn_id)
                 return
 
         try:
@@ -437,10 +435,7 @@ class AudioStreamServer:
             self.clients.discard(websocket)
             logger.info("Client disconnected (total: %s)", len(self.clients))
             # Unregister from the revocation registry.
-            try:
-                unregister_websocket_connection(conn_id)
-            except (KeyError, ImportError):
-                logger.debug("Failed to unregister audio connection", exc_info=True)
+            unregister_websocket_quiet(conn_id)
 
             # Stop ffmpeg if no clients
             if not self.clients:

@@ -243,12 +243,9 @@ def rotate_signing_secret(retire_in: float = 7 * 86400) -> tuple:
         _cached_secret_mtime = os.stat(_secret_file_path()).st_mtime
     except OSError:
         pass
-    try:
-        from vnc_remote_secure.security.audit import audit_log
-        audit_log('signing_key_rotate', user='system',
-                  detail=f'coexistence_window={int(retire_in)}s')
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event('signing_key_rotate', user='system',
+              detail=f'coexistence_window={int(retire_in)}s')
     return True, None
 
 

@@ -164,6 +164,30 @@ def cookie_value(cookie_header: str, name: str) -> str:
     return ''
 
 
+def header_get(headers, name: str, default: str = '') -> str:
+    """Read a header value from anything with ``.get``, else default.
+
+    WS handlers receive headers as dicts, Tornado header objects, or
+    tuples — each used to re-implement
+    ``headers.get(k, d) if hasattr(headers, 'get') else d``.
+    """
+    get = getattr(headers, 'get', None)
+    if callable(get):
+        return get(name, default)
+    return default
+
+
+def extract_bearer_token(auth_header: str) -> str:
+    """Return the Bearer credential from an Authorization header.
+
+    Case-insensitive scheme match; ``''`` when absent. Validation is
+    separate — see :func:`check_bearer_token`.
+    """
+    if auth_header and auth_header.lower().startswith('bearer '):
+        return auth_header[7:].strip()
+    return ''
+
+
 def _is_locked(limiter, client_ip):
     """Return True when the client is locked out in ANY shared namespace.
 

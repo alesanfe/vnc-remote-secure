@@ -70,14 +70,11 @@ def _check_novnc_auth(headers, client_ip=None):
     credentials from the headers.
     """
     from vnc_remote_secure.security.auth_gateway import authorize_request
-    from vnc_remote_secure.security.http_auth import cookie_value
-    cookie = headers.get('Cookie', '') if hasattr(headers, 'get') else ''
+    from vnc_remote_secure.security.http_auth import cookie_value, extract_bearer_token, header_get
+    cookie = header_get(headers, 'Cookie')
     session_cookie = cookie_value(cookie, 'vnc_session')
     eph = cookie_value(cookie, 'vnc_ephemeral')
-    bearer = ''
-    auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
-    if auth and auth.lower().startswith('bearer '):
-        bearer = auth[7:].strip()
+    bearer = extract_bearer_token(header_get(headers, 'Authorization'))
     allowed, reason, _ = authorize_request(
         cookie_value=session_cookie,
         bearer_token=bearer,
@@ -408,8 +405,9 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         bearer = ''
         cookies = {}
         try:
-            auth = self.headers.get('Authorization', '')
-            bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
+            from vnc_remote_secure.security.http_auth import extract_bearer_token
+            bearer = extract_bearer_token(
+                self.headers.get('Authorization', ''))
             cookies = self._parse_cookies(self.headers.get('Cookie', ''))
             # Pick the credential in the same priority order the auth
             # check uses (vnc_ephemeral > bearer > vnc_session) so the

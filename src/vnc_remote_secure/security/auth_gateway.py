@@ -37,11 +37,8 @@ logger = logging.getLogger(__name__)
 
 def _audit(event, user, ip, result, detail):
     """Write an audit log entry (best-effort, never raises)."""
-    try:
-        from vnc_remote_secure.security.audit import audit_log
-        audit_log(event, user=user, ip=ip, result=result, detail=detail)
-    except (ImportError, OSError):
-        pass
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event(event, user=user, ip=ip, result=result, detail=detail)
 
 
 def _inc_auth_counter(result: str):
@@ -692,6 +689,21 @@ def unregister_websocket_connection(conn_id: str):
     """Unregister a WebSocket connection (on normal close)."""
     from vnc_remote_secure.security.websocket_registry import unregister_connection
     unregister_connection(conn_id)
+
+
+def unregister_websocket_quiet(conn_id: str):
+    """Unregister, ignoring dead/never-registered conn_ids.
+
+    For service cleanup paths where a missing entry is expected
+    noise (shutdown races, early returns). Wraps the gateway's
+    public :func:`unregister_websocket_connection` so patching it
+    still intercepts the quiet path.
+    """
+    try:
+        unregister_websocket_connection(conn_id)
+    except (KeyError, ImportError):
+        logger.debug("Failed to unregister WS connection %s",
+                     conn_id, exc_info=True)
 
 
 def check_permission_for_action(

@@ -1444,15 +1444,12 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
         from vnc_remote_secure.security.ephemeral_sessions import revoke_session
         revoked = revoke_session(token_id)
-        try:
-            from vnc_remote_secure.security.audit import audit_log
-            audit_log(
-                'portal_session_revoke',
-                user=operator.get('username', 'unknown'),
-                result='success' if revoked else 'failure',
-                detail=f'token_id={token_id}')
-        except Exception:  # noqa: BLE001
-            pass
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event(
+            'portal_session_revoke',
+            user=operator.get('username', 'unknown'),
+            result='success' if revoked else 'failure',
+            detail=f'token_id={token_id}')
         self.send_response(200 if revoked else 404)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -1511,13 +1508,10 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
 
         perms = set(operator.get('permissions') or [])
         if permission not in perms and 'admin:*' not in perms:
-            try:
-                from vnc_remote_secure.security.audit import audit_log
-                audit_log('portal_permission_denied',
-                          user=operator.get('username', '?'),
-                          detail=f'required={permission}')
-            except Exception:  # noqa: BLE001
-                pass
+            from vnc_remote_secure.security.audit import audit_event
+            audit_event('portal_permission_denied',
+                      user=operator.get('username', '?'),
+                      detail=f'required={permission}')
             self.send_response(403)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
@@ -1544,13 +1538,10 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         for s in list(store.list_active()):
             if revoke_session(s['token_id']):
                 count += 1
-        try:
-            from vnc_remote_secure.security.audit import audit_log
-            audit_log('portal_session_revoke_all',
-                      user=operator.get('username', 'unknown'),
-                      detail=f'count={count}')
-        except Exception:  # noqa: BLE001
-            pass
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event('portal_session_revoke_all',
+                  user=operator.get('username', 'unknown'),
+                  detail=f'count={count}')
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -1582,13 +1573,10 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(
                 {'error': str(e)}).encode())
             return
-        try:
-            from vnc_remote_secure.security.audit import audit_log
-            audit_log(
-                'portal_gamepad_' + ('stop' if stop else 'resume'),
-                user=operator.get('username', 'unknown'))
-        except Exception:  # noqa: BLE001
-            pass
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event(
+            'portal_gamepad_' + ('stop' if stop else 'resume'),
+            user=operator.get('username', 'unknown'))
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()

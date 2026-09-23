@@ -21,17 +21,14 @@ def _audit_cli(event: str, result: str, detail: str = ''):
     web-side events do. Never raises — a broken audit log must not
     break the CLI.
     """
-    try:
-        from vnc_remote_secure.security.audit import audit_log
-        audit_log(
-            event,
-            user=os.environ.get('USERNAME')
-            or os.environ.get('USER', 'admin'),
-            result=result,
-            detail=detail,
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event(
+        event,
+        user=os.environ.get('USERNAME')
+        or os.environ.get('USER', 'admin'),
+        result=result,
+        detail=detail,
+    )
 
 
 def _is_windows():

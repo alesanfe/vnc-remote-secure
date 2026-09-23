@@ -209,25 +209,6 @@ def _general_attempt_keys(ip):
     return get_backend().list_keys(_NS_GENERAL, prefix=ip + _GENERAL_SEP)
 
 
-def _general_attempt_count(ip, window_seconds):
-    """Count attempt records newer than the caller's window.
-
-    The record key embeds the insertion timestamp — the TTL is only
-    storage hygiene, the caller's own window decides what counts.
-    """
-    now = time.time()
-    count = 0
-    for k in _general_attempt_keys(ip):
-        parts = k.split(_GENERAL_SEP)
-        try:
-            ts = float(parts[1])
-        except (IndexError, ValueError):
-            continue
-        if ts > now - window_seconds:
-            count += 1
-    return count
-
-
 def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
                      window_seconds=DEFAULT_GENERAL_WINDOW_SECONDS):
     r"""Check whether ``ip`` is within the allowed request rate.

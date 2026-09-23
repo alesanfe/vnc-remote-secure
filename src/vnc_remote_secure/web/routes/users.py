@@ -40,9 +40,9 @@ def _require_session():
     ``None``, ``username`` is the authenticated user.
     """
     token = session.get('token', '')
-    bearer = request.headers.get('Authorization', '')
-    if bearer.startswith('Bearer '):
-        bearer = bearer[7:]
+    from vnc_remote_secure.security.http_auth import extract_bearer_token
+    bearer = extract_bearer_token(
+        request.headers.get('Authorization', ''))
     authenticated, username = check_authenticated(token, bearer)
     if not authenticated:
         session.clear()
@@ -63,13 +63,10 @@ def _require_permission(permission: str, actor: str):
     from vnc_remote_secure.security.operator_users import has_permission
     if has_permission(actor, permission):
         return None
-    try:
-        from vnc_remote_secure.security.audit import audit_log
-        audit_log('operator_permission_denied', user=actor,
-                  ip=_client_ip(), result='failure',
-                  detail=f'required={permission}')
-    except Exception:  # noqa: BLE001
-        pass
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event('operator_permission_denied', user=actor,
+              ip=_client_ip(), result='failure',
+              detail=f'required={permission}')
     return json_error('Insufficient role for this action', 403)
 
 
@@ -414,14 +411,11 @@ def delete_user(username):
 
 def _audit_user_action(event, actor, target, ok=True):
     """Emit an audit event for an admin user-management action."""
-    try:
-        from vnc_remote_secure.security.audit import audit_log
-        audit_log(event, user=actor or 'unknown',
-                  ip=_client_ip(),
-                  result='success' if ok else 'failure',
-                  detail=f'target={target}')
-    except Exception:  # noqa: BLE001 - audit must not break the action
-        pass
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event(event, user=actor or 'unknown',
+              ip=_client_ip(),
+              result='success' if ok else 'failure',
+              detail=f'target={target}')
 
 
 def _api_users_get():

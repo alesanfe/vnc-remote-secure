@@ -719,12 +719,9 @@ def start_all(config: dict | None = None) -> dict:
         for f in findings:
             logger.error("LISTENER AUDIT: %s", f)
         if findings:
-            try:
-                from vnc_remote_secure.security.audit import audit_log
-                audit_log('listener_audit_failure',
-                          detail='; '.join(findings))
-            except Exception:  # noqa: BLE001
-                pass
+            from vnc_remote_secure.security.audit import audit_event
+            audit_event('listener_audit_failure',
+                      detail='; '.join(findings))
             if config.get('security_profile') in (
                     'public-hardened', 'private-overlay'):
                 try:
@@ -761,11 +758,8 @@ def _metric(name: str, labels: str = '') -> None:
 
 def _audit_lifecycle(event: str, service: str, pid) -> None:
     """Record a service lifecycle transition in the audit log."""
-    try:
-        from vnc_remote_secure.security.audit import audit_log
-        audit_log(event, detail=f'service={service} pid={pid}')
-    except Exception:  # noqa: BLE001 - audit must not break lifecycle
-        pass
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event(event, detail=f'service={service} pid={pid}')
 
 
 def _start_service(service: str, config: dict) -> int | None:

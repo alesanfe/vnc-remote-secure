@@ -37,6 +37,7 @@ from vnc_remote_secure.security.http_auth import (
     check_terminal_auth,
     client_ip_from,
     cookie_value,
+    extract_bearer_token,
 )
 
 logger = logging.getLogger(__name__)
@@ -684,7 +685,7 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         legacy basic-auth path falls back to ``check_terminal_auth``.
         """
         auth = self.request.headers.get('Authorization', '')
-        bearer = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
+        bearer = extract_bearer_token(auth)
         cookie = self.request.headers.get('Cookie', '')
         # Extract session cookie value if present.
         session_cookie = cookie_value(cookie, 'vnc_session')
@@ -768,12 +769,9 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         logger.info("Client connected from %s", self.request.remote_ip)
         # A terminal is remote code execution — its open/close must
         # land in the audit trail (identity, duration; never commands).
-        try:
-            from vnc_remote_secure.security.audit import audit_log
-            audit_log('terminal_open',
-                      detail='web terminal session started')
-        except Exception:  # noqa: BLE001
-            pass
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event('terminal_open',
+                  detail='web terminal session started')
 
         # Idle timeout: an unattended terminal is an open shell on the
         # server — close it rather than leave it authenticated forever.
@@ -843,13 +841,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         """
         conn_id = getattr(self, '_ws_conn_id', None)
         if conn_id:
-            try:
-                from vnc_remote_secure.security.auth_gateway import (
-                    unregister_websocket_connection,
-                )
-                unregister_websocket_connection(conn_id)
-            except Exception as e:
-                logger.debug("Failed to unregister WebSocket: %s", e)
+            from vnc_remote_secure.security.auth_gateway import (
+                unregister_websocket_quiet,
+            )
+            unregister_websocket_quiet(conn_id)
             self._ws_conn_id = None
         idle_cb = getattr(self, '_idle_cb', None)
         if idle_cb is not None:
@@ -857,14 +852,11 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             self._idle_cb = None
         opened_at = getattr(self, '_opened_at', None)
         if opened_at:
-            try:
-                import time as _time
+            import time as _time
 
-                from vnc_remote_secure.security.audit import audit_log
-                audit_log('terminal_close',
-                          detail=f'duration={_time.time() - opened_at:.0f}s')
-            except Exception:  # noqa: BLE001
-                pass
+            from vnc_remote_secure.security.audit import audit_event
+            audit_event('terminal_close',
+                        detail=f'duration={_time.time() - opened_at:.0f}s')
             self._opened_at = None
         logger.info("Client disconnected")
         # current_process is only assigned after successful auth —

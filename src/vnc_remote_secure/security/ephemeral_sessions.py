@@ -393,7 +393,6 @@ class SessionStore:
 
     def __init__(self):
         self._sessions: dict = {}  # token -> EphemeralSession
-        self._cleanup_interval = 300  # 5 min
         self._lock = threading.Lock()
         self._last_mtime: float = 0.0
         self._load()
@@ -583,15 +582,12 @@ class SessionStore:
         self._sessions[token] = session
         signed = create_ephemeral_token(session)
         self._save(raise_on_error=True)
-        try:
-            from vnc_remote_secure.security.audit import audit_log
-            audit_log('ephemeral_session_create', user=created_by,
-                      detail=f'role={role} expires_in={expires_in} '
-                             f'single_use={single_use} '
-                             f'max_uses={session.max_uses} '
-                             f'resource={resource or "*"}')
-        except Exception:  # noqa: BLE001 - audit must not break sessions
-            pass
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event('ephemeral_session_create', user=created_by,
+                  detail=f'role={role} expires_in={expires_in} '
+                         f'single_use={single_use} '
+                         f'max_uses={session.max_uses} '
+                         f'resource={resource or "*"}')
         _metric('created')
         return session, signed
 
@@ -657,12 +653,9 @@ class SessionStore:
             # _claim_use already uses. get() consults it.
             _mark_revoked_shared(internal, session.expires_at)
             self._save()
-            try:
-                from vnc_remote_secure.security.audit import audit_log
-                audit_log('ephemeral_session_revoke',
-                          detail=f'role={session.role}')
-            except Exception:  # noqa: BLE001
-                pass
+            from vnc_remote_secure.security.audit import audit_event
+            audit_event('ephemeral_session_revoke',
+                      detail=f'role={session.role}')
             return True
         return False
 
@@ -1071,12 +1064,9 @@ def activate_ephemeral_session(signed_token: str,
             # event distinct from activation — operators should see
             # budget exhaustion separately in metrics.
             _metric('exhausted')
-        try:
-            from vnc_remote_secure.security.audit import audit_log
-            audit_log('ephemeral_session_activate',
-                      detail=f'role={session.role}')
-        except Exception:  # noqa: BLE001
-            pass
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event('ephemeral_session_activate',
+                  detail=f'role={session.role}')
         return token
 
 

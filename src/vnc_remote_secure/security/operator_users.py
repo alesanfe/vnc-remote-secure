@@ -266,12 +266,9 @@ def has_permission(username: str, permission: str) -> bool:
 
 def _audit(event: str, username: str, detail: str = '') -> None:
     """Emit an audit event for operator-store mutations."""
-    try:
-        from vnc_remote_secure.security.audit import audit_log
-        audit_log(event, user='cli', detail=username
-                  + (f' {detail}' if detail else ''))
-    except Exception:  # noqa: BLE001 - audit must not break admin ops
-        logger.debug('audit emit failed', exc_info=True)
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event(event, user='cli', detail=username
+                + (f' {detail}' if detail else ''))
 
 
 def passwords_equal(a: str, b: str) -> bool:

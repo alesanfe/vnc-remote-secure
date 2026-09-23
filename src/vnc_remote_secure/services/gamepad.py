@@ -91,15 +91,17 @@ def _authenticate_gamepad_connection(headers, websocket):
         check_websocket_upgrade,
         register_websocket_connection,
     )
-    origin = headers.get('Origin', '') if hasattr(headers, 'get') else ''
-    cookie = headers.get('Cookie', '') if hasattr(headers, 'get') else ''
-    from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
+    from vnc_remote_secure.security.http_auth import (
+        client_ip_from,
+        cookie_value,
+        extract_bearer_token,
+        header_get,
+    )
+    origin = header_get(headers, 'Origin')
+    cookie = header_get(headers, 'Cookie')
     session_cookie = cookie_value(cookie, 'vnc_session')
     eph = cookie_value(cookie, 'vnc_ephemeral')
-    bearer = ''
-    auth = headers.get('Authorization', '') if hasattr(headers, 'get') else ''
-    if auth and auth.lower().startswith('bearer '):
-        bearer = auth[7:].strip()
+    bearer = extract_bearer_token(header_get(headers, 'Authorization'))
     peer_ip = client_ip_from(
         headers,
         websocket.remote_address[0]
@@ -209,14 +211,10 @@ class GamepadServer:
         else:
             await websocket.close()
         self.clients.discard(websocket)
-        try:
-            from vnc_remote_secure.security.auth_gateway import (
-                unregister_websocket_connection,
-            )
-            unregister_websocket_connection(conn_id)
-        except (KeyError, ImportError):
-            logger.debug("Failed to unregister gamepad connection",
-                         exc_info=True)
+        from vnc_remote_secure.security.auth_gateway import (
+            unregister_websocket_quiet,
+        )
+        unregister_websocket_quiet(conn_id)
 
     async def _fail_device(self, websocket, conn_id, message):
         """Send an error payload, close, and unregister."""
@@ -321,13 +319,10 @@ class GamepadServer:
         finally:
             self.clients.discard(websocket)
             logger.info("Gamepad client disconnected")
-            try:
-                from vnc_remote_secure.security.auth_gateway import (
-                    unregister_websocket_connection,
-                )
-                unregister_websocket_connection(conn_id)
-            except (KeyError, ImportError):
-                logger.debug("Failed to unregister gamepad connection", exc_info=True)
+            from vnc_remote_secure.security.auth_gateway import (
+                unregister_websocket_quiet,
+            )
+            unregister_websocket_quiet(conn_id)
 
             if not self.clients and self.injector:
                 self.injector.close()
