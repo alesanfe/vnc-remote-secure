@@ -748,6 +748,15 @@ _SERVICE_PORT_KEYS = {
 }
 
 
+def _metric(name: str, labels: str = '') -> None:
+    """Emit a Prometheus counter (best-effort — metrics never break lifecycle)."""
+    try:
+        from vnc_remote_secure.monitoring.prometheus import inc_counter
+        inc_counter(name, labels)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _audit_lifecycle(event: str, service: str, pid) -> None:
     """Record a service lifecycle transition in the audit log."""
     try:
@@ -1206,8 +1215,12 @@ def _auto_restart_dead(dead: list, config: dict) -> dict:
     for service in dead:
         if not _restart_allowed(service, now):
             throttled.append(service)
+            _metric('vnc_remote_service_restart_throttled_total',
+                    f'service={service}')
             continue
         _record_restart(service, now)
+        _metric('vnc_remote_service_restarts_total',
+                f'service={service}')
         # A hung-but-alive service (dead listener, live PID) must be
         # killed before respawn — otherwise it orphans and the next
         # watchdog cycle finds it again.
