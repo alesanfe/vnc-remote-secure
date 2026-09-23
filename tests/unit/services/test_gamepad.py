@@ -226,8 +226,9 @@ def test_handle_client_ignores_malformed_messages(monkeypatch):
 
 
 def test_handle_client_requires_control_permission(monkeypatch):
-    """The gateway call must demand desktop:control — a view-only
-    session must not inject gamepad input (control is control)."""
+    """The gateway call must demand desktop:gamepad — an experimental
+    driver-injection path is not plain control, and a view-only
+    session must not use it."""
     captured = {}
     injector = _FakeInjector()
     _patch_adapter(monkeypatch, injector)
@@ -243,7 +244,7 @@ def test_handle_client_requires_control_permission(monkeypatch):
     server = gamepad.GamepadServer('127.0.0.1', 7788)
     ws = _FakeWebSocket(messages=[json.dumps({"type": "ping"})])
     _run(server.handle_client(ws))
-    assert captured.get('required_permission') == 'desktop:control'
+    assert captured.get('required_permission') == 'desktop:gamepad'
     assert captured.get('resource') == 'gamepad'
 
 

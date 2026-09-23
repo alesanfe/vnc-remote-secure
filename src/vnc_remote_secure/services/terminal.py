@@ -609,6 +609,15 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             self._idle_cb = tornado.ioloop.PeriodicCallback(
                 self._check_idle, 30_000)
             self._idle_cb.start()
+        # Message rate cap: nobody types 30 commands/s — a flood is a
+        # fork/spawn DoS against the shell channel, not usage.
+        import collections
+        self._msg_times = collections.deque()
+        try:
+            self._msg_rate = int(
+                os.environ.get('TERMINAL_MSG_RATE', '30'))
+        except ValueError:
+            self._msg_rate = 30
 
         self.write_message("\x1b[36m\r\n  VNC Remote Secure - Web Terminal\r\n\x1b[0m")
         self.write_message(
@@ -693,6 +702,20 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
     def on_message(self, message):
         """On message."""
         self._touch_activity()
+        # Rate cap: sliding 1s window — a burst of input is fine, a
+        # sustained flood gets the socket closed.
+        import time as _time
+        now = _time.monotonic()
+        times = getattr(self, '_msg_times', None)
+        if times is not None and self._msg_rate > 0:
+            times.append(now)
+            while times and times[0] < now - 1.0:
+                times.popleft()
+            if len(times) > self._msg_rate:
+                logger.warning("Terminal message flood from %s — "
+                               "closing", self.request.remote_ip)
+                self.close(code=1008, reason='rate limit')
+                return
         try:
             msg = json.loads(message)
         except (json.JSONDecodeError, TypeError) as exc:

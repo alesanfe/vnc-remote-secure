@@ -51,6 +51,31 @@ def check_bearer_token(auth_header, expected_token):
         return False
 
 
+def _peer_is_trusted_proxy(peer_ip: str, proxy_ips: set) -> bool:
+    """Return True when ``peer_ip`` is an allowed proxy.
+
+    Entries may be exact addresses or CIDR ranges (e.g. a corporate
+    proxy pool ``10.0.0.0/24``). Malformed entries match nothing —
+    a typo in TRUSTED_PROXY_IPS must not widen the trust set.
+    """
+    if peer_ip in proxy_ips:
+        return True
+    import ipaddress
+    try:
+        peer = ipaddress.ip_address(peer_ip)
+    except ValueError:
+        return False
+    for entry in proxy_ips:
+        if '/' not in entry:
+            continue
+        try:
+            if peer in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def client_ip_from(headers, peer_ip):
     """Return the effective client IP for a request.
 
@@ -72,12 +97,13 @@ def client_ip_from(headers, peer_ip):
     # reach a service port directly spoof its identity — rotating
     # rate-limit keys and bypassing allowed_ip session binding. The
     # peer must be loopback (nginx on the same host) or listed in
-    # TRUSTED_PROXY_IPS (comma-separated, e.g. an off-box proxy).
+    # TRUSTED_PROXY_IPS (comma-separated exact IPs or CIDR ranges,
+    # e.g. an off-box proxy or a proxy pool).
     if trusted and headers is not None and peer_ip:
         proxy_ips = {'127.0.0.1', '::1', 'localhost'}
         extra = os.environ.get('TRUSTED_PROXY_IPS', '')
         proxy_ips.update(p.strip() for p in extra.split(',') if p.strip())
-        if peer_ip not in proxy_ips:
+        if not _peer_is_trusted_proxy(peer_ip, proxy_ips):
             return peer_ip
         get = getattr(headers, 'get', None)
         if callable(get):

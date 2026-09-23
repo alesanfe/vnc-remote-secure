@@ -113,7 +113,7 @@ def _authenticate_gamepad_connection(headers, websocket):
         cookie_value=cookie_value,
         bearer_token=bearer,
         resource='gamepad',
-        required_permission='desktop:control',
+        required_permission='desktop:gamepad',
         client_ip=peer_ip,
         ephemeral_cookie=eph,
     )

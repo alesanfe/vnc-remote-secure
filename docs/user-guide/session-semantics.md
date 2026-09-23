@@ -94,6 +94,11 @@ link cannot listen to the machine's audio. Sessions created before
 this permission existed keep their stored permission set — a link
 that needs audio must be re-created under a current role.
 
+`gamepad` is likewise standalone (experimental input injection) —
+granted only to `operator`/`administrator`, blocked by `view_only`,
+and deliberately NOT part of the `control` umbrella: full desktop
+control should not silently enable a privileged driver path.
+
 - `desktop:keyboard` → RFB `KeyEvent`; `desktop:pointer` →
   `PointerEvent` + `SetDesktopSize`; `desktop:clipboard_write` →
   `ClientCutText` (client→server clipboard push). Dropped at the

@@ -522,3 +522,47 @@ class TestIdleTimeout:
                                                 lambda s: 42.0})()))
         ws._touch_activity()
         assert ws._last_activity == 42.0
+
+
+class TestMessageRateLimit:
+    """A sustained message flood is a fork-bomb attempt against the
+    shell channel — the socket must close, not queue commands."""
+
+    def _ws(self, monkeypatch):
+        from collections import deque
+        from unittest.mock import MagicMock
+        from vnc_remote_secure.services.terminal import (
+            TerminalWebSocket)
+        ws = object.__new__(TerminalWebSocket)
+        ws._msg_times = deque()
+        ws._msg_rate = 5
+        ws._last_activity = 0
+        ws.request = MagicMock(remote_ip='10.0.0.1')
+        ws._closed = []
+        ws.close = lambda **kw: ws._closed.append(kw)
+        # Bypass the real command execution path.
+        ws._handle_message = MagicMock()
+        return ws
+
+    def test_flood_closes(self, monkeypatch):
+        import vnc_remote_secure.services.terminal as t
+        ws = self._ws(monkeypatch)
+        for _ in range(6):
+            # on_message calls _touch_activity then rate check, then
+            # the JSON parse — feed invalid JSON so it exits early
+            # after the rate logic.
+            try:
+                t.TerminalWebSocket.on_message(ws, 'x')
+            except Exception:
+                pass
+        assert ws._closed == [{'code': 1008, 'reason': 'rate limit'}]
+
+    def test_under_rate_ok(self, monkeypatch):
+        import vnc_remote_secure.services.terminal as t
+        ws = self._ws(monkeypatch)
+        for _ in range(5):
+            try:
+                t.TerminalWebSocket.on_message(ws, 'x')
+            except Exception:
+                pass
+        assert ws._closed == []

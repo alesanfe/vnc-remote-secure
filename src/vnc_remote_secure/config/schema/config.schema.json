@@ -449,6 +449,10 @@
       "type": "string",
       "description": "Base32 TOTP secret for MFA."
     },
+    "TRUSTED_PROXY_IPS": {
+      "type": "string",
+      "description": "Comma-separated IPs or CIDR ranges allowed to set X-Forwarded-* headers when TRUSTED_PROXY=true (loopback always allowed)."
+    },
     "TRUSTED_PROXY": {
       "type": "string",
       "enum": [
@@ -474,6 +478,12 @@
       "minimum": 0,
       "maximum": 86400,
       "description": "Seconds of terminal inactivity before the WebSocket is closed (default 900; 0 disables). Activity counts client input and server output."
+    },
+    "TERMINAL_MSG_RATE": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "description": "Maximum terminal WebSocket messages per second before the connection is closed (default 30; 0 disables)."
     },
     "TTYD_HOST": {
       "type": "string",

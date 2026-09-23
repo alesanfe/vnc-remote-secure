@@ -633,3 +633,27 @@ class TestAudioPermission:
             role='viewer', expires_in=3600,
             permissions={'view', 'audio'})
         assert sess.has_permission('desktop:audio') is True
+
+
+class TestGamepadPermission:
+    """desktop:gamepad is explicit AND experimental — it is input
+    injection through a privileged driver, not plain control."""
+
+    def test_support_lacks_gamepad(self, fresh_store):
+        """support has full control but NOT the experimental
+        gamepad path — control umbrella must not imply it."""
+        sess, _ = fresh_store.create(role='support', expires_in=3600)
+        assert sess.has_permission('desktop:control') is True
+        assert sess.has_permission('desktop:gamepad') is False
+
+    def test_operator_has_gamepad(self, fresh_store):
+        sess, _ = fresh_store.create(role='operator', expires_in=3600)
+        assert sess.has_permission('desktop:gamepad') is True
+
+    def test_view_only_blocks_gamepad(self, fresh_store):
+        """Input injection must be blocked in view_only even when a
+        caller granted the perm explicitly."""
+        sess, _ = fresh_store.create(
+            role='operator', expires_in=3600, view_only=True,
+            permissions={'view', 'gamepad'})
+        assert sess.has_permission('desktop:gamepad') is False

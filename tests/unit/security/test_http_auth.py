@@ -237,3 +237,41 @@ class TestConstantTimeCompare:
             check_bearer_token)
         check_bearer_token('Bearer x', 'x')
         assert calls, 'Bearer auth bypassed compare_digest'
+
+
+class TestTrustedProxyCidr:
+    """TRUSTED_PROXY_IPS accepts CIDR ranges — a proxy pool must not
+    require listing every address."""
+
+    def test_cidr_peer_trusted(self, monkeypatch):
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        monkeypatch.setenv('TRUSTED_PROXY_IPS', '10.0.0.0/24')
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        ip = client_ip_from(
+            {'X-Forwarded-For': '203.0.113.9'}, '10.0.0.55')
+        assert ip == '203.0.113.9'
+
+    def test_outside_cidr_not_trusted(self, monkeypatch):
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        monkeypatch.setenv('TRUSTED_PROXY_IPS', '10.0.0.0/24')
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        # Peer outside the range: XFF must be ignored (spoof-proof).
+        ip = client_ip_from(
+            {'X-Forwarded-For': '203.0.113.9'}, '10.0.1.55')
+        assert ip == '10.0.1.55'
+
+    def test_malformed_entry_not_trusted(self, monkeypatch):
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        monkeypatch.setenv('TRUSTED_PROXY_IPS', 'not-an-ip/99')
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        ip = client_ip_from(
+            {'X-Forwarded-For': '203.0.113.9'}, '10.0.0.55')
+        assert ip == '10.0.0.55'
+
+    def test_exact_ip_still_works(self, monkeypatch):
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        monkeypatch.setenv('TRUSTED_PROXY_IPS', '10.0.0.55')
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        ip = client_ip_from(
+            {'X-Forwarded-For': '203.0.113.9'}, '10.0.0.55')
+        assert ip == '203.0.113.9'
