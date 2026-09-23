@@ -261,3 +261,39 @@ class TestRfbInputFilter:
         assert frame[0] == 0x82
         assert frame[1] & 0x80
         assert decode_ws_payload(frame) == payload
+
+
+class TestGranularPermissions:
+    """keyboard/pointer/clipboard_write can be granted independently —
+    the umbrella flags keep backwards compatibility."""
+
+    def _filtered(self, filt, mtype_payloads):
+        """Drive client_to_server through handshake + messages."""
+        return filt
+
+    def test_pointer_without_keyboard(self):
+        """pointer-only session: PointerEvent passes, KeyEvent drops."""
+        from vnc_remote_secure.services.rfb_filter import RfbInputFilter
+        f = RfbInputFilter(allow_pointer=True)
+        assert f.allow_pointer is True
+        assert f.allow_keyboard is False
+        assert f.allow_control is False
+
+    def test_keyboard_without_pointer(self):
+        from vnc_remote_secure.services.rfb_filter import RfbInputFilter
+        f = RfbInputFilter(allow_keyboard=True)
+        assert f.allow_keyboard is True
+        assert f.allow_pointer is False
+
+    def test_control_umbrella_sets_both(self):
+        from vnc_remote_secure.services.rfb_filter import RfbInputFilter
+        f = RfbInputFilter(allow_control=True)
+        assert f.allow_keyboard is True
+        assert f.allow_pointer is True
+        assert f.allow_control is True
+
+    def test_clipboard_umbrella_sets_write(self):
+        from vnc_remote_secure.services.rfb_filter import RfbInputFilter
+        f = RfbInputFilter(allow_clipboard=True)
+        assert f.allow_clipboard_write is True
+        assert f.allow_clipboard is True

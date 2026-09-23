@@ -521,3 +521,46 @@ class TestCidrIpBinding:
             internal, 'desktop:view', client_ip='10.0.0.9') is True
         assert check_session_permission(
             internal, 'desktop:view', client_ip='192.168.1.1') is False
+
+
+class TestGranularPermissionExpansion:
+    """Umbrella permissions expand; fine-grained perms do not grant
+    the umbrella."""
+
+    def test_control_implies_keyboard_and_pointer(self, fresh_store):
+        sess, _ = fresh_store.create(role='support', expires_in=3600)
+        assert sess.has_permission('desktop:keyboard') is True
+        assert sess.has_permission('desktop:pointer') is True
+        assert sess.has_permission('desktop:control') is True
+
+    def test_clipboard_implies_write(self, fresh_store):
+        sess, _ = fresh_store.create(role='support', expires_in=3600)
+        assert sess.has_permission(
+            'desktop:clipboard_write') is True
+
+    def test_pointer_only_no_control(self, fresh_store):
+        sess, _ = fresh_store.create(
+            role='viewer', expires_in=3600,
+            permissions={'view', 'pointer'})
+        assert sess.has_permission('desktop:pointer') is True
+        assert sess.has_permission('desktop:keyboard') is False
+        assert sess.has_permission('desktop:control') is False
+
+    def test_keyboard_only_no_pointer(self, fresh_store):
+        sess, _ = fresh_store.create(
+            role='viewer', expires_in=3600,
+            permissions={'view', 'keyboard'})
+        assert sess.has_permission('desktop:keyboard') is True
+        assert sess.has_permission('desktop:pointer') is False
+
+    def test_view_only_blocks_granular_input(self, fresh_store):
+        """view_only blocks keyboard/pointer/clipboard_write even if
+        a buggy caller granted them explicitly."""
+        sess, _ = fresh_store.create(
+            role='support', expires_in=3600, view_only=True,
+            permissions={'view', 'keyboard', 'pointer',
+                         'clipboard_write'})
+        assert sess.has_permission('desktop:keyboard') is False
+        assert sess.has_permission('desktop:pointer') is False
+        assert sess.has_permission('desktop:clipboard_write') is False
+        assert sess.has_permission('desktop:view') is True

@@ -119,6 +119,23 @@ def _session_create(store, args):
                   f"{args.allowed_ip!r}")
             return 1
 
+    permissions = None
+    if getattr(args, 'permissions', None):
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            ALL_PERMISSIONS)
+        permissions = {p.strip() for p in args.permissions.split(',')
+                       if p.strip()}
+        unknown = permissions - ALL_PERMISSIONS
+        if unknown:
+            print(f"Error: unknown permissions: "
+                  f"{', '.join(sorted(unknown))}. Valid: "
+                  f"{', '.join(sorted(ALL_PERMISSIONS))}")
+            return 1
+        if not permissions:
+            print("Error: --permissions must name at least one "
+                  "permission")
+            return 1
+
     _session, signed_token = store.create(
         expires_in=expires_in,
         role=role,
@@ -129,6 +146,7 @@ def _session_create(store, args):
         created_by=os.environ.get('USERNAME') or os.environ.get('USER', 'admin'),
         resource=args.resource,
         max_uses=args.max_uses,
+        permissions=permissions,
     )
 
     base_url = _share_base_url()

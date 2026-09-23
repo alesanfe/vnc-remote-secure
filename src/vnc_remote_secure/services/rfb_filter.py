@@ -233,10 +233,23 @@ class RfbInputFilter:
     be closed — fail closed, never pass unparseable input through.
     """
 
-    def __init__(self, allow_clipboard: bool = False,
-                 allow_control: bool = False):
-        self.allow_clipboard = allow_clipboard
-        self.allow_control = allow_control
+    def __init__(self, allow_clipboard: bool | None = None,
+                 allow_control: bool | None = None,
+                 allow_keyboard: bool = False,
+                 allow_pointer: bool = False,
+                 allow_clipboard_write: bool = False):
+        # Umbrella flags set the fine-grained pair — fine-grained
+        # kwargs let a session grant pointer-without-keyboard or
+        # keyboard-without-pointer. allow_control/allow_clipboard
+        # remain as convenience aliases for full input/clipboard.
+        self.allow_keyboard = allow_keyboard or bool(allow_control)
+        self.allow_pointer = allow_pointer or bool(allow_control)
+        self.allow_clipboard_write = (
+            allow_clipboard_write or bool(allow_clipboard))
+        # Introspection aliases (a permission is "full" only when all
+        # its members are granted).
+        self.allow_control = self.allow_keyboard and self.allow_pointer
+        self.allow_clipboard = self.allow_clipboard_write
         self._ws_cbuf = bytearray()   # raw client WS bytes
         self._ws_sbuf = bytearray()   # raw server WS bytes
         self._rfb = bytearray()       # client RFB stream (payloads)
@@ -363,11 +376,13 @@ class RfbInputFilter:
                 return None
             raw = bytes(self._rfb[:mlen])
             del self._rfb[:mlen]
-            if mtype in (_TYPE_KEY_EVENT, _TYPE_POINTER_EVENT,
-                         _TYPE_SET_DESKTOP_SIZE) and not self.allow_control:
-                continue  # dropped: no desktop:control
-            if mtype == _TYPE_CUT_TEXT and not self.allow_clipboard:
-                continue  # dropped: no desktop:clipboard
+            if mtype == _TYPE_KEY_EVENT and not self.allow_keyboard:
+                continue  # dropped: no desktop:keyboard/control
+            if mtype in (_TYPE_POINTER_EVENT, _TYPE_SET_DESKTOP_SIZE) \
+                    and not self.allow_pointer:
+                continue  # dropped: no desktop:pointer/control
+            if mtype == _TYPE_CUT_TEXT and not self.allow_clipboard_write:
+                continue  # dropped: no desktop:clipboard_write/clipboard
             out += _ws_frame(raw)
         return bytes(out)
 

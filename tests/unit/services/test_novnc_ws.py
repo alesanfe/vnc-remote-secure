@@ -53,8 +53,10 @@ class TestBuildRfbFilter:
             self._c, self._cl = control, clip
 
         def has_permission(self, perm, resource):
-            return {'desktop:control': self._c,
-                    'desktop:clipboard': self._cl}.get(perm, False)
+            return {'desktop:keyboard': self._c,
+                    'desktop:pointer': self._c,
+                    'desktop:clipboard_write': self._cl}.get(
+                        perm, False)
 
     def test_no_token_no_filter(self):
         assert H._build_rfb_filter('') is None

@@ -103,16 +103,41 @@ def _get_instance_id() -> str:
 
 # Permissions
 PERM_VIEW = 'view'
-PERM_CONTROL = 'control'
-PERM_CLIPBOARD = 'clipboard'
+PERM_CONTROL = 'control'          # umbrella: keyboard + pointer
+PERM_KEYBOARD = 'keyboard'
+PERM_POINTER = 'pointer'
+PERM_CLIPBOARD = 'clipboard'      # umbrella: clipboard_write
+PERM_CLIPBOARD_WRITE = 'clipboard_write'
 PERM_FILE_TRANSFER = 'file_transfer'
 PERM_TERMINAL = 'terminal'
 PERM_ADMIN = 'admin'
 
 ALL_PERMISSIONS = {
-    PERM_VIEW, PERM_CONTROL, PERM_CLIPBOARD,
+    PERM_VIEW, PERM_CONTROL, PERM_KEYBOARD, PERM_POINTER,
+    PERM_CLIPBOARD, PERM_CLIPBOARD_WRITE,
     PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_ADMIN,
 }
+
+# Coarse permissions expand to their fine-grained members: a session
+# holding ``control`` satisfies ``keyboard``/``pointer`` checks, but a
+# session holding only ``pointer`` does NOT satisfy ``control``.
+_PERMISSION_EXPANSION = {
+    PERM_CONTROL: {PERM_KEYBOARD, PERM_POINTER},
+    PERM_CLIPBOARD: {PERM_CLIPBOARD_WRITE},
+}
+
+
+def expand_permissions(permissions) -> set:
+    """Expand umbrella permissions to their fine-grained members.
+
+    Returns ``permissions`` plus every member implied by umbrella
+    permissions (``control`` -> keyboard+pointer).
+    """
+    out = set(permissions)
+    for perm in permissions:
+        out |= _PERMISSION_EXPANSION.get(perm, set())
+    return out
+
 
 # Roles (collections of permissions)
 ROLES = {
@@ -226,12 +251,13 @@ class EphemeralSession:
         # view_only also blocks the terminal: a shell is full control,
         # so a "view-only" session that can open one is not view-only.
         # (Documented in docs/user-guide/sessions.md.)
-        if self.view_only and perm in (PERM_CONTROL, PERM_CLIPBOARD,
-                                       PERM_FILE_TRANSFER, PERM_TERMINAL):
+        if self.view_only and perm in expand_permissions(
+                {PERM_CONTROL, PERM_CLIPBOARD,
+                 PERM_FILE_TRANSFER, PERM_TERMINAL}):
             return False
         if self.no_terminal and perm == PERM_TERMINAL:
             return False
-        return perm in self.permissions
+        return perm in expand_permissions(self.permissions)
 
     def mark_used(self):
         """Mark this session as used (for single-use sessions)."""
@@ -493,6 +519,7 @@ class SessionStore:
         created_by: str = 'admin',
         resource: str | None = None,
         max_uses: int = 0,
+        permissions: set | None = None,
     ) -> tuple:
         """Create a new ephemeral session.
 
@@ -509,6 +536,7 @@ class SessionStore:
         session = EphemeralSession(
             token=token,
             role=role,
+            permissions=permissions,
             expires_at=time.time() + expires_in,
             single_use=single_use,
             view_only=view_only,

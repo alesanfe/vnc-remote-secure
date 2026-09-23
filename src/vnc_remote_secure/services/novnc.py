@@ -284,18 +284,23 @@ class _AuthedSimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             sess = store.get(eph_tok)
             if sess is None:
                 return None
-            control = sess.has_permission('desktop:control', 'desktop')
-            clip = sess.has_permission('desktop:clipboard', 'desktop')
-            if control and clip:
+            keyboard = sess.has_permission(
+                'desktop:keyboard', 'desktop')
+            pointer = sess.has_permission(
+                'desktop:pointer', 'desktop')
+            clip = sess.has_permission(
+                'desktop:clipboard_write', 'desktop')
+            if keyboard and pointer and clip:
                 return None
             from vnc_remote_secure.services.rfb_filter import (
                 RfbInputFilter,
             )
             logger.info(
-                "RFB input filter active (control=%s clipboard=%s)",
-                control, clip)
-            return RfbInputFilter(allow_clipboard=clip,
-                                  allow_control=control)
+                "RFB input filter active (keyboard=%s pointer=%s "
+                "clipboard_write=%s)", keyboard, pointer, clip)
+            return RfbInputFilter(
+                allow_keyboard=keyboard, allow_pointer=pointer,
+                allow_clipboard_write=clip)
         except Exception:  # noqa: BLE001 - filter is best-effort
             return None
 

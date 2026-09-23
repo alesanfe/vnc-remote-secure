@@ -71,6 +71,30 @@ create (CLI)  →  signed URL token  →  GET /?session=<token>
 - Enforced when the caller names a resource — action-level checks
   without resource context assert the permission exists.
 
+## Permission granularity
+
+Umbrella permissions expand to fine-grained members; granting a
+fine-grained permission does NOT grant the umbrella:
+
+| Umbrella | Members |
+|---|---|
+| `control` | `keyboard`, `pointer` |
+| `clipboard` | `clipboard_write` |
+
+- `desktop:keyboard` → RFB `KeyEvent`; `desktop:pointer` →
+  `PointerEvent` + `SetDesktopSize`; `desktop:clipboard_write` →
+  `ClientCutText` (client→server clipboard push). Dropped at the
+  protocol layer by the RFB filter, not just hidden in the UI.
+- Roles keep umbrella semantics — `support` = view+control+clipboard
+  still means full input + clipboard.
+- `session create --permissions view,pointer` creates a
+  pointer-without-keyboard session (can't type, can click).
+- `view_only` blocks every input/clipboard permission even if a
+  caller granted a fine-grained one explicitly.
+- Clipboard *read* (server→client clipboard content) is not
+  separately gated — blocking it requires parsing
+  FramebufferUpdates; treat clipboard permission as clipboard write.
+
 ## Deployment binding (`instance_id`)
 
 - A token minted on another installation (different persisted

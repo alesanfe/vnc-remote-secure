@@ -64,6 +64,10 @@ def _add_session_args(subparsers):
                           help='View-only: blocks control channels (gamepad/terminal) '
                                'and drops RFB input messages at the protocol layer')
     p_create.add_argument('--no-terminal', action='store_true', help='Disable terminal access')
+    p_create.add_argument(
+        '--permissions', default=None, metavar='LIST',
+        help='Comma-separated permission set overriding the role '
+             '(e.g. view,pointer or view,keyboard,clipboard_write)')
     p_create.add_argument('--single-use', action='store_true', help='Session expires after first use')
     p_create.add_argument('--max-uses', type=int, default=0,
                           help='Maximum number of uses (0 = unlimited)')
