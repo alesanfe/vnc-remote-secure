@@ -652,7 +652,10 @@ def _build_sessions_html():
             f'<td><button class="revoke-btn" '
             f'data-token="{html.escape(s["token_id"])}">Revocar</button></td></tr>')
     return f"""
-    <div class="section-title">🔗 Sesiones activas ({len(rows)})</div>
+    <div class="section-title">🔗 Sesiones activas ({len(rows)})
+    <button id="revoke-all-btn" style="margin-left:1em;font-size:0.8em;
+    background:#c0392b;color:#fff;border:0;padding:4px 10px;
+    border-radius:4px;cursor:pointer">Cerrar todas</button></div>
     <div class="info-card" style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:0.9em">
     <tr><th>ID</th><th>Rol</th><th>Permisos</th><th>Expira</th><th>Flags</th><th></th></tr>
@@ -660,6 +663,14 @@ def _build_sessions_html():
     </table>
     </div>
     <script>
+    document.getElementById('revoke-all-btn').addEventListener(
+      'click', function(){{
+      if (!confirm('¿Cerrar TODAS las sesiones activas? Las conexiones se cortarán ahora.')) return;
+      fetch('/sessions/revoke-all', {{method: 'POST'}}).then(function(r){{
+        if (r.ok) {{ location.reload(); }}
+        else {{ alert('No se pudieron revocar'); }}
+      }});
+    }});
     document.querySelectorAll('.revoke-btn').forEach(function(b){{
       b.addEventListener('click', function(){{
         if (!confirm('¿Revocar esta sesión? Sus conexiones se cerrarán ahora.')) return;
@@ -1217,6 +1228,9 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         it).
         """
         path = self.path.split('?', 1)[0]
+        if path == '/sessions/revoke-all':
+            self._post_revoke_all()
+            return
         if path != '/sessions/revoke':
             self.send_response(404)
             self.send_header('Content-Type', 'application/json')
@@ -1294,6 +1308,57 @@ class LandingHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(
             {'revoked': bool(revoked)}).encode())
+
+    def _post_revoke_all(self):
+        """POST /sessions/revoke-all — emergency kill-switch.
+
+        Revokes every active ephemeral session in one call; live
+        WebSockets close via shared-state propagation. Operator-only
+        with the same Origin check as the single-revoke endpoint.
+        """
+        from vnc_remote_secure.security.http_auth import (
+            check_landing_auth, client_ip_from)
+        if not check_landing_auth(
+                self.headers.get('Authorization', ''),
+                client_ip=client_ip_from(
+                    self.headers,
+                    self.client_address[0]
+                    if self.client_address else None)):
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="VNC Portal"')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Operator credentials required', 401)
+            self.wfile.write(body.encode())
+            return
+        from vnc_remote_secure.security.auth_gateway import (
+            check_origin, get_allowed_origins)
+        origin = self.headers.get('Origin', '')
+        if origin and not check_origin(origin, get_allowed_origins()):
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            body, _ = error_json('Invalid origin', 403)
+            self.wfile.write(body.encode())
+            return
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            get_session_store, revoke_session)
+        store = get_session_store()
+        store._load_if_changed()
+        count = 0
+        for s in list(store.list_active()):
+            if revoke_session(s['token_id']):
+                count += 1
+        try:
+            from vnc_remote_secure.security.audit import audit_log
+            audit_log('portal_session_revoke_all',
+                      detail=f'count={count}')
+        except Exception:  # noqa: BLE001
+            pass
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'revoked': count}).encode())
 
     def setup(self):
         """Set up the request (bounded header-read window)."""
