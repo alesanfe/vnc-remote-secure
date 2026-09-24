@@ -396,7 +396,8 @@ def _loopback_peer(client_ip) -> bool:
         return (client_ip or '').strip() in ('localhost',)
 
 
-def check_health_auth(auth_header, client_ip=None, peer_ip=None):
+def check_health_auth(auth_header, client_ip=None, peer_ip=None,
+                      scope=None):
     """Check health endpoint auth using optional ``HEALTH_AUTH_TOKEN``.
 
     Returns ``True`` if no token is configured — but ONLY when every
@@ -409,9 +410,21 @@ def check_health_auth(auth_header, client_ip=None, peer_ip=None):
     ``remote_addr``) — it must NOT come from X-Forwarded-For, which a
     direct client can spoof when TRUSTED_PROXY is set. ``client_ip``
     is only used as a fallback when no peer is available.
+
+    ``scope`` ('audit'/'metrics') enables credential separation: when
+    ``AUDIT_AUTH_TOKEN``/``METRICS_AUTH_TOKEN`` is set, ONLY that
+    scoped token authenticates the scope — the general
+    ``HEALTH_AUTH_TOKEN`` no longer reaches it. With the scoped var
+    unset, the general token still works (backward compatible).
     """
     load_env_file()
     token = os.environ.get('HEALTH_AUTH_TOKEN', '')
+    scope_env = {'audit': 'AUDIT_AUTH_TOKEN',
+                 'metrics': 'METRICS_AUTH_TOKEN'}.get(scope)
+    if scope_env:
+        scoped_token = os.environ.get(scope_env, '')
+        if scoped_token:
+            token = scoped_token
     if not token:
         base = os.environ.get('BIND_HOST', '127.0.0.1')
         ui_host = os.environ.get('USER_UI_HOST', '') or base

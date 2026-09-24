@@ -145,6 +145,16 @@
       "type": "string",
       "description": "Relying Party display name shown by authenticators (default: 'VNC Remote Secure')."
     },
+    "AUDIT_AUTH_TOKEN": {
+      "type": "string",
+      "sensitive": true,
+      "description": "Dedicated Bearer token for /audit and /audit/verify. When set, HEALTH_AUTH_TOKEN no longer reaches the audit endpoints (credential separation for scrapers vs auditors)."
+    },
+    "METRICS_AUTH_TOKEN": {
+      "type": "string",
+      "sensitive": true,
+      "description": "Dedicated Bearer token for /metrics. When set, HEALTH_AUTH_TOKEN no longer reaches /metrics."
+    },
     "WEBAUTHN_ORIGIN": {
       "type": "string",
       "description": "Expected origin for WebAuthn verification (default: request.url_root). Set explicitly when behind a reverse proxy that rewrites Host/scheme."

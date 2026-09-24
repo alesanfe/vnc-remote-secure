@@ -148,11 +148,11 @@ class _HealthHandler(SecuredHandlerMixin):
     Slowloris read timeout and security headers.
     """
 
-    def _require_health_auth(self, realm='Health'):
+    def _require_health_auth(self, realm='Health', scope=None):
         """Check the health auth token; send 401 and return False on failure."""
         from vnc_remote_secure.security.http_auth import check_health_auth
         if check_health_auth(self.headers.get('Authorization', ''),
-                             peer_ip=self.peer_ip()):
+                             peer_ip=self.peer_ip(), scope=scope):
             return True
         self.send_json_error('Unauthorized', 401,
                              www_authenticate=f'Bearer realm="{realm}"')
@@ -212,7 +212,8 @@ class _HealthHandler(SecuredHandlerMixin):
 
     def _serve_metrics(self):
         """Prometheus scrape endpoint on the health port."""
-        if not self._require_health_auth(realm='Metrics'):
+        if not self._require_health_auth(realm='Metrics',
+                                         scope='metrics'):
             return
         from vnc_remote_secure.monitoring.prometheus import metrics_handler
         body, status = metrics_handler()
@@ -220,7 +221,7 @@ class _HealthHandler(SecuredHandlerMixin):
 
     def _serve_audit(self):
         """Serve recent audit entries (bounded by ?limit=)."""
-        if not self._require_health_auth(realm='Audit'):
+        if not self._require_health_auth(realm='Audit', scope='audit'):
             return
         from urllib.parse import parse_qs, urlparse
 
@@ -237,7 +238,7 @@ class _HealthHandler(SecuredHandlerMixin):
 
     def _serve_audit_verify(self):
         """Serve the audit chain integrity check."""
-        if not self._require_health_auth(realm='Audit'):
+        if not self._require_health_auth(realm='Audit', scope='audit'):
             return
         from vnc_remote_secure.security.audit import verify_chain
         intact, message = verify_chain()

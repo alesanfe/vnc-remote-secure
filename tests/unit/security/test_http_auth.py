@@ -318,3 +318,40 @@ class TestRequestHeadersSafe:
         m.add_header('Content-Length', '5')
         m.add_header('Content-Length', '   ')
         assert http_auth.request_headers_safe(m) is True
+
+
+class TestScopedHealthTokens:
+    """Scoped tokens: AUDIT_AUTH_TOKEN/METRICS_AUTH_TOKEN restrict their
+    scope without affecting the general HEALTH_AUTH_TOKEN."""
+
+    def _env(self, monkeypatch):
+        monkeypatch.setenv('HEALTH_AUTH_TOKEN', 'general-tok')
+
+    def test_scoped_token_required_for_audit(self, monkeypatch):
+        self._env(monkeypatch)
+        monkeypatch.setenv('AUDIT_AUTH_TOKEN', 'audit-tok')
+        # General token no longer reaches the audit scope.
+        assert http_auth.check_health_auth(
+            'Bearer general-tok', scope='audit') is False
+        assert http_auth.check_health_auth(
+            'Bearer audit-tok', scope='audit') is True
+        # ...but still reaches unscoped/metrics endpoints.
+        assert http_auth.check_health_auth(
+            'Bearer general-tok') is True
+
+    def test_unset_scope_falls_back_to_general(self, monkeypatch):
+        self._env(monkeypatch)
+        monkeypatch.delenv('METRICS_AUTH_TOKEN', raising=False)
+        assert http_auth.check_health_auth(
+            'Bearer general-tok', scope='metrics') is True
+
+    def test_metrics_scope_independent(self, monkeypatch):
+        self._env(monkeypatch)
+        monkeypatch.setenv('METRICS_AUTH_TOKEN', 'metrics-tok')
+        assert http_auth.check_health_auth(
+            'Bearer metrics-tok', scope='metrics') is True
+        assert http_auth.check_health_auth(
+            'Bearer general-tok', scope='metrics') is False
+        # Audit scope untouched by the metrics token.
+        assert http_auth.check_health_auth(
+            'Bearer general-tok', scope='audit') is True

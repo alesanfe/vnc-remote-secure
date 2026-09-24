@@ -17,6 +17,18 @@ health_bp = Blueprint('health', __name__)
 logger = logging.getLogger(__name__)
 
 
+def _check_metrics_auth(auth_header, client_ip=None, peer_ip=None):
+    """Metrics scope: METRICS_AUTH_TOKEN when set, else the general token."""
+    return check_health_auth(auth_header, client_ip=client_ip,
+                             peer_ip=peer_ip, scope='metrics')
+
+
+def _check_audit_auth(auth_header, client_ip=None, peer_ip=None):
+    """Audit scope: AUDIT_AUTH_TOKEN when set, else the general token."""
+    return check_health_auth(auth_header, client_ip=client_ip,
+                             peer_ip=peer_ip, scope='audit')
+
+
 @health_bp.route('/health')
 @health_bp.route('/health_status')
 @health_bp.route('/health_status.json')
@@ -84,7 +96,7 @@ def health_all():
 
 
 @health_bp.route('/metrics')
-@require_auth(check_health_auth, scheme='Bearer', realm='Metrics')
+@require_auth(_check_metrics_auth, scheme='Bearer', realm='Metrics')
 def metrics():
     """Return Prometheus-format metrics."""
     from vnc_remote_secure.monitoring.prometheus import metrics_handler
@@ -93,7 +105,7 @@ def metrics():
 
 
 @health_bp.route('/audit')
-@require_auth(check_health_auth, scheme='Bearer', realm='Audit')
+@require_auth(_check_audit_auth, scheme='Bearer', realm='Audit')
 def audit():
     """Return recent audit log entries."""
     from vnc_remote_secure.security.audit import get_audit_entries
@@ -105,7 +117,7 @@ def audit():
 
 
 @health_bp.route('/audit/verify')
-@require_auth(check_health_auth, scheme='Bearer', realm='Audit')
+@require_auth(_check_audit_auth, scheme='Bearer', realm='Audit')
 def audit_verify():
     """Verify audit log chain integrity."""
     from vnc_remote_secure.security.audit import verify_chain
