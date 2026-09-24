@@ -511,6 +511,20 @@ def validate_config(
             'message': f'NGINX_ENABLED={nginx_enabled} in profile {profile_name} — reverse proxy required',
         })
 
+    # Scoped health tokens: under a hardened profile the metrics
+    # scraper and the audit reader must hold DIFFERENT credentials —
+    # otherwise one leaked scraper token exposes the audit trail.
+    if profile_name in ('public-hardened', 'private-overlay',
+                        'trusted-lan'):
+        for var in ('AUDIT_AUTH_TOKEN', 'METRICS_AUTH_TOKEN'):
+            if not effective_dict.get(var):
+                findings.append({
+                    'severity': 'warning',
+                    'message': f'{var} unset in profile {profile_name} '
+                               '— /audit and /metrics fall back to '
+                               'HEALTH_AUTH_TOKEN (set scoped tokens)',
+                })
+
     # FLASK_SECRET_KEY set in non-development profiles. The persisted
     # auth_secret.key fallback only applies in development —
     # web/application.py raises RuntimeError on hardened profiles when

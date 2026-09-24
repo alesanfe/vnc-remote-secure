@@ -132,7 +132,7 @@ _SHARED_STATE_TEST_NAMESPACES = (
     'websocket_revoked_sessions', 'ephemeral_revoked_sessions',
     'ephemeral_consumed', 'ephemeral_uses',
     'mfa_last_step', 'mfa_used_steps', 'mfa_used_recovery_codes',
-    'step_up_auth_times', 'webauthn_challenges',
+    'step_up_auth_times', 'webauthn_challenges', 'maintenance',
 )
 
 

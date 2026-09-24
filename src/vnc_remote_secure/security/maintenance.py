@@ -64,9 +64,19 @@ def set_maintenance(active: bool, by: str = 'cli',
 
     ``drain_at`` (epoch seconds) schedules a deferred drain: existing
     ephemeral sessions stay valid until the deadline, then fail
-    closed on every validity check — no sweeper process required.
+    closed. A monotonic bound is stored alongside — a backward wall
+    clock must not extend the grace period (same defence as session
+    expiry). ``drain_mono`` is comparable across processes within the
+    same boot; after a reboot it degrades to wall-clock only.
     """
     path = _flag_path()
+    # A fresh maintenance window must drain again — clear the
+    # "already swept" claim so enforce_drain_deadline() fires.
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        get_backend().delete('maintenance', 'drain_done')
+    except Exception:  # noqa: BLE001 - marker cleanup is best-effort
+        pass
     if active:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         data: dict = {
@@ -76,6 +86,8 @@ def set_maintenance(active: bool, by: str = 'cli',
         }
         if drain_at is not None:
             data['drain_at'] = drain_at
+            data['drain_mono'] = (time.monotonic()
+                                  + (drain_at - time.time()))
         Path(path).write_text(json.dumps(data), encoding='utf-8')
     else:
         try:
@@ -87,16 +99,46 @@ def set_maintenance(active: bool, by: str = 'cli',
 def drain_deadline_passed() -> bool:
     """True when a scheduled drain deadline has been reached.
 
-    Read on the ephemeral-session validity path so a deferred drain
-    enforced at flag-write time takes effect even if no process ran
-    ``drain_sessions()`` when the deadline hit.
+    Either bound suffices — wall clock catches forward skew, the
+    same-boot monotonic bound catches backward skew (a wound-back
+    clock must not extend the grace period).
     """
     try:
         data = json.loads(Path(_flag_path()).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return False
     drain_at = data.get('drain_at')
-    return isinstance(drain_at, (int, float)) and time.time() >= drain_at
+    if isinstance(drain_at, (int, float)) and time.time() >= drain_at:
+        return True
+    drain_mono = data.get('drain_mono')
+    if isinstance(drain_mono, (int, float)) and drain_mono >= 0:
+        return time.monotonic() >= drain_mono
+    return False
+
+
+def enforce_drain_deadline() -> bool:
+    """When the deadline passed, materialize the drain exactly once.
+
+    The first process to notice claims a shared-state marker and
+    revokes every active session — that propagates to live WebSocket
+    connections via the registry, so "grace → force" actually closes
+    streams instead of only denying the next permission check.
+    Returns True whenever the deadline is reached (drained or
+    actively draining).
+    """
+    if not drain_deadline_passed():
+        return False
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        if get_backend().set_if_absent(
+                'maintenance', 'drain_done', '1'):
+            n = drain_sessions()
+            logger.info('Maintenance drain deadline reached — '
+                        'revoked %d ephemeral session(s)', n)
+    except Exception:  # noqa: BLE001 - deny regardless of sweep result
+        logger.warning('Drain sweep failed; sessions still denied',
+                       exc_info=True)
+    return True
 
 
 def drain_sessions() -> int:

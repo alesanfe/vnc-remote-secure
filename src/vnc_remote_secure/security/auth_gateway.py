@@ -261,6 +261,7 @@ def attempt_login(
         return False, 'Too many attempts. Account locked.', None
 
     # Verify MFA if required
+    mfa_method = None
     if mfa_required_for_login():
         totp_secret = os.environ.get('TOTP_SECRET', '')
         if not totp_code:
@@ -269,7 +270,7 @@ def attempt_login(
             _inc_auth_counter('mfa_required')
             return False, 'MFA code required.', None
         if totp_secret and verify_totp(totp_secret, totp_code):
-            pass  # TOTP valid
+            mfa_method = 'totp'
         else:
             # Try recovery codes — SINGLE USE: a successfully matched
             # hash is marked consumed in the shared-state backend (which
@@ -305,6 +306,7 @@ def attempt_login(
                         logger.warning(
                             "Could not persist recovery-code removal; "
                             "shared-state single-use record still enforced")
+                    mfa_method = 'recovery'
                     _audit('login', username, client_ip, 'success',
                            'Recovery code consumed')
                 else:
@@ -337,6 +339,11 @@ def attempt_login(
     session = create_session_cookie(username)
     token = create_session_token(username)
     session['token'] = token
+    # The method that actually authenticated — consumers must not
+    # infer it from request parameters (a truthy totp_code field is
+    # not proof the code verified).
+    session['auth_method'] = (
+        'password' if mfa_method is None else f'password+{mfa_method}')
     _audit('login', username, client_ip, 'success', 'Login successful')
     _inc_auth_counter('success')
     # Record auth time for step-up auth (sensitive actions require recent login).

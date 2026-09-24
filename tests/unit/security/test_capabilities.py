@@ -43,10 +43,11 @@ class TestRegistryCompleteness:
 
 class TestNormalization:
     def test_resource_action_forms(self):
-        # Mirrors has_permission() normalization: action wins when it
-        # is a registered permission, else the resource name.
+        # Composite wins: 'terminal:write' must resolve to the
+        # fine-grained permission, not collapse to the umbrella.
+        assert caps.canonical('terminal:write') == 'terminal_write'
+        assert caps.canonical('terminal:view') == 'terminal_view'
         assert caps.canonical('desktop:control') == 'control'
-        assert caps.canonical('terminal:write') == 'terminal'
         assert caps.canonical('desktop:view') == 'view'
         assert caps.canonical('view') == 'view'
         assert caps.canonical('bogus:thing') is None
@@ -96,6 +97,22 @@ class TestNegativeMatrix:
     def test_unknown_permission_denied(self):
         s = _session_with(ALL_PERMISSIONS)
         assert s.has_permission('definitely_not_a_perm') is False
+
+    def test_granular_terminal_not_collapsed(self):
+        """'terminal:write' must check terminal_write — a view-only
+        terminal session must NOT satisfy it, and a write-only session
+        must NOT satisfy view."""
+        viewer = _session_with({'terminal_view'})
+        writer = _session_with({'terminal_write'})
+        assert viewer.has_permission('terminal:write') is False
+        assert viewer.has_permission('terminal_write') is False
+        assert viewer.has_permission('terminal:view') is True
+        assert writer.has_permission('terminal:view') is False
+        assert writer.has_permission('terminal:write') is True
+        # Umbrella still satisfies both.
+        full = _session_with({'terminal'})
+        assert full.has_permission('terminal:write') is True
+        assert full.has_permission('terminal:view') is True
 
     def test_expansion_is_one_hop(self):
         """Expanding an already-expanded set adds nothing — a

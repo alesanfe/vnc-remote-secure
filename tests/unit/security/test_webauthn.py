@@ -199,6 +199,35 @@ class TestStoreLock:
             t.join()
         assert len(wn._load_store()) == 8
 
+    def test_lock_holds_across_processes(self, tmp_path):
+        """The guarantee is cross-PROCESS — threads sharing the GIL
+        would serialise anyway. Spawn real interpreters racing on the
+        same store file."""
+        import subprocess
+        import sys as _s
+        src = os.path.join(os.path.dirname(__file__), '..', '..', '..',
+                           'src')
+        data_dir = str(tmp_path / 'mpdata')
+        child = (
+            "import os, sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "import vnc_remote_secure.security.webauthn as wn\n"
+            "wn.get_data_dir = lambda: sys.argv[2]\n"
+            "for i in range(5):\n"
+            "    with wn._store_lock():\n"
+            "        s = wn._load_store()\n"
+            "        s['c%d-%d' % (os.getpid(), i)] = {}\n"
+            "        wn._save_store(s)\n"
+        )
+        procs = [subprocess.Popen(
+            [_s.executable, '-c', child, os.path.abspath(src), data_dir])
+            for _ in range(4)]
+        for p in procs:
+            assert p.wait(timeout=60) == 0
+        import vnc_remote_secure.security.webauthn as wn2
+        wn2.get_data_dir = lambda: data_dir
+        assert len(wn2._load_store()) == 20  # 4 procs x 5 writes
+
     def test_symlink_store_refused(self, tmp_path, monkeypatch):
         monkeypatch.setattr(wn, 'get_data_dir',
                             lambda: str(tmp_path))

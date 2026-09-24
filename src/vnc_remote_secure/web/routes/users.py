@@ -179,26 +179,32 @@ def _check_csrf():
         str(expected).encode('utf-8', 'replace'))
 
 
-def _issue_session_response(username: str, aal: str = 'aal1'):
+def _issue_session_response(username: str, auth_method: str = 'password'):
     """Create the authenticated session + cookies for *username*.
 
     Shared by the password login and the WebAuthn assertion path —
     both must produce identical session state (Flask session keys,
-    ``vnc_session`` HMAC cookie, step-up auth time). ``aal`` records
-    the authentication assurance level of the method used
-    ('aal1' password/token, 'aal2' +TOTP/recovery, 'aal3' passkey) so
-    downstream policy can distinguish them instead of treating every
-    login method as equivalent.
+    ``vnc_session`` HMAC cookie, step-up auth time). ``auth_method``
+    is the method that ACTUALLY verified (from ``attempt_login``'s
+    result, not request fields): 'password', 'password+totp',
+    'password+recovery', or 'webauthn'. Structured properties
+    (``phishing_resistant``, ``mfa``) are recorded separately — a
+    passkey's strength depends on the authenticator, so it is NOT
+    equated with a maximum assurance level by fiat.
     """
     # Regenerate the session on privilege change: clear any
     # pre-login keys (attacker-fixated or stale) so the
     # authenticated session carries only fresh state.
     session.clear()
     token = create_web_session(session, username)
-    session['aal'] = aal
+    import time as _t
+    session['auth_method'] = auth_method
+    session['mfa'] = '+' in auth_method or auth_method == 'webauthn'
+    session['phishing_resistant'] = auth_method == 'webauthn'
+    session['authenticated_at'] = _t.time()
     from vnc_remote_secure.security.audit import audit_event
     audit_event('session_issued', user=username, ip=_client_ip(),
-                result='success', detail=f'aal={aal}')
+                result='success', detail=f'method={auth_method}')
     # Record auth time for step-up auth enforcement.
     from vnc_remote_secure.security.step_up_auth import record_auth_time
     record_auth_time(username)
@@ -273,7 +279,9 @@ def login():
             username, password, totp_code=totp_code, client_ip=ip)
         if ok:
             return _issue_session_response(
-                username, aal='aal2' if totp_code else 'aal1')
+                username,
+                auth_method=(_data or {}).get('auth_method',
+                                             'password'))
         return render_template(
             'login.html', error=message,
             mfa_required=mfa_required_for_login(),
@@ -716,4 +724,4 @@ def webauthn_assert_complete():
         _webauthn_origin())
     if not ok:
         return json_error(message, 401)
-    return _issue_session_response(username, aal='aal3')
+    return _issue_session_response(username, auth_method='webauthn')

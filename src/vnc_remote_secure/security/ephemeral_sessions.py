@@ -244,11 +244,18 @@ class EphemeralSession:
             resource: Resource being accessed (for resource binding).
         """
         # Normalize 'resource:action' to canonical permission names.
-        # e.g. 'terminal:use' -> 'terminal', 'desktop:view' -> 'view',
-        # 'desktop:control' -> 'control'.
+        # The composite wins first — 'terminal:write' must resolve to
+        # the fine-grained 'terminal_write', not collapse to the
+        # 'terminal' umbrella (that would let a terminal_view-only
+        # session fail to satisfy it while making the granular
+        # distinction meaningless). Falls back to the bare action
+        # ('desktop:view' -> 'view'), then the bare resource.
         if ':' in perm:
             res, action = perm.split(':', 1)
-            perm = action if action in ALL_PERMISSIONS else res
+            composite = f'{res}_{action}'
+            perm = (composite if composite in ALL_PERMISSIONS
+                    else action if action in ALL_PERMISSIONS
+                    else res)
         # Resource binding: if token has a resource, it must match —
         # enforced only when the caller names the resource.
         if self.resource and resource and resource != self.resource:
@@ -420,11 +427,13 @@ def _deny_foreign_instance(s, _ip, _res):
 
 def _deny_drained(_s, _ip, _res):
     # Deferred maintenance drain: `maintenance on --drain-timeout N`
-    # writes a deadline into the flag; once reached, every ephemeral
-    # session fails closed on its next validity check — no sweeper
-    # needed. Live websockets die on their next revalidation.
-    from vnc_remote_secure.security.maintenance import drain_deadline_passed
-    return 'maintenance drain' if drain_deadline_passed() else None
+    # writes wall+monotonic deadlines into the flag; once reached, the
+    # first process to notice claims the drain marker and revokes all
+    # sessions — propagating to live websockets, so grace ends in an
+    # actual close, not just a denied next check.
+    from vnc_remote_secure.security.maintenance import (
+        enforce_drain_deadline)
+    return 'maintenance drain' if enforce_drain_deadline() else None
 
 
 # Validity of an already-activated session (EphemeralSession.is_valid).

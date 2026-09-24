@@ -77,15 +77,20 @@ CAPABILITIES: dict[str, Capability] = {c.name: c for c in _CATALOG}
 
 
 def canonical(name: str) -> str | None:
-    """Resolve ``resource:action``/alias forms to a canonical name."""
+    """Resolve ``resource:action``/alias forms to a canonical name.
+
+    Mirrors ``EphemeralSession.has_permission`` normalization: the
+    composite ``resource_action`` wins ('terminal:write' ->
+    'terminal_write'), then the bare action, then the bare resource.
+    """
     if name in CAPABILITIES:
         return name
     if ':' in name:
         res, action = name.split(':', 1)
-        if action in CAPABILITIES:
-            return action
-        if res in CAPABILITIES:
-            return res
+        composite = f'{res}_{action}'
+        for candidate in (composite, action, res):
+            if candidate in CAPABILITIES:
+                return candidate
     return None
 
 
