@@ -125,3 +125,34 @@ class TestDrain:
 
     def test_drain_empty_is_zero(self):
         assert maintenance.drain_sessions() == 0
+
+
+class TestDrainDeadline:
+    def test_deferred_drain_denies_after_deadline(self, monkeypatch):
+        import vnc_remote_secure.security.ephemeral_sessions as es
+        monkeypatch.setattr(es, '_store', None)
+        store = es.get_session_store()
+        s, _signed = store.create(expires_in=3600, role='viewer',
+                                  created_by='admin',
+                                  permissions={'view'})
+        assert es.check_session_permission(s.token, 'view') is True
+        import time as _t
+        maintenance.set_maintenance(
+            True, by='test', drain_at=_t.time() - 1)
+        assert es.check_session_permission(s.token, 'view') is False
+
+    def test_future_deadline_keeps_sessions(self, monkeypatch):
+        import vnc_remote_secure.security.ephemeral_sessions as es
+        monkeypatch.setattr(es, '_store', None)
+        store = es.get_session_store()
+        s, _signed = store.create(expires_in=3600, role='viewer',
+                                  created_by='admin',
+                                  permissions={'view'})
+        import time as _t
+        maintenance.set_maintenance(
+            True, by='test', drain_at=_t.time() + 3600)
+        assert es.check_session_permission(s.token, 'view') is True
+
+    def test_no_deadline_no_drain(self, monkeypatch):
+        maintenance.set_maintenance(True, by='test')
+        assert maintenance.drain_deadline_passed() is False

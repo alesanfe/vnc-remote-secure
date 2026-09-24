@@ -418,10 +418,19 @@ def _deny_foreign_instance(s, _ip, _res):
     return None
 
 
+def _deny_drained(_s, _ip, _res):
+    # Deferred maintenance drain: `maintenance on --drain-timeout N`
+    # writes a deadline into the flag; once reached, every ephemeral
+    # session fails closed on its next validity check — no sweeper
+    # needed. Live websockets die on their next revalidation.
+    from vnc_remote_secure.security.maintenance import drain_deadline_passed
+    return 'maintenance drain' if drain_deadline_passed() else None
+
+
 # Validity of an already-activated session (EphemeralSession.is_valid).
 _SESSION_VALIDITY_CHECKS = (
     _deny_revoked, _deny_used, _deny_budget, _deny_expired,
-    _deny_ip, _deny_resource, _deny_foreign_instance)
+    _deny_drained, _deny_ip, _deny_resource, _deny_foreign_instance)
 
 # Reject-before-burn rules for share-link activation — IP binding is
 # applied separately in _activation_denied because it may PIN the
@@ -433,8 +442,8 @@ _LINK_DENIAL_CHECKS = (
 # Per-request checks on an activated session (check_session_permission)
 # — the link budget gates the link, not the session's requests.
 _REQUEST_DENIAL_CHECKS = (
-    _deny_revoked, _deny_expired, _deny_ip, _deny_resource,
-    _deny_foreign_instance)
+    _deny_revoked, _deny_expired, _deny_drained, _deny_ip,
+    _deny_resource, _deny_foreign_instance)
 
 
 def _denial_reason(session, checks, client_ip=None, resource=None):

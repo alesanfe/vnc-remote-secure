@@ -58,21 +58,45 @@ def maintenance_info() -> dict | None:
 
 
 def set_maintenance(active: bool, by: str = 'cli',
-                    reason: str = '') -> None:
-    """Toggle maintenance mode via the runtime flag file."""
+                    reason: str = '',
+                    drain_at: float | None = None) -> None:
+    """Toggle maintenance mode via the runtime flag file.
+
+    ``drain_at`` (epoch seconds) schedules a deferred drain: existing
+    ephemeral sessions stay valid until the deadline, then fail
+    closed on every validity check — no sweeper process required.
+    """
     path = _flag_path()
     if active:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_text(json.dumps({
+        data: dict = {
             'by': by,
             'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'reason': reason,
-        }), encoding='utf-8')
+        }
+        if drain_at is not None:
+            data['drain_at'] = drain_at
+        Path(path).write_text(json.dumps(data), encoding='utf-8')
     else:
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
+
+
+def drain_deadline_passed() -> bool:
+    """True when a scheduled drain deadline has been reached.
+
+    Read on the ephemeral-session validity path so a deferred drain
+    enforced at flag-write time takes effect even if no process ran
+    ``drain_sessions()`` when the deadline hit.
+    """
+    try:
+        data = json.loads(Path(_flag_path()).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    drain_at = data.get('drain_at')
+    return isinstance(drain_at, (int, float)) and time.time() >= drain_at
 
 
 def drain_sessions() -> int:

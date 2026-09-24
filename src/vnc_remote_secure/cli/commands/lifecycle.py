@@ -5,6 +5,7 @@ uninstall.
 import json
 import os
 import sys
+import time
 from contextlib import suppress
 
 from vnc_remote_secure.cli._common import (
@@ -388,10 +389,17 @@ def cmd_maintenance(args):
         if args.dry_run:
             print('[DRY RUN] Would enable maintenance mode')
             return 0
+        drain_timeout = getattr(args, 'drain_timeout', 0) or 0
+        drain_at = time.time() + drain_timeout if drain_timeout > 0 \
+            else None
         set_maintenance(True, by='cli',
-                        reason=getattr(args, 'reason', '') or '')
+                        reason=getattr(args, 'reason', '') or '',
+                        drain_at=drain_at)
         _audit_cli('maintenance_mode', 'success', 'enabled via CLI')
         print('Maintenance mode ENABLED - new non-admin sessions refused.')
+        if drain_at is not None:
+            print(f'Drain scheduled: existing share sessions denied '
+                  f'after {drain_timeout}s grace period.')
         if getattr(args, 'drain', False):
             from vnc_remote_secure.security.maintenance import drain_sessions
             n = drain_sessions()

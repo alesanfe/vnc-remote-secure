@@ -341,6 +341,10 @@ def create_parser():
     p_mon.add_argument('--drain', action='store_true',
                        help='Also revoke all active ephemeral share '
                             'sessions (default: they run out their TTL)')
+    p_mon.add_argument('--drain-timeout', type=int, default=0,
+                       metavar='SECONDS',
+                       help='Grace period before existing share '
+                            'sessions fail closed (deferred drain)')
     _add_common_args(p_mon, suppress_defaults=True)
     p_moff = p_maint_sub.add_parser(
         'off', help='Disable maintenance mode')
