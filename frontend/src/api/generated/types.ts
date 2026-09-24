@@ -1386,6 +1386,8 @@ export interface components {
             data: {
                 operator: components["schemas"]["OperatorSummary"] & {
                     passkey_count?: number;
+                    deletion_allowed?: boolean;
+                    blocking_reasons?: string[];
                 };
                 changed?: string[];
                 sessions_revoked?: boolean;

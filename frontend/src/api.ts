@@ -228,7 +228,12 @@ export interface AuditPage {
 
 
 
-export type OperatorDetail = OperatorUser & { passkey_count?: number };
+export type OperatorDetail = OperatorUser & {
+  passkey_count?: number;
+  /** Display metadata — the backend enforces at apply time. */
+  deletion_allowed?: boolean;
+  blocking_reasons?: string[];
+};
 
 export type PasskeyItem = NonNullable<
   components['schemas']['PasskeyPageResponse']['data']

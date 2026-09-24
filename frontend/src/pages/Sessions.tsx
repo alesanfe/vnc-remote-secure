@@ -92,6 +92,13 @@ export default function Sessions() {
   const revokeAll = useMutation({
     mutationFn: () => api.post<{ revoked: number }>('sessions/revoke-all'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }),
+    onError: (e) => {
+      // Mass revocation is step-up gated: offer the re-auth dialog
+      // and retry on success rather than failing hard.
+      if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
+        setStepUp(() => () => revokeAll.mutate());
+      }
+    },
     onSettled: () => setConfirmRevokeAll(false),
   });
 
@@ -371,6 +378,17 @@ export default function Sessions() {
           Escribe <code>CERRAR TODO</code> para confirmar.
         </p>
       </ConfirmDialog>
+
+      <StepUpDialog
+        open={stepUp !== null}
+        operation="revocación masiva de sesiones"
+        onCancel={() => setStepUp(null)}
+        onVerified={() => {
+          const retry = stepUp;
+          setStepUp(null);
+          retry?.();
+        }}
+      />
     </>
   );
 }

@@ -295,6 +295,10 @@ components:
                 - type: object
                   properties:
                     passkey_count: { type: integer }
+                    deletion_allowed: { type: boolean }
+                    blocking_reasons:
+                      type: array
+                      items: { type: string }
             changed: { type: array, items: { type: string } }
             sessions_revoked: { type: boolean }
         error: { nullable: true }

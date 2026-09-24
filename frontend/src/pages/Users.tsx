@@ -9,6 +9,8 @@ import {
   type PasskeyItem,
 } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
+import StepUpDialog from '../components/StepUpDialog';
+import { registerPasskey, webauthnSupported } from '../webauthn';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
 
@@ -25,6 +27,11 @@ export default function Users() {
   const [pending, setPending] = useState<{
     kind: 'revoke' | 'delete';
     username: string;
+  } | null>(null);
+  // Step-up retry: the gated action to re-run after verification.
+  const [stepUp, setStepUp] = useState<{
+    op: string;
+    retry: () => void;
   } | null>(null);
 
   const invalidate = () =>
@@ -51,6 +58,17 @@ export default function Users() {
         setFlash(`${a.username}: sesiones revocadas por el cambio.`);
       else setFlash('');
     },
+    onError: (e, a) => {
+      // Operator lifecycle ops are step-up gated: offer re-auth and
+      // retry instead of a hard failure.
+      if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
+        const desc =
+          a.kind === 'delete'
+            ? `eliminación del operador ${a.username}`
+            : `revocación de sesiones de ${a.username}`;
+        setStepUp({ op: desc, retry: () => act.mutate(a) });
+      }
+    },
   });
 
   return (
@@ -68,7 +86,9 @@ export default function Users() {
           admin_users?).
         </div>
       )}
-      {act.isError && (
+      {act.isError &&
+        !(act.error instanceof ApiError &&
+          act.error.code === 'STEP_UP_REQUIRED') && (
         <div className="error-box">
           {act.error instanceof ApiError
             ? `${act.error.status}: ${act.error.message}`
@@ -175,6 +195,17 @@ export default function Users() {
           Escribe <code>ELIMINAR</code> para confirmar.
         </p>
       </ConfirmDialog>
+
+      <StepUpDialog
+        open={stepUp !== null}
+        operation={stepUp?.op ?? ''}
+        onCancel={() => setStepUp(null)}
+        onVerified={() => {
+          const retry = stepUp?.retry;
+          setStepUp(null);
+          retry?.();
+        }}
+      />
     </>
   );
 }
@@ -305,6 +336,11 @@ function OperatorRow({
 }
 
 function OperatorDetailPanel({ username }: { username: string }) {
+  const qc = useQueryClient();
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<{ operator: OperatorUser | null }>('me'),
+  });
   const detail = useQuery({
     queryKey: ['operator', username],
     queryFn: () =>
@@ -316,6 +352,50 @@ function OperatorDetailPanel({ username }: { username: string }) {
       api.get<{ passkeys: PasskeyItem[] }>(
         `operators/${username}/passkeys`),
   });
+  const [regErr, setRegErr] = useState('');
+  const [regBusy, setRegBusy] = useState(false);
+  const [stepUpFor, setStepUpFor] =
+    useState<(() => void) | null>(null);
+  const [delRef, setDelRef] = useState<string | null>(null);
+
+  const isSelf = me.data?.operator?.username === username;
+  const invalidateKeys = () =>
+    qc.invalidateQueries({ queryKey: ['operator-passkeys', username] });
+
+  /** Run a mutation; on STEP_UP_REQUIRED open the dialog and retry. */
+  const withStepUp = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
+        setStepUpFor(() => () => void fn().then(invalidateKeys));
+        return;
+      }
+      throw e;
+    }
+  };
+
+  const register = () => withStepUp(async () => {
+    setRegBusy(true);
+    setRegErr('');
+    try {
+      const { options } = await api.post<{ options: object }>(
+        `operators/${username}/passkeys/register/begin`, {});
+      const credential = await registerPasskey(
+        options as Record<string, unknown>);
+      await api.post(
+        `operators/${username}/passkeys/register/complete`,
+        { credential, name: 'passkey' });
+      invalidateKeys();
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED')
+        throw e;
+      setRegErr(e instanceof Error ? e.message : 'Registro fallido');
+    } finally {
+      setRegBusy(false);
+    }
+  }).catch(() => {});
+
   if (detail.isLoading) return <p className="muted">Cargando…</p>;
   if (detail.isError || !detail.data)
     return <p className="error-box">No se pudo cargar la ficha.</p>;
@@ -326,6 +406,11 @@ function OperatorDetailPanel({ username }: { username: string }) {
       <p>
         Rol <strong>{op.role}</strong> · {op.passkey_count ?? 0} passkey(s)
       </p>
+      {op.deletion_allowed === false && (
+        <p className="warn-box">
+          Protegido: {(op.blocking_reasons ?? []).join(', ')}.
+        </p>
+      )}
       <p className="muted">Permisos: {op.permissions.join(', ') || '—'}</p>
       <h3>Passkeys</h3>
       {keys.data && keys.data.passkeys.length === 0 && (
@@ -335,7 +420,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
         <table className="data">
           <thead>
             <tr><th>Ref</th><th>Nombre</th><th>Registro</th>
-                <th>Sign count</th></tr>
+                <th>Sign count</th><th /></tr>
           </thead>
           <tbody>
             {keys.data.passkeys.map((k) => (
@@ -344,15 +429,68 @@ function OperatorDetailPanel({ username }: { username: string }) {
                 <td>{k.name || '—'}</td>
                 <td>{k.created_at || '—'}</td>
                 <td>{k.sign_count}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => setDelRef(k.ref)}
+                  >
+                    Revocar
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
-      <p className="muted">
-        El registro WebAuthn sigue en la UI clásica; la gestión completa
-        llegará con step-up vinculado.
-      </p>
+      {isSelf && webauthnSupported() && (
+        <p>
+          <button type="button" disabled={regBusy} onClick={register}>
+            {regBusy ? 'Registrando…' : 'Registrar passkey'}
+          </button>
+        </p>
+      )}
+      {regErr && <div className="error-box" role="alert">{regErr}</div>}
+      {isSelf && !webauthnSupported() && (
+        <p className="muted">
+          Este navegador no soporta WebAuthn (requiere HTTPS o
+          localhost).
+        </p>
+      )}
+
+      <StepUpDialog
+        open={stepUpFor !== null}
+        operation="registrar/revocar una passkey"
+        resource={username}
+        onCancel={() => setStepUpFor(null)}
+        onVerified={() => {
+          const retry = stepUpFor;
+          setStepUpFor(null);
+          retry?.();
+        }}
+      />
+      <ConfirmDialog
+        open={delRef !== null}
+        title="Revocar passkey"
+        danger
+        confirmLabel="Revocar"
+        onCancel={() => setDelRef(null)}
+        onConfirm={() => {
+          const ref = delRef;
+          setDelRef(null);
+          void withStepUp(() =>
+            api.del(`operators/${username}/passkeys/${ref}`)
+              .then(invalidateKeys),
+          ).catch((e) =>
+            setRegErr(
+              e instanceof ApiError ? e.message : 'Revocación fallida'));
+        }}
+      >
+        <p>
+          La passkey <code>{delRef}</code> dejará de autenticar. Si es
+          la última y la política exige MFA, el backend la protegerá.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }

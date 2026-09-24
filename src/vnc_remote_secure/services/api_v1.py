@@ -763,9 +763,19 @@ def _get_operator_detail(handler, query):
         return
     from vnc_remote_secure.security.operator_users import get_permissions
     from vnc_remote_secure.security.webauthn import list_credentials
+    from vnc_remote_secure.engine.application.operators import (
+        viable_admin_count)
     data = operator_to_api({'username': username, **rec})
     data['permissions'] = sorted(get_permissions(username))
     data['passkey_count'] = len(list_credentials(username))
+    # Deletion gating for the UI: the backend still enforces at apply
+    # time — this is display metadata, not the authority.
+    blocking = []
+    if rec.get('role') == 'admin' \
+            and viable_admin_count(excluding=username) == 0:
+        blocking.append('last_viable_administrator')
+    data['deletion_allowed'] = not blocking
+    data['blocking_reasons'] = blocking
     _ok(handler, {'operator': data})
 
 
