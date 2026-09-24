@@ -70,7 +70,21 @@ Never hardcode the version string in more than `pyproject.toml` (the
 
 ### Source layout
 
-- **Python package**: `src/vnc_remote_secure/` (78 modules + `__init__.py`s)
+- **Python package**: `src/vnc_remote_secure/` (three-layer architecture)
+  - `engine/` — domain + use cases, transport-free
+    - `domain/` — `decision.py` (canonical `UseCaseError` codes); depends
+      on stdlib only
+    - `application/` — use cases: `operators`, `sessions`, `passkeys`,
+      `maintenance`, `system_users`. Never import `security/*`,
+      `services/*`, `web/*`, `platform/*` — the boundary test
+      (`tests/unit/architecture/test_import_boundaries.py`) enforces it
+    - `ports/` — protocol seam documentation
+    - `infrastructure/stores.py` — the ONLY engine module allowed to
+      touch `security/*`/`platform/*`; narrow delegation functions
+  - `backend/` — transport namespace for the versioned JSON API;
+    `backend/api.py` is the stable facade consumers import
+    (implementation still in `services/api_v1.py` while the migration
+    proceeds)
   - `cli/`  unified CLI package (canonical entry point: `commands/` per domain, `_parser.py` argparse wiring, `_app.py` `main()`, `_common.py` shared helpers)
   - `core/` — backup, config, **config_inspector**, constants, **doctor**, errors, exceptions, logging, paths, processes, validation, lifecycle, **service_manager**, uninstall
   - `platform/{linux,windows}/` — platform adapters (adapter, installer, services, users, permissions, metrics, gamepad; Windows also firewall + `_powershell`), plus shared `platform/{base,detection}.py`
