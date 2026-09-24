@@ -344,15 +344,20 @@ def begin_authentication(username: str, rp_id: str) -> dict | None:
 
 
 def complete_authentication(username: str, credential: dict,
-                            rp_id: str, origin: str) -> tuple[bool, str]:
-    """Verify an assertion. Clone detection via sign_count regression."""
+                            rp_id: str, origin: str) -> tuple[bool, str, bool]:
+    """Verify an assertion. Clone detection via sign_count regression.
+
+    Returns (ok, message, user_verified) — the UV flag comes from the
+    ceremony, so a passkey login where the authenticator skipped user
+    verification is distinguishable from one that verified the user.
+    """
     challenge = _pop_challenge('assert', username)
     if challenge is None:
-        return False, 'No authentication in progress or it expired.'
+        return False, 'No authentication in progress or it expired.', False
     cred_id = credential.get('id', '')
     rec = _load_store().get(cred_id)
     if not rec or rec.get('username') != username:
-        return False, 'Unknown credential.'
+        return False, 'Unknown credential.', False
     from webauthn import verify_authentication_response
     try:
         verification = verify_authentication_response(
@@ -366,7 +371,8 @@ def complete_authentication(username: str, credential: dict,
         )
     except Exception as exc:  # noqa: BLE001 - verification failure = deny
         logger.warning('WebAuthn assertion rejected: %s', exc)
-        return False, 'Authentication verification failed.'
+        return False, 'Authentication verification failed.', False
+    uv = bool(getattr(verification, 'user_verified', False))
     with _store_lock():
         store = _load_store()
         if cred_id in store:
@@ -374,5 +380,5 @@ def complete_authentication(username: str, credential: dict,
             _save_store(store)
     from vnc_remote_secure.security.audit import audit_event
     audit_event('webauthn_assert', user=username,
-                detail=f'credential={cred_id[:12]}')
-    return True, 'Authenticated.'
+                detail=f'credential={cred_id[:12]} uv={uv}')
+    return True, 'Authenticated.', uv

@@ -129,7 +129,7 @@ class TestCeremonies:
         monkeypatch.setattr(
             'webauthn.verify_authentication_response',
             lambda **kw: fake)
-        ok, _ = wn.complete_authentication(
+        ok, _, _uv = wn.complete_authentication(
             'alice', {'id': cred_id}, 'example.test',
             'https://example.test')
         assert ok is True
@@ -142,7 +142,7 @@ class TestCeremonies:
             'username': 'bob', 'public_key': wn._b64e(b'pub'),
             'sign_count': 0}})
         wn._put_challenge('assert', 'alice', b'ch')
-        ok, _ = wn.complete_authentication(
+        ok, _, _uv = wn.complete_authentication(
             'alice', {'id': cred_id}, 'rp', 'https://o')
         assert ok is False
 

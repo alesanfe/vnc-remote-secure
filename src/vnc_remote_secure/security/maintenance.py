@@ -35,6 +35,36 @@ def _flag_path() -> str:
     return os.path.join(get_run_dir(), _FLAG_NAME)
 
 
+def _boot_id() -> str | None:
+    """Boot-scoped identifier for comparing monotonic deadlines.
+
+    ``time.monotonic()`` epochs are only comparable within the same
+    boot. Linux exposes a random boot id; elsewhere psutil's boot_time
+    is a surrogate. None means "unknown" — the caller must then ignore
+    the monotonic bound rather than compare epochs across boots.
+    """
+    try:
+        with open('/proc/sys/kernel/random/boot_id',
+                  encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        pass
+    try:
+        import psutil
+        return f'boottime:{psutil.boot_time()}'
+    except ImportError:
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _read_flag() -> dict:
+    try:
+        return json.loads(Path(_flag_path()).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
 def maintenance_active() -> bool:
     """True when maintenance mode is on via env or the flag file."""
     if env_flag('MAINTENANCE_MODE'):
@@ -70,24 +100,23 @@ def set_maintenance(active: bool, by: str = 'cli',
     same boot; after a reboot it degrades to wall-clock only.
     """
     path = _flag_path()
-    # A fresh maintenance window must drain again — clear the
-    # "already swept" claim so enforce_drain_deadline() fires.
-    try:
-        from vnc_remote_secure.security.shared_state import get_backend
-        get_backend().delete('maintenance', 'drain_done')
-    except Exception:  # noqa: BLE001 - marker cleanup is best-effort
-        pass
     if active:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
+        import secrets as _secrets
         data: dict = {
             'by': by,
             'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'reason': reason,
+            # Per-window id: a sweeper from maintenance window A can
+            # never mark window B as drained — drain completion is
+            # recorded against THIS generation.
+            'maintenance_id': _secrets.token_hex(8),
         }
         if drain_at is not None:
             data['drain_at'] = drain_at
             data['drain_mono'] = (time.monotonic()
                                   + (drain_at - time.time()))
+            data['boot_id'] = _boot_id()
         Path(path).write_text(json.dumps(data), encoding='utf-8')
     else:
         try:
@@ -103,41 +132,49 @@ def drain_deadline_passed() -> bool:
     same-boot monotonic bound catches backward skew (a wound-back
     clock must not extend the grace period).
     """
-    try:
-        data = json.loads(Path(_flag_path()).read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        return False
+    data = _read_flag()
     drain_at = data.get('drain_at')
     if isinstance(drain_at, (int, float)) and time.time() >= drain_at:
         return True
     drain_mono = data.get('drain_mono')
-    if isinstance(drain_mono, (int, float)) and drain_mono >= 0:
+    # The monotonic bound is only valid within the same boot —
+    # comparing epochs across a restart would deny sessions early or
+    # extend the grace period arbitrarily.
+    if (isinstance(drain_mono, (int, float)) and drain_mono >= 0
+            and data.get('boot_id') and data['boot_id'] == _boot_id()):
         return time.monotonic() >= drain_mono
     return False
 
 
 def enforce_drain_deadline() -> bool:
-    """When the deadline passed, materialize the drain exactly once.
+    """When the deadline passed, materialize the drain exactly once
+    per maintenance generation.
 
-    The first process to notice claims a shared-state marker and
-    revokes every active session — that propagates to live WebSocket
-    connections via the registry, so "grace → force" actually closes
-    streams instead of only denying the next permission check.
+    Completion is recorded against ``maintenance_id`` — a sweeper
+    from an older window cannot mark a NEW window done, and a window
+    already swept skips the revocation entirely (no repeated sweeps
+    for the rest of the maintenance period). The claim is a 30s
+    lease: an executor that dies mid-sweep leaves no false "done",
+    and the next checker retries. ``drain_sessions()`` is idempotent,
+    so a duplicate sweep is harmless while a skipped one is not.
+
     Returns True whenever the deadline is reached (drained or
     actively draining).
     """
     if not drain_deadline_passed():
         return False
+    mid = _read_flag().get('maintenance_id', '')
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        # The claim is a LEASE, not a completion record: it expires in
-        # 30s. An executor that claims and dies before revoking leaves
-        # no false "done" marker — the next process to check retries
-        # the sweep. drain_sessions() is idempotent, so a duplicate
-        # sweep is harmless while a skipped one is not.
-        if get_backend().set_if_absent(
-                'maintenance', 'drain_done', '1', ttl_seconds=30):
+        be = get_backend()
+        if mid and be.get('maintenance', 'drain_done') == mid:
+            return True  # this generation already swept
+        # The lease key is generation-scoped — a stale lease from a
+        # previous window must not block THIS window's sweep.
+        if be.set_if_absent('maintenance', f'drain_lease:{mid}', '1',
+                            ttl_seconds=30):
             n = drain_sessions()
+            be.set('maintenance', 'drain_done', mid or 'unknown')
             logger.info('Maintenance drain deadline reached — '
                         'revoked %d ephemeral session(s)', n)
     except Exception:  # noqa: BLE001 - deny regardless of sweep result

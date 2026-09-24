@@ -150,12 +150,19 @@ _PERMISSION_EXPANSION = {
 def expand_permissions(permissions) -> set:
     """Expand umbrella permissions to their fine-grained members.
 
-    Returns ``permissions`` plus every member implied by umbrella
-    permissions (``control`` -> keyboard+pointer).
+    Iterates to a fixpoint so implication chains resolve transitively
+    (``terminal`` -> ``terminal_write`` -> ``terminal_view``). The loop
+    is bounded by the permission count — a cycle terminates rather
+    than hanging.
     """
     out = set(permissions)
-    for perm in permissions:
-        out |= _PERMISSION_EXPANSION.get(perm, set())
+    for _ in range(len(ALL_PERMISSIONS) + 1):
+        grown = set(out)
+        for perm in out:
+            grown |= _PERMISSION_EXPANSION.get(perm, set())
+        if grown == out:
+            return out
+        out = grown
     return out
 
 

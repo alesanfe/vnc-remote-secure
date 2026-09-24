@@ -156,3 +156,58 @@ class TestDrainDeadline:
     def test_no_deadline_no_drain(self, monkeypatch):
         maintenance.set_maintenance(True, by='test')
         assert maintenance.drain_deadline_passed() is False
+
+    def test_completion_recorded_per_generation(self, monkeypatch):
+        """A swept generation is marked done — a stale sweeper can't
+        mark a NEW window complete, and a completed window doesn't
+        re-sweep."""
+        from vnc_remote_secure.security.shared_state import get_backend
+        be = get_backend()
+        maintenance.set_maintenance(True, by='test',
+                                    drain_at=__import__('time').time() - 1)
+        mid1 = maintenance._read_flag()['maintenance_id']
+        assert maintenance.enforce_drain_deadline() is True
+        assert be.get('maintenance', 'drain_done') == mid1
+        # Lease also held by us — second call short-circuits on done.
+        assert maintenance.enforce_drain_deadline() is True
+        # New window = new generation: old 'done' must not apply.
+        maintenance.set_maintenance(True, by='test',
+                                    drain_at=__import__('time').time() - 1)
+        mid2 = maintenance._read_flag()['maintenance_id']
+        assert mid2 != mid1
+        assert maintenance.enforce_drain_deadline() is True
+        assert be.get('maintenance', 'drain_done') == mid2
+
+    def test_dead_executor_lease_retries(self, monkeypatch):
+        """An executor that claims and dies leaves a 30s lease, not a
+        permanent done-marker — a retry succeeds once it expires."""
+        from vnc_remote_secure.security.shared_state import get_backend
+        be = get_backend()
+        import time as _t
+        maintenance.set_maintenance(True, by='test',
+                                    drain_at=_t.time() - 1)
+        mid = maintenance._read_flag()['maintenance_id']
+        # Simulate a dead executor: lease claimed, no done marker.
+        assert be.set_if_absent('maintenance', f'drain_lease:{mid}',
+                                '1', ttl_seconds=30)
+        # Another process can't claim while the lease lives — but the
+        # done marker is absent, so after expiry a retry is possible.
+        assert be.get('maintenance', 'drain_done') != mid
+        # Expire the lease artificially.
+        be.delete('maintenance', f'drain_lease:{mid}')
+        assert maintenance.enforce_drain_deadline() is True
+        assert be.get('maintenance', 'drain_done') == mid
+
+    def test_monotonic_bound_requires_same_boot(self, monkeypatch):
+        """A drain_mono from another boot must not fire."""
+        import time as _t
+        maintenance.set_maintenance(True, by='test',
+                                    drain_at=_t.time() + 3600)
+        data = maintenance._read_flag()
+        data['boot_id'] = 'foreign-boot-epoch'
+        data['drain_mono'] = 0.0  # "already reached" in another boot
+        import json as _j
+        from pathlib import Path as _P
+        _P(maintenance._flag_path()).write_text(_j.dumps(data))
+        # Wall clock not reached and mono belongs to a foreign boot.
+        assert maintenance.drain_deadline_passed() is False

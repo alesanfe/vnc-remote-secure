@@ -120,10 +120,25 @@ class TestNegativeMatrix:
         viewer = _session_with({'terminal_view'})
         assert viewer.has_permission('terminal:write') is False
 
-    def test_expansion_is_one_hop(self):
-        """Expanding an already-expanded set adds nothing — a
-        transitive admin->terminal leak can't appear if umbrella
-        memberships change."""
+    def test_expansion_is_idempotent_fixpoint(self):
+        """expand is a fixpoint: expand(expand(P)) == expand(P), and
+        implication chains resolve transitively
+        (terminal -> write -> view)."""
         for umbrella in _PERMISSION_EXPANSION:
             once = expand_permissions({umbrella})
             assert expand_permissions(once) == once
+        assert expand_permissions({'terminal'}) == {
+            'terminal', 'terminal_write', 'terminal_view'}
+
+    def test_no_escalation_via_cycle(self):
+        """terminal_view must NOT reach terminal_write through any
+        chain — a reverse edge would be a privilege escalation."""
+        assert 'terminal_write' not in expand_permissions(
+            {'terminal_view'})
+        assert 'terminal_write' not in expand_permissions(
+            {'view'})
+        # No member ever expands back to an umbrella that contains it.
+        for umbrella, members in _PERMISSION_EXPANSION.items():
+            for m in members:
+                assert umbrella not in expand_permissions({m}), (
+                    f'cycle: {m} expands back to {umbrella}')

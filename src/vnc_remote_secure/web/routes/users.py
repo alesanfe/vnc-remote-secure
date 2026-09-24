@@ -179,7 +179,8 @@ def _check_csrf():
         str(expected).encode('utf-8', 'replace'))
 
 
-def _issue_session_response(username: str, auth_method: str = 'password'):
+def _issue_session_response(username: str, auth_method: str = 'password',
+                            user_verified: bool | None = None):
     """Create the authenticated session + cookies for *username*.
 
     Shared by the password login and the WebAuthn assertion path —
@@ -202,6 +203,10 @@ def _issue_session_response(username: str, auth_method: str = 'password'):
     session['mfa'] = '+' in auth_method or auth_method == 'webauthn'
     session['phishing_resistant'] = auth_method == 'webauthn'
     session['authenticated_at'] = _t.time()
+    if user_verified is not None:
+        # Ceremony-reported UV — password methods leave it unset
+        # rather than implying True/False.
+        session['user_verified'] = user_verified
     from vnc_remote_secure.security.audit import audit_event
     audit_event('session_issued', user=username, ip=_client_ip(),
                 result='success', detail=f'method={auth_method}')
@@ -719,9 +724,10 @@ def webauthn_assert_complete():
         return json_error('Request body must contain a credential', 400)
     username = sanitize_input(str(data.get('username', '')))
     from vnc_remote_secure.security.webauthn import complete_authentication
-    ok, message = complete_authentication(
+    ok, message, user_verified = complete_authentication(
         username, data['credential'], _webauthn_rp_id(),
         _webauthn_origin())
     if not ok:
         return json_error(message, 401)
-    return _issue_session_response(username, auth_method='webauthn')
+    return _issue_session_response(username, auth_method='webauthn',
+                                   user_verified=user_verified)

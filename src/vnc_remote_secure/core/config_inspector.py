@@ -529,19 +529,21 @@ def validate_config(
                                '— /audit and /metrics fall back to '
                                'HEALTH_AUTH_TOKEN (set scoped tokens)',
                 })
-        # Same value in all three = the settings exist but no real
-        # credential separation does.
-        tokens = {effective_dict.get(v, '')
-                  for v in ('HEALTH_AUTH_TOKEN', 'AUDIT_AUTH_TOKEN',
-                            'METRICS_AUTH_TOKEN')}
-        tokens.discard('')
-        if len(tokens) == 1 and effective_dict.get('AUDIT_AUTH_TOKEN'):
-            findings.append({
-                'severity': 'critical',
-                'message': 'AUDIT_AUTH_TOKEN, METRICS_AUTH_TOKEN and '
-                           'HEALTH_AUTH_TOKEN are identical — scoped '
-                           'tokens must differ to separate credentials',
-            })
+        # Pairwise collisions: any two identical tokens collapse that
+        # scope boundary (e.g. METRICS==AUDIT lets the scraper read
+        # the audit trail even when HEALTH differs).
+        vals = {v: effective_dict.get(v, '')
+                for v in ('HEALTH_AUTH_TOKEN', 'AUDIT_AUTH_TOKEN',
+                          'METRICS_AUTH_TOKEN')}
+        for a, b in (('HEALTH_AUTH_TOKEN', 'AUDIT_AUTH_TOKEN'),
+                     ('HEALTH_AUTH_TOKEN', 'METRICS_AUTH_TOKEN'),
+                     ('AUDIT_AUTH_TOKEN', 'METRICS_AUTH_TOKEN')):
+            if vals[a] and vals[a] == vals[b]:
+                findings.append({
+                    'severity': 'critical',
+                    'message': f'{a} == {b} — scoped tokens must '
+                               'differ to separate credentials',
+                })
 
     # FLASK_SECRET_KEY set in non-development profiles. The persisted
     # auth_secret.key fallback only applies in development —

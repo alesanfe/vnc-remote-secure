@@ -1224,6 +1224,14 @@ def watchdog_tick(config: dict | None = None) -> dict:
     if not config.get('healthcheck_enabled', True):
         return {}
 
+    # A scheduled maintenance drain must not wait for the next user
+    # request to fire — the watchdog ticks periodically anyway.
+    try:
+        from vnc_remote_secure.security.maintenance import enforce_drain_deadline
+        enforce_drain_deadline()
+    except Exception:  # noqa: BLE001 - never break the watchdog
+        logger.debug('Drain check failed', exc_info=True)
+
     dead = _find_dead_services(config)
     global _last_watchdog_dead
     dead_set = set(dead)
