@@ -677,10 +677,11 @@ def _resolve_session_id(session_id: str) -> str:
     """Resolve a signed token to a stable internal session key.
 
     Ephemeral signed tokens resolve to their internal session token.
-    Persistent session cookies resolve to the ``username:created``
-    revocation key so a logout kills every re-issued (refreshed)
-    cookie value and its live WebSocket connections — the raw signed
-    string changes on every refresh.
+    v3 session cookies resolve to their random ``sid`` — the same
+    granularity sid-keyed revocation uses, so killing one session
+    closes exactly its connections. Legacy v1/v2 cookies (no sid)
+    resolve to ``username:created`` — group granularity, the only
+    one they support.
     """
     try:
         from vnc_remote_secure.security.ephemeral_sessions import (
@@ -694,10 +695,15 @@ def _resolve_session_id(session_id: str) -> str:
     try:
         from vnc_remote_secure.security.sessions import (
             session_revocation_key,
+            verify_session_cookie,
         )
-        key = session_revocation_key(session_id)
-        if key:
-            return key
+        parsed = verify_session_cookie(session_id)
+        if parsed:
+            if parsed.get('sid'):
+                return parsed['sid']
+            key = session_revocation_key(session_id)
+            if key:
+                return key
     except (ImportError, ValueError):
         logger.debug("Failed to resolve session cookie key", exc_info=True)
     return session_id

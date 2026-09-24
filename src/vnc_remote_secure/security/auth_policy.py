@@ -178,7 +178,7 @@ def record_auth_context(session_id: str, ctx: dict,
             # idx value would overwrite one session's index entry.
             be.set_ttl(_CTX_NS,
                        f'idx:{_session_key(stable_id)}:{_session_key(session_id)}',
-                       '1', ttl)
+                       session_id, ttl)
     except Exception:  # noqa: BLE001 - ctx is advisory if state is down
         logger.debug('Could not record auth context', exc_info=True)
 

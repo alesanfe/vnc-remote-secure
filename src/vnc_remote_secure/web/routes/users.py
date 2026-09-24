@@ -368,31 +368,15 @@ def logout():
         # cookie value no longer equals session['token']. Revoke the
         # stable username:created key — it kills the current cookie and
         # every connection registered under the resolved session id.
-        from vnc_remote_secure.security.auth_gateway import (
-            _resolve_session_id,
-        )
-        from vnc_remote_secure.security.auth_policy import (
-            drop_auth_context_for_cookie,
-            session_id_for_cookie,
-        )
-        from vnc_remote_secure.security.websocket_registry import (
-            revoke_session_connections,
-        )
+        # Central coordinator: resolves cookie -> sid (v3, precise)
+        # or legacy pair (v1/v2, group), marks revocation, drops the
+        # auth context + index entry, closes WS conns, audits.
+        from vnc_remote_secure.security.revocation import revoke_cookie
         for c in {t for t in (token,
                               request.cookies.get('vnc_session', ''))
                   if t}:
-            if session_id_for_cookie(c):
-                # v3: sid-precise revocation — a same-second sibling
-                # session of the same user survives.
-                revoke_session_connections(c)
-            else:
-                # v1/v2: no sid — the stable pair is the only key.
-                revoke_session_connections(_resolve_session_id(c))
-                revoke_session_connections(c)
-            # Drop this session's auth-assurance context (and its
-            # index entry) — a dead session keeps no strong-auth
-            # record.
-            drop_auth_context_for_cookie(c)
+            revoke_cookie(c, reason='logout',
+                          actor=session.get('username'))
     except Exception:  # noqa: BLE001 - logout must not fail on revoke
         pass
     session.clear()
