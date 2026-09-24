@@ -240,6 +240,10 @@ def _issue_session_response(username: str, auth_method: str = 'password',
     sid = session_id_for_cookie(token)
     if sid:
         session['sid'] = sid
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+        parsed = verify_session_cookie(token) or {}
+        stable = (f"{parsed['username']}:{parsed['created']}"
+                  if parsed.get('created') else None)
         record_auth_context(sid, {
             'username': username,
             'auth_method': auth_method,
@@ -247,7 +251,7 @@ def _issue_session_response(username: str, auth_method: str = 'password',
             'phishing_resistant': session['phishing_resistant'],
             'user_verified': session.get('user_verified'),
             'authenticated_at': session['authenticated_at'],
-        })
+        }, stable_id=stable)
     from vnc_remote_secure.security.audit import audit_event
     audit_event('session_issued', user=username, ip=_client_ip(),
                 result='success', detail=f'method={auth_method}')

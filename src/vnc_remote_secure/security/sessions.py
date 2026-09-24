@@ -95,6 +95,11 @@ def verify_session_cookie(cookie_value: str) -> dict | None:
     if len(parts) == 5:
         (username, created_str, last_seen_str, expires_str,
          sid) = parts
+        # Reject malformed sids — the field is server-generated and
+        # must be an opaque token, not attacker-controlled text.
+        import re as _re
+        if not _re.fullmatch(r'[A-Za-z0-9_-]{16,64}', sid or ''):
+            return None
     elif len(parts) == 4:
         username, created_str, last_seen_str, expires_str = parts
     elif len(parts) == 3:

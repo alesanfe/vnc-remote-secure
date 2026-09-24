@@ -240,6 +240,13 @@ class WebSocketRegistry:
         get_backend().set_ttl(
             _NS_REVOKED, session_id, marked_at,
             max(86400, max_lifetime))
+        # A revoked session must not leave a reusable auth-assurance
+        # context behind — resolve cookie or stable id to the sid.
+        try:
+            from vnc_remote_secure.security.auth_policy import drop_auth_context_for
+            drop_auth_context_for(session_id)
+        except Exception:  # noqa: BLE001 - revocation already landed
+            pass
         # Snapshot and detach under the lock, then invoke the close
         # callbacks AFTER releasing it — a callback that touches the
         # registry (e.g. calls unregister from the socket's close

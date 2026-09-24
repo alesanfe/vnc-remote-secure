@@ -35,6 +35,9 @@ def test_startup_applies_security_profile(monkeypatch):
     monkeypatch.setenv('METRICS_AUTH_TOKEN', 'metrics-' + 'y' * 32)
     monkeypatch.setenv('HEALTH_AUTH_TOKEN', 'health-' + 'z' * 32)
     monkeypatch.setenv('FLASK_SECRET_KEY', 'f' * 64)
+    # Policy satisfiability: hardened enforces phishing_resistant
+    # requirements (webauthn_delete) — needs WebAuthn enabled.
+    monkeypatch.setenv('WEBAUTHN_ENABLED', 'true')
 
     from vnc_remote_secure.core import lifecycle
     # Reset state so startup runs fresh.

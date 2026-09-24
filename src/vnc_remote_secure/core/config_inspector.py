@@ -566,23 +566,46 @@ def validate_config(
             'message': 'FLASK_SECRET_KEY not set — sessions invalidated on restart',
         })
 
-    # Auth-policy satisfiability: under profiles that enforce
-    # phishing-resistance, there must exist at least one method able
-    # to satisfy it — otherwise the first critical operation is an
-    # outage discovered mid-incident.
-    if profile_name in ('public-hardened', 'private-overlay'):
-        webauthn_on = effective_dict.get(
-            'WEBAUTHN_ENABLED', '').lower() in ('true', '1', 'yes')
-        mfa_on = effective_dict.get(
-            'MFA_REQUIRED', '').lower() in ('true', '1', 'yes')
-        if not webauthn_on and not mfa_on:
-            findings.append({
-                'severity': 'critical',
-                'message': f'profile {profile_name} enforces '
-                           'strong-auth policies but neither WebAuthn '
-                           'nor MFA is enabled — no session can '
-                           'satisfy them (unsatisfiable policy)',
-            })
+    # Auth-policy satisfiability by REAL properties: TOTP satisfies
+    # mfa but never phishing_resistant — "some second factor exists"
+    # is not proof every enforced policy is reachable.
+    if profile_name in ('public-hardened', 'private-overlay',
+                        'trusted-lan'):
+        from vnc_remote_secure.security.auth_policy import _ENFORCE_ALL, AUTH_POLICIES
+        truthy = ('true', '1', 'yes')
+        # Properties each enabled method can deliver at ceremony time.
+        methods_props = [{'recent_auth'}]  # password is always there
+        if effective_dict.get('MFA_REQUIRED', '').lower() in truthy:
+            methods_props.append({'recent_auth', 'mfa'})
+        if effective_dict.get('WEBAUTHN_ENABLED', '').lower() in truthy:
+            methods_props.append({'recent_auth', 'phishing_resistant',
+                                  'user_verified'})
+        enforce_all = profile_name in _ENFORCE_ALL
+        for op, req in AUTH_POLICIES.items():
+            enforced_fields = []
+            if req.require_mfa:
+                enforced_fields.append('mfa')
+            if enforce_all and req.require_phishing_resistant:
+                enforced_fields.append('phishing_resistant')
+            if enforce_all and req.require_user_verified:
+                enforced_fields.append('user_verified')
+            unsat = [f for f in enforced_fields
+                     if not any(f in mp for mp in methods_props)]
+            # Alternatives: enforced under every profile that reaches
+            # here (mfa/recency always enforced in trusted-lan+).
+            if req.alternatives and not any(
+                    any(set(alt) <= mp for mp in methods_props)
+                    for alt in req.alternatives):
+                unsat.append('/'.join('+'.join(a)
+                                      for a in req.alternatives))
+            if unsat:
+                findings.append({
+                    'severity': 'critical',
+                    'message': f'policy {op} unsatisfiable in profile '
+                               f'{profile_name}: no enabled auth '
+                               f'method provides {unsat} (enable '
+                               'WebAuthn or MFA before this profile)',
+                })
 
     _check_vnc_password(env_snapshot, findings)
     _check_port_vars(env_snapshot, findings)

@@ -176,6 +176,28 @@ class TestDecisionShape:
         for op in PENDING_POLICIES:
             assert op not in AUTH_POLICIES
 
+    def test_enforcement_points_are_real_call_sites(self):
+        """A registry entry naming a file:function that doesn't call
+        the evaluator would be a registry that lies — verify each
+        listed site actually references the policy machinery."""
+        import re as _re
+        from pathlib import Path as _P
+
+        from vnc_remote_secure.security.auth_policy import POLICY_ENFORCEMENT_POINTS
+        src = _P(__file__).parents[3] / 'src' / 'vnc_remote_secure'
+        for op, sites in POLICY_ENFORCEMENT_POINTS.items():
+            for site in sites:
+                path, _, func = site.partition(':')
+                f = src / path
+                assert f.exists(), f'{op}: missing file {path}'
+                body = f.read_text(encoding='utf-8')
+                assert func in body, (
+                    f'{op}: {func} not found in {path}')
+                assert _re.search(
+                    r'auth_policy|_enforce_auth_policy|evaluate\(',
+                    body), (f'{op}: {path} has no policy-evaluator '
+                            'reference')
+
     def test_pending_ops_evaluate_audit_only(self):
         """A pending policy still produces a real decision — it just
         never denies, regardless of profile."""

@@ -47,7 +47,13 @@ class AuthRequirement:
 
 @dataclass(frozen=True)
 class AuthDecision:
-    """Structured, auditable outcome of a policy evaluation."""
+    """Structured, auditable outcome of a policy evaluation.
+
+    ``allowed`` answers "may this proceed"; ``requirements_satisfied``
+    answers "did the session meet the policy" — a pending/audit-only
+    op can be allowed with unsatisfied requirements, and conflating
+    them is exactly how fake guarantees happen.
+    """
     allowed: bool
     operation: str
     reason_code: str | None          # 'MFA_REQUIRED', 'AUTH_TOO_OLD'...
@@ -55,6 +61,7 @@ class AuthDecision:
     auth_age_seconds: int | None
     missing: tuple                   # properties the session lacked
     enforced: bool                   # False => audit-only (dev/lan)
+    requirements_satisfied: bool = True
 
 
 AUTH_POLICIES: dict[str, AuthRequirement] = {
@@ -142,15 +149,27 @@ def session_id_for_cookie(cookie_value: str) -> str | None:
     return None
 
 
-def record_auth_context(session_id: str, ctx: dict) -> None:
+def record_auth_context(session_id: str, ctx: dict,
+                        stable_id: str | None = None) -> None:
     """Persist the login's auth properties for cross-process policy
     checks — the Flask session is a signed cookie unavailable to the
-    terminal/health services, so enforcement needs shared state."""
+    terminal/health services, so enforcement needs shared state.
+
+    ``stable_id`` (``username:created``) indexes the context so
+    revocation paths that only hold the stable pair can still drop
+    the record. The operator epoch is stamped in — a ctx older than
+    the last credential rotation denies even if it survives."""
     try:
+        from vnc_remote_secure.security.sessions import operator_session_epoch
         from vnc_remote_secure.security.shared_state import get_backend
+        ctx = dict(ctx)
+        ctx['operator_epoch'] = operator_session_epoch()
+        be = get_backend()
         ttl = int(os.environ.get('SESSION_MAX_LIFETIME', '86400'))
-        get_backend().set_ttl(_CTX_NS, _session_key(session_id),
-                              ctx, ttl)
+        be.set_ttl(_CTX_NS, _session_key(session_id), ctx, ttl)
+        if stable_id:
+            be.set_ttl(_CTX_NS, 'idx:' + _session_key(stable_id),
+                       session_id, ttl)
     except Exception:  # noqa: BLE001 - ctx is advisory if state is down
         logger.debug('Could not record auth context', exc_info=True)
 
@@ -208,6 +227,24 @@ def drop_auth_context(session_id: str) -> None:
         get_backend().delete(_CTX_NS, _session_key(session_id))
     except Exception:  # noqa: BLE001
         logger.debug('Could not drop auth context', exc_info=True)
+
+
+def drop_auth_context_for(cookie_or_stable: str) -> None:
+    """Drop the context for whatever a revocation path holds — a raw
+    cookie (resolve its sid) or a stable ``username:created`` pair
+    (resolve via the index written at issue)."""
+    if not cookie_or_stable:
+        return
+    sid = session_id_for_cookie(cookie_or_stable)
+    if sid is None:
+        try:
+            from vnc_remote_secure.security.shared_state import get_backend
+            sid = get_backend().get(
+                _CTX_NS, 'idx:' + _session_key(cookie_or_stable))
+        except Exception:  # noqa: BLE001
+            sid = None
+    if sid:
+        drop_auth_context(sid)
 
 
 def drop_all_auth_contexts() -> int:
@@ -273,6 +310,25 @@ def evaluate(operation: str, session_ctx: dict,
         return AuthDecision(True, operation, None, method, age, (),
                             enforced=False)
 
+    # The context must belong to the current operator epoch — a
+    # record written before a credential rotation is stale even if
+    # the physical entry survived (logical invalidation, not just
+    # cleanup).
+    ctx_epoch = session_ctx.get('operator_epoch')
+    if ctx_epoch is not None:
+        try:
+            from vnc_remote_secure.security.sessions import operator_session_epoch
+            if float(ctx_epoch) < operator_session_epoch():
+                return AuthDecision(
+                    False, operation, 'SESSION_REVOKED', method, age,
+                    ('current_epoch',), enforced=True,
+                    requirements_satisfied=False)
+        except Exception:  # noqa: BLE001 - can't prove epoch => deny
+            return AuthDecision(
+                False, operation, 'AUTH_CONTEXT_INVALID', method, age,
+                ('operator_epoch',), enforced=True,
+                requirements_satisfied=False)
+
     profile = profile if profile is not None else _profile()
     enforce_all = (profile in _ENFORCE_ALL) and not pending
     enforce_mfa = (enforce_all
@@ -318,9 +374,12 @@ def evaluate(operation: str, session_ctx: dict,
                     else 'audit', operation, missing, enforced)
 
     reason = None
-    if enforced and not allowed:
+    if pending and missing:
+        reason = 'POLICY_PENDING'
+    elif enforced and not allowed:
         reason = ('AUTH_TOO_OLD' if enforced_missing == ['recent_auth']
                   else 'MFA_REQUIRED' if 'mfa' in enforced_missing
                   else 'STRONG_AUTH_REQUIRED')
     return AuthDecision(allowed, operation, reason, method, age,
-                        tuple(missing), enforced=enforced)
+                        tuple(missing), enforced=enforced,
+                        requirements_satisfied=not missing)
