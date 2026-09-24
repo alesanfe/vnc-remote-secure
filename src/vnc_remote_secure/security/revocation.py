@@ -40,6 +40,16 @@ class RevocationResult:
     already_revoked: int = 0  # idempotency: second call reports this
     errors: tuple = ()
 
+    @property
+    def cleanup_complete(self) -> bool:
+        return self.logically_revoked and not self.errors
+
+    @property
+    def retry_recommended(self) -> bool:
+        """Revoked logically but cleanup failed — a second call is
+        idempotent and will retry ctx/index/conn cleanup."""
+        return self.logically_revoked and bool(self.errors)
+
 
 def _mark(key: str, marked_at: float | None = None) -> bool:
     """Write a revocation marker in shared state with a TTL that
@@ -151,8 +161,15 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
         from vnc_remote_secure.security.shared_state import get_backend
         be = get_backend()
         prefix = f'idx:{_session_key(stable_id)}:'
-        for idx_key in be.list_keys('web_auth_context',
-                                    prefix=prefix):
+        # Bound the sweep — a corrupted index must not stall the
+        # revocation indefinitely.
+        _MAX_IDX = 10000
+        idx_keys = be.list_keys('web_auth_context', prefix=prefix)
+        if len(idx_keys) > _MAX_IDX:
+            errors.append('INDEX_SWEEP_TRUNCATED')
+            idx_keys = idx_keys[:_MAX_IDX]
+        import re as _re
+        for idx_key in idx_keys:
             sid = be.get('web_auth_context', idx_key)
             be.delete('web_auth_context', idx_key)
             be.delete('web_auth_context',
@@ -160,7 +177,6 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
             dropped += 1
             # Validate the stored sid before acting on it — a
             # corrupt value must not mark or close anything.
-            import re as _re
             if isinstance(sid, str) and _re.fullmatch(
                     r'[A-Za-z0-9_-]{16,64}', sid):
                 try:
@@ -170,6 +186,10 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f'sid mark/close failed: '
                                   f'{type(exc).__name__}')
+            else:
+                _audit('revocation_index_invalid_sid',
+                       session_ref=_session_ref(stable_id))
+                errors.append('INDEX_INVALID_SID')
     except Exception as exc:  # noqa: BLE001
         errors.append(f'ctx: {exc}')
     try:

@@ -118,8 +118,11 @@ class WebSocketRegistry:
         """
         with self._lock:
             # TOCTOU guard: reject if the session was revoked between the
-            # auth-gateway validation and this registration call.
-            if is_revoked_shared(session_id):
+            # auth-gateway validation and this registration call. Check
+            # both the raw key (legacy pair / ephemeral token) and the
+            # sid-namespaced mark written by revoke_sid.
+            if is_revoked_shared(session_id) or \
+                    is_revoked_shared(f'sid:{session_id}'):
                 logger.debug(
                     'Refused WebSocket registration for revoked session %s',
                     _redact(session_id),
@@ -159,12 +162,26 @@ class WebSocketRegistry:
             if session_id not in self._by_session:
                 self._by_session[session_id] = set()
             self._by_session[session_id].add(conn_id)
+            # Post-register double-check: closes the
+            # check->register->revoke race. A revoke landing BETWEEN
+            # the first check and registration would leave a live
+            # conn the sweep already missed — remove it and fire its
+            # close callback after releasing the lock.
+            close_now = None
+            if is_revoked_shared(session_id) or \
+                    is_revoked_shared(f'sid:{session_id}'):
+                self._connections.pop(conn_id, None)
+                self._by_session.get(session_id, set()).discard(conn_id)
+                close_now = entry
             self._emit_active_gauges()
             logger.debug(
                 'Registered WebSocket connection %s for session %s (resource=%s)',
                 conn_id, _redact(session_id), resource,
             )
-            return conn_id
+        if close_now is not None:
+            self._fire_close(conn_id, close_now)
+            return None
+        return conn_id
 
     def _emit_active_gauges(self):
         """Emit per-resource active-connection gauges (best-effort).
