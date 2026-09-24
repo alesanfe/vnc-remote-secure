@@ -10,6 +10,7 @@ import {
 } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import StepUpDialog from '../components/StepUpDialog';
+import SystemUsersSection from '../components/SystemUsers';
 import { registerPasskey, webauthnSupported } from '../webauthn';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
