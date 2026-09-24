@@ -230,32 +230,8 @@ class EphemeralSession:
             client_ip: Client IP address (for IP restriction check).
             resource: Requested resource (for resource binding check).
         """
-        if self.revoked:
-            return False
-        if self.single_use and self.used:
-            return False
-        if self.max_uses > 0 and self.use_count >= self.max_uses:
-            return False
-        if _session_expired(self):
-            return False
-        # IP binding is fail-closed: a missing client_ip must not
-        # silently skip an operator-configured restriction.
-        # 'first-observed' is the unbound marker — it binds to the
-        # first activation IP inside consume/activate, so it never
-        # reaches this check as a literal.
-        if self.allowed_ip and self.allowed_ip != 'first-observed' \
-                and not _ip_matches(self.allowed_ip, client_ip):
-            return False
-        # Resource binding restricts WHERE a permission may be used —
-        # enforced only when the caller names a resource (action-level
-        # checks without resource context assert the permission exists;
-        # see TestResourceBinding contract).
-        if self.resource and resource and resource != self.resource:
-            return False
-        # Deployment binding: a token issued by a different deployment
-        # (different persisted instance.id) must not authenticate here.
-        return not (self.instance_id
-                    and self.instance_id != _get_instance_id())
+        return _denial_reason(
+            self, _SESSION_VALIDITY_CHECKS, client_ip, resource) is None
 
     def has_permission(self, perm: str, resource: str | None = None) -> bool:
         """Check if this session grants a specific permission.
@@ -384,6 +360,90 @@ def _session_expired(session: EphemeralSession) -> bool:
         return True
     elapsed = time.monotonic() - mono
     return elapsed >= 0 and elapsed >= ttl
+
+
+# ------------------------------------------------------------------
+# Denial-check pipeline
+#
+# Each check returns a short reason string on denial, None on pass.
+# The tuples below define the authorization decision order for each
+# entry point — adding a rule is adding a function plus a tuple
+# entry, and every rule is independently testable/auditable.
+# ------------------------------------------------------------------
+
+def _deny_revoked(s, _ip, _res):
+    return 'revoked' if s.revoked else None
+
+
+def _deny_used(s, _ip, _res):
+    return 'single-use already consumed' if s.single_use and s.used \
+        else None
+
+
+def _deny_budget(s, _ip, _res):
+    return ('use budget exhausted'
+            if s.max_uses > 0 and s.use_count >= s.max_uses else None)
+
+
+def _deny_expired(s, _ip, _res):
+    return 'expired' if _session_expired(s) else None
+
+
+def _deny_ip(s, client_ip, _res):
+    # Fail-closed: a missing client_ip must not silently skip an
+    # operator-configured restriction. 'first-observed' is the unbound
+    # marker — it binds to the first activation IP inside
+    # consume/activate, so it never reaches this check as a literal.
+    if not s.allowed_ip or s.allowed_ip == 'first-observed':
+        return None
+    return None if _ip_matches(s.allowed_ip, client_ip) \
+        else 'ip binding'
+
+
+def _deny_resource(s, _ip, resource):
+    # Resource binding restricts WHERE a permission may be used —
+    # enforced only when the caller names a resource (action-level
+    # checks without resource context assert the permission exists;
+    # see TestResourceBinding contract).
+    if s.resource and resource and resource != s.resource:
+        return 'resource binding'
+    return None
+
+
+def _deny_foreign_instance(s, _ip, _res):
+    # Deployment binding: a token issued by a different deployment
+    # (different persisted instance.id) must not authenticate here.
+    if s.instance_id and s.instance_id != _get_instance_id():
+        return 'foreign deployment'
+    return None
+
+
+# Validity of an already-activated session (EphemeralSession.is_valid).
+_SESSION_VALIDITY_CHECKS = (
+    _deny_revoked, _deny_used, _deny_budget, _deny_expired,
+    _deny_ip, _deny_resource, _deny_foreign_instance)
+
+# Reject-before-burn rules for share-link activation — IP binding is
+# applied separately in _activation_denied because it may PIN the
+# 'first-observed' marker before matching.
+_LINK_DENIAL_CHECKS = (
+    _deny_revoked, _deny_expired, _deny_used, _deny_budget,
+    _deny_foreign_instance)
+
+# Per-request checks on an activated session (check_session_permission)
+# — the link budget gates the link, not the session's requests.
+_REQUEST_DENIAL_CHECKS = (
+    _deny_revoked, _deny_expired, _deny_ip, _deny_resource,
+    _deny_foreign_instance)
+
+
+def _denial_reason(session, checks, client_ip=None, resource=None):
+    """First denial reason across *checks*, or None when all pass."""
+    for check in checks:
+        reason = check(session, client_ip, resource)
+        if reason is not None:
+            return reason
+    return None
 
 
 def create_ephemeral_token(session: EphemeralSession) -> str:
@@ -1110,15 +1170,7 @@ def activate_ephemeral_session(signed_token: str,
 def _activation_denied(session, token: str,
                        client_ip: str | None) -> bool:
     """Every reject-before-burn rule for share-link activation."""
-    if session.revoked or _session_expired(session):
-        return True
-    if session.single_use and session.used:
-        return True
-    if session.max_uses > 0 and session.use_count >= session.max_uses:
-        return True
-    # Deployment binding: a share link issued by a different
-    # deployment (foreign instance.id) must not activate here.
-    if session.instance_id and session.instance_id != _get_instance_id():
+    if _denial_reason(session, _LINK_DENIAL_CHECKS) is not None:
         return True
     # IP binding at activation too — without it a link bound to a
     # client IP could still be *burned* by a different caller
@@ -1169,20 +1221,7 @@ def check_session_permission(
     session = store.get(internal_token)
     if not session:
         return False
-    if session.revoked:
-        return False
-    if _session_expired(session):
-        return False
-    # IP binding is fail-closed: a missing/unknown client_ip must not
-    # silently skip an operator-configured restriction.
-    if session.allowed_ip and not _ip_matches(
-            session.allowed_ip, client_ip):
-        return False
-    if session.resource and resource and resource != session.resource:
-        return False
-    # Deployment binding must apply on this path too — the internal
-    # token path duplicates is_valid()'s checks manually, so a foreign
-    # deployment's activated token would otherwise slip through.
-    if session.instance_id and session.instance_id != _get_instance_id():
+    if _denial_reason(session, _REQUEST_DENIAL_CHECKS,
+                      client_ip, resource) is not None:
         return False
     return session.has_permission(permission, resource)
