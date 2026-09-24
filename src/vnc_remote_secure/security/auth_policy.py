@@ -150,7 +150,8 @@ def session_id_for_cookie(cookie_value: str) -> str | None:
 
 
 def record_auth_context(session_id: str, ctx: dict,
-                        stable_id: str | None = None) -> None:
+                        stable_id: str | None = None,
+                        expires_at: int | None = None) -> None:
     """Persist the login's auth properties for cross-process policy
     checks — the Flask session is a signed cookie unavailable to the
     terminal/health services, so enforcement needs shared state.
@@ -158,7 +159,9 @@ def record_auth_context(session_id: str, ctx: dict,
     ``stable_id`` (``username:created``) indexes the context so
     revocation paths that only hold the stable pair can still drop
     the record. The operator epoch is stamped in — a ctx older than
-    the last credential rotation denies even if it survives."""
+    the last credential rotation denies even if it survives. The TTL
+    never exceeds the session's absolute expiry — a late refresh must
+    not extend the assurance record past the session it belongs to."""
     try:
         from vnc_remote_secure.security.sessions import operator_session_epoch
         from vnc_remote_secure.security.shared_state import get_backend
@@ -166,6 +169,8 @@ def record_auth_context(session_id: str, ctx: dict,
         ctx['operator_epoch'] = operator_session_epoch()
         be = get_backend()
         ttl = int(os.environ.get('SESSION_MAX_LIFETIME', '86400'))
+        if expires_at:
+            ttl = min(ttl, max(1, expires_at - int(time.time())))
         be.set_ttl(_CTX_NS, _session_key(session_id), ctx, ttl)
         if stable_id:
             # Composite key = a SET of sids per stable pair — two
@@ -223,39 +228,65 @@ def auth_context_for(session_id: str) -> dict:
         return {}
 
 
-def drop_auth_context(session_id: str) -> None:
-    """Delete a session's auth context — logout, revocation, or any
-    event that invalidates the session must drop it too."""
+def drop_auth_context(session_id: str,
+                      stable_id: str | None = None) -> None:
+    """Delete one session's auth context — logout, revocation, or any
+    event that invalidates the session must drop it too. When
+    ``stable_id`` is known, the index entry is removed as well so no
+    orphan ``idx:`` records survive."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        get_backend().delete(_CTX_NS, _session_key(session_id))
+        be = get_backend()
+        be.delete(_CTX_NS, _session_key(session_id))
+        if stable_id:
+            be.delete(
+                _CTX_NS,
+                f'idx:{_session_key(stable_id)}:'
+                f'{_session_key(session_id)}')
     except Exception:  # noqa: BLE001
         logger.debug('Could not drop auth context', exc_info=True)
 
 
-def drop_auth_context_for(cookie_or_stable: str) -> None:
-    """Drop the context for whatever a revocation path holds — a raw
-    cookie (resolve its sid) or a stable ``username:created`` pair
-    (resolve via the index written at issue)."""
-    if not cookie_or_stable:
+def drop_auth_context_for_cookie(cookie_value: str) -> None:
+    """v3 cookie → drop exactly ONE session's context + index entry.
+    Never escalates to the shared stable pair."""
+    try:
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+        parsed = verify_session_cookie(cookie_value)
+        if parsed and parsed.get('sid'):
+            stable = (f"{parsed['username']}:{parsed['created']}"
+                      if parsed.get('created') else None)
+            drop_auth_context(parsed['sid'], stable_id=stable)
+    except Exception:  # noqa: BLE001
+        logger.debug('Could not drop ctx for cookie', exc_info=True)
+
+
+def drop_auth_contexts_for_stable(stable_id: str) -> None:
+    """Stable ``username:created`` pair → revoking it revokes EVERY
+    session sharing it, so every indexed context goes."""
+    if not stable_id:
         return
-    sid = session_id_for_cookie(cookie_or_stable)
-    if sid is not None:
-        drop_auth_context(sid)
-        return
-    # Stable pair: revoking it revokes every session sharing it, so
-    # drop every indexed context — not just one.
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         be = get_backend()
-        prefix = f'idx:{_session_key(cookie_or_stable)}:'
+        prefix = f'idx:{_session_key(stable_id)}:'
         for idx_key in be.list_keys(_CTX_NS, prefix=prefix):
             be.delete(_CTX_NS, idx_key)
-            # idx value key embeds sha256(sid) — drop the ctx record.
+            # idx key embeds sha256(sid) — drop the ctx record.
             be.delete(_CTX_NS, idx_key[len(prefix):])
     except Exception:  # noqa: BLE001
         logger.debug('Could not resolve ctx by stable id',
                      exc_info=True)
+
+
+def drop_auth_context_for(cookie_or_stable: str) -> None:
+    """Router kept for callers holding an untyped value: a v3 cookie
+    resolves to one sid; anything else is treated as a stable pair.
+    New call sites should use the typed variants instead."""
+    if session_id_for_cookie(cookie_or_stable) is not None:
+        drop_auth_context_for_cookie(cookie_or_stable)
+    else:
+        drop_auth_contexts_for_stable(cookie_or_stable)
 
 
 def drop_all_auth_contexts() -> int:

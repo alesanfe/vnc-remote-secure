@@ -251,7 +251,8 @@ def _issue_session_response(username: str, auth_method: str = 'password',
             'phishing_resistant': session['phishing_resistant'],
             'user_verified': session.get('user_verified'),
             'authenticated_at': session['authenticated_at'],
-        }, stable_id=stable)
+        }, stable_id=stable,
+           expires_at=parsed.get('expires'))
     from vnc_remote_secure.security.audit import audit_event
     audit_event('session_issued', user=username, ip=_client_ip(),
                 result='success', detail=f'method={auth_method}')
@@ -370,24 +371,28 @@ def logout():
         from vnc_remote_secure.security.auth_gateway import (
             _resolve_session_id,
         )
+        from vnc_remote_secure.security.auth_policy import (
+            drop_auth_context_for_cookie,
+            session_id_for_cookie,
+        )
         from vnc_remote_secure.security.websocket_registry import (
             revoke_session_connections,
         )
-        if token:
-            revoke_session_connections(_resolve_session_id(token))
-            revoke_session_connections(token)
-        live = request.cookies.get('vnc_session', '')
-        if live and live != token:
-            revoke_session_connections(_resolve_session_id(live))
-            revoke_session_connections(live)
-        # Drop the auth-assurance context for every cookie being
-        # invalidated — a session that no longer exists must not
-        # leave a reusable strong-auth record behind.
-        from vnc_remote_secure.security.auth_policy import drop_auth_context, session_id_for_cookie
-        for c in (token, live):
-            sid = session_id_for_cookie(c) if c else None
-            if sid:
-                drop_auth_context(sid)
+        for c in {t for t in (token,
+                              request.cookies.get('vnc_session', ''))
+                  if t}:
+            if session_id_for_cookie(c):
+                # v3: sid-precise revocation — a same-second sibling
+                # session of the same user survives.
+                revoke_session_connections(c)
+            else:
+                # v1/v2: no sid — the stable pair is the only key.
+                revoke_session_connections(_resolve_session_id(c))
+                revoke_session_connections(c)
+            # Drop this session's auth-assurance context (and its
+            # index entry) — a dead session keeps no strong-auth
+            # record.
+            drop_auth_context_for_cookie(c)
     except Exception:  # noqa: BLE001 - logout must not fail on revoke
         pass
     session.clear()

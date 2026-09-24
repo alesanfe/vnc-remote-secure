@@ -212,6 +212,12 @@ def refresh_session_cookie(cookie_value: str,
     # operator re-authenticates and gets a v3 session instead of a
     # silently downgraded refresh with no auth context.
     if not session.get('sid'):
+        try:
+            from vnc_remote_secure.security.audit import audit_event
+            audit_event('legacy_session_refresh_rejected',
+                        user=session.get('username'))
+        except Exception:  # noqa: BLE001 - audit is best-effort
+            pass
         return None
     now = time.time()
     if now - session.get('last_seen', session['created']) < refresh_grace:
