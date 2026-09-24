@@ -142,3 +142,23 @@ body {
     text-align: center; margin-top: 40px; padding: 20px; color: #666; font-size: 12px;
 }
 .footer a { color: #64b5f6; text-decoration: none; }
+
+
+/* Accessibility */
+a:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid #90caf9; outline-offset: 2px;
+}
+.skip-link {
+    position: absolute; left: -9999px; top: 0; z-index: 100;
+    background: #1a237e; color: #fff; padding: 10px 16px;
+    border-radius: 0 0 8px 0; text-decoration: none;
+}
+.skip-link:focus { left: 0; }
+.visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .service-card:hover { transform: none; }
+}

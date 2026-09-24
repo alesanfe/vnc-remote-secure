@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="VNC Remote Secure — secure browser-based remote access">
     <title>VNC Remote - Users</title>
     <style>
@@ -8,9 +10,14 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
         th { background: #f4f4f4; }
+        label { margin-right: 8px; }
+        input { padding: 6px; }
         .btn { padding: 5px 10px; text-decoration: none; color: white; border: none; cursor: pointer; }
         .btn-danger { background: #dc3545; }
         .btn-success { background: #28a745; }
+        a:focus-visible, button:focus-visible, input:focus-visible {
+            outline: 2px solid #0056b3; outline-offset: 2px;
+        }
         .flash { padding: 10px; background: #f8d7da; margin: 10px 0; }
     </style>
 </head>
@@ -19,7 +26,7 @@
     {% with messages = get_flashed_messages() %}
         {% if messages %}
             {% for message in messages %}
-                <div class="flash">{{ message }}</div>
+                <div class="flash" role="alert">{{ message }}</div>
             {% endfor %}
         {% endif %}
     {% endwith %}
@@ -27,17 +34,22 @@
     <h2>Create New User</h2>
     <form method="post" action="{{ url_for('users.create_user') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="text" name="username" placeholder="Username" required>
-        <input type="password" name="password" placeholder="Password" required>
+        <label for="new-username">Username</label>
+        <input id="new-username" type="text" name="username" required
+               autocomplete="off">
+        <label for="new-password">Password</label>
+        <input id="new-password" type="password" name="password" required
+               autocomplete="new-password">
         <button type="submit" class="btn btn-success">Create User</button>
     </form>
     <h2>Existing Users</h2>
     <table>
+        <caption class="visually-hidden" style="text-align:left;margin-bottom:8px;">System users manageable through VNC Remote Secure</caption>
         <tr>
-            <th>Username</th>
-            <th>UID</th>
-            <th>Home Directory</th>
-            <th>Actions</th>
+            <th scope="col">Username</th>
+            <th scope="col">UID</th>
+            <th scope="col">Home Directory</th>
+            <th scope="col">Actions</th>
         </tr>
         {% for user in users %}
         <tr>
@@ -48,7 +60,9 @@
                 {% if user.username not in RESERVED_USERNAMES %}
                 <form method="post" action="{{ url_for('users.delete_user', username=user.username) }}" style="display:inline;">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn btn-danger" onclick="return confirm('Delete user {{ user.username }}?')">Delete</button>
+                    <button type="submit" class="btn btn-danger"
+                            aria-label="Delete user {{ user.username }}"
+                            onclick="return confirm('Delete user {{ user.username }}?')">Delete</button>
                 </form>
                 {% endif %}
             </td>

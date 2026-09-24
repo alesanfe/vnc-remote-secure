@@ -815,10 +815,13 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
 {_landing_css()}
 </head>
 <body>
-    <div class="header">
+    <a class="skip-link" href="#main">Saltar al contenido</a>
+    <div class="header" role="banner">
         <h1>🔒 VNC Remote Secure</h1>
         <p>Portal de acceso a servicios - Actualización automática cada 30s</p>
     </div>
+
+    <main id="main">
 
     {maintenance_banner}
 
@@ -845,7 +848,9 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
     {ssl_note}
     {firewall_html}
 
-    <div class="footer">
+    </main>
+
+    <div class="footer" role="contentinfo">
         VNC Remote Secure | {html.escape(metrics['hostname'])} | {html.escape(metrics['os'])} | Uptime: {html.escape(metrics['uptime'])}
     </div>
 </body>
