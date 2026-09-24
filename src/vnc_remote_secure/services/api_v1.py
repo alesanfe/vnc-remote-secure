@@ -667,8 +667,8 @@ def _post_session_create(handler, query):
         _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
 
-    from vnc_remote_secure.cli.commands.session import _share_base_url
-    base = _share_base_url()
+    from vnc_remote_secure.core.share_url import share_base_url
+    base = share_base_url()
     _ok(handler, {
         # Fragment-carried link: the token never reaches the server in
         # the URL, so it cannot leak via history, Referer, or logs.
@@ -1148,8 +1148,8 @@ def _post_auth_passkey_begin(handler, query):
     if not isinstance(username, str) or not username.strip():
         _err(handler, 'username is required', 400)
         return
-    from vnc_remote_secure.security.webauthn import begin_authentication
     from vnc_remote_secure.engine.application.passkeys import _rp_id
+    from vnc_remote_secure.security.webauthn import begin_authentication
     options = begin_authentication(username.strip()[:128], _rp_id())
     from vnc_remote_secure.security.audit import audit_event
     if options is None:
@@ -1181,11 +1181,11 @@ def _post_auth_passkey_complete(handler, query):
     if not isinstance(username, str) or not isinstance(credential, dict):
         _err(handler, 'username and credential are required', 400)
         return
-    from vnc_remote_secure.security.webauthn import complete_authentication
     from vnc_remote_secure.engine.application.passkeys import (
         _origin,
         _rp_id,
     )
+    from vnc_remote_secure.security.webauthn import complete_authentication
     result = complete_authentication(
         username.strip()[:128], credential, _rp_id(), _origin())
     from vnc_remote_secure.security.audit import audit_event

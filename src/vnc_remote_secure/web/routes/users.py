@@ -21,10 +21,9 @@ from flask import (
 
 from vnc_remote_secure.core.constants import (
     RESERVED_USERNAMES,
-    WINDOWS_BUILTIN_USERNAMES,
 )
 from vnc_remote_secure.core.errors import json_error
-from vnc_remote_secure.core.validation import sanitize_input, validate_password, validate_username
+from vnc_remote_secure.core.validation import sanitize_input
 from vnc_remote_secure.security.auth_gateway import check_authenticated
 from vnc_remote_secure.security.authentication import (
     create_web_session,
@@ -100,69 +99,41 @@ def _enforce_auth_policy(operation: str):
 users_bp = Blueprint('users', __name__)
 
 
-def _set_platform_user_password(username: str, password: str) -> None:
-    """Resolve the platform-specific password setter and apply it.
-
-    This helper centralises the import-time platform branch so that the
-    HTML and JSON user-creation routes share a single implementation.
-    """
-    import platform as _platform
-
-    if _platform.system() == 'Windows':
-        from vnc_remote_secure.platform.windows.permissions import set_user_password
-    else:
-        from vnc_remote_secure.platform.linux.permissions import set_user_password
-    set_user_password(username, password)
-
-
-def _create_runtime_user(username: str, password: str) -> str | None:
-    """Create a runtime user and set its password.
+def _create_runtime_user(username: str, password: str,
+                         actor: str = '?') -> str | None:
+    """Create a runtime user via the engine use case.
 
     Returns ``None`` on success or an error message string on failure.
-    Validates username, reserved-name, and password strength before
-    touching the system.
+    Reserved-name/password policy and the audit trail live in
+    ``engine.application.system_users`` — the Flask surface only
+    translates the result.
     """
+    from vnc_remote_secure.engine.application.system_users import (
+        create_system_user,
+    )
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        validate_username(username)
-    except ValueError as exc:
-        return str(exc)
-    if username in RESERVED_USERNAMES or username in WINDOWS_BUILTIN_USERNAMES:
-        return 'Cannot create system users'
-    try:
-        validate_password(password, 'user_password')
-    except ValueError as exc:
-        return str(exc)
-    try:
-        from vnc_remote_secure.platform.base import get_adapter
-
-        if not get_adapter().create_runtime_user(username):
-            return 'User creation failed'
-        _set_platform_user_password(username, password)
-    except Exception:
-        logger.exception("User creation failed:")
-        return 'User creation failed'
+        create_system_user(actor, username, password)
+    except UseCaseError as exc:
+        if exc.detail in ('User creation failed',):
+            logger.error("User creation failed: %s", username)
+        return exc.detail
     return None
 
 
-def _delete_runtime_user(username: str) -> str | None:
-    """Delete a runtime user via the platform adapter.
-
-    Returns ``None`` on success or an error message string on failure.
-    """
+def _delete_runtime_user(username: str, actor: str = '?') -> str | None:
+    """Delete a runtime user via the engine use case (reserved names
+    and the current process account are refused there)."""
+    from vnc_remote_secure.engine.application.system_users import (
+        delete_system_user,
+    )
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        validate_username(username)
-    except ValueError as exc:
-        return str(exc)
-    if username in RESERVED_USERNAMES or username in WINDOWS_BUILTIN_USERNAMES:
-        return 'Cannot delete system users'
-    try:
-        from vnc_remote_secure.platform.base import get_adapter
-
-        if not get_adapter().remove_runtime_user(username):
-            return 'User deletion failed'
-    except Exception:
-        logger.exception("User deletion failed:")
-        return 'User deletion failed'
+        delete_system_user(actor, username)
+    except UseCaseError as exc:
+        if exc.detail in ('User deletion failed',):
+            logger.error("User deletion failed: %s", username)
+        return exc.detail
     return None
 
 
@@ -400,25 +371,12 @@ def users():
     _username, err = _require_session()
     if err is not None:
         return err
-    # Provide the context variables the template expects.
-    # Enumerate real system users via the platform adapter.
-    users_list = []
-    try:
-        import pwd
-        # ``create_runtime_user`` uses ``useradd -r`` which allocates
-        # system UIDs below 1000, so we cannot rely on the >=1000
-        # heuristic. Instead we list all non-reserved users with a
-        # real shell/home (UID >= 100 excludes kernel/system accounts
-        # such as nobody/www-data which typically have UID < 100).
-        users_list = [
-            {'username': u.pw_name, 'uid': u.pw_uid, 'home': u.pw_dir}
-            for u in pwd.getpwall()
-            if u.pw_uid >= 100 and u.pw_name not in RESERVED_USERNAMES
-        ]
-    except (ImportError, AttributeError):
-        # Windows: no pwd module; show empty list.
-        pass
-    return render_template('users.html', users=users_list,
+    # Provide the context variables the template expects — the OS
+    # account enumeration lives in the engine use case.
+    from vnc_remote_secure.engine.application.system_users import (
+        list_system_users,
+    )
+    return render_template('users.html', users=list_system_users(),
                            csrf_token=session.get('csrf_token', ''),
                            webauthn_enabled=_webauthn_gate() is None,
                            RESERVED_USERNAMES=RESERVED_USERNAMES)
@@ -445,8 +403,8 @@ def create_user():
         return json_error('Invalid or missing CSRF token', 403)
     username = sanitize_input(request.form.get('username', ''))
     password = request.form.get('password', '')
-    err = _create_runtime_user(username, password)
-    _audit_user_action('user_create', actor, username, ok=err is None)
+    # The use case owns the policy + audit trail.
+    err = _create_runtime_user(username, password, actor)
     if err is not None:
         return json_error(err, 400 if err != 'User creation failed' else 500)
     return redirect(url_for('users.users'))
@@ -472,94 +430,42 @@ def delete_user(username):
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
     username = sanitize_input(username)
-    try:
-        validate_username(username)
-    except ValueError as exc:
-        return json_error(str(exc), 400)
-    import getpass
-
-    if (username in RESERVED_USERNAMES
-            or username in WINDOWS_BUILTIN_USERNAMES
-            or username == getpass.getuser()):
-        return json_error('Cannot delete system users', 400)
-    try:
-        from vnc_remote_secure.platform.base import get_adapter
-        deleted = get_adapter().remove_runtime_user(username)
-    except Exception:
-        logger.exception("User deletion failed:")
-        deleted = False
-    _audit_user_action('user_delete', actor, username, ok=bool(deleted))
-    if not deleted:
-        return json_error('User deletion failed', 500)
+    # Reserved-name/self-deletion policy + audit live in the use case.
+    del_err = _delete_runtime_user(username, actor)
+    if del_err is not None:
+        return json_error(del_err,
+                          400 if del_err != 'User deletion failed' else 500)
     return redirect(url_for('users.users'))
 
 
-def _audit_user_action(event, actor, target, ok=True):
-    """Emit an audit event for an admin user-management action."""
-    from vnc_remote_secure.security.audit import audit_event
-    audit_event(event, user=actor or 'unknown',
-              ip=_client_ip(),
-              result='success' if ok else 'failure',
-              detail=f'target={target}')
-
-
 def _api_users_get():
-    """Handle GET /api/users — list non-system users."""
-    users_list = []
-    try:
-        import pwd
-        users_list = [
-            {'username': u.pw_name, 'uid': u.pw_uid, 'home': u.pw_dir}
-            for u in pwd.getpwall()
-            if u.pw_uid >= 100 and u.pw_name not in RESERVED_USERNAMES
-        ]
-    except (ImportError, AttributeError):
-        # Windows: use the platform adapter.
-        try:
-            from vnc_remote_secure.platform.windows.permissions import list_users
-            all_users = list_users()
-            users_list = [
-                u for u in all_users
-                if u['username'] not in RESERVED_USERNAMES
-                and u['username'] not in WINDOWS_BUILTIN_USERNAMES
-            ]
-        except (ImportError, OSError):
-            logger.debug("Failed to list Windows users", exc_info=True)
-    return jsonify({'users': users_list})
+    """Handle GET /api/users — list non-system users via the engine
+    use case (cross-platform, reserved names filtered)."""
+    from vnc_remote_secure.engine.application.system_users import (
+        list_system_users,
+    )
+    return jsonify({'users': list_system_users()})
 
 
-def _api_users_post(req, sess):
-    """Handle POST /api/users — create a user via the platform adapter."""
+def _api_users_post(req, sess, actor='?'):
+    """Handle POST /api/users — create a user via the engine use case."""
     data = req.get_json(silent=True)
     if not isinstance(data, dict):
         return json_error('Request body must be a JSON object', 400)
     username = sanitize_input(data.get('username', ''))
     password = data.get('password', '')
-    err = _create_runtime_user(username, password)
+    err = _create_runtime_user(username, password, actor)
     if err is not None:
         return json_error(err, 400 if err != 'User creation failed' else 500)
     return jsonify({'status': 'created', 'username': username})
 
 
-def _api_users_delete(req, sess, username):
-    """Handle DELETE /api/users — remove a user via the platform adapter."""
-    try:
-        validate_username(username)
-    except ValueError as exc:
-        return json_error(str(exc), 400)
-    import getpass
-
-    if (username in RESERVED_USERNAMES
-            or username in WINDOWS_BUILTIN_USERNAMES
-            or username == getpass.getuser()):
-        return json_error('Cannot delete system users', 400)
-    try:
-        from vnc_remote_secure.platform.base import get_adapter
-        if not get_adapter().remove_runtime_user(username):
-            return json_error('User deletion failed', 500)
-    except Exception:
-        logger.exception("User deletion failed:")
-        return json_error('User deletion failed', 500)
+def _api_users_delete(req, sess, username, actor='?'):
+    """Handle DELETE /api/users — remove a user via the engine use case."""
+    err = _delete_runtime_user(username, actor)
+    if err is not None:
+        return json_error(err,
+                          400 if err != 'User deletion failed' else 500)
     return jsonify({'status': 'deleted', 'username': username})
 
 
@@ -603,10 +509,7 @@ def api_users():
         data = request.get_json(silent=True)
         username = (sanitize_input((data or {}).get('username', ''))
                     if isinstance(data, dict) else '')
-        result = _api_users_post(request, session)
-        status_ok = result[1] < 400 if isinstance(result, tuple) else True
-        _audit_user_action('user_create', _user, username, ok=status_ok)
-        return result
+        return _api_users_post(request, session, _user)
 
     if request.method == 'DELETE':
         step_up_err = require_step_up(_user, 'delete_admin')
@@ -616,10 +519,7 @@ def api_users():
         if not isinstance(data, dict):
             return json_error('Request body must be a JSON object', 400)
         username = sanitize_input(data.get('username', ''))
-        result = _api_users_delete(request, session, username)
-        status_ok = result[1] < 400 if isinstance(result, tuple) else True
-        _audit_user_action('user_delete', _user, username, ok=status_ok)
-        return result
+        return _api_users_delete(request, session, username, _user)
 
     return json_error('Method not allowed', 405)
 
