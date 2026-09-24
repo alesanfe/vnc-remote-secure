@@ -6,7 +6,6 @@ Each test asserts a *security property* under fault, not a happy
 path: single-use stays single-use, revoked stays revoked, corrupted
 state denies rather than grants.
 """
-import json
 import os
 import sys
 import threading
@@ -170,6 +169,7 @@ class TestBackendOutage:
     def test_audit_export_dead_sinks_never_raise(self, monkeypatch):
         """A dead SIEM must not break the audited request."""
         import socket
+
         from vnc_remote_secure.security import audit_export
         monkeypatch.setenv('AUDIT_SYSLOG_HOST', '10.255.255.1')
         monkeypatch.setenv(
