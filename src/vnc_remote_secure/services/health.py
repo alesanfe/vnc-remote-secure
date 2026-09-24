@@ -4,7 +4,6 @@ Provides a lightweight HTTP health endpoint and helper functions to
 query the status of all managed services. The HTTP server uses only the
 standard library so it has no external dependencies.
 """
-import http.server
 import json
 import logging
 import os
