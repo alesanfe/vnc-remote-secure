@@ -20,6 +20,7 @@ import platform
 from vnc_remote_secure.core.errors import log_exception
 from vnc_remote_secure.platform.detection import is_windows
 from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
+from vnc_remote_secure.services.api_v1 import is_api_path
 from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 logger = logging.getLogger(__name__)
@@ -803,7 +804,7 @@ def _build_backup_html():
             f'({html.escape(age)}){warn}{cert_html}</div>')
 
 
-def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, audio_html, gamepad_html, ssl_note, firewall_html, metrics, maintenance_banner=''):
+def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, audio_html, gamepad_html, ssl_note, firewall_html, metrics, maintenance_banner='', admin_link=''):
     """Assemble the final landing page HTML from its section components."""
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -819,6 +820,7 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
     <div class="header" role="banner">
         <h1>🔒 VNC Remote Secure</h1>
         <p>Portal de acceso a servicios - Actualización automática cada 30s</p>
+        {admin_link}
     </div>
 
     <main id="main">
@@ -939,11 +941,14 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None,
     gamepad_html = _build_gamepad_html() if is_operator else ''
     features_section = _build_features_section(use_ssl, is_windows_flag)
     firewall_html, ssl_note = _build_firewall_html(is_windows_flag, use_ssl)
+    admin_link = (
+        '<p><a href="/admin/" style="color:#cfe0ff">🛠️ Panel de '
+        'administración</a></p>' if is_operator else '')
     return _build_landing_page_template(
         metrics_html, cards_html, vnc_direct_html, features_section,
         lan_html, creds_html, sessions_html, backups_html, audio_html,
         gamepad_html, ssl_note, firewall_html, metrics,
-        maintenance_banner=_maintenance_banner())
+        maintenance_banner=_maintenance_banner(), admin_link=admin_link)
 
 
 class LandingHandler(SecuredHandlerMixin,
@@ -988,44 +993,101 @@ class LandingHandler(SecuredHandlerMixin,
         signed = (query.get('session') or [''])[0]
         if not signed:
             return False
-        # Link scanners and browser prefetchers hit the activation URL
-        # without user intent — each GET burns a use (single-use links
-        # die before the recipient ever opens them). Prefetch requests
-        # carry Sec-Purpose/Purpose hints; respond with an interstitial
-        # so only a real navigation consumes the token.
-        purpose = ' '.join(
-            self.headers.get(h, '')
-            for h in ('Sec-Purpose', 'Purpose', 'X-Moz')).lower()
-        if 'prefetch' in purpose or 'preview' in purpose:
-            from html import escape
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Cache-Control', 'no-store')
-            self.end_headers()
-            self.wfile.write(
-                b'<!doctype html><meta charset="utf-8">'
-                b'<title>Open session</title>'
-                b'<p><a href="'
-                + escape(self.path, quote=True).encode()
-                + b'">Click to open the shared session</a></p>')
-            return True
-        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
-        # Forwarded-aware like check_session_permission: behind a
-        # trusted proxy the peer is 127.0.0.1, so an allowed_ip-bound
-        # session could never activate if we bound the raw peer.
-        client_ip = client_ip_from(
-            self.headers,
-            self.peer_ip())
-        internal = activate_ephemeral_session(signed, client_ip=client_ip)
-        if not internal:
-            self.send_json_error('Session link is invalid, expired, or already used', 403)
-            return True
-        # Mark the cookie Secure when the response travels over TLS —
-        # either behind a trusted nginx (X-Forwarded-Proto) or via
-        # direct TLS on this service (the accepted socket is an
-        # SSLSocket). X-Forwarded-Proto is honoured only under
-        # TRUSTED_PROXY — a direct client claiming https would get a
-        # Secure cookie the browser never returns over plain HTTP.
+        # A share link NEVER activates on GET: prefetchers, link
+        # scanners and reloads must not burn a single-use token, and a
+        # credential must not be consumed by a side-effecting GET.
+        # The interstitial POSTs the token to /session/activate — a
+        # real form, so it works with JavaScript disabled.
+        self._render_share_interstitial(signed)
+        return True
+
+    def _render_share_interstitial(self, signed: str) -> None:
+        """Render the share-link activation page (no state changes).
+
+        Shows what the link grants (role, expiry, flags) so the
+        recipient can make an informed click; the token is only
+        consumed by the POST to /session/activate.
+        """
+        import time as _time
+        rows = ''
+        try:
+            from vnc_remote_secure.security.ephemeral_sessions import (
+                get_session_store,
+                verify_ephemeral_token,
+            )
+            payload = verify_ephemeral_token(signed)
+            session = None
+            if payload:
+                store = get_session_store()
+                store._load_if_changed()
+                session = store.get(payload['session_token'])
+            if session is not None and not session.revoked:
+                remaining = max(0, int(session.expires_at - _time.time()))
+                mins, secs = divmod(remaining, 60)
+                flags = []
+                if session.view_only:
+                    flags.append('solo visualización')
+                if session.single_use:
+                    flags.append('uso único')
+                if session.no_terminal:
+                    flags.append('sin terminal')
+                if session.max_uses:
+                    flags.append(f'máx. {session.max_uses} usos')
+                if session.allowed_ip:
+                    flags.append(f'IP: {session.allowed_ip}')
+                rows = (
+                    f'<tr><td>Rol</td><td>{html.escape(session.role)}</td></tr>'
+                    f'<tr><td>Expira en</td><td>{mins}m{secs:02d}s</td></tr>'
+                    + (f'<tr><td>Restricciones</td><td>'
+                       f'{html.escape(", ".join(flags))}</td></tr>'
+                       if flags else ''))
+        except Exception:  # noqa: BLE001 - preview is best-effort
+            rows = ''
+        body = f"""<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VNC Remote Secure — Abrir sesión</title>
+<style>
+body {{ font-family: Arial, sans-serif; background: #0f1420;
+       color: #e6e9f0; display: flex; justify-content: center;
+       align-items: center; min-height: 100vh; margin: 0; }}
+.card {{ background: #1a2233; border: 1px solid #2a3550;
+        border-radius: 10px; padding: 2em; max-width: 420px; }}
+table {{ border-collapse: collapse; margin: 1em 0; width: 100%; }}
+td {{ padding: 6px 10px; border-bottom: 1px solid #2a3550; }}
+td:first-child {{ color: #9aa7c0; }}
+button {{ width: 100%; padding: 12px; font-size: 1em; border: 0;
+         border-radius: 6px; background: #2f6fed; color: #fff;
+         cursor: pointer; }}
+button:hover {{ background: #245bcc; }}
+</style></head><body>
+<div class="card">
+<h1>Sesión compartida</h1>
+<p>Este enlace concede acceso remoto temporal a este equipo.</p>
+{('<table>' + rows + '</table>') if rows else ''}
+<form method="post" action="/session/activate">
+<input type="hidden" name="token" value="{html.escape(signed, quote=True)}">
+<button type="submit">Abrir sesión</button>
+</form>
+</div></body></html>"""
+        data = body.encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _issue_ephemeral_cookie(self, internal: str) -> None:
+        """Set the ``vnc_ephemeral`` cookie and redirect to '/'.
+
+        The cookie is marked Secure when the response travels over TLS
+        — either behind a trusted nginx (X-Forwarded-Proto) or via
+        direct TLS on this service (the accepted socket is an
+        SSLSocket). X-Forwarded-Proto is honoured only under
+        TRUSTED_PROXY — a direct client claiming https would get a
+        Secure cookie the browser never returns over plain HTTP.
+        """
         import ssl as _ssl
         trusted = env_flag('TRUSTED_PROXY', 'false')
         is_tls = ((trusted and
@@ -1044,7 +1106,47 @@ class LandingHandler(SecuredHandlerMixin,
             f'SameSite={samesite}')
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
-        return True
+
+    def _post_session_activate(self) -> None:
+        """POST /session/activate — exchange a share-link token.
+
+        The link itself is the credential, so no operator gate; the
+        token arrives in the request BODY (form or JSON), never in a
+        URL the server logs or a Referer could carry onward.
+        """
+        from urllib.parse import parse_qs
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            length = 0
+        if not 0 < length <= 4096:
+            self.send_json_error('Bad request', 400)
+            return
+        raw = self.rfile.read(length)
+        ctype = self.headers.get('Content-Type', '')
+        if 'application/json' in ctype:
+            try:
+                signed = str(json.loads(raw).get('token', ''))
+            except (json.JSONDecodeError, ValueError):
+                signed = ''
+        else:
+            signed = (parse_qs(
+                raw.decode('utf-8', 'replace')).get('token') or [''])[0]
+        if not signed:
+            self.send_json_error('token required', 400)
+            return
+        from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+        # Forwarded-aware like check_session_permission: behind a
+        # trusted proxy the peer is 127.0.0.1, so an allowed_ip-bound
+        # session could never activate if we bound the raw peer.
+        client_ip = client_ip_from(self.headers, self.peer_ip())
+        internal = activate_ephemeral_session(signed, client_ip=client_ip)
+        if not internal:
+            self.send_json_error(
+                'Session link is invalid, expired, or already used',
+                403)
+            return
+        self._issue_ephemeral_cookie(internal)
 
     def _portal_identity(self):
         """Resolve the portal request's auth identity.
@@ -1132,8 +1234,83 @@ class LandingHandler(SecuredHandlerMixin,
             self._serve_template('audio_receiver.html')
         elif path == '/gamepad.html':
             self._serve_template('gamepad.html')
+        elif path == '/admin' or path.startswith('/admin/'):
+            self._serve_admin(path)
+        elif is_api_path(path):
+            self._serve_api_get(path)
         else:
             self.send_json_error('Not found', 404)
+
+    def _serve_api_get(self, path: str) -> None:
+        """Dispatch a GET under /api/v1/ to the api_v1 module."""
+        from urllib.parse import parse_qs, urlparse
+
+        from vnc_remote_secure.services.api_v1 import handle_get
+        query = parse_qs(urlparse(self.path).query)
+        try:
+            if not handle_get(self, path, query):
+                self.send_json_error('Not found', 404)
+        except Exception as e:  # noqa: BLE001 - never take the portal down
+            log_exception(e, 'api GET')
+            self.send_json_error('Internal error', 500)
+
+    _ADMIN_DIR = os.path.normpath(os.path.join(
+        os.path.dirname(__file__), '..', 'web', 'static', 'admin'))
+    _ADMIN_TYPES = {
+        '.html': 'text/html; charset=utf-8',
+        '.js': 'text/javascript; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.map': 'application/json',
+        '.json': 'application/json',
+        '.svg': 'image/svg+xml',
+        '.png': 'image/png',
+        '.ico': 'image/x-icon',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+    }
+
+    def _serve_admin(self, path: str) -> None:
+        """Serve the React admin SPA (operator-only).
+
+        Static assets live in ``web/static/admin`` (the Vite build
+        output). Paths without a file extension fall back to
+        index.html so client-side routing works on reload. Ephemeral
+        share-link sessions get 403 — the admin surface is
+        operator-only.
+        """
+        if self._portal_operator is None:
+            self.send_json_error('Operator access required', 403)
+            return
+        rel = path[len('/admin'):].lstrip('/') or 'index.html'
+        # SPA fallback: extensionless client routes serve index.html.
+        if '.' not in os.path.basename(rel):
+            rel = 'index.html'
+        # Path traversal: resolve and require containment.
+        full = os.path.normpath(os.path.join(self._ADMIN_DIR, rel))
+        if not full.startswith(self._ADMIN_DIR + os.sep) and \
+                full != self._ADMIN_DIR:
+            self.send_json_error('Not found', 404)
+            return
+        ext = os.path.splitext(full)[1].lower()
+        ctype = self._ADMIN_TYPES.get(ext)
+        if ctype is None or not os.path.isfile(full):
+            self.send_json_error('Not found', 404)
+            return
+        try:
+            with open(full, 'rb') as f:
+                body = f.read()
+        except OSError:
+            self.send_json_error('Not found', 404)
+            return
+        self.send_response(200)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(body)))
+        # HTML is the SPA shell — never cache it so a new deploy is
+        # picked up; hashed assets may be cached safely.
+        if ext == '.html':
+            self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body)
 
     def _session_refresh_header(self):
         """Return a ``Set-Cookie`` value refreshing the session cookie.
@@ -1265,57 +1442,72 @@ class LandingHandler(SecuredHandlerMixin,
             log_exception(e, 'Landing _serve_template')
             self.send_json_error(f'Failed to serve template {template_name}', 500)
 
+    def _status_payload(self) -> dict:
+        """Build the service-status payload shared by /status.json and
+        the /api/v1/status endpoint."""
+        # On Linux TigerVNC binds 5900+N regardless of an explicit
+        # VNC_PORT — probe the real RFB port (same derivation as
+        # services/vnc._vnc_port and _start_websockify).
+        vnc_port = _config()['vnc_port']
+        if os.name != 'nt':
+            try:
+                from vnc_remote_secure.services.vnc import _vnc_port
+                vnc_port = _vnc_port(
+                    _config().get('vnc_display', ':1'))
+            except Exception:  # noqa: BLE001 - fall back to config
+                pass
+        cfg = _config()
+        data = {
+            'services': {
+                'vnc_desktop_novnc': check_port(
+                    cfg['novnc_port'], cfg.get('novnc_host', '127.0.0.1')),
+                # websockify always binds loopback (_start_websockify
+                # forces 127.0.0.1 regardless of BIND_HOST).
+                'vnc_ws_bridge': check_port(
+                    cfg.get('novnc_ws_port', DEFAULT_NOVNC_WS_PORT)),
+                'terminal': check_port(
+                    cfg['ttyd_port'], cfg.get('ttyd_host', '127.0.0.1')),
+                'health_dashboard': check_port(
+                    cfg['health_port'], cfg.get('health_host', '127.0.0.1')),
+                'vnc_rfb_direct': check_port(vnc_port),
+                'landing_page': True,
+            } | (
+                # UltraVNC's built-in HTTP dir is Windows-only —
+                # on Linux nothing ever listens there and the card
+                # would permanently show a spurious "down" state.
+                {'ultravnc_http': check_port(cfg['vnc_http_port'])}
+                if os.name == 'nt' else {}
+            ),
+            # Microphone privacy indicator: true while ffmpeg is
+            # capturing (shared-state flag, self-clearing TTL).
+            'audio_capture': _audio_capture_active(),
+            # Credentials are NOT exposed in JSON for security
+        }
+        # Internal topology + LAN IPs + resource usage are
+        # operator-grade telemetry. An ephemeral view-only link
+        # holder gets service states only — enough for the portal
+        # cards, not enough to map the host.
+        if getattr(self, '_portal_operator', None) is not None:
+            data['lan_ips'] = get_lan_ips()
+            data['system'] = get_system_metrics()
+        return data
+
     def _serve_status_json(self):
         try:
-            # On Linux TigerVNC binds 5900+N regardless of an explicit
-            # VNC_PORT — probe the real RFB port (same derivation as
-            # services/vnc._vnc_port and _start_websockify).
-            vnc_port = _config()['vnc_port']
-            if os.name != 'nt':
-                try:
-                    from vnc_remote_secure.services.vnc import _vnc_port
-                    vnc_port = _vnc_port(
-                        _config().get('vnc_display', ':1'))
-                except Exception:  # noqa: BLE001 - fall back to config
-                    pass
-            cfg = _config()
-            data = {
-                'services': {
-                    'vnc_desktop_novnc': check_port(
-                        cfg['novnc_port'], cfg.get('novnc_host', '127.0.0.1')),
-                    # websockify always binds loopback (_start_websockify
-                    # forces 127.0.0.1 regardless of BIND_HOST).
-                    'vnc_ws_bridge': check_port(
-                        cfg.get('novnc_ws_port', DEFAULT_NOVNC_WS_PORT)),
-                    'terminal': check_port(
-                        cfg['ttyd_port'], cfg.get('ttyd_host', '127.0.0.1')),
-                    'health_dashboard': check_port(
-                        cfg['health_port'], cfg.get('health_host', '127.0.0.1')),
-                    'vnc_rfb_direct': check_port(vnc_port),
-                    'landing_page': True,
-                } | (
-                    # UltraVNC's built-in HTTP dir is Windows-only —
-                    # on Linux nothing ever listens there and the card
-                    # would permanently show a spurious "down" state.
-                    {'ultravnc_http': check_port(cfg['vnc_http_port'])}
-                    if os.name == 'nt' else {}
-                ),
-                # Microphone privacy indicator: true while ffmpeg is
-                # capturing (shared-state flag, self-clearing TTL).
-                'audio_capture': _audio_capture_active(),
-                # Credentials are NOT exposed in JSON for security
-            }
-            # Internal topology + LAN IPs + resource usage are
-            # operator-grade telemetry. An ephemeral view-only link
-            # holder gets service states only — enough for the portal
-            # cards, not enough to map the host.
-            if getattr(self, '_portal_operator', None) is not None:
-                data['lan_ips'] = get_lan_ips()
-                data['system'] = get_system_metrics()
-            self.send_json(data, 200, indent=2)
+            self.send_json(self._status_payload(), 200, indent=2)
         except Exception as e:
             log_exception(e, 'Landing _serve_status_json')
             self.send_json_error('Failed to build status JSON', 500)
+
+    def _serve_api_post(self, path: str) -> None:
+        """Dispatch a POST under /api/v1/ to the api_v1 module."""
+        from vnc_remote_secure.services.api_v1 import handle_post
+        try:
+            if not handle_post(self, path):
+                self.send_json_error('Not found', 404)
+        except Exception as e:  # noqa: BLE001 - never take the portal down
+            log_exception(e, 'api POST')
+            self.send_json_error('Internal error', 500)
 
     def _serve_sessions_json(self):
         """List active ephemeral sessions — operator-only.
@@ -1364,6 +1556,14 @@ class LandingHandler(SecuredHandlerMixin,
             self.send_json_error('Ambiguous request framing', 400)
             return
         path = self.path.split('?', 1)[0]
+        # Share-link activation: the token is the credential, so this
+        # route precedes the operator-gated mutations.
+        if path == '/session/activate':
+            self._post_session_activate()
+            return
+        if is_api_path(path):
+            self._serve_api_post(path)
+            return
         if path == '/sessions/revoke-all':
             self._post_revoke_all()
             return

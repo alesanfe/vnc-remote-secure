@@ -57,13 +57,13 @@ def server(monkeypatch, tmp_path):
     os.chdir(cwd)
 
 
-def _req(port, path, method='GET', headers=None):
+def _req(port, path, method='GET', headers=None, body=None):
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
-    conn.request(method, path, headers=headers or {})
+    conn.request(method, path, body=body, headers=headers or {})
     resp = conn.getresponse()
-    body = resp.read()
+    data = resp.read()
     conn.close()
-    return resp.status, dict(resp.getheaders()), body
+    return resp.status, dict(resp.getheaders()), data
 
 
 def _auth_headers():
@@ -129,22 +129,47 @@ def test_head_unknown_path_404_when_authed(server):
 
 
 # ---------------------------------------------------------------------------
-# Ephemeral session exchange (?session=)
+# Ephemeral session exchange (?session= interstitial -> POST activate)
 # ---------------------------------------------------------------------------
 
-def test_session_exchange_invalid_token_403(server, monkeypatch):
+def _post_activate(port, token, headers=None):
+    import urllib.parse
+    body = urllib.parse.urlencode({'token': token})
+    h = {'Content-Type': 'application/x-www-form-urlencoded'}
+    h.update(headers or {})
+    return _req(port, '/session/activate', method='POST',
+                headers=h, body=body), body
+
+
+def test_session_exchange_get_shows_interstitial(server, monkeypatch):
+    """GET never activates: the link lands on an interstitial whose
+    POST form carries the token."""
+    calls = []
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.'
+        'activate_ephemeral_session',
+        lambda *a, **kw: calls.append(1) or 'internal-tok',
+        raising=False)
+    status, _, body = _req(server, '/?session=SIGNEDTOK')
+    assert status == 200
+    assert calls == []  # GET does not consume
+    assert b'action="/session/activate"' in body
+    assert b'SIGNEDTOK' in body  # token carried in the hidden field
+
+
+def test_session_activate_invalid_token_403(server, monkeypatch):
     monkeypatch.setattr(
         'vnc_remote_secure.security.ephemeral_sessions.activate_ephemeral_session',
         lambda signed, client_ip=None: None)
-    status, _, _ = _req(server, '/?session=bogus')
+    (status, _, _), _ = _post_activate(server, 'bogus')
     assert status == 403
 
 
-def test_session_exchange_sets_cookie_and_redirects(server, monkeypatch):
+def test_session_activate_sets_cookie_and_redirects(server, monkeypatch):
     monkeypatch.setattr(
         'vnc_remote_secure.security.ephemeral_sessions.activate_ephemeral_session',
         lambda signed, client_ip=None: 'internal-tok')
-    status, headers, _ = _req(server, '/?session=valid.signed')
+    (status, headers, _), _ = _post_activate(server, 'valid.signed')
     assert status == 302
     assert headers.get('Location', '').endswith('/')
     cookie = headers.get('Set-Cookie', '')
@@ -191,13 +216,13 @@ def test_prefetch_does_not_consume_token(server, monkeypatch):
         headers={**_auth_headers(), 'Sec-Purpose': 'prefetch'})
     assert status == 200
     assert calls == []  # token NOT consumed
-    # Interstitial keeps the session link for the real navigation.
-    assert b'session=SIGNEDTOK' in body
+    # Interstitial keeps the token for the POST activation form.
+    assert b'SIGNEDTOK' in body
 
 
 def test_real_navigation_consumes_token(server, monkeypatch):
-    """A real navigation (no prefetch hints) consumes the session and
-    sets the vnc_ephemeral cookie + redirect."""
+    """GET renders the interstitial; the POST to /session/activate is
+    what consumes the session and sets the vnc_ephemeral cookie."""
     calls = []
     monkeypatch.setattr(
         'vnc_remote_secure.security.ephemeral_sessions.'
@@ -206,6 +231,9 @@ def test_real_navigation_consumes_token(server, monkeypatch):
         raising=False)
     status, headers, body = _req(
         server, '/?session=SIGNEDTOK', headers=_auth_headers())
+    assert status == 200
+    assert calls == []  # GET never consumes
+    (status, headers, _), _ = _post_activate(server, 'SIGNEDTOK')
     assert calls == [1]
     assert status in (302, 303)
     assert 'vnc_ephemeral' in headers.get('Set-Cookie', '')
@@ -279,11 +307,7 @@ class TestExchangeSecureCookie:
         monkeypatch.setenv('TRUSTED_PROXY', 'true')
         h = self._handler(stub_handler)
         h.headers = {'X-Forwarded-Proto': 'https'}
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.ephemeral_sessions.'
-            'activate_ephemeral_session',
-            lambda t, client_ip=None: 'inner', raising=False)
-        h._handle_session_exchange()
+        h._issue_ephemeral_cookie('inner')
         cookie = [c for c in h.send_header.call_args_list
                   if c[0][0] == 'Set-Cookie'][0][0][1]
         assert 'Secure' in cookie
@@ -293,11 +317,7 @@ class TestExchangeSecureCookie:
         would never return it."""
         monkeypatch.delenv('TRUSTED_PROXY', raising=False)
         h = self._handler(stub_handler)
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.ephemeral_sessions.'
-            'activate_ephemeral_session',
-            lambda t, client_ip=None: 'inner', raising=False)
-        h._handle_session_exchange()
+        h._issue_ephemeral_cookie('inner')
         cookie = [c for c in h.send_header.call_args_list
                   if c[0][0] == 'Set-Cookie'][0][0][1]
         assert 'Secure' not in cookie
@@ -308,11 +328,7 @@ class TestExchangeSecureCookie:
         monkeypatch.delenv('TRUSTED_PROXY', raising=False)
         h = self._handler(stub_handler)
         h.headers = {'X-Forwarded-Proto': 'https'}
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.ephemeral_sessions.'
-            'activate_ephemeral_session',
-            lambda t, client_ip=None: 'inner', raising=False)
-        h._handle_session_exchange()
+        h._issue_ephemeral_cookie('inner')
         cookie = [c for c in h.send_header.call_args_list
                   if c[0][0] == 'Set-Cookie'][0][0][1]
         assert 'Secure' not in cookie
