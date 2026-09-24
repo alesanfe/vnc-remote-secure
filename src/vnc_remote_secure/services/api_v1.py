@@ -55,6 +55,11 @@ _RATE_LIMITS = {
     'operators.update': (30, 60),
     'operators.delete': (10, 60),
     'operators.sessions_revoke': (30, 60),
+    'passkeys.register': (10, 60),
+    'passkeys.manage': (30, 60),
+    # Step-up re-authentication — a password-verification oracle must
+    # be throttled as hard as login itself.
+    'stepup': (10, 60),
     'default': (120, 60),
 }
 _RATE_NS = 'api_rate'
@@ -619,6 +624,54 @@ def _post_session_revoke_all(handler, query):
     _ok(handler, {'revoked': count})
 
 
+def _post_step_up(handler, query):
+    """POST /api/v1/step-up — re-authenticate the operator's password
+    for a recent-auth grant (step-up) without minting a new session.
+
+    The grant is recorded in shared state; routes flagged
+    ``step_up=True`` in ``_ROUTES`` check it via ``needs_step_up``.
+    """
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    password = payload.get('password')
+    if not isinstance(password, str) or not password:
+        _err(handler, 'password required', 400)
+        return
+    username = operator.get('username', '')
+    from vnc_remote_secure.security.audit import audit_event
+    verified = None
+    try:
+        from vnc_remote_secure.security.operator_users import (
+            load_store,
+            verify,
+        )
+        if username in load_store():
+            verified = verify(username, password)
+    except Exception:  # noqa: BLE001 - store unreadable -> env path
+        verified = None
+    if verified is None:
+        # Env bootstrap admin: re-check through the same code path as
+        # Basic auth so the password policy is identical.
+        import base64 as _b64
+
+        from vnc_remote_secure.security.http_auth import check_landing_auth
+        cred = _b64.b64encode(
+            f'{username}:{password}'.encode()).decode()
+        if check_landing_auth(f'Basic {cred}'):
+            verified = operator
+    if verified is None:
+        audit_event('step_up_denied', user=username)
+        _err(handler, 'Re-authentication failed', 403)
+        return
+    from vnc_remote_secure.security.step_up_auth import record_auth_time
+    record_auth_time(username)
+    audit_event('step_up_granted', user=username)
+    _ok(handler, {'stepped_up': True, 'expires_in': 300})
+
+
 def _post_logout(handler, query):
     """POST /api/v1/logout — revoke this operator session.
 
@@ -695,8 +748,10 @@ def _uc_error_status(err) -> int:
         ERR_LAST_ADMIN,
         ERR_NOT_FOUND,
         ERR_PERMISSION,
+        ERR_STEP_UP,
     )
     return {ERR_NOT_FOUND: 404, ERR_PERMISSION: 403,
+            ERR_STEP_UP: 403,
             ERR_CONFLICT: 409, ERR_LAST_ADMIN: 409}.get(err.code, 400)
 
 
@@ -718,19 +773,100 @@ def _get_operator_passkeys(handler, query):
     """Public passkey view: opaque ref (sha256 prefix of the
     credential id), name, timestamps — never the credential id or
     public key."""
-    import hashlib as _hashlib
     username = handler._api_params['username']
+    operator = getattr(handler, '_api_operator', None) or {}
     if _operator_record(username) is None:
         _err(handler, 'Operator not found', 404)
         return
-    from vnc_remote_secure.security.webauthn import list_credentials
-    keys = [{
-        'ref': _hashlib.sha256(c['credential_id'].encode()).hexdigest()[:16],
-        'name': c.get('name', ''),
-        'created_at': c.get('created_at', ''),
-        'sign_count': c.get('sign_count', 0),
-    } for c in list_credentials(username)]
-    _ok(handler, {'passkeys': keys})
+    from vnc_remote_secure.engine.application.passkeys import _gate_manage, list_passkeys
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _gate_manage(operator.get('username', '?'),
+                     set(operator.get('permissions') or []), username)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'passkeys': list_passkeys(username)})
+
+
+def _post_passkey_register_begin(handler, query):
+    """POST …/passkeys/register/begin — WebAuthn options (self, step-up)."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application.passkeys import begin_registration
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        options = begin_registration(
+            operator.get('username', '?'),
+            handler._api_params['username'])
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'options': options})
+
+
+def _post_passkey_register_complete(handler, query):
+    """POST …/passkeys/register/complete — verify + persist."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=_MAX_BODY)
+    if error:
+        _err(handler, *error)
+        return
+    if not isinstance(payload.get('credential'), dict):
+        _err(handler, 'credential object required', 400)
+        return
+    from vnc_remote_secure.engine.application.passkeys import complete_registration
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        complete_registration(
+            operator.get('username', '?'),
+            handler._api_params['username'],
+            payload['credential'], str(payload.get('name', '')))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'registered': True}, status=201)
+
+
+def _patch_passkey(handler, query):
+    """PATCH …/passkeys/{ref} — rename (owner or admin_users)."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    name = payload.get('name')
+    if not isinstance(name, str):
+        _err(handler, 'name must be a string', 400)
+        return
+    from vnc_remote_secure.engine.application.passkeys import rename_passkey
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        rename_passkey(
+            operator.get('username', '?'),
+            set(operator.get('permissions') or []),
+            handler._api_params['username'],
+            handler._api_params['credential_ref'], name)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'renamed': True})
+
+
+def _delete_passkey(handler, query):
+    """DELETE …/passkeys/{ref} — revoke (last-auth-method guarded)."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application.passkeys import delete_passkey
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        delete_passkey(
+            operator.get('username', '?'),
+            set(operator.get('permissions') or []),
+            handler._api_params['username'],
+            handler._api_params['credential_ref'])
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'deleted': True})
 
 
 def _post_operator_create(handler, query):
@@ -889,7 +1025,11 @@ def _post_operator_revoke_sessions(handler, query):
 # mutation that forgets either.
 from collections import namedtuple
 
-_Route = namedtuple('_Route', 'fn perm scope audit resp')
+# ``step_up`` — a mutation additionally requires a *recent*
+# authentication (POST /api/v1/step-up grants 5 minutes): mass
+# revocation and operator lifecycle changes are gated on it.
+_Route = namedtuple(
+    '_Route', 'fn perm scope audit resp step_up', defaults=[False])
 
 _ROUTES = {
     ('GET', 'me'): _Route(
@@ -935,31 +1075,47 @@ _ROUTES = {
         'portal_session_revoke', 'SessionRevokeResponse'),
     ('POST', 'sessions/revoke-all'): _Route(
         _post_session_revoke_all, 'admin_sessions', 'sessions.revoke-all',
-        'portal_session_revoke_all', 'SessionRevokeResponse'),
+        'portal_session_revoke_all', 'SessionRevokeResponse', True),
     ('POST', 'logout'): _Route(
         _post_logout, 'operator', 'default', 'portal_logout',
         'LogoutResponse'),
+    ('POST', 'step-up'): _Route(
+        _post_step_up, 'operator', 'stepup', 'step_up_granted',
+        'StepUpResponse'),
     # Operator management — {username} is a path parameter resolved
     # by _dispatch into handler._api_params.
     ('GET', 'operators/{username}'): _Route(
         _get_operator_detail, 'admin_users', 'default', None,
         'OperatorResponse'),
     ('GET', 'operators/{username}/passkeys'): _Route(
-        _get_operator_passkeys, 'admin_users', 'default', None,
+        _get_operator_passkeys, 'operator', 'default', None,
         'PasskeyPageResponse'),
+    ('POST', 'operators/{username}/passkeys/register/begin'): _Route(
+        _post_passkey_register_begin, 'operator', 'passkeys.register',
+        'passkey_register_begin', 'PasskeyOptionsResponse', True),
+    ('POST', 'operators/{username}/passkeys/register/complete'): _Route(
+        _post_passkey_register_complete, 'operator',
+        'passkeys.register', 'passkey_registered',
+        'PasskeyRegisteredResponse', True),
+    ('PATCH', 'operators/{username}/passkeys/{credential_ref}'): _Route(
+        _patch_passkey, 'operator', 'passkeys.manage',
+        'passkey_renamed', 'PasskeyRenamedResponse'),
+    ('DELETE', 'operators/{username}/passkeys/{credential_ref}'): _Route(
+        _delete_passkey, 'operator', 'passkeys.manage',
+        'passkey_revoked', 'DeleteResponse', True),
     ('POST', 'operators'): _Route(
         _post_operator_create, 'admin_users', 'operators.create',
-        'operator_created', 'OperatorResponse'),
+        'operator_created', 'OperatorResponse', True),
     ('PATCH', 'operators/{username}'): _Route(
         _patch_operator, 'admin_users', 'operators.update',
         'operator_updated', 'OperatorResponse'),
     ('DELETE', 'operators/{username}'): _Route(
         _delete_operator, 'admin_users', 'operators.delete',
-        'operator_deleted', 'DeleteResponse'),
+        'operator_deleted', 'DeleteResponse', True),
     ('POST', 'operators/{username}/sessions/revoke-all'): _Route(
         _post_operator_revoke_sessions, 'admin_users',
         'operators.sessions_revoke', 'operator_sessions_revoked',
-        'SessionRevokeResponse'),
+        'SessionRevokeResponse', True),
 }
 
 # Operator capabilities the registry may reference — anything else is
@@ -1026,10 +1182,32 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
         if operator is None:
             return True
         handler._api_operator = operator
+        if spec.step_up:
+            # Destructive/mass operations require a recent
+            # authentication, not just a valid session (POST step-up
+            # grants 5 min). A valid session alone answers 403 with a
+            # machine-readable code so the SPA can open the dialog
+            # instead of treating it as a permission failure.
+            from vnc_remote_secure.security.step_up_auth import needs_step_up
+            if needs_step_up(operator.get('username', '')):
+                from vnc_remote_secure.security.audit import audit_event
+                audit_event(
+                    'step_up_required',
+                    user=operator.get('username', '?'),
+                    detail=f'{method} {rel}')
+                handler.send_json({
+                    'error': True,
+                    'message': 'Step-up authentication required',
+                    'code': 'STEP_UP_REQUIRED',
+                    'request_id': _request_id(),
+                }, 403)
+                return True
     elif spec.perm is not None:
         cap = None if spec.perm == 'operator' else spec.perm
-        if _operator(handler, cap) is None:
+        operator = _operator(handler, cap)
+        if operator is None:
             return True
+        handler._api_operator = operator
     handler._api_params = params
     spec.fn(handler, query)
     return True

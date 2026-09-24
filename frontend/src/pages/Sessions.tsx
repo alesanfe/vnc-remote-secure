@@ -7,6 +7,7 @@ import {
   type SessionCreateRequest,
 } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
+import StepUpDialog from '../components/StepUpDialog';
 import DataTable from '../components/DataTable';
 import {
   RelativeTime,
@@ -55,6 +56,7 @@ export default function Sessions() {
   const [revokeTarget, setRevokeTarget] =
     useState<EphemeralSessionInfo | null>(null);
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
+  const [stepUp, setStepUp] = useState<(() => void) | null>(null);
 
   const create = useMutation({
     mutationFn: () =>

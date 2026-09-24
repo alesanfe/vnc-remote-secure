@@ -1411,8 +1411,16 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
                 self.headers,
                 self.peer_ip()))
         if ok and operator is not None:
-            self._portal_sid = self._issue_op_session(
-                operator.get('username', 'admin'))
+            username = operator.get('username', 'admin')
+            self._portal_sid = self._issue_op_session(username)
+            # A fresh credential check is a fresh authentication —
+            # step-up-sensitive API actions (passkey register/revoke)
+            # measure recency from this mark.
+            try:
+                from vnc_remote_secure.security.step_up_auth import record_auth_time
+                record_auth_time(username)
+            except Exception:  # noqa: BLE001 - best-effort marker
+                pass
         return ok, (operator if ok else None)
 
     # Cap on simultaneous operator sessions per account — the oldest
@@ -1442,6 +1450,13 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         self._queue_cookie(
             f'vnc_op={payload}.{sig}; HttpOnly; Path=/; SameSite=Strict')
         self._index_op_session(username, sid, exp)
+        # A fresh credential check mints the session — record it so
+        # step-up-gated routes see this as a recent authentication.
+        try:
+            from vnc_remote_secure.security.step_up_auth import record_auth_time
+            record_auth_time(username)
+        except Exception:  # noqa: BLE001 - best-effort marker
+            pass
         from vnc_remote_secure.security.audit import audit_event
         audit_event('operator_session_issued',
                     user=username, detail=f'sid={sid[:8]}…')

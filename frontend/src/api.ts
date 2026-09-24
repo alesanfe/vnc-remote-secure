@@ -9,10 +9,20 @@ import type { components } from './api/generated/types';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code: string | null;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code ?? null;
   }
+}
+
+function errorCode(body: unknown): string | undefined {
+  if (body && typeof body === 'object') {
+    const c = (body as Record<string, unknown>).code;
+    if (typeof c === 'string') return c;
+  }
+  return undefined;
 }
 
 function errorMessage(body: unknown, fallback: string): string {
@@ -72,13 +82,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // Non-JSON error body (e.g. proxy 502 page).
   }
   if (!res.ok) {
+    const code = errorCode(body);
+    if (res.status === 403 && code === 'STEP_UP_REQUIRED') {
+      // Not a permission failure — the session is valid but stale;
+      // callers surface the step-up dialog and retry.
+      throw new ApiError(res.status, 'Step-up required', code);
+    }
     if (res.status === 401 || res.status === 403) {
       // Session gone or insufficient role — back to the portal,
       // which re-challenges with Basic auth.
       window.location.href = '/';
       throw new ApiError(res.status, 'Session expired');
     }
-    throw new ApiError(res.status, errorMessage(body, res.statusText));
+    throw new ApiError(
+      res.status, errorMessage(body, res.statusText), code);
   }
   const env = body as { data?: T };
   return env.data as T;
@@ -94,6 +111,12 @@ export const api = {
   patch: <T>(path: string, payload: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(payload) }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /** Step-up grant: re-verify the operator password (~5 min of
+      recent auth for gated routes). */
+  stepUp: (password: string) =>
+    request<{ stepped_up: boolean; expires_in: number }>(
+      'step-up',
+      { method: 'POST', body: JSON.stringify({ password }) }),
   /** Expire the vnc_csrf nonce server-side, then leave the SPA. */
   logout: async () => {
     try {

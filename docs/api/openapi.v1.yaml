@@ -352,6 +352,59 @@ components:
             logged_out: { type: boolean }
         error: { nullable: true }
         request_id: { type: string }
+    StepUpResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [stepped_up, expires_in]
+          properties:
+            stepped_up: { type: boolean }
+            expires_in: { type: integer }
+        error: { nullable: true }
+        request_id: { type: string }
+    StepUpRequest:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password: { type: string }
+    PasskeyOptionsResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [options]
+          properties:
+            options:
+              type: object
+              description: PublicKeyCredentialCreationOptions
+        error: { nullable: true }
+        request_id: { type: string }
+    PasskeyRegisteredResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [registered]
+          properties:
+            registered: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    PasskeyRenamedResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [renamed]
+          properties:
+            renamed: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
     SessionCreateRequest:
       type: object
       additionalProperties: false
@@ -496,6 +549,7 @@ paths:
       summary: Revoke every share-link session
       x-required-permission: admin_sessions
       x-csrf-required: true
+      x-step-up-required: true
       x-rate-limit-scope: sessions.revoke-all
       x-response-schema: SessionRevokeResponse
       x-audit-event: portal_session_revoke_all
@@ -525,6 +579,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LogoutResponse'
+  /step-up:
+    post:
+      summary: >-
+        Re-authenticate the operator password; grants ~5 min of recent
+        auth for step-up-gated routes (mass revocation, operator
+        lifecycle).
+      x-required-permission: operator
+      x-csrf-required: true
+      x-rate-limit-scope: stepup
+      x-request-schema: StepUpRequest
+      x-response-schema: StepUpResponse
+      x-audit-event: step_up_granted
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StepUpRequest' }
+      responses:
+        '200': { description: Recent auth granted }
+        '400': { description: Missing password }
+        '403': { description: Wrong password / CSRF failure }
+        '429': { description: Rate limited }
   /health:
     get:
       summary: Aggregated health (operator)
@@ -644,6 +722,7 @@ paths:
       summary: Create an operator (strict schema)
       x-required-permission: admin_users
       x-csrf-required: true
+      x-step-up-required: true
       x-rate-limit-scope: operators.create
       x-response-schema: OperatorResponse
       x-audit-event: operator_created
@@ -698,6 +777,7 @@ paths:
       summary: Delete an operator (last viable admin is protected)
       x-required-permission: admin_users
       x-csrf-required: true
+      x-step-up-required: true
       x-rate-limit-scope: operators.delete
       x-response-schema: DeleteResponse
       x-audit-event: operator_deleted
@@ -718,8 +798,8 @@ paths:
         '409': { description: 'Would delete the last viable administrator' }
   /operators/{username}/passkeys:
     get:
-      summary: Operator passkeys (opaque ref, no credential id or public key)
-      x-required-permission: admin_users
+      summary: 'Operator passkeys — owner or admin_users; opaque refs'
+      x-required-permission: operator
       x-rate-limit-scope: default
       x-response-schema: PasskeyPageResponse
       parameters:
@@ -734,12 +814,93 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PasskeyPageResponse'
+        '403': { description: 'Not the owner and no admin_users' }
         '404': { description: Operator not found }
+  /operators/{username}/passkeys/register/begin:
+    post:
+      summary: 'WebAuthn registration options — self-service + step-up'
+      x-required-permission: operator
+      x-csrf-required: true
+      x-step-up-required: true
+      x-rate-limit-scope: passkeys.register
+      x-response-schema: PasskeyOptionsResponse
+      x-audit-event: passkey_register_begin
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{options: PublicKeyCredentialCreationOptions}' }
+        '403': { description: 'STEP_UP_REQUIRED or not the owner' }
+  /operators/{username}/passkeys/register/complete:
+    post:
+      summary: Verify attestation and persist the passkey
+      x-required-permission: operator
+      x-csrf-required: true
+      x-step-up-required: true
+      x-rate-limit-scope: passkeys.register
+      x-response-schema: PasskeyRegisteredResponse
+      x-audit-event: passkey_registered
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '201': { description: '{registered: true}' }
+        '400': { description: 'Invalid/expired/replayed challenge or bad origin/RP' }
+  /operators/{username}/passkeys/{credential_ref}:
+    patch:
+      summary: Rename a passkey (owner or admin_users)
+      x-required-permission: operator
+      x-csrf-required: true
+      x-rate-limit-scope: passkeys.manage
+      x-response-schema: PasskeyRenamedResponse
+      x-audit-event: passkey_renamed
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+        - name: credential_ref
+          in: path
+          required: true
+          schema: { type: string, description: 'sha256(credential_id)[:16]' }
+      responses:
+        '200': { description: '{renamed: true}' }
+        '404': { description: 'Unknown ref (uniform — no oracle)' }
+    delete:
+      summary: 'Revoke a passkey (owner or admin_users; last-factor guarded)'
+      x-required-permission: operator
+      x-csrf-required: true
+      x-step-up-required: true
+      x-rate-limit-scope: passkeys.manage
+      x-response-schema: DeleteResponse
+      x-audit-event: passkey_revoked
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+        - name: credential_ref
+          in: path
+          required: true
+          schema: { type: string, description: 'sha256(credential_id)[:16]' }
+      responses:
+        '200': { description: '{deleted: true}' }
+        '404': { description: Unknown ref }
+        '409': { description: 'Would leave the account without a usable factor' }
   /operators/{username}/sessions/revoke-all:
     post:
       summary: Revoke every live operator session for the user (per-user epoch)
       x-required-permission: admin_users
       x-csrf-required: true
+      x-step-up-required: true
       x-rate-limit-scope: operators.sessions_revoke
       x-response-schema: SessionRevokeResponse
       x-audit-event: operator_sessions_revoked

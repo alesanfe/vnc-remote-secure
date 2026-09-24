@@ -50,6 +50,10 @@ SENSITIVE_ACTIONS: set[str] = {
     'open_terminal',
     'create_admin',
     'delete_admin',
+    # Passkey lifecycle — registration binds a new auth factor,
+    # revocation removes one; both need a recent authentication.
+    'webauthn_register',
+    'webauthn_revoke',
 }
 
 

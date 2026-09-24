@@ -357,6 +357,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-authenticate the operator password; grants ~5 min of recent auth for step-up-gated routes (mass revocation, operator lifecycle). */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StepUpRequest"];
+                };
+            };
+            responses: {
+                /** @description Recent auth granted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing password */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Wrong password / CSRF failure */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -821,7 +883,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Operator passkeys (opaque ref, no credential id or public key) */
+        /** Operator passkeys — owner or admin_users; opaque refs */
         get: {
             parameters: {
                 query?: never;
@@ -842,6 +904,13 @@ export interface paths {
                         "application/json": components["schemas"]["PasskeyPageResponse"];
                     };
                 };
+                /** @description Not the owner and no admin_users */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Operator not found */
                 404: {
                     headers: {
@@ -857,6 +926,183 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/operators/{username}/passkeys/register/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** WebAuthn registration options — self-service + step-up */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {options: PublicKeyCredentialCreationOptions} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description STEP_UP_REQUIRED or not the owner */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operators/{username}/passkeys/register/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify attestation and persist the passkey */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {registered: true} */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid/expired/replayed challenge or bad origin/RP */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operators/{username}/passkeys/{credential_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a passkey (owner or admin_users; last-factor guarded) */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path: {
+                    username: string;
+                    credential_ref: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {deleted: true} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown ref */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Would leave the account without a usable factor */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Rename a passkey (owner or admin_users) */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path: {
+                    username: string;
+                    credential_ref: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {renamed: true} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown ref (uniform — no oracle) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         trace?: never;
     };
     "/operators/{username}/sessions/revoke-all": {
@@ -1178,6 +1424,39 @@ export interface components {
         LogoutResponse: {
             data: {
                 logged_out: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        StepUpResponse: {
+            data: {
+                stepped_up: boolean;
+                expires_in: number;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        StepUpRequest: {
+            password: string;
+        };
+        PasskeyOptionsResponse: {
+            data: {
+                /** @description PublicKeyCredentialCreationOptions */
+                options: Record<string, never>;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        PasskeyRegisteredResponse: {
+            data: {
+                registered: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        PasskeyRenamedResponse: {
+            data: {
+                renamed: boolean;
             };
             error: unknown;
             request_id: string;

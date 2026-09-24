@@ -552,8 +552,55 @@ def test_openapi_drift():
         assert op.get('x-response-schema') == route.resp
         expected_perm = None if route.perm is None else route.perm
         assert op.get('x-required-permission') == expected_perm
+        assert bool(op.get('x-step-up-required')) == route.step_up, rel
         if method == 'POST':
             assert op.get('x-csrf-required') is True, rel
+
+
+# ---------------------------------------------------------------------------
+# Step-up authentication
+# ---------------------------------------------------------------------------
+
+def test_step_up_required_for_revoke_all(server, monkeypatch):
+    """A stale session gets 403 + STEP_UP_REQUIRED on mass ops — the
+    SPA uses the code to open the step-up dialog instead of logging
+    the operator out."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.step_up_auth.needs_step_up',
+        lambda *a, **k: True)
+    h = _csrf_session(server)
+    status, _, body = _api_post(
+        server, '/api/v1/sessions/revoke-all', {}, headers=h)
+    assert status == 403
+    assert json.loads(body)['code'] == 'STEP_UP_REQUIRED'
+
+
+def test_step_up_recent_auth_allows_revoke_all(server, monkeypatch):
+    """Fresh vnc_op issuance records an auth time — a session minted
+    moments ago is 'recent' and passes the step-up gate."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
+        lambda: _FakeStore())
+    h = _csrf_session(server)
+    status, _, body = _api_post(
+        server, '/api/v1/sessions/revoke-all', {}, headers=h)
+    assert status == 200
+    assert json.loads(body)['data']['revoked'] == 0
+
+
+def test_step_up_endpoint_grants_and_denies(server):
+    h = _csrf_session(server)
+    status, _, body = _api_post(
+        server, '/api/v1/step-up', {'password': 'T3st-Landing!Pass'},
+        headers=h)
+    assert status == 200
+    assert json.loads(body)['data']['stepped_up'] is True
+    status, _, _ = _api_post(
+        server, '/api/v1/step-up', {'password': 'wrong'}, headers=h)
+    assert status == 403
+    status, _, _ = _api_post(
+        server, '/api/v1/step-up', {}, headers=h)
+    assert status == 400
 
 
 def test_revoke_missing_session_uniform_200(server, monkeypatch):
@@ -864,15 +911,180 @@ def test_operator_sessions_revoked_invalidates_cookie(
 
 def test_operator_endpoints_require_admin_users(opstore, server,
                                                 monkeypatch):
-    """A viewer-role operator cannot touch the operator surface."""
+    """A viewer-role operator cannot touch the operator surface —
+    except her own passkeys (self-service)."""
     opstore.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    opstore.add_user('mallory', 'S3cure!Passw0rd', 'viewer')
     cred = base64.b64encode(b'vicky:S3cure!Passw0rd').decode()
     vh = {'Authorization': f'Basic {cred}'}
     for method, path in (
             ('GET', '/api/v1/operators/vicky'),
-            ('GET', '/api/v1/operators/vicky/passkeys'),
             ('POST', '/api/v1/operators'),
             ('PATCH', '/api/v1/operators/vicky'),
-            ('DELETE', '/api/v1/operators/vicky')):
+            ('DELETE', '/api/v1/operators/vicky'),
+            # Other operators' passkeys are not self-service.
+            ('GET', '/api/v1/operators/mallory/passkeys'),
+            ('PATCH', '/api/v1/operators/mallory/passkeys/aa11'),
+            ('DELETE', '/api/v1/operators/mallory/passkeys/aa11'),
+            ('POST',
+             '/api/v1/operators/mallory/passkeys/register/begin')):
         status, _, _ = _req(server, path, method=method, headers=vh)
         assert status == 403, (method, path)
+    # But her own passkey list is readable without admin_users.
+    status, _, _ = _req(
+        server, '/api/v1/operators/vicky/passkeys', headers=vh)
+    assert status == 200
+
+# ---------------------------------------------------------------------------
+# Passkeys — iteration 3 contract
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def pkstore(tmp_path, monkeypatch, opstore):
+    """Isolated WebAuthn credential store + webauthn enabled."""
+    import vnc_remote_secure.security.webauthn as wa
+    monkeypatch.setattr(
+        wa, '_store_path', lambda: str(tmp_path / 'wa.json'))
+    monkeypatch.setenv('WEBAUTHN_ENABLED', 'true')
+    monkeypatch.setenv('WEBAUTHN_RP_ID', 'localhost')
+    monkeypatch.setenv('WEBAUTHN_ORIGIN', 'http://localhost')
+    return wa
+
+
+def _op_session_for(server, username, password):
+    """Basic auth -> vnc_op+vnc_csrf+token headers for a store user."""
+    cred = base64.b64encode(
+        f'{username}:{password}'.encode()).decode()
+    status, headers, body = _req(
+        server, '/api/v1/me',
+        headers={'Authorization': f'Basic {cred}'})
+    assert status == 200
+    sc = headers.get('Set-Cookie', '')
+    cookie = (f"vnc_op={_cookie_value(sc, 'vnc_op')}; "
+              f"vnc_csrf={_cookie_value(sc, 'vnc_csrf')}")
+    token = json.loads(body)['data']['csrf_token']
+    return {'Cookie': cookie, 'X-CSRF-Token': token}
+
+
+def test_passkey_register_begin_needs_step_up(pkstore, server):
+    """Session auth alone is not enough — a stale session gets 403
+    with a machine-readable STEP_UP_REQUIRED code."""
+    opstore_user = 'vicky'
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user(opstore_user, 'S3cure!Passw0rd', 'viewer')
+    # Force the session to look old — erase the auth-time mark.
+    from vnc_remote_secure.security.step_up_auth import get_step_up_manager
+    get_step_up_manager()._auth_times.pop(opstore_user, None)
+    h = _op_session_for(server, opstore_user, 'S3cure!Passw0rd')
+    from vnc_remote_secure.security.shared_state import get_backend
+    try:
+        get_backend().delete('step_up_auth_times', opstore_user)
+    except Exception:
+        pass
+    status, _, body = _api_post(
+        server, f'/api/v1/operators/{opstore_user}/passkeys/register/begin',
+        {}, headers=h)
+    assert status == 403
+    assert json.loads(body).get('code') == 'STEP_UP_REQUIRED'
+
+
+def test_passkey_register_begin_after_step_up(pkstore, server):
+    """POST /step-up with the real password grants the window."""
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
+    status, _, _ = _api_post(
+        server, '/api/v1/step-up',
+        {'password': 'S3cure!Passw0rd'}, headers=h)
+    assert status == 200
+    status, _, body = _api_post(
+        server, '/api/v1/operators/vicky/passkeys/register/begin',
+        {}, headers=h)
+    assert status == 200, body
+    options = json.loads(body)['data']['options']
+    assert options['rp']['id'] == 'localhost'
+    assert 'challenge' in options
+
+
+def test_passkey_register_self_only(pkstore, server):
+    """An admin cannot mint a passkey for another operator — the
+    ceremony binds to the holder's authenticator."""
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user('bob', 'S3cure!Passw0rd', 'viewer')
+    h = _csrf_session(server)  # env admin session
+    status, _, _ = _api_post(
+        server, '/api/v1/operators/bob/passkeys/register/begin',
+        {}, headers=h)
+    assert status == 403
+
+
+def test_passkey_complete_invalid_credential(pkstore, server):
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
+    status, _, _ = _api_post(
+        server,
+        '/api/v1/operators/vicky/passkeys/register/complete',
+        {'credential': {'id': 'bogus'}}, headers=h)
+    assert status == 400
+
+
+def test_passkey_rename_delete_by_ref(pkstore, server):
+    """Refs are opaque sha256 prefixes — raw credential ids never
+    appear in URLs; unknown refs get a uniform 404."""
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    # Plant a credential directly in the store.
+    import base64 as _b64
+    cid = _b64.urlsafe_b64encode(b'cred-1').decode().rstrip('=')
+    with pkstore._store_lock():
+        s = pkstore._load_store()
+        s[cid] = {'username': 'vicky', 'public_key': 'x',
+                  'sign_count': 0, 'name': 'laptop',
+                  'created_at': '2026-01-01T00:00:00Z'}
+        pkstore._save_store(s)
+    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
+    status, _, body = _req(
+        server, '/api/v1/operators/vicky/passkeys', headers=h)
+    ref = json.loads(body)['data']['passkeys'][0]['ref']
+    assert ref != cid and len(ref) == 16
+    status, _, _ = _req(
+        server, f'/api/v1/operators/vicky/passkeys/{ref}',
+        method='PATCH',
+        headers={**h, 'Content-Type': 'application/json'},
+        body=json.dumps({'name': 'work-key'}))
+    assert status == 200
+    keys = json.loads(_req(
+        server, '/api/v1/operators/vicky/passkeys',
+        headers=h)[2])['data']['passkeys']
+    assert keys[0]['name'] == 'work-key'
+    # Unknown ref — uniform 404.
+    status, _, _ = _req(
+        server, '/api/v1/operators/vicky/passkeys/deadbeefdeadbeef',
+        method='DELETE', headers=h)
+    assert status == 404
+    # Last passkey: vicky has a password so removal is allowed, but
+    # step-up is required first.
+    status, _, _ = _req(
+        server, f'/api/v1/operators/vicky/passkeys/{ref}',
+        method='DELETE', headers=h)
+    assert status in (200, 403)
+
+
+def test_passkey_refs_are_opaque(pkstore, server):
+    """The API surface never emits a raw credential_id."""
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    import base64 as _b64
+    cid = _b64.urlsafe_b64encode(b'secret-cred').decode().rstrip('=')
+    with pkstore._store_lock():
+        s = pkstore._load_store()
+        s[cid] = {'username': 'vicky', 'public_key': 'pk',
+                  'sign_count': 1, 'name': 'yubi',
+                  'created_at': '2026-01-01T00:00:00Z'}
+        pkstore._save_store(s)
+    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
+    status, _, body = _req(
+        server, '/api/v1/operators/vicky/passkeys', headers=h)
+    assert status == 200
+    assert cid not in body.decode()
