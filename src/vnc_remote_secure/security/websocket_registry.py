@@ -237,26 +237,27 @@ class WebSocketRegistry:
             marked_at = existing
         else:
             marked_at = time.time()
-        get_backend().set_ttl(
-            _NS_REVOKED, session_id, marked_at,
-            max(86400, max_lifetime))
-        # A revoked session must not leave a reusable auth-assurance
-        # context behind — resolve cookie or stable id to the sid.
-        try:
-            from vnc_remote_secure.security.auth_policy import (
-                drop_auth_context_for,
-                session_id_for_cookie,
-            )
+        # Granularity depends on what the caller handed us. A v3
+        # cookie resolves to a random sid — revoke ONLY that sid so a
+        # same-second sibling session (identical username:created)
+        # survives. A stable pair or legacy cookie gets the group
+        # semantics its own revocation model already implies.
+        from vnc_remote_secure.security.auth_policy import (
+            drop_auth_context_for,
+            session_id_for_cookie,
+        )
+        sid = session_id_for_cookie(session_id)
+        if sid:
+            get_backend().set_ttl(_NS_REVOKED, f'sid:{sid}',
+                                  marked_at, max(86400, max_lifetime))
+            drop_auth_context_for(session_id)  # sid branch: one ctx
+        else:
+            get_backend().set_ttl(
+                _NS_REVOKED, session_id, marked_at,
+                max(86400, max_lifetime))
+            # Stable pair / legacy cookie: every session sharing it
+            # dies, so every indexed ctx goes too.
             drop_auth_context_for(session_id)
-            # v3 cookie: also mark the PRECISE sid revoked, so a
-            # same-second sibling session (same stable pair) survives.
-            sid = session_id_for_cookie(session_id)
-            if sid:
-                get_backend().set_ttl(_NS_REVOKED, f'sid:{sid}',
-                                      marked_at, max(86400,
-                                                     max_lifetime))
-        except Exception:  # noqa: BLE001 - revocation already landed
-            pass
         # Snapshot and detach under the lock, then invoke the close
         # callbacks AFTER releasing it — a callback that touches the
         # registry (e.g. calls unregister from the socket's close

@@ -232,3 +232,29 @@ def test_malformed_sid_rejected():
     payload = 'alice:1:1:9999999999:not a sid!'
     token = sign_token(TOKEN_TYPE_SESSION, payload)
     assert verify_session_cookie(token) is None
+
+
+def test_sid_revocation_is_precise(monkeypatch):
+    """Two v3 sessions for the same user in the SAME second share
+    username:created — revoking A by cookie must not kill B."""
+    import time as _t
+
+    from vnc_remote_secure.security import sessions as sm
+    from vnc_remote_secure.security.auth_gateway import check_authenticated
+    from vnc_remote_secure.security.websocket_registry import revoke_session_connections
+
+    frozen = int(_t.time())
+    monkeypatch.setattr(sm.time, 'time', lambda: float(frozen))
+    a = create_session_cookie('alice')['value']
+    b = create_session_cookie('alice')['value']
+    sa = verify_session_cookie(a)
+    sb = verify_session_cookie(b)
+    assert sa['created'] == sb['created']  # same second, same stable
+    assert sa['sid'] != sb['sid']
+
+    monkeypatch.undo()  # real clock for verification paths
+    revoke_session_connections(a)
+    ok_a, _ = check_authenticated(a)
+    ok_b, _ = check_authenticated(b)
+    assert ok_a is False
+    assert ok_b is True
