@@ -287,8 +287,29 @@ def _get_sessions(handler, query):
             _err(handler,
                  f'status must be one of {sorted(LIST_FILTERS)}', 400)
             return
-        _ok(handler, {'sessions': [
-            session_to_api(s) for s in sessions]})
+        # Cursor pagination over the public token_id — stable under
+        # concurrent creates/revokes, opaque, and never leaks ordering
+        # by creation time or token value.
+        try:
+            limit = int((query.get('limit') or ['200'])[0])
+        except ValueError:
+            limit = 200
+        limit = max(1, min(limit, 500))
+        cursor = (query.get('cursor') or [None])[0]
+        items = sorted(
+            (session_to_api(s) for s in sessions),
+            key=lambda s: s.get('token_id') or '')
+        if cursor:
+            items = [s for s in items
+                     if (s.get('token_id') or '') > cursor]
+        has_more = len(items) > limit
+        items = items[:limit]
+        _ok(handler, {
+            'sessions': items,
+            'next_cursor': (items[-1]['token_id']
+                            if has_more and items else None),
+            'has_more': has_more,
+        })
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /sessions')
         _err(handler, 'Failed to list sessions', 500)
@@ -371,7 +392,6 @@ def _get_audit(handler, query):
         except ValueError:
             limit = 100
         limit = max(1, min(limit, 500))
-        event = (query.get('event') or [None])[0]
         # Cursor pagination: ``cursor`` is the seq of the last entry of
         # the previous page — opaque to the client, stable under
         # appends, no deep offsets.
@@ -381,8 +401,17 @@ def _get_audit(handler, query):
         except (TypeError, ValueError):
             _err(handler, 'Invalid cursor', 400)
             return
+        # Bounded, whitelisted filter params — raw query values are
+        # length-capped so a huge ?user= can't burn CPU on matching.
+        def _flt(name: str) -> str | None:
+            v = (query.get(name) or [None])[0]
+            if v is None:
+                return None
+            v = v.strip()[:128]
+            return v or None
         entries = get_audit_entries(
-            limit=limit + 1, event=event, before_seq=before_seq)
+            limit=limit + 1, event=_flt('event'), before_seq=before_seq,
+            user=_flt('user'), result=_flt('result'))
         has_more = len(entries) > limit
         entries = entries[:limit]
         next_cursor = (entries[-1].get('seq')

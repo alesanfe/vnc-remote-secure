@@ -19,6 +19,7 @@ from vnc_remote_secure.engine.domain.decision import (
     ERR_PERMISSION,
     UseCaseError,
 )
+from vnc_remote_secure.engine.infrastructure import stores
 
 # Share-link permissions that grant administrative power — minting a
 # link carrying any of these requires the operator to hold 'admin:*',
@@ -34,11 +35,7 @@ RESOURCES = {'desktop', 'terminal', 'audio', 'gamepad'}
 
 def _audit(event: str, actor: str, detail: str,
            result: str = '') -> None:
-    from vnc_remote_secure.security.audit import audit_event
-    kw = {'detail': detail}
-    if result:
-        kw['result'] = result
-    audit_event(event, user=actor, **kw)
+    stores.audit(event, actor, detail, result=result)
 
 
 def create_share_link(actor: str, actor_perms: set, *,
@@ -52,13 +49,9 @@ def create_share_link(actor: str, actor_perms: set, *,
     delegation violation. The caller (Backend) already validated the
     primitive types — this enforces the *authority* rules.
     """
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        ROLES,
-        expand_permissions,
-        get_session_store,
-    )
-    requested = permissions if permissions is not None else ROLES[role]
-    if expand_permissions(requested) & ADMINISH_PERMS \
+    requested = (permissions if permissions is not None
+                 else stores.session_roles()[role])
+    if stores.expand_session_permissions(requested) & ADMINISH_PERMS \
             and 'admin:*' not in actor_perms:
         _audit('api_permission_denied', actor,
                'share-link with admin permissions')
@@ -66,7 +59,7 @@ def create_share_link(actor: str, actor_perms: set, *,
             ERR_PERMISSION,
             'admin-granting share links require admin:*')
     # Store failures propagate — the transport maps them to 500.
-    return get_session_store().create(
+    return stores.session_store().create(
         expires_in=ttl,
         role=role,
         single_use=single_use,
@@ -83,8 +76,7 @@ def create_share_link(actor: str, actor_perms: set, *,
 def revoke_share_link(actor: str, token_id: str) -> bool:
     """Revoke one share link by its public id. Returns whether the
     token existed — the transport decides how much to disclose."""
-    from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-    revoked = revoke_session(token_id)
+    revoked = stores.revoke_ephemeral_token(token_id)
     _audit('portal_session_revoke', actor, f'token_id={token_id}',
            result='success' if revoked else 'failure')
     return bool(revoked)
@@ -92,12 +84,11 @@ def revoke_share_link(actor: str, token_id: str) -> bool:
 
 def revoke_all_share_links(actor: str) -> int:
     """Emergency kill-switch: revoke every live share link."""
-    from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
-    store = get_session_store()
+    store = stores.session_store()
     store._load_if_changed()
     count = 0
     for s in list(store.list_active()):
-        if revoke_session(s['token_id']):
+        if stores.revoke_ephemeral_token(s['token_id']):
             count += 1
     _audit('portal_session_revoke_all', actor, f'count={count}')
     return count
@@ -114,11 +105,10 @@ def list_share_links(status: str = 'active') -> list:
     (still retained), or ``all`` (history, including expired records
     not yet reaped by cleanup).
     """
-    from vnc_remote_secure.security.ephemeral_sessions import get_session_store
     if status not in LIST_FILTERS:
         raise UseCaseError(
             ERR_INVALID, f'unknown status filter: {status}')
-    store = get_session_store()
+    store = stores.session_store()
     store._load_if_changed()
     if status == 'revoked':
         return list(store.list_revoked())

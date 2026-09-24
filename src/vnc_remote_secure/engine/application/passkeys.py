@@ -31,6 +31,7 @@ from vnc_remote_secure.engine.domain.decision import (
     ERR_STEP_UP,
     UseCaseError,
 )
+from vnc_remote_secure.engine.infrastructure import stores
 
 _REF_LEN = 16
 
@@ -42,21 +43,16 @@ def credential_ref(credential_id: str) -> str:
 
 def _audit(event: str, actor: str, detail: str,
            result: str = '') -> None:
-    from vnc_remote_secure.security.audit import audit_event
-    kw = {'detail': detail}
-    if result:
-        kw['result'] = result
-    audit_event(event, user=actor, **kw)
+    stores.audit(event, actor, detail, result=result)
 
 
 def _resolve_ref(username: str, ref: str) -> str | None:
     """Map a public ref to the stored credential id owned by
     *username* — refs of other users resolve to None (no oracle)."""
-    from vnc_remote_secure.security.webauthn import list_credentials
     if not ref or len(ref) > 64 or not all(
             c in '0123456789abcdef' for c in ref):
         return None
-    for c in list_credentials(username):
+    for c in stores.credential_list(username):
         if credential_ref(c['credential_id']) == ref:
             return c['credential_id']
     return None
@@ -64,28 +60,23 @@ def _resolve_ref(username: str, ref: str) -> str | None:
 
 def list_passkeys(username: str) -> list:
     """Public passkey view: ref, name, created_at, sign_count."""
-    from vnc_remote_secure.security.webauthn import list_credentials
     return [{
         'ref': credential_ref(c['credential_id']),
         'name': c.get('name', ''),
         'created_at': c.get('created_at', ''),
         'sign_count': c.get('sign_count', 0),
-    } for c in list_credentials(username)]
+    } for c in stores.credential_list(username)]
 
 
 def _gate_feature() -> None:
     """Refuse when the feature is off or RP config is unsafe."""
-    from vnc_remote_secure.security.webauthn import rp_config_error, webauthn_available
-    if not webauthn_available():
-        raise UseCaseError(ERR_INVALID, 'WebAuthn is not enabled')
-    err = rp_config_error()
+    err = stores.webauthn_gate_error()
     if err:
         raise UseCaseError(ERR_INVALID, err)
 
 
 def _gate_step_up(actor: str, action: str) -> None:
-    from vnc_remote_secure.security.step_up_auth import require_step_up
-    err = require_step_up(actor, action)
+    err = stores.step_up_error(actor, action)
     if err:
         _audit('api_permission_denied', actor, f'step-up: {action}')
         raise UseCaseError(ERR_STEP_UP, err)
@@ -117,8 +108,7 @@ def begin_registration(actor: str, username: str) -> dict:
             ERR_PERMISSION,
             'passkey registration is self-service only')
     _gate_step_up(actor, 'webauthn_register')
-    from vnc_remote_secure.security.webauthn import begin_registration as _begin
-    return _begin(username, username, _rp_id(), _rp_name())
+    return stores.webauthn_begin(username, _rp_id(), _rp_name())
 
 
 def complete_registration(actor: str, username: str, credential: dict,
@@ -131,8 +121,7 @@ def complete_registration(actor: str, username: str, credential: dict,
             'passkey registration is self-service only')
     if not isinstance(credential, dict) or 'id' not in credential:
         raise UseCaseError(ERR_INVALID, 'credential object required')
-    from vnc_remote_secure.security.webauthn import complete_registration as _complete
-    ok, message = _complete(
+    ok, message = stores.webauthn_complete(
         username, credential, _rp_id(), _origin(), name=name[:64])
     if not ok:
         raise UseCaseError(ERR_INVALID, message)
@@ -157,13 +146,8 @@ def rename_passkey(actor: str, actor_perms: set, username: str,
         raise UseCaseError(ERR_NOT_FOUND, 'passkey not found')
     if len(name) > 64:
         raise UseCaseError(ERR_INVALID, 'name too long')
-    from vnc_remote_secure.security.webauthn import _load_store, _save_store, _store_lock
-    with _store_lock():
-        store = _load_store()
-        if cid not in store:
-            raise UseCaseError(ERR_NOT_FOUND, 'passkey not found')
-        store[cid]['name'] = name
-        _save_store(store)
+    if not stores.credential_rename(cid, name):
+        raise UseCaseError(ERR_NOT_FOUND, 'passkey not found')
     _audit('passkey_renamed', actor, f'target={username} ref={ref}')
 
 
@@ -177,19 +161,16 @@ def delete_passkey(actor: str, actor_perms: set, username: str,
     cid = _resolve_ref(username, ref)
     if cid is None:
         raise UseCaseError(ERR_NOT_FOUND, 'passkey not found')
-    from vnc_remote_secure.security.webauthn import list_credentials
-    remaining = [c for c in list_credentials(username)
+    remaining = [c for c in stores.credential_list(username)
                  if c['credential_id'] != cid]
     if not remaining:
         # Last passkey — is another auth method still usable?
-        from vnc_remote_secure.security.operator_users import load_store
-        rec = load_store().get(username)
+        rec = stores.operator_load_store().get(username)
         has_password = bool(
             rec and rec.get('password_hash')) or (
             username == 'admin' and os.environ.get('LANDING_PASSWORD'))
         try:
-            from vnc_remote_secure.security.mfa import is_mfa_enabled, mfa_required_for_login
-            mfa_ok = not mfa_required_for_login() or is_mfa_enabled()
+            mfa_ok = not stores.mfa_required() or stores.mfa_available()
         except Exception:  # noqa: BLE001 - assume MFA may be required
             mfa_ok = False
         if not has_password or not mfa_ok:
@@ -199,7 +180,6 @@ def delete_passkey(actor: str, actor_perms: set, username: str,
                 ERR_LAST_ADMIN,
                 'refused: removing the last passkey would leave the '
                 'account without a usable second factor')
-    from vnc_remote_secure.security.webauthn import delete_credential
-    if not delete_credential(cid, username):
+    if not stores.credential_delete(cid, username):
         raise UseCaseError(ERR_CONFLICT, 'passkey delete failed')
     _audit('passkey_revoked', actor, f'target={username} ref={ref}')

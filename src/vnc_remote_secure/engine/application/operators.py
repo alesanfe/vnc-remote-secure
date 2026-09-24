@@ -11,8 +11,9 @@ route handler:
 * role/password/disable/delete changes revoke the target's live
   operator sessions via a per-user epoch mark.
 
-Infrastructure is the existing security/* modules — they migrate under
-engine/infrastructure progressively; this module never sees HTTP.
+Infrastructure access is funnelled through
+``engine.infrastructure.stores`` — this module never sees HTTP and
+never imports ``security/*`` directly.
 """
 from __future__ import annotations
 
@@ -27,18 +28,17 @@ from vnc_remote_secure.engine.domain.decision import (
     ERR_PERMISSION,
     UseCaseError,
 )
+from vnc_remote_secure.engine.infrastructure import stores
 
 _OP_SESSION_TTL = 8 * 3600  # mirrors LandingHandler._OP_SESSION_TTL
 
 
 def _store():
-    from vnc_remote_secure.security.operator_users import load_store
-    return load_store()
+    return stores.operator_load_store()
 
 
 def _audit(event: str, actor: str, detail: str) -> None:
-    from vnc_remote_secure.security.audit import audit_event
-    audit_event(event, user=actor, detail=detail)
+    stores.audit(event, actor, detail)
 
 
 def viable_admin_count(excluding: str = '') -> int:
@@ -66,8 +66,7 @@ def revoke_operator_sessions(username: str) -> None:
     """Kill every live vnc_op session for *username* — the cookies are
     stateless, so revocation records a per-user epoch in shared state
     and the verify path rejects anything issued before it."""
-    from vnc_remote_secure.security.shared_state import get_backend
-    get_backend().set_ttl(
+    stores.shared_backend().set_ttl(
         'op_revoked_users', username, str(time.time()),
         _OP_SESSION_TTL)
 
@@ -78,21 +77,20 @@ def create_operator(actor: str, actor_perms: set, username: str,
     were enforced by the caller (validation layer); domain checks
     here: role known, admin-grant needs admin:*, duplicate is a
     conflict."""
-    from vnc_remote_secure.security.operator_users import ROLE_PERMISSIONS, add_user, set_disabled
-    if role not in ROLE_PERMISSIONS:
+    if role not in stores.operator_roles():
         raise UseCaseError(ERR_INVALID, f'unknown role {role!r}')
     if role == 'admin' and 'admin:*' not in actor_perms:
         _audit('api_permission_denied', actor, 'create admin operator')
         raise UseCaseError(
             ERR_PERMISSION, 'creating admin operators requires admin:*')
     try:
-        add_user(username, password, role)
+        stores.operator_add(username, password, role)
     except ValueError as exc:
         code = (ERR_CONFLICT if 'already exists' in str(exc)
                 else ERR_INVALID)
         raise UseCaseError(code, str(exc)) from exc
     if not enabled:
-        set_disabled(username, True)
+        stores.operator_set_disabled(username, True)
     _audit('operator_created', actor, f'target={username} role={role}')
     return _store()[username]
 
@@ -107,12 +105,6 @@ def update_operator(actor: str, actor_perms: set, username: str,
     Sensitive changes (role, disable, password) revoke the target's
     live sessions — a session must never keep a stale capability set.
     """
-    from vnc_remote_secure.security.operator_users import (
-        ROLE_PERMISSIONS,
-        set_disabled,
-        set_password,
-        set_role,
-    )
     rec = _store().get(username)
     if rec is None:
         raise UseCaseError(ERR_NOT_FOUND, 'operator not found')
@@ -121,7 +113,7 @@ def update_operator(actor: str, actor_perms: set, username: str,
     revoke = False
 
     if role is not None:
-        if role not in ROLE_PERMISSIONS:
+        if role not in stores.operator_roles():
             raise UseCaseError(ERR_INVALID, f'unknown role {role!r}')
         if role != 'admin' and _is_admin(username) \
                 and viable_admin_count(excluding=username) == 0:
@@ -131,7 +123,7 @@ def update_operator(actor: str, actor_perms: set, username: str,
         if role == 'admin' and 'admin:*' not in actor_perms:
             raise UseCaseError(
                 ERR_PERMISSION, 'granting admin requires admin:*')
-        if not set_role(username, role):
+        if not stores.operator_set_role(username, role):
             raise UseCaseError(ERR_INVALID, 'role update failed')
         _audit('operator_role_changed', actor,
                f'target={username} {rec.get("role")}->{role}')
@@ -144,7 +136,7 @@ def update_operator(actor: str, actor_perms: set, username: str,
             raise UseCaseError(
                 ERR_LAST_ADMIN,
                 'would disable the last viable administrator')
-        if not set_disabled(username, disabled):
+        if not stores.operator_set_disabled(username, disabled):
             raise UseCaseError(ERR_INVALID, 'state update failed')
         _audit('operator_disabled' if disabled else 'operator_enabled',
                actor, f'target={username}')
@@ -153,7 +145,7 @@ def update_operator(actor: str, actor_perms: set, username: str,
             revoke = True
 
     if password is not None:
-        if not set_password(username, password):
+        if not stores.operator_set_password(username, password):
             raise UseCaseError(ERR_INVALID, 'password update failed')
         _audit('operator_password_changed', actor,
                f'target={username}')
@@ -172,7 +164,6 @@ def update_operator(actor: str, actor_perms: set, username: str,
 def delete_operator(actor: str, username: str) -> None:
     """Remove the account and kill its sessions. The last viable
     administrator is undeletable."""
-    from vnc_remote_secure.security.operator_users import remove_user
     if _store().get(username) is None:
         raise UseCaseError(ERR_NOT_FOUND, 'operator not found')
     if _is_admin(username) \
@@ -180,7 +171,7 @@ def delete_operator(actor: str, username: str) -> None:
         raise UseCaseError(
             ERR_LAST_ADMIN,
             'would delete the last viable administrator')
-    if not remove_user(username):
+    if not stores.operator_remove(username):
         raise UseCaseError(ERR_INVALID, 'operator delete failed')
     revoke_operator_sessions(username)
     _audit('operator_deleted', actor, f'target={username}')

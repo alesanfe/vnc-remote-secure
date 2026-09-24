@@ -1,5 +1,9 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   api,
   ApiError,
@@ -28,16 +32,28 @@ interface CreateResult {
 
 type SessionTab = 'active' | 'revoked';
 
+interface SessionPage {
+  sessions: EphemeralSessionInfo[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
 export default function Sessions() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<SessionTab>('active');
-  const sessions = useQuery({
+  const sessions = useInfiniteQuery({
     queryKey: ['sessions', tab],
-    queryFn: () =>
-      api.get<{ sessions: EphemeralSessionInfo[] }>(
-        tab === 'active' ? 'sessions' : `sessions?status=${tab}`),
+    queryFn: ({ pageParam }) =>
+      api.get<SessionPage>(
+        `sessions?status=${tab}` +
+          (pageParam ? `&cursor=${pageParam}` : '')),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) =>
+      last.has_more ? last.next_cursor : undefined,
     refetchInterval: 15_000,
   });
+  const rows: EphemeralSessionInfo[] =
+    sessions.data?.pages.flatMap((p) => p.sessions) ?? [];
 
   // Form state keeps `resource` as a plain string ('' = all); the
   // generated SessionCreateRequest type is applied at submit time.
@@ -266,7 +282,7 @@ export default function Sessions() {
           <button
             className="danger"
             disabled={
-              revokeAll.isPending || !(sessions.data?.sessions.length)}
+              revokeAll.isPending || !rows.length}
             onClick={() => setConfirmRevokeAll(true)}
           >
             Cerrar todas
@@ -283,7 +299,7 @@ export default function Sessions() {
             ? 'No hay sesiones efímeras activas.'
             : 'No hay sesiones revocadas retenidas.'
         }
-        rows={sessions.data?.sessions}
+        rows={rows}
         rowKey={(s) => s.token_id}
         columns={[
           {
@@ -336,6 +352,17 @@ export default function Sessions() {
           },
         ]}
       />
+      {sessions.hasNextPage && (
+        <div className="toolbar" style={{ marginTop: '1rem' }}>
+          <button
+            className="ghost"
+            disabled={sessions.isFetchingNextPage}
+            onClick={() => sessions.fetchNextPage()}
+          >
+            {sessions.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+          </button>
+        </div>
+      )}
 
       <ConfirmDialog
         open={revokeTarget !== null}
@@ -371,7 +398,7 @@ export default function Sessions() {
       >
         <p>
           Se revocarán{' '}
-          <strong>{sessions.data?.sessions.length ?? 0} sesiones</strong>{' '}
+          <strong>{rows.length} sesiones</strong>{' '}
           activas. Todas las conexiones en curso se cortarán ahora.
         </p>
         <p className="muted">

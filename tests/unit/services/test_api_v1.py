@@ -226,6 +226,7 @@ class _FakeSession:
 class _FakeStore:
     def __init__(self):
         self.listed = None
+        self.items = []
 
     def create(self, **kw):
         return _FakeSession(), 'signed.token.here'
@@ -235,15 +236,15 @@ class _FakeStore:
 
     def list_active(self):
         self.listed = 'active'
-        return []
+        return list(self.items)
 
     def list_revoked(self):
         self.listed = 'revoked'
-        return []
+        return list(self.items)
 
     def list_all(self):
         self.listed = 'all'
-        return []
+        return list(self.items)
 
 
 def test_create_rejects_unknown_fields(server, monkeypatch):
@@ -376,6 +377,31 @@ def test_sessions_list_status_filter(server, monkeypatch):
     status, _, _ = _req(server, '/api/v1/sessions?status=bogus',
                         headers=_auth_headers())
     assert status == 400
+
+
+def test_sessions_list_cursor_pagination(server, monkeypatch):
+    """limit + cursor walk the inventory in stable token_id order —
+    has_more/next_cursor drive the SPA's "load more"."""
+    store = _FakeStore()
+    store.items = [
+        {'token_id': t} for t in ('aa01', 'bb02', 'cc03')]
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
+        lambda: store)
+    status, _, body = _req(
+        server, '/api/v1/sessions?limit=2', headers=_auth_headers())
+    assert status == 200
+    page = json.loads(body)['data']
+    assert [s['token_id'] for s in page['sessions']] == ['aa01', 'bb02']
+    assert page['has_more'] is True
+    assert page['next_cursor'] == 'bb02'
+    status, _, body = _req(
+        server, '/api/v1/sessions?limit=2&cursor=bb02',
+        headers=_auth_headers())
+    page = json.loads(body)['data']
+    assert [s['token_id'] for s in page['sessions']] == ['cc03']
+    assert page['has_more'] is False
+    assert page['next_cursor'] is None
 
 
 def test_config_requires_permission(server, monkeypatch):

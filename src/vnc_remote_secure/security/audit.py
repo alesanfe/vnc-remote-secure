@@ -579,7 +579,9 @@ def verify_chain() -> tuple:
 
 
 def get_audit_entries(limit: int = 100, event: str | None = None,
-                      before_seq: int | None = None) -> list:
+                      before_seq: int | None = None,
+                      user: str | None = None,
+                      result: str | None = None) -> list:
     """Read recent audit log entries.
 
     Args:
@@ -587,6 +589,8 @@ def get_audit_entries(limit: int = 100, event: str | None = None,
         event: Filter by event type (optional).
         before_seq: Cursor pagination — only entries with ``seq``
             strictly below this value are returned.
+        user: Filter by actor username (optional).
+        result: Filter by outcome (success/failure…) (optional).
 
     Returns:
         List of audit entry dicts (newest first).
@@ -603,10 +607,15 @@ def get_audit_entries(limit: int = 100, event: str | None = None,
             if before_seq is not None and \
                     int(entry.get('seq', 0)) >= before_seq:
                 continue
-            if event is None or entry.get('event') == event:
-                entries.append(entry)
-                if len(entries) >= limit:
-                    break
+            if event is not None and entry.get('event') != event:
+                continue
+            if user is not None and entry.get('user') != user:
+                continue
+            if result is not None and entry.get('result') != result:
+                continue
+            entries.append(entry)
+            if len(entries) >= limit:
+                break
         except json.JSONDecodeError:
             continue
     return entries

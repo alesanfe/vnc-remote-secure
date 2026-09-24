@@ -168,6 +168,9 @@ export interface paths {
                 query?: {
                     /** @description Inventory filter — active (default), revoked, or all. */
                     status?: "active" | "revoked" | "all";
+                    limit?: number;
+                    /** @description Opaque token_id cursor — returns entries after it. */
+                    cursor?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1297,6 +1300,8 @@ export interface components {
         SessionPageResponse: {
             data: {
                 sessions: components["schemas"]["SessionSummary"][];
+                next_cursor?: string | null;
+                has_more?: boolean;
             };
             error: unknown;
             request_id: string;

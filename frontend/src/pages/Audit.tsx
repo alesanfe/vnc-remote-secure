@@ -7,14 +7,19 @@ import { api, type AuditEntry, type AuditPage } from '../api';
 
 export default function Audit() {
   const [eventFilter, setEventFilter] = useState('');
+  const [userFilter, setUserFilter] = useState('');
+  const [resultFilter, setResultFilter] = useState('');
   const [limit, setLimit] = useState(100);
 
   const entries = useInfiniteQuery({
-    queryKey: ['audit', eventFilter, limit],
+    queryKey: ['audit', eventFilter, userFilter, resultFilter, limit],
     queryFn: ({ pageParam }) =>
       api.get<AuditPage>(
         `audit?limit=${limit}` +
           (eventFilter ? `&event=${encodeURIComponent(eventFilter)}` : '') +
+          (userFilter ? `&user=${encodeURIComponent(userFilter)}` : '') +
+          (resultFilter
+            ? `&result=${encodeURIComponent(resultFilter)}` : '') +
           (pageParam ? `&cursor=${pageParam}` : ''),
       ),
     initialPageParam: null as number | null,
@@ -49,12 +54,30 @@ export default function Audit() {
 
       <div className="toolbar">
         <input
-          style={{ maxWidth: 260 }}
+          style={{ maxWidth: 220 }}
           aria-label="Filtrar por tipo de evento"
           placeholder="Filtrar por tipo de evento"
           value={eventFilter}
           onChange={(e) => setEventFilter(e.target.value)}
         />
+        <input
+          style={{ maxWidth: 160 }}
+          aria-label="Filtrar por usuario"
+          placeholder="Usuario"
+          value={userFilter}
+          onChange={(e) => setUserFilter(e.target.value)}
+        />
+        <select
+          style={{ maxWidth: 140 }}
+          aria-label="Filtrar por resultado"
+          value={resultFilter}
+          onChange={(e) => setResultFilter(e.target.value)}
+        >
+          <option value="">resultado: todos</option>
+          <option value="success">success</option>
+          <option value="failure">failure</option>
+          <option value="denied">denied</option>
+        </select>
         <select
           style={{ maxWidth: 120 }}
           aria-label="Filas por página"

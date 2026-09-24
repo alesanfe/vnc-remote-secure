@@ -169,6 +169,8 @@ components:
           required: [sessions]
           properties:
             sessions: { type: array, items: { $ref: '#/components/schemas/SessionSummary' } }
+            next_cursor: { type: string, nullable: true }
+            has_more: { type: boolean }
         error: { nullable: true }
         request_id: { type: string }
     SessionCreatedResponse:
@@ -504,6 +506,15 @@ paths:
             type: string
             enum: [active, revoked, all]
             default: active
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 200 }
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque token_id cursor — returns entries after it.
+          schema: { type: string }
       responses:
         '200':
           description: OK
@@ -659,7 +670,17 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
         - name: event
           in: query
-          schema: { type: string }
+          schema: { type: string, maxLength: 128 }
+        - name: user
+          in: query
+          required: false
+          description: Exact actor username filter.
+          schema: { type: string, maxLength: 128 }
+        - name: result
+          in: query
+          required: false
+          description: Exact outcome filter (success/failure/…).
+          schema: { type: string, maxLength: 128 }
         - name: cursor
           in: query
           schema: { type: integer, description: 'seq of last entry of previous page' }
