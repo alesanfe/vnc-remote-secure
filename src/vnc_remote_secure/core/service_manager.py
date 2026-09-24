@@ -632,30 +632,32 @@ def _start_python_service(module: str, service_name: str,
 
 
 def _enabled_services(config: dict) -> list:
-    """Return the list of service names to start, based on config."""
+    """Return the list of service names to start, based on config.
+
+    Core services are unconditional; optional services come from the
+    plugin registry (``core.plugins``) which declares each one's
+    config gate, required capability and platform constraint.
+    """
     services = ['vnc', 'terminal', 'novnc', 'landing']
-    # The standalone health server is optional — HEALTH_WEB_ENABLED
-    # gates it (the Flask UI exposes the same endpoints on
-    # USER_UI_PORT when the standalone server is off).
-    if config.get('health_web_enabled', True):
-        services.append('health')
-    # The WebSocket→RFB bridge runs alongside noVNC so the browser
-    # client can actually reach the VNC server. It only listens on
-    # loopback; the authenticated noVNC static server proxies WS
-    # upgrades to it after the auth-gateway check.
-    services.append('websockify')
-    if config.get('user_ui_enabled'):
-        services.append('user_ui')
-    if config.get('audio_stream_enabled'):
-        services.append('audio')
-    if config.get('gamepad_enabled'):
-        services.append('gamepad')
-    # nginx is Linux-only — on Windows the landing portal is the public
-    # entry point and there is no nginx binary to supervise. Listing it
-    # here would report a bogus "Failed to start: nginx" (and fire the
-    # failure alert) on every Windows start.
-    if config.get('nginx_enabled') and not is_windows():
-        services.append('nginx')
+    from vnc_remote_secure.core.plugins import iter_plugins, plugin_enabled
+    windows = is_windows()
+    # 'health' precedes websockify: the standalone health server is
+    # optional (HEALTH_WEB_ENABLED gates it — the Flask UI exposes
+    # the same endpoints on USER_UI_PORT when it is off), and
+    # preserving the historical start order keeps supervision
+    # deterministic.
+    for plugin in iter_plugins():
+        if plugin.name == 'health':
+            if plugin_enabled(plugin, config, windows):
+                services.append('health')
+            # The WebSocket→RFB bridge runs alongside noVNC so the
+            # browser client can actually reach the VNC server. It
+            # only listens on loopback; the authenticated noVNC
+            # static server proxies WS upgrades to it after the
+            # auth-gateway check.
+            services.append('websockify')
+        elif plugin_enabled(plugin, config, windows):
+            services.append(plugin.name)
     # Prometheus and Grafana are external binaries managed by the
     # platform adapter (systemd/Windows Service), not Python services.
     # They are not started here; configure them via the platform adapter.
