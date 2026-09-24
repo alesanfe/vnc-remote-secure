@@ -27,7 +27,7 @@ def server(monkeypatch, tmp_path):
     monkeypatch.setattr(
         landing, 'generate_landing_page',
         lambda forwarded_host=None, forwarded_proto=None,
-        is_operator=True:
+        is_operator=True, csrf_token=None:
         '<html><body>portal</body></html>')
     monkeypatch.setattr(landing, 'check_port', lambda *a, **k: True)
     monkeypatch.setattr(landing, 'get_lan_ips', lambda: ['10.0.0.9'])
@@ -428,16 +428,32 @@ def test_post_cross_site_fetch_metadata_rejected(server):
     assert status == 403
 
 
+def _portal_csrf(port):
+    """Real CSRF flow for legacy portal POSTs: an authenticated GET
+    issues the vnc_csrf nonce cookie; the token is HMAC-bound to it.
+    Returns (cookie_header, token)."""
+    status, headers, _ = _req(port, '/', headers=_auth_headers())
+    assert status == 200
+    cookie = headers.get('Set-Cookie', '').split(';')[0]
+    assert cookie.startswith('vnc_csrf=')
+    nonce = cookie.split('=', 1)[1]
+    from vnc_remote_secure.services.api_v1 import _csrf_token
+    return cookie, _csrf_token(nonce)
+
+
 def test_post_same_site_fetch_metadata_passes_gate(server):
-    """same-origin Sec-Fetch-Site must NOT be rejected by the CSRF
-    check — a well-formed request reaches the handler (which then
-    applies its own validation, 400/404 on a bad token)."""
+    """same-origin Sec-Fetch-Site + a valid session CSRF token reach
+    the handler (which then applies its own validation, 400/404 on a
+    bad token_id)."""
     import http.client
     import json as _j
+    cookie, token = _portal_csrf(server)
     conn = http.client.HTTPConnection('127.0.0.1', server, timeout=5)
     conn.request('POST', '/sessions/revoke',
                  body=_j.dumps({'token_id': 'nonexistent'}),
                  headers={**_auth_headers(),
+                          'Cookie': cookie,
+                          'X-CSRF-Token': token,
                           'Sec-Fetch-Site': 'same-origin',
                           'Content-Type': 'application/json'})
     resp = conn.getresponse()
@@ -449,7 +465,26 @@ def test_post_same_site_fetch_metadata_passes_gate(server):
 
 def test_post_no_fetch_metadata_still_allowed(server):
     """Non-browser clients (curl, scripts) send no Sec-Fetch-Site —
-    they must keep working (Origin is absent too)."""
+    they keep working as long as they hold the CSRF token."""
+    import http.client
+    import json as _j
+    cookie, token = _portal_csrf(server)
+    conn = http.client.HTTPConnection('127.0.0.1', server, timeout=5)
+    conn.request('POST', '/sessions/revoke',
+                 body=_j.dumps({'token_id': 'x'}),
+                 headers={**_auth_headers(),
+                          'Cookie': cookie,
+                          'X-CSRF-Token': token,
+                          'Content-Type': 'application/json'})
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    assert resp.status in (200, 400, 404)
+
+
+def test_post_without_csrf_nonce_denied(server):
+    """A mutation without the session CSRF token is denied even with
+    valid Basic credentials — cookies+auth alone don't authorize."""
     import http.client
     import json as _j
     conn = http.client.HTTPConnection('127.0.0.1', server, timeout=5)
@@ -460,7 +495,7 @@ def test_post_no_fetch_metadata_still_allowed(server):
     resp = conn.getresponse()
     resp.read()
     conn.close()
-    assert resp.status in (200, 400, 404)
+    assert resp.status == 403
 
 
 def test_get_transfer_encoding_rejected(server):

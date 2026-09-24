@@ -25,6 +25,97 @@ from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 logger = logging.getLogger(__name__)
 
+# Self-hosted script for GET /share — kept out of the page so the CSP
+# can run script-src 'self' with no 'unsafe-inline'. Reads the token
+# from the URL fragment (never sent to the server), wipes it from the
+# address bar, previews the grant and activates only on explicit
+# consent. The token is never stored in web storage, state or logs.
+_SHARE_JS = b"""'use strict';
+(function () {
+  // Read the token from the fragment and IMMEDIATELY wipe it from the
+  // address bar - it must not linger in history or a screenshot.
+  var hash = location.hash || '';
+  var token = '';
+  if (hash.indexOf('#t=') === 0) token = hash.slice(3);
+  else if (hash.length > 1) token = hash.slice(1);
+  history.replaceState(null, '', '/share');
+  var info = document.getElementById('info');
+  var actions = document.getElementById('actions');
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function fail(msg) {
+    info.innerHTML = '<p class="err">' + esc(msg) + '</p>';
+  }
+  if (!token) {
+    fail('Enlace incompleto: falta el token.');
+    return;
+  }
+  fetch('/session/preview', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    credentials: 'same-origin',
+    body: JSON.stringify({token: token})
+  }).then(function (r) {
+    if (!r.ok) throw new Error('invalid');
+    return r.json();
+  }).then(function (p) {
+    var mins = Math.floor(p.expires_in_seconds / 60);
+    var secs = p.expires_in_seconds % 60;
+    var flags = [];
+    if (p.view_only) flags.push('solo visualizaci\\u00f3n');
+    if (p.single_use) flags.push('uso \\u00fanico');
+    if (p.no_terminal) flags.push('sin terminal');
+    if (p.max_uses) flags.push('m\\u00e1x. ' + p.max_uses + ' usos');
+    var rows = '<tr><td>Rol</td><td>' + esc(p.role) + '</td></tr>' +
+      '<tr><td>Expira en</td><td>' + mins + 'm' +
+      ('0' + secs).slice(-2) + 's</td></tr>' +
+      (flags.length ? '<tr><td>Restricciones</td><td>' +
+       esc(flags.join(', ')) + '</td></tr>' : '');
+    info.innerHTML = '<p>Este enlace permitir\\u00e1 <strong>ver' +
+      (p.view_only ? '' : ' y controlar') + '</strong> este equipo de ' +
+      'forma remota.</p><table>' + rows + '</table>';
+    var btn = document.createElement('button');
+    btn.textContent = 'Aceptar y abrir sesi\\u00f3n';
+    var cancel = document.createElement('button');
+    cancel.textContent = 'Cancelar';
+    cancel.className = 'ghost';
+    cancel.style.cssText = 'background:#222c42;margin-top:8px';
+    cancel.onclick = function () {
+      // Cancelling must NOT consume the link - just clear the page.
+      token = '';
+      info.innerHTML = '<p>Enlace descartado. Puedes cerrar esta ' +
+        'pesta\\u00f1a.</p>';
+      actions.innerHTML = '';
+    };
+    btn.onclick = function () {
+      btn.disabled = true;
+      var body = 'token=' + encodeURIComponent(token);
+      token = '';  // drop the only JS reference before activating
+      fetch('/session/activate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        credentials: 'same-origin',
+        redirect: 'follow',
+        body: body
+      }).then(function (r) {
+        if (r.redirected || r.ok) { location.href = '/'; return; }
+        fail('El enlace ha caducado o ya ha sido utilizado.');
+      }).catch(function () {
+        fail('Error de red. Int\\u00e9ntalo de nuevo.');
+      });
+    };
+    actions.appendChild(btn);
+    actions.appendChild(cancel);
+  }).catch(function () {
+    token = '';
+    fail('El enlace ha caducado o ya ha sido utilizado.');
+  });
+})();
+"""
+
 # Load configuration from .env file (never hardcode credentials)
 from vnc_remote_secure.core.config import env_flag, load_env_file
 from vnc_remote_secure.core.constants import (
@@ -661,10 +752,12 @@ def _build_sessions_html():
     </table>
     </div>
     <script>
+    var _CSRF = (document.querySelector('meta[name="csrf-token"]') || {{}}).content || '';
     document.getElementById('revoke-all-btn').addEventListener(
       'click', function(){{
       if (!confirm('¿Cerrar TODAS las sesiones activas? Las conexiones se cortarán ahora.')) return;
-      fetch('/sessions/revoke-all', {{method: 'POST'}}).then(function(r){{
+      fetch('/sessions/revoke-all', {{method: 'POST',
+        headers: {{'X-CSRF-Token': _CSRF}}}}).then(function(r){{
         if (r.ok) {{ location.reload(); }}
         else {{ alert('No se pudieron revocar'); }}
       }});
@@ -674,7 +767,8 @@ def _build_sessions_html():
         if (!confirm('¿Revocar esta sesión? Sus conexiones se cerrarán ahora.')) return;
         fetch('/sessions/revoke', {{
           method: 'POST',
-          headers: {{'Content-Type': 'application/json'}},
+          headers: {{'Content-Type': 'application/json',
+                     'X-CSRF-Token': _CSRF}},
           body: JSON.stringify({{token_id: b.dataset.token}})
         }}).then(function(r){{
           if (r.ok) {{ b.closest('tr').style.opacity = '0.3'; b.disabled = true; }}
@@ -731,7 +825,9 @@ def _build_gamepad_html():
       var b = document.getElementById('gamepad-{action}-btn');
       if (!b) return;
       b.addEventListener('click', function(){{
-        fetch('/gamepad/{action}', {{method: 'POST'}}).then(function(r){{
+        var _CSRF = (document.querySelector('meta[name="csrf-token"]') || {{}}).content || '';
+        fetch('/gamepad/{action}', {{method: 'POST',
+          headers: {{'X-CSRF-Token': _CSRF}}}}).then(function(r){{
           if (r.ok) {{ location.reload(); }}
           else {{ alert('No se pudo cambiar el estado del gamepad'); }}
         }});
@@ -804,14 +900,17 @@ def _build_backup_html():
             f'({html.escape(age)}){warn}{cert_html}</div>')
 
 
-def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, audio_html, gamepad_html, ssl_note, firewall_html, metrics, maintenance_banner='', admin_link=''):
+def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, audio_html, gamepad_html, ssl_note, firewall_html, metrics, maintenance_banner='', admin_link='', csrf_token=''):
     """Assemble the final landing page HTML from its section components."""
+    csrf_meta = (f'<meta name="csrf-token" content="{csrf_token}">'
+                 if csrf_token else '')
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="30">
+    {csrf_meta}
     <title>VNC Remote Secure - Portal</title>
 {_landing_css()}
 </head>
@@ -877,7 +976,7 @@ def _maintenance_banner():
 
 
 def generate_landing_page(forwarded_host=None, forwarded_proto=None,
-                          is_operator=True):
+                          is_operator=True, csrf_token=''):
     """Generate the landing page HTML.
 
     ``is_operator`` distinguishes a credentialed operator from an
@@ -948,7 +1047,8 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None,
         metrics_html, cards_html, vnc_direct_html, features_section,
         lan_html, creds_html, sessions_html, backups_html, audio_html,
         gamepad_html, ssl_note, firewall_html, metrics,
-        maintenance_banner=_maintenance_banner(), admin_link=admin_link)
+        maintenance_banner=_maintenance_banner(), admin_link=admin_link,
+        csrf_token=csrf_token)
 
 
 class LandingHandler(SecuredHandlerMixin,
@@ -1149,77 +1249,7 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
 <div id="info"><p>Comprobando enlace\xe2\x80\xa6</p></div>
 <div id="actions"></div>
 </div>
-<script>
-(function () {
-  // Read the token from the fragment and IMMEDIATELY wipe it from the
-  // address bar - it must not linger in history or a screenshot.
-  var hash = location.hash || '';
-  var token = '';
-  if (hash.indexOf('#t=') === 0) token = hash.slice(3);
-  else if (hash.length > 1) token = hash.slice(1);
-  history.replaceState(null, '', '/share');
-  var info = document.getElementById('info');
-  var actions = document.getElementById('actions');
-  if (!token) {
-    info.innerHTML = '<p class="err">Enlace incompleto: falta el token.</p>';
-    return;
-  }
-  function fail(msg) {
-    info.innerHTML = '<p class="err">' + msg + '</p>';
-  }
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-    });
-  }
-  fetch('/session/preview', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    credentials: 'same-origin',
-    body: JSON.stringify({token: token})
-  }).then(function (r) {
-    if (!r.ok) throw new Error('invalid');
-    return r.json();
-  }).then(function (p) {
-    var mins = Math.floor(p.expires_in_seconds / 60);
-    var secs = p.expires_in_seconds % 60;
-    var flags = [];
-    if (p.view_only) flags.push('solo visualizaci\xc3\xb3n');
-    if (p.single_use) flags.push('uso \xc3\xbanico');
-    if (p.no_terminal) flags.push('sin terminal');
-    if (p.max_uses) flags.push('m\xc3\xa1x. ' + p.max_uses + ' usos');
-    var rows = '<tr><td>Rol</td><td>' + esc(p.role) + '</td></tr>' +
-      '<tr><td>Expira en</td><td>' + mins + 'm' +
-      ('0' + secs).slice(-2) + 's</td></tr>' +
-      (flags.length ? '<tr><td>Restricciones</td><td>' +
-       esc(flags.join(', ')) + '</td></tr>' : '');
-    info.innerHTML = '<p>Este enlace permitir\xc3\xa1 <strong>ver' +
-      (p.view_only ? '' : ' y controlar') + '</strong> este equipo de ' +
-      'forma remota.</p><table>' + rows + '</table>';
-    var btn = document.createElement('button');
-    btn.textContent = 'Aceptar y abrir sesi\xc3\xb3n';
-    btn.onclick = function () {
-      btn.disabled = true;
-      var body = 'token=' + encodeURIComponent(token);
-      fetch('/session/activate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        credentials: 'same-origin',
-        redirect: 'follow',
-        body: body
-      }).then(function (r) {
-        if (r.redirected || r.ok) { location.href = '/'; return; }
-        fail('El enlace ha caducado o ya ha sido utilizado.');
-      }).catch(function () {
-        fail('Error de red. Int\xc3\xa9ntalo de nuevo.');
-      });
-    };
-    actions.appendChild(btn);
-  }).catch(function () {
-    fail('El enlace ha caducado o ya ha sido utilizado.');
-  });
-})();
-</script>
+<script src="/share.js" defer></script>
 </body></html>"""
         data = body  # already bytes (b"""...""" with \xNN escapes)
         self.send_response(200)
@@ -1229,8 +1259,9 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         self.send_header(
             'Content-Security-Policy',
             "default-src 'none'; style-src 'unsafe-inline'; "
-            "script-src 'unsafe-inline'; connect-src 'self'; "
-            "form-action 'self'; base-uri 'none'")
+            "script-src 'self'; connect-src 'self'; "
+            "form-action 'self'; base-uri 'none'; "
+            "frame-ancestors 'none'")
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -1353,7 +1384,78 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             client_ip=client_ip_from(
                 self.headers,
                 self.peer_ip()))
+        if ok and operator is not None:
+            self._csrf_nonce()  # ensure the nonce cookie exists
         return ok, (operator if ok else None)
+
+    def _csrf_nonce(self) -> str:
+        """Return this session's CSRF nonce, issuing a cookie if needed.
+
+        The nonce lives in an HttpOnly cookie (``vnc_csrf``); the
+        matching token — HMAC(secret, 'csrf:' + nonce) — is exposed to
+        pages via a meta tag / the /api/v1/me payload, and mutations
+        must present it as X-CSRF-Token or a 'csrf' form field.
+        Revoking/rotating the cookie invalidates every token minted
+        for it, and two sessions of the same user hold different
+        tokens.
+        """
+        nonce = cookie_value(self.headers.get('Cookie', ''), 'vnc_csrf')
+        if nonce and 16 <= len(nonce) <= 128 \
+                and all(c.isalnum() or c in '-_' for c in nonce):
+            return nonce
+        # Reuse the nonce already minted for THIS response — calling
+        # twice (e.g. /me emits the token, end_headers emits the
+        # cookie) must agree on one value.
+        pending = getattr(self, '_pending_csrf_nonce', None)
+        if pending:
+            return pending
+        import secrets
+        nonce = secrets.token_urlsafe(32)
+        self._pending_csrf_nonce = nonce
+        return nonce
+
+    def _csrf_token(self) -> str:
+        """The token a mutation must present for this session."""
+        from vnc_remote_secure.services.api_v1 import _csrf_token
+        return _csrf_token(self._csrf_nonce())
+
+    def _check_csrf(self) -> bool:
+        """Verify the CSRF token on a mutating request.
+
+        The expected token is HMAC(secret, 'csrf:' + <vnc_csrf nonce>),
+        presented via the X-CSRF-Token header. SameSite=Strict on the
+        nonce cookie plus this token are two CSRF layers; Origin and
+        Sec-Fetch-Site are checked separately in _operator_gate.
+        """
+        import hmac as _hmac
+
+        from vnc_remote_secure.services.api_v1 import _csrf_token
+        nonce = cookie_value(self.headers.get('Cookie', ''), 'vnc_csrf')
+        if not nonce:
+            return False
+        presented = self.headers.get('X-CSRF-Token', '')
+        if not presented:
+            return False
+        return _hmac.compare_digest(presented, _csrf_token(nonce))
+
+    def end_headers(self):  # noqa: N802 - stdlib API
+        # Deliver the pending CSRF nonce cookie exactly once per
+        # response — issuing it here covers every response path
+        # (JSON, HTML, redirects) without per-handler plumbing.
+        nonce = getattr(self, '_pending_csrf_nonce', None)
+        if nonce:
+            self._pending_csrf_nonce = None
+            import ssl as _ssl
+            trusted = env_flag('TRUSTED_PROXY', 'false')
+            is_tls = ((trusted and
+                       self.headers.get('X-Forwarded-Proto', '') == 'https')
+                      or isinstance(self.connection, _ssl.SSLSocket))
+            secure = ' Secure;' if is_tls else ''
+            self.send_header(
+                'Set-Cookie',
+                f'vnc_csrf={nonce};{secure} HttpOnly; Path=/; '
+                'SameSite=Strict')
+        super().end_headers()
 
     def _require_portal_auth(self) -> bool:
         """Ephemeral cookie or operator Basic-auth gate; sends 401."""
@@ -1399,9 +1501,21 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             return
         # Fragment-carried share links (…/share#t=<token>) keep the
         # token out of the URL entirely — the page is public and its
-        # JS POSTs the token to /session/activate.
-        if self.path.split('?', 1)[0] == '/share':
+        # JS POSTs the token to /session/activate. The script is
+        # self-hosted at /share.js so the CSP needs no unsafe-inline.
+        _share_path = self.path.split('?', 1)[0]
+        if _share_path == '/share':
             self._serve_share_page()
+            return
+        if _share_path == '/share.js':
+            self.send_response(200)
+            self.send_header('Content-Type',
+                             'text/javascript; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Referrer-Policy', 'no-referrer')
+            self.send_header('Content-Length', str(len(_SHARE_JS)))
+            self.end_headers()
+            self.wfile.write(_SHARE_JS)
             return
         # Ephemeral share sessions or operator Basic-auth (env
         # bootstrap admin or a stored operator account — fail closed
@@ -1552,7 +1666,10 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
                 forwarded_proto=(
                     self.headers.get('X-Forwarded-Proto') if trusted else None),
                 is_operator=getattr(
-                    self, '_portal_operator', None) is not None)
+                    self, '_portal_operator', None) is not None,
+                csrf_token=(self._csrf_token()
+                            if getattr(self, '_portal_operator', None)
+                            else ''))
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             refresh = self._session_refresh_header()
@@ -1800,7 +1917,10 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             user=operator.get('username', 'unknown'),
             result='success' if revoked else 'failure',
             detail=f'token_id={token_id}')
-        self.send_json({'revoked': bool(revoked)}, 200 if revoked else 404)
+        # Uniform response whether the token existed or not — the
+        # caller is already authorized; a 404 here would only help
+        # enumerate live session ids.
+        self.send_json({'revoked': bool(revoked)}, 200)
 
     def _operator_gate(self, permission):
         """Authenticate and authorize a mutating endpoint call.
@@ -1837,8 +1957,15 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             self.send_json_error('Cross-site request rejected', 403)
             return None
 
+        # CSRF token bound to the vnc_csrf nonce cookie — required on
+        # every mutation (portal legacy POSTs and /api/v1 alike).
+        if not self._check_csrf():
+            self.send_json_error('CSRF token missing or invalid', 403)
+            return None
+
         perms = set(operator.get('permissions') or [])
-        if permission not in perms and 'admin:*' not in perms:
+        if permission and permission not in perms \
+                and 'admin:*' not in perms:
             from vnc_remote_secure.security.audit import audit_event
             audit_event('portal_permission_denied',
                       user=operator.get('username', '?'),

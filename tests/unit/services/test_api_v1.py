@@ -17,7 +17,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.services import (
-    api_v1,  # noqa: E402
     landing,  # noqa: E402
 )
 
@@ -30,7 +29,7 @@ def server(monkeypatch, tmp_path):
     monkeypatch.setattr(
         landing, 'generate_landing_page',
         lambda forwarded_host=None, forwarded_proto=None,
-        is_operator=True:
+        is_operator=True, csrf_token='':
         '<html><body>portal</body></html>')
     monkeypatch.setattr(landing, 'check_port', lambda *a, **k: True)
     monkeypatch.setattr(landing, 'get_lan_ips', lambda: ['10.0.0.9'])
@@ -72,8 +71,19 @@ def _auth_headers():
     return {'Authorization': f'Basic {cred}'}
 
 
-def _csrf(username='admin'):
-    return api_v1._csrf_token(username)
+def _csrf_session(port):
+    """Real CSRF flow: GET /me issues the vnc_csrf nonce cookie and
+    returns the token bound to it. Returns headers for a POST."""
+    status, headers, body = _req(port, '/api/v1/me',
+                                 headers=_auth_headers())
+    assert status == 200
+    cookie = headers.get('Set-Cookie', '').split(';')[0]
+    assert cookie.startswith('vnc_csrf=')
+    token = json.loads(body)['data']['csrf_token']
+    h = _auth_headers()
+    h['Cookie'] = cookie
+    h['X-CSRF-Token'] = token
+    return h
 
 
 def _api_post(port, path, payload, headers=None, username='admin'):
@@ -140,8 +150,7 @@ def test_post_valid_csrf_accepted(server, monkeypatch):
     monkeypatch.setattr(
         'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
         lambda: store)
-    h = _auth_headers()
-    h['X-CSRF-Token'] = _csrf()
+    h = _csrf_session(server)
     status, _, body = _api_post(
         server, '/api/v1/sessions',
         {'role': 'viewer', 'ttl_seconds': 300, 'no_terminal': True},
@@ -169,8 +178,7 @@ def _create(server, monkeypatch, payload, username='admin',
             lambda *a, **k: (True, {
                 'username': username, 'role': 'operator',
                 'permissions': list(permissions)}))
-    h = _auth_headers()
-    h['X-CSRF-Token'] = _csrf(username)
+    h = _csrf_session(server)
     return _api_post(server, '/api/v1/sessions', payload, headers=h)
 
 
@@ -285,8 +293,7 @@ def test_revoke_with_csrf(server, monkeypatch):
     monkeypatch.setattr(
         'vnc_remote_secure.security.ephemeral_sessions.revoke_session',
         lambda tid: True)
-    h = _auth_headers()
-    h['X-CSRF-Token'] = _csrf()
+    h = _csrf_session(server)
     status, _, body = _api_post(
         server, '/api/v1/sessions/revoke', {'token_id': 'x'}, headers=h)
     assert status == 200
@@ -342,11 +349,21 @@ def test_ephemeral_cookie_gets_status_only(server, monkeypatch):
 
 def test_share_page_public(server):
     """GET /share must be reachable WITHOUT auth — the link recipient
-    has no credentials; the token is the credential."""
-    status, _, body = _req(server, '/share')
+    has no credentials; the token is the credential. The page carries
+    no inline script (CSP script-src 'self') — the logic lives in the
+    self-hosted /share.js."""
+    status, headers, body = _req(server, '/share')
     assert status == 200
-    assert b'/session/activate' in body
-    assert b'/session/preview' in body
+    assert b'src="/share.js"' in body
+    csp = headers.get('Content-Security-Policy', '')
+    assert "script-src 'self'" in csp
+    assert "'unsafe-inline'" not in csp.replace(
+        "style-src 'unsafe-inline'", '')
+    # The script itself is public too (same-origin CSP fetch).
+    status, _, js = _req(server, '/share.js')
+    assert status == 200
+    assert b'/session/activate' in js
+    assert b'/session/preview' in js
 
 
 def test_session_preview_public(server, monkeypatch):

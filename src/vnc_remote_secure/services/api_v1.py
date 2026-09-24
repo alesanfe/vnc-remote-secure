@@ -85,27 +85,14 @@ def _rate_limit(handler, scope: str) -> bool:
     return allowed
 
 
-def _csrf_token(username: str) -> str:
-    """CSRF token bound to the operator username and the deployment
-    signing secret — a cross-site page cannot read or forge it."""
+def _csrf_token(nonce: str) -> str:
+    """CSRF token bound to the session nonce (``vnc_csrf`` cookie)
+    and the deployment signing secret — a cross-site page cannot
+    read or forge it, and two sessions of the same operator hold
+    different tokens."""
     from vnc_remote_secure.security.authentication import _get_secret
-    return hmac.new(_get_secret(), f'csrf:{username}'.encode(),
+    return hmac.new(_get_secret(), f'csrf:{nonce}'.encode(),
                     hashlib.sha256).hexdigest()
-
-
-def _check_csrf(handler, operator) -> bool:
-    """Require ``X-CSRF-Token`` matching the operator's token.
-
-    Basic auth rides on every same-origin request automatically, so
-    Origin/Sec-Fetch-Site (checked in _operator_gate) plus this token
-    give two independent CSRF layers — neither alone is guaranteed.
-    """
-    token = handler.headers.get('X-CSRF-Token', '')
-    expected = _csrf_token(str(operator.get('username', '')))
-    if not token or not hmac.compare_digest(token, expected):
-        _err(handler, 'CSRF token missing or invalid', 403)
-        return False
-    return True
 
 
 def is_api_path(path: str) -> bool:
@@ -203,7 +190,7 @@ def _protocol() -> str:
 # GET endpoints
 # ---------------------------------------------------------------------------
 
-def _get_me(handler):
+def _get_me(handler, query):
     operator = getattr(handler, '_portal_operator', None)
     _ok(handler, {
         'authenticated': True,
@@ -213,23 +200,20 @@ def _get_me(handler):
             'permissions': sorted(operator.get('permissions') or []),
         } if operator else None),
         'ephemeral': operator is None,
-        # Double-submit CSRF token for SPA mutations — bound to the
-        # operator username, required as X-CSRF-Token on POSTs.
-        'csrf_token': (_csrf_token(str(operator.get('username', '')))
-                       if operator else None),
+        # Session-bound CSRF token (HMAC of the vnc_csrf nonce) — the
+        # SPA presents it as X-CSRF-Token on every mutation.
+        'csrf_token': (handler._csrf_token() if operator else None),
     })
 
 
-def _get_status(handler):
+def _get_status(handler, query):
     # Intentionally NOT operator-gated: share-link sessions read
     # service states for the portal cards. _status_payload redacts
     # lan_ips/system metrics when _portal_operator is None.
     _ok(handler, handler._status_payload())
 
 
-def _get_services(handler):
-    if _operator(handler) is None:
-        return
+def _get_services(handler, query):
     from vnc_remote_secure.services.landing import _build_service_list
     services = _build_service_list(_protocol(), _external_base(handler))
     for svc in services:
@@ -239,9 +223,7 @@ def _get_services(handler):
     _ok(handler, {'services': services})
 
 
-def _get_sessions(handler):
-    if _operator(handler, 'admin_sessions') is None:
-        return
+def _get_sessions(handler, query):
     try:
         from vnc_remote_secure.security.ephemeral_sessions import get_session_store
         store = get_session_store()
@@ -252,9 +234,7 @@ def _get_sessions(handler):
         _err(handler, 'Failed to list sessions', 500)
 
 
-def _get_health(handler):
-    if _operator(handler) is None:
-        return
+def _get_health(handler, query):
     try:
         from vnc_remote_secure.monitoring.health import get_all_health
         _ok(handler, get_all_health())
@@ -263,9 +243,7 @@ def _get_health(handler):
         _err(handler, 'Health status generation failed', 500)
 
 
-def _get_posture(handler):
-    if _operator(handler) is None:
-        return
+def _get_posture(handler, query):
     try:
         from vnc_remote_secure.security.posture import calculate_posture
         _ok(handler, calculate_posture())
@@ -274,9 +252,7 @@ def _get_posture(handler):
         _err(handler, 'Posture calculation failed', 500)
 
 
-def _get_doctor(handler):
-    if _operator(handler) is None:
-        return
+def _get_doctor(handler, query):
     try:
         from vnc_remote_secure.core.doctor import run_doctor
         _ok(handler, run_doctor(as_json=True))
@@ -285,13 +261,7 @@ def _get_doctor(handler):
         _err(handler, 'Doctor run failed', 500)
 
 
-def _audit_permitted(handler):
-    return _operator(handler, 'admin_audit') is not None
-
-
 def _get_audit(handler, query):
-    if not _audit_permitted(handler):
-        return
     try:
         from vnc_remote_secure.security.audit import get_audit_entries
         try:
@@ -325,9 +295,7 @@ def _get_audit(handler, query):
         _err(handler, 'Audit read failed', 500)
 
 
-def _get_audit_verify(handler):
-    if not _audit_permitted(handler):
-        return
+def _get_audit_verify(handler, query):
     try:
         from vnc_remote_secure.security.audit import verify_chain
         intact, message = verify_chain()
@@ -337,9 +305,7 @@ def _get_audit_verify(handler):
         _err(handler, 'Audit verification failed', 500)
 
 
-def _get_config(handler):
-    if _operator(handler, 'admin_config') is None:
-        return
+def _get_config(handler, query):
     try:
         from vnc_remote_secure.core.config_inspector import compute_effective_config
         _ok(handler, {'vars': compute_effective_config()})
@@ -348,9 +314,7 @@ def _get_config(handler):
         _err(handler, 'Config inspection failed', 500)
 
 
-def _get_backups(handler):
-    if _operator(handler) is None:
-        return
+def _get_backups(handler, query):
     try:
         from vnc_remote_secure.core.backup import list_backups
         items = []
@@ -372,9 +336,7 @@ def _get_backups(handler):
         _err(handler, 'Backup listing failed', 500)
 
 
-def _get_operators(handler):
-    if _operator(handler, 'admin_users') is None:
-        return
+def _get_operators(handler, query):
     try:
         from vnc_remote_secure.security.operator_users import get_permissions, list_users
         users = []
@@ -388,9 +350,7 @@ def _get_operators(handler):
         _err(handler, 'Operator listing failed', 500)
 
 
-def _get_maintenance(handler):
-    if _operator(handler) is None:
-        return
+def _get_maintenance(handler, query):
     try:
         from vnc_remote_secure.security.maintenance import maintenance_active, maintenance_info
         _ok(handler, {
@@ -400,44 +360,6 @@ def _get_maintenance(handler):
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /maintenance')
         _err(handler, 'Maintenance state read failed', 500)
-
-
-# Route -> rate-limit scope. Dispatch applies it centrally so no
-# handler can forget it.
-_GET_SCOPES = {
-    'doctor': 'doctor', 'audit': 'audit', 'audit/verify': 'audit.verify',
-}
-_POST_SCOPES = {
-    'sessions': 'sessions.create', 'sessions/revoke': 'sessions.revoke',
-    'sessions/revoke-all': 'sessions.revoke-all',
-}
-
-
-def handle_get(handler, path: str, query: dict) -> bool:
-    """Dispatch a GET under /api/v1/. Returns True when handled."""
-    routes = {
-        'me': _get_me,
-        'status': _get_status,
-        'services': _get_services,
-        'sessions': _get_sessions,
-        'health': _get_health,
-        'security/posture': _get_posture,
-        'doctor': _get_doctor,
-        'audit': lambda h: _get_audit(h, query),
-        'audit/verify': _get_audit_verify,
-        'config': _get_config,
-        'backups': _get_backups,
-        'operators': _get_operators,
-        'maintenance': _get_maintenance,
-    }
-    rel = path[len(_API_PREFIX):]
-    fn = routes.get(rel)
-    if fn is None:
-        return False
-    if not _rate_limit(handler, _GET_SCOPES.get(rel, 'default')):
-        return True
-    fn(handler)
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -459,13 +381,11 @@ def _valid_allowed_ip(value: str) -> bool:
         return False
 
 
-def _post_session_create(handler):
-    """POST /api/v1/sessions — share-link creation for the wizard."""
-    operator = handler._operator_gate('admin_sessions')
-    if operator is None:
-        return
-    if not _check_csrf(handler, operator):
-        return
+def _post_session_create(handler, query):
+    """POST /api/v1/sessions — share-link creation for the wizard.
+    Auth+CSRF+capability already ran in _dispatch; the operator is
+    stashed on ``handler._api_operator``."""
+    operator = handler._api_operator
     payload, error = _read_json_body(handler)
     if error:
         _err(handler, *error)
@@ -599,13 +519,9 @@ def _post_session_create(handler):
     }, status=201)
 
 
-def _post_session_revoke(handler):
+def _post_session_revoke(handler, query):
     """POST /api/v1/sessions/revoke — revoke one share-link session."""
-    operator = handler._operator_gate('admin_sessions')
-    if operator is None:
-        return
-    if not _check_csrf(handler, operator):
-        return
+    operator = handler._api_operator
     payload, error = _read_json_body(handler, limit=4096)
     if error:
         _err(handler, *error)
@@ -621,17 +537,15 @@ def _post_session_revoke(handler):
                 user=operator.get('username', 'unknown'),
                 result='success' if revoked else 'failure',
                 detail=f'token_id={token_id}')
-    _ok(handler, {'revoked': bool(revoked)},
-        status=200 if revoked else 404)
+    # Uniform 200 whether the token existed or not — the caller is
+    # already authorized; distinguishing 404 would only help enumerate
+    # live session ids.
+    _ok(handler, {'revoked': bool(revoked)})
 
 
-def _post_session_revoke_all(handler):
+def _post_session_revoke_all(handler, query):
     """POST /api/v1/sessions/revoke-all — emergency kill-switch."""
-    operator = handler._operator_gate('admin_sessions')
-    if operator is None:
-        return
-    if not _check_csrf(handler, operator):
-        return
+    operator = handler._api_operator
     from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
     store = get_session_store()
     store._load_if_changed()
@@ -646,18 +560,114 @@ def _post_session_revoke_all(handler):
     _ok(handler, {'revoked': count})
 
 
+def _post_logout(handler, query):
+    """POST /api/v1/logout — end this operator session's CSRF lifetime.
+
+    Basic auth itself is stateless (the browser re-sends it), so
+    logout's real effect is expiring the ``vnc_csrf`` nonce cookie:
+    every CSRF token minted for this session dies with it, and the
+    SPA drops its cached token. The operator must re-obtain a nonce
+    on the next visit.
+    """
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event('portal_logout',
+                user=handler._api_operator.get('username', 'unknown'))
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'application/json')
+    # Expire the nonce cookie immediately.
+    handler.send_header(
+        'Set-Cookie',
+        'vnc_csrf=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict')
+    handler.send_header('Cache-Control', 'no-store')
+    body = json.dumps(
+        {'data': {'logged_out': True}, 'error': None,
+         'request_id': _request_id()}).encode()
+    handler.send_header('Content-Length', str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+# ---------------------------------------------------------------------------
+# Declarative route registry
+# ---------------------------------------------------------------------------
+# Single source of truth for the API contract. ``perm`` is the
+# operator capability required (``None`` = any authenticated portal
+# user, including ephemeral share-link sessions; the literal
+# 'operator' = operator account, no specific capability). ``scope``
+# selects the rate-limit budget; ``audit`` names the event a mutation
+# must emit — declared here so a contract test can flag a mutation
+# that forgets it.
+from collections import namedtuple
+
+_Route = namedtuple('_Route', 'fn perm scope audit')
+
+_ROUTES = {
+    ('GET', 'me'): _Route(_get_me, None, 'default', None),
+    ('GET', 'status'): _Route(_get_status, None, 'default', None),
+    ('GET', 'services'): _Route(_get_services, 'operator', 'default', None),
+    ('GET', 'sessions'): _Route(_get_sessions, 'admin_sessions', 'default', None),
+    ('GET', 'health'): _Route(_get_health, 'operator', 'default', None),
+    ('GET', 'security/posture'): _Route(_get_posture, 'operator', 'default', None),
+    ('GET', 'doctor'): _Route(_get_doctor, 'operator', 'doctor', None),
+    ('GET', 'audit'): _Route(_get_audit, 'admin_audit', 'audit', None),
+    ('GET', 'audit/verify'): _Route(_get_audit_verify, 'admin_audit', 'audit.verify', None),
+    ('GET', 'config'): _Route(_get_config, 'admin_config', 'default', None),
+    ('GET', 'backups'): _Route(_get_backups, 'operator', 'default', None),
+    ('GET', 'operators'): _Route(_get_operators, 'admin_users', 'default', None),
+    ('GET', 'maintenance'): _Route(_get_maintenance, 'operator', 'default', None),
+    ('POST', 'sessions'): _Route(
+        _post_session_create, 'admin_sessions', 'sessions.create',
+        'portal_session_create'),
+    ('POST', 'sessions/revoke'): _Route(
+        _post_session_revoke, 'admin_sessions', 'sessions.revoke',
+        'portal_session_revoke'),
+    ('POST', 'sessions/revoke-all'): _Route(
+        _post_session_revoke_all, 'admin_sessions', 'sessions.revoke-all',
+        'portal_session_revoke_all'),
+    ('POST', 'logout'): _Route(
+        _post_logout, 'operator', 'default', 'portal_logout'),
+}
+
+# Operator capabilities the registry may reference — anything else is
+# a configuration bug a contract test catches.
+_KNOWN_PERMS = {
+    'operator', 'admin_sessions', 'admin_audit', 'admin_config',
+    'admin_users', 'admin_secrets',
+}
+
+
+def _dispatch(handler, method: str, path: str, query: dict) -> bool:
+    """Central dispatch: rate limit -> auth/capability -> handler.
+
+    Returns True when the route was handled (response written), False
+    when ``path`` matches no route.
+    """
+    spec = _ROUTES.get((method, path[len(_API_PREFIX):]))
+    if spec is None:
+        return False
+    if not _rate_limit(handler, spec.scope):
+        return True
+    if method == 'POST':
+        # _operator_gate runs operator auth + Origin + Sec-Fetch-Site
+        # + the nonce-bound CSRF check + the capability check.
+        perm = None if spec.perm == 'operator' else spec.perm
+        operator = handler._operator_gate(perm)
+        if operator is None:
+            return True
+        handler._api_operator = operator
+    elif spec.perm is not None:
+        cap = None if spec.perm == 'operator' else spec.perm
+        if _operator(handler, cap) is None:
+            return True
+    spec.fn(handler, query)
+    return True
+
+
+def handle_get(handler, path: str, query: dict) -> bool:
+    """Dispatch a GET under /api/v1/. Returns True when handled."""
+    return _dispatch(handler, 'GET', path, query)
+
+
 def handle_post(handler, path: str) -> bool:
     """Dispatch a POST under /api/v1/. Returns True when handled."""
-    routes = {
-        'sessions': _post_session_create,
-        'sessions/revoke': _post_session_revoke,
-        'sessions/revoke-all': _post_session_revoke_all,
-    }
-    rel = path[len(_API_PREFIX):]
-    fn = routes.get(rel)
-    if fn is None:
-        return False
-    if not _rate_limit(handler, _POST_SCOPES.get(rel, 'default')):
-        return True
-    fn(handler)
-    return True
+    return _dispatch(handler, 'POST', path, {})
