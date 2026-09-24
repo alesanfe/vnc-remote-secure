@@ -179,18 +179,26 @@ def _check_csrf():
         str(expected).encode('utf-8', 'replace'))
 
 
-def _issue_session_response(username: str):
+def _issue_session_response(username: str, aal: str = 'aal1'):
     """Create the authenticated session + cookies for *username*.
 
     Shared by the password login and the WebAuthn assertion path —
     both must produce identical session state (Flask session keys,
-    ``vnc_session`` HMAC cookie, step-up auth time).
+    ``vnc_session`` HMAC cookie, step-up auth time). ``aal`` records
+    the authentication assurance level of the method used
+    ('aal1' password/token, 'aal2' +TOTP/recovery, 'aal3' passkey) so
+    downstream policy can distinguish them instead of treating every
+    login method as equivalent.
     """
     # Regenerate the session on privilege change: clear any
     # pre-login keys (attacker-fixated or stale) so the
     # authenticated session carries only fresh state.
     session.clear()
     token = create_web_session(session, username)
+    session['aal'] = aal
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event('session_issued', user=username, ip=_client_ip(),
+                result='success', detail=f'aal={aal}')
     # Record auth time for step-up auth enforcement.
     from vnc_remote_secure.security.step_up_auth import record_auth_time
     record_auth_time(username)
@@ -264,7 +272,8 @@ def login():
         ok, message, _data = attempt_login(
             username, password, totp_code=totp_code, client_ip=ip)
         if ok:
-            return _issue_session_response(username)
+            return _issue_session_response(
+                username, aal='aal2' if totp_code else 'aal1')
         return render_template(
             'login.html', error=message,
             mfa_required=mfa_required_for_login(),
@@ -707,4 +716,4 @@ def webauthn_assert_complete():
         _webauthn_origin())
     if not ok:
         return json_error(message, 401)
-    return _issue_session_response(username)
+    return _issue_session_response(username, aal='aal3')
