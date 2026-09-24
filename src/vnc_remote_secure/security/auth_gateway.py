@@ -221,6 +221,62 @@ def get_allowed_origins() -> list:
     return list(dict.fromkeys(origins))  # dedupe preserving order
 
 
+def _verify_login_mfa(username: str, totp_code: str, limiter,
+                      ip_key: str, user_key: str,
+                      client_ip: str) -> tuple[bool, str, str | None]:
+    """Second factor check for ``attempt_login``.
+
+    Returns ``(ok, message, mfa_method)`` — on failure the limiter,
+    audit, and counter are already updated and ``message`` is the
+    public denial.
+
+    Recovery codes are SINGLE USE: a successfully matched hash is
+    claimed atomically in shared state (surviving restarts and
+    unwritable .env) and also pruned from ``RECOVERY_CODES_HASHES``
+    when the env file is writable.
+    """
+    def _fail(message: str, counter: str):
+        limiter.record_failure(ip_key)
+        limiter.record_failure(user_key)
+        _audit('login', username, client_ip, 'failure', message)
+        _inc_auth_counter(counter)
+        return False, 'Invalid MFA code.', None
+
+    totp_secret = os.environ.get('TOTP_SECRET', '')
+    if not totp_code:
+        limiter.record_failure(ip_key)
+        _audit('login', username, client_ip, 'failure',
+               'MFA code required')
+        _inc_auth_counter('mfa_required')
+        return False, 'MFA code required.', None
+    if totp_secret and verify_totp(totp_secret, totp_code):
+        return True, '', 'totp'
+    stored = os.environ.get('RECOVERY_CODES_HASHES', '')
+    if not stored:
+        return _fail('Invalid MFA code', 'mfa_failure')
+    hashes = [h.strip() for h in stored.split(',') if h.strip()]
+    if not verify_recovery_code(totp_code, hashes):
+        return _fail('Invalid MFA code', 'mfa_failure')
+    from vnc_remote_secure.security.mfa import hash_recovery_code
+    candidate_hash = hash_recovery_code(totp_code)
+    # The single-use claim is atomic: a concurrent login presenting
+    # the same code loses the race even across service processes.
+    if not _claim_recovery_code(candidate_hash):
+        return _fail('Recovery code already used', 'mfa_failure')
+    remaining_hashes = [h for h in hashes if h != candidate_hash]
+    try:
+        from vnc_remote_secure.core.config import set_env_persistent
+        set_env_persistent(
+            'RECOVERY_CODES_HASHES', ','.join(remaining_hashes))
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not persist recovery-code removal; "
+            "shared-state single-use record still enforced")
+    _audit('login', username, client_ip, 'success',
+           'Recovery code consumed')
+    return True, '', 'recovery'
+
+
 def attempt_login(
     username: str,
     password: str,
@@ -263,64 +319,10 @@ def attempt_login(
     # Verify MFA if required
     mfa_method = None
     if mfa_required_for_login():
-        totp_secret = os.environ.get('TOTP_SECRET', '')
-        if not totp_code:
-            limiter.record_failure(ip_key)
-            _audit('login', username, client_ip, 'failure', 'MFA code required')
-            _inc_auth_counter('mfa_required')
-            return False, 'MFA code required.', None
-        if totp_secret and verify_totp(totp_secret, totp_code):
-            mfa_method = 'totp'
-        else:
-            # Try recovery codes — SINGLE USE: a successfully matched
-            # hash is marked consumed in the shared-state backend (which
-            # survives restarts and unwritable .env deployments) and also
-            # removed from RECOVERY_CODES_HASHES in .env when possible.
-            stored = os.environ.get('RECOVERY_CODES_HASHES', '')
-            if stored:
-                hashes = [h.strip() for h in stored.split(',') if h.strip()]
-                from vnc_remote_secure.security.mfa import hash_recovery_code
-                candidate_hash = hash_recovery_code(totp_code) if totp_code else ''
-                if verify_recovery_code(totp_code, hashes):
-                    # Single-use claim is atomic: a concurrent login
-                    # presenting the same code loses the race and is
-                    # rejected even across service processes. The
-                    # shared-state record is durable when .env cannot
-                    # be rewritten (e.g. systemd unit without write
-                    # access to /opt).
-                    if not _claim_recovery_code(candidate_hash):
-                        limiter.record_failure(ip_key)
-                        limiter.record_failure(user_key)
-                        _audit('login', username, client_ip, 'failure',
-                               'Recovery code already used')
-                        _inc_auth_counter('mfa_failure')
-                        return False, 'Invalid MFA code.', None
-                    used = candidate_hash
-                    remaining_hashes = [h for h in hashes if h != used]
-                    try:
-                        from vnc_remote_secure.core.config import set_env_persistent
-                        set_env_persistent(
-                            'RECOVERY_CODES_HASHES',
-                            ','.join(remaining_hashes))
-                    except Exception:  # noqa: BLE001
-                        logger.warning(
-                            "Could not persist recovery-code removal; "
-                            "shared-state single-use record still enforced")
-                    mfa_method = 'recovery'
-                    _audit('login', username, client_ip, 'success',
-                           'Recovery code consumed')
-                else:
-                    limiter.record_failure(ip_key)
-                    limiter.record_failure(user_key)
-                    _audit('login', username, client_ip, 'failure', 'Invalid MFA code')
-                    _inc_auth_counter('mfa_failure')
-                    return False, 'Invalid MFA code.', None
-            else:
-                limiter.record_failure(ip_key)
-                limiter.record_failure(user_key)
-                _audit('login', username, client_ip, 'failure', 'Invalid MFA code')
-                _inc_auth_counter('mfa_failure')
-                return False, 'Invalid MFA code.', None
+        ok, message, mfa_method = _verify_login_mfa(
+            username, totp_code, limiter, ip_key, user_key, client_ip)
+        if not ok:
+            return False, message, None
 
     # Success: clear rate limit and create session
     limiter.record_success(ip_key)
@@ -538,6 +540,49 @@ def _authorize_ephemeral_cookie(
     return False, 'Invalid or expired session'
 
 
+def _ws_reject(limiter, client_ip: str, reason: str,
+               category: str = 'invalid') -> tuple[bool, str]:
+    """Count rejected upgrades against the same limiter as auth
+    attempts — otherwise the WebSocket endpoint becomes a lockout-free
+    credential oracle."""
+    if client_ip:
+        limiter.record_failure(f'ws:{client_ip}')
+    _metric_reject(category)
+    return False, reason
+
+
+def _ws_ephemeral_bearer(bearer_token: str, required_permission: str,
+                         resource: str, client_ip: str, reject):
+    """Bearer-token path when a permission is required: the token may
+    be an ephemeral session token — validate and authorize it against
+    the store. Returns ``(allowed, reason)`` or ``None`` to fall
+    through to standard auth (a non-ephemeral bearer is a regular
+    session token — rejecting it here would break operators whenever
+    required_permission is configured; noVNC applies the same
+    ephemeral-then-standard order)."""
+    from vnc_remote_secure.security.ephemeral_sessions import (
+        check_permission,
+        is_session_expired,
+        is_session_revoked,
+    )
+    from vnc_remote_secure.security.token_signing import (
+        TOKEN_TYPE_EPHEMERAL,
+        verify_token,
+    )
+    if not verify_token(TOKEN_TYPE_EPHEMERAL, bearer_token):
+        return None
+    if is_session_revoked(bearer_token):
+        return reject('Session revoked', 'revoked')
+    if is_session_expired(bearer_token):
+        return reject('Session expired', 'expired')
+    if not check_permission(
+            bearer_token, required_permission, resource=resource,
+            client_ip=client_ip or None):
+        return reject(f'Permission denied: {required_permission}',
+                      'permission_denied')
+    return True, 'OK'
+
+
 def check_websocket_upgrade(
     origin: str,
     cookie_value: str = '',
@@ -567,20 +612,14 @@ def check_websocket_upgrade(
     """
     limiter = get_auth_limiter()
 
+    def _reject(reason: str, category: str = 'invalid'):
+        return _ws_reject(limiter, client_ip, reason, category)
+
     # A locked IP is rejected before any other check — otherwise a
     # brute-force lockout would not actually block subsequent valid
     # upgrades from the same address.
     if client_ip and is_client_locked(client_ip):
         return False, 'Rate limited'
-
-    def _reject(reason: str, category: str = 'invalid') -> tuple[bool, str]:
-        # Count rejected upgrades against the same limiter as auth
-        # attempts — otherwise the WebSocket endpoint becomes a
-        # lockout-free credential oracle.
-        if client_ip:
-            limiter.record_failure(f'ws:{client_ip}')
-        _metric_reject(category)
-        return False, reason
 
     # Origin must be valid
     if not check_origin(origin, get_allowed_origins()):
@@ -603,34 +642,12 @@ def check_websocket_upgrade(
             return _reject('Invalid or expired session',
                            'ephemeral_invalid')
 
-    # If a required permission is specified, the bearer token is an
-    # ephemeral session token — validate it against the session store.
     if required_permission and bearer_token:
-        from vnc_remote_secure.security.ephemeral_sessions import (
-            check_permission,
-            is_session_expired,
-            is_session_revoked,
-        )
-        from vnc_remote_secure.security.token_signing import (
-            TOKEN_TYPE_EPHEMERAL,
-            verify_token,
-        )
-        # A bearer that is NOT an ephemeral token (e.g. a regular
-        # session bearer token) must fall through to standard auth —
-        # otherwise valid operator tokens are rejected whenever a
-        # required_permission is configured (noVNC applies the same
-        # ephemeral-then-standard order).
-        if verify_token(TOKEN_TYPE_EPHEMERAL, bearer_token):
-            if is_session_revoked(bearer_token):
-                return _reject('Session revoked', 'revoked')
-            if is_session_expired(bearer_token):
-                return _reject('Session expired', 'expired')
-            if not check_permission(
-                    bearer_token, required_permission, resource=resource,
-                    client_ip=client_ip or None):
-                return _reject(f'Permission denied: {required_permission}',
-                               'permission_denied')
-            return True, 'OK'
+        result = _ws_ephemeral_bearer(
+            bearer_token, required_permission, resource,
+            client_ip, _reject)
+        if result is not None:
+            return result
 
     # Standard authentication (cookie or session token)
     authed, _ = check_authenticated(cookie_value, bearer_token)

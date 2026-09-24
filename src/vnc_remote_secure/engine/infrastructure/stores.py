@@ -192,3 +192,78 @@ def mfa_required() -> bool:
 def mfa_available() -> bool:
     from vnc_remote_secure.security.mfa import is_mfa_enabled
     return is_mfa_enabled()
+
+
+# --- System (OS) users -------------------------------------------------
+# The platform adapter owns the OS calls; the engine only sees narrow
+# primitives. Validation lives in core.validation — a domain concern.
+
+def system_users_list() -> list:
+    """Non-reserved OS users: {username, uid|None, home|None}.
+
+    Linux reads pwd (UID >= 100, non-reserved); Windows delegates to
+    the adapter's list_users()."""
+    import platform as _platform
+    from vnc_remote_secure.core.constants import (
+        RESERVED_USERNAMES,
+        WINDOWS_BUILTIN_USERNAMES,
+    )
+    users = []
+    if _platform.system() == 'Windows':
+        try:
+            from vnc_remote_secure.platform.windows.permissions import list_users
+            for u in list_users():
+                name = u.get('username', '')
+                if (name and name not in RESERVED_USERNAMES
+                        and name not in WINDOWS_BUILTIN_USERNAMES):
+                    users.append({
+                        'username': name,
+                        'uid': u.get('uid'),
+                        'home': u.get('home'),
+                    })
+        except Exception:  # noqa: BLE001 - listing is best-effort
+            pass
+        return users
+    try:
+        import pwd
+        for u in pwd.getpwall():
+            if u.pw_uid >= 100 and u.pw_name not in RESERVED_USERNAMES:
+                users.append({
+                    'username': u.pw_name,
+                    'uid': u.pw_uid,
+                    'home': u.pw_dir,
+                })
+    except (ImportError, AttributeError):
+        pass
+    return users
+
+
+def system_user_create(username: str, password: str) -> None:
+    """Create the OS account and set its password via the adapter."""
+    import platform as _platform
+    from vnc_remote_secure.platform.base import get_adapter
+    if not get_adapter().create_runtime_user(username):
+        raise RuntimeError('user creation failed')
+    if _platform.system() == 'Windows':
+        from vnc_remote_secure.platform.windows.permissions import set_user_password
+    else:
+        from vnc_remote_secure.platform.linux.permissions import set_user_password
+    set_user_password(username, password)
+
+
+def system_user_delete(username: str) -> bool:
+    from vnc_remote_secure.platform.base import get_adapter
+    return bool(get_adapter().remove_runtime_user(username))
+
+
+def system_usernames_reserved() -> set:
+    from vnc_remote_secure.core.constants import (
+        RESERVED_USERNAMES,
+        WINDOWS_BUILTIN_USERNAMES,
+    )
+    return RESERVED_USERNAMES | WINDOWS_BUILTIN_USERNAMES
+
+
+def system_current_user() -> str:
+    import getpass
+    return getpass.getuser()

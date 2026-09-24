@@ -57,6 +57,7 @@ _RATE_LIMITS = {
     'operators.sessions_revoke': (30, 60),
     'passkeys.register': (10, 60),
     'passkeys.manage': (30, 60),
+    'system_users.manage': (30, 60),
     'maintenance': (10, 60),
     # Step-up re-authentication — a password-verification oracle must
     # be throttled as hard as login itself.
@@ -516,6 +517,60 @@ def _post_maintenance(handler, query):
         _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
     _ok(handler, result)
+
+
+def _get_system_users(handler, query):
+    """GET /api/v1/system-users — non-reserved OS accounts."""
+    try:
+        from vnc_remote_secure.engine.application.system_users import list_system_users
+        _ok(handler, {'users': list_system_users()})
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /system-users')
+        _err(handler, 'System user list failed', 500)
+
+
+def _post_system_user_create(handler, query):
+    """POST /api/v1/system-users — runtime OS account (step-up)."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    unknown = set(payload) - {'username', 'password'}
+    if unknown:
+        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
+        return
+    username = payload.get('username')
+    password = payload.get('password')
+    if not isinstance(username, str) or not username.strip():
+        _err(handler, 'username is required', 400)
+        return
+    if not isinstance(password, str) or not password:
+        _err(handler, 'password is required', 400)
+        return
+    from vnc_remote_secure.engine.application.system_users import create_system_user
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        result = create_system_user(
+            operator.get('username', 'unknown'), username, password)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, result, status=201)
+
+
+def _delete_system_user(handler, query):
+    """DELETE /api/v1/system-users/{username} — step-up gated."""
+    operator = handler._api_operator
+    username = handler._api_params['username']
+    from vnc_remote_secure.engine.application.system_users import delete_system_user
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        delete_system_user(operator.get('username', 'unknown'), username)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'deleted': True})
 
 
 # ---------------------------------------------------------------------------
@@ -1226,6 +1281,16 @@ _ROUTES = {
         _post_operator_revoke_sessions, 'admin_users',
         'operators.sessions_revoke', 'operator_sessions_revoked',
         'SessionRevokeResponse', True),
+    # OS-level runtime accounts (migrated from the Flask users UI).
+    ('GET', 'system-users'): _Route(
+        _get_system_users, 'admin_users', 'default', None,
+        'SystemUserPageResponse'),
+    ('POST', 'system-users'): _Route(
+        _post_system_user_create, 'admin_users', 'system_users.manage',
+        'user_create', 'SystemUserCreatedResponse', True),
+    ('DELETE', 'system-users/{username}'): _Route(
+        _delete_system_user, 'admin_users', 'system_users.manage',
+        'user_delete', 'DeleteResponse', True),
 }
 
 # Operator capabilities the registry may reference — anything else is
