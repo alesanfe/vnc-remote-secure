@@ -50,7 +50,8 @@ class TestSidRevocation:
     def test_revoke_cookie_invalid_fails_closed(self):
         res = revoke_cookie('garbage')
         assert res.logically_revoked is False
-        assert 'invalid_cookie' in res.errors
+        assert any(e.code == 'INVALID_COOKIE' for e in res.errors)
+        assert res.retry_recommended is False
 
     def test_second_revoke_is_clean_idempotent(self):
         """already_revoked reports the prior mark; cleanup still runs
@@ -110,8 +111,7 @@ class TestSidRevocation:
             assert entered.wait(timeout=5)
             # Revocation lands while register() is paused between
             # registration and the double-check.
-            from vnc_remote_secure.security.shared_state import (
-                get_backend)
+            from vnc_remote_secure.security.shared_state import get_backend
             get_backend().set_ttl('websocket_revoked_sessions',
                                   f'sid:{sid}', _t.time(), 86400)
             proceed.set()
@@ -159,5 +159,7 @@ class TestStablePairRevocation:
                    'not-a-sid!!!', 60)
         res = revoke_stable_pair(stable)
         assert res.logically_revoked is True
-        # Corrupt entry is reported structurally, not silently.
-        assert 'INDEX_INVALID_SID' in res.errors
+        # Corrupt entry is reported structurally, non-retryable.
+        assert any(e.code == 'INDEX_INVALID_SID' and not e.retryable
+                   for e in res.errors)
+        assert res.retry_recommended is False

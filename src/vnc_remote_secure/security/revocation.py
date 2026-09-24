@@ -27,6 +27,16 @@ _NS_REVOKED = 'websocket_revoked_sessions'
 
 
 @dataclass(frozen=True)
+class RevocationError:
+    """A single cleanup-phase failure — typed so callers know whether
+    a retry can help (a corrupt index entry can't be fixed by
+    repeating the sweep; a dead registry can)."""
+    phase: str      # 'mark' | 'ctx' | 'ws' | 'index'
+    code: str       # stable reason code, e.g. 'REGISTRY_UNAVAILABLE'
+    retryable: bool
+
+
+@dataclass(frozen=True)
 class RevocationResult:
     """Structured outcome of a revocation — the logical mark is
     fail-closed and reported separately from cleanup, so a partial
@@ -38,7 +48,7 @@ class RevocationResult:
     contexts_dropped: int
     connections_closed: int
     already_revoked: int = 0  # idempotency: second call reports this
-    errors: tuple = ()
+    errors: tuple = ()        # tuple[RevocationError, ...]
 
     @property
     def cleanup_complete(self) -> bool:
@@ -46,9 +56,10 @@ class RevocationResult:
 
     @property
     def retry_recommended(self) -> bool:
-        """Revoked logically but cleanup failed — a second call is
-        idempotent and will retry ctx/index/conn cleanup."""
-        return self.logically_revoked and bool(self.errors)
+        """True only when at least one error is retryable — a corrupt
+        index entry doesn't get better by repeating the sweep."""
+        return self.logically_revoked and any(
+            e.retryable for e in self.errors)
 
 
 def _mark(key: str, marked_at: float | None = None) -> bool:
@@ -104,7 +115,10 @@ def revoke_sid(sid: str, reason: str = 'revoked',
         marked_ok = True
     except Exception as exc:  # noqa: BLE001
         marked_ok = False
-        errors.append(f'mark: {exc}')
+        errors.append(RevocationError(
+            'mark', 'SHARED_STATE_WRITE_FAILED', retryable=True))
+        logger.warning('revocation mark failed for sid: %s',
+                       type(exc).__name__)
     dropped = 0
     try:
         import hashlib as _h
@@ -120,14 +134,18 @@ def revoke_sid(sid: str, reason: str = 'revoked',
         for k in be.list_keys('web_auth_context'):
             if k.startswith('idx:') and k.endswith(':' + sid_hash):
                 be.delete('web_auth_context', k)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f'ctx: {exc}')
+    except Exception:  # noqa: BLE001
+        errors.append(RevocationError(
+            'ctx', 'CTX_DROP_FAILED', retryable=True))
+        logger.debug('ctx drop failed for sid', exc_info=True)
     closed = 0
     try:
         # v3 conns register under the sid — precise close.
         closed = revoke_session_connections(sid)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f'ws: {exc}')
+    except Exception:  # noqa: BLE001
+        errors.append(RevocationError(
+            'connections', 'REGISTRY_UNAVAILABLE', retryable=True))
+        logger.debug('ws close failed for sid', exc_info=True)
     _audit('session_revoked', revocation_scope='individual',
            session_ref=_session_ref(sid), reason=reason, actor=actor)
     return RevocationResult('sid', marked_ok, 1 - already, dropped,
@@ -152,7 +170,10 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
         _mark(stable_id)
     except Exception as exc:  # noqa: BLE001
         marked_ok = False
-        errors.append(f'mark: {exc}')
+        errors.append(RevocationError(
+            'mark', 'SHARED_STATE_WRITE_FAILED', retryable=True))
+        logger.warning('stable-pair mark failed: %s',
+                       type(exc).__name__)
     dropped = 0
     closed = 0
     marked = 1
@@ -166,7 +187,9 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
         _MAX_IDX = 10000
         idx_keys = be.list_keys('web_auth_context', prefix=prefix)
         if len(idx_keys) > _MAX_IDX:
-            errors.append('INDEX_SWEEP_TRUNCATED')
+            # Truncated sweep = incomplete cleanup -> retryable.
+            errors.append(RevocationError(
+                'index', 'SWEEP_TRUNCATED', retryable=True))
             idx_keys = idx_keys[:_MAX_IDX]
         import re as _re
         for idx_key in idx_keys:
@@ -183,20 +206,26 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
                     _mark(f'sid:{sid}')
                     marked += 1
                     closed += revoke_session_connections(sid)
-                except Exception as exc:  # noqa: BLE001
-                    errors.append(f'sid mark/close failed: '
-                                  f'{type(exc).__name__}')
+                except Exception:  # noqa: BLE001
+                    errors.append(RevocationError(
+                        'connections', 'SID_MARK_OR_CLOSE_FAILED',
+                        retryable=True))
             else:
                 _audit('revocation_index_invalid_sid',
                        session_ref=_session_ref(stable_id))
-                errors.append('INDEX_INVALID_SID')
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f'ctx: {exc}')
+                # Corrupt value — the entry was already deleted
+                # above; retrying can't repair it.
+                errors.append(RevocationError(
+                    'index', 'INDEX_INVALID_SID', retryable=False))
+    except Exception:  # noqa: BLE001
+        errors.append(RevocationError(
+            'index', 'IDX_SWEEP_FAILED', retryable=True))
     try:
         # Legacy conns registered under the stable pair itself.
         closed += revoke_session_connections(stable_id)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f'ws: {exc}')
+    except Exception:  # noqa: BLE001
+        errors.append(RevocationError(
+            'connections', 'REGISTRY_UNAVAILABLE', retryable=True))
     _audit('session_revoked', revocation_scope='legacy_group',
            session_ref=_session_ref(stable_id), reason=reason,
            actor=actor, sessions_marked=marked)
@@ -212,8 +241,9 @@ def revoke_cookie(cookie_value: str, reason: str = 'revoked',
     parsed = verify_session_cookie(cookie_value)
     if parsed is None:
         _audit('session_revoke_failed', reason='invalid_cookie')
-        return RevocationResult('sid', False, 0, 0, 0,
-                                errors=('invalid_cookie',))
+        return RevocationResult('sid', False, 0, 0, 0, errors=(
+            RevocationError('resolve', 'INVALID_COOKIE',
+                            retryable=False),))
     if parsed.get('sid'):
         return revoke_sid(parsed['sid'], reason=reason, actor=actor)
     return revoke_stable_pair(
