@@ -280,6 +280,98 @@ paths:
       x-response-schema: OperatorPageResponse
       responses:
         '200': { description: '{operators: [OperatorSummary]}' }
+    post:
+      summary: Create an operator (strict schema)
+      x-required-permission: admin_users
+      x-csrf-required: true
+      x-rate-limit-scope: operators.create
+      x-response-schema: OperatorResponse
+      x-audit-event: operator_created
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      responses:
+        '201': { description: Created }
+        '400': { description: 'Validation failure (unknown field, weak password, bad role)' }
+        '403': { description: 'admin:* required to create admin operators' }
+        '409': { description: Username already taken }
+  /operators/{username}:
+    get:
+      summary: Operator detail (record + expanded permissions + passkey count)
+      x-required-permission: admin_users
+      x-rate-limit-scope: default
+      x-response-schema: OperatorResponse
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '404': { description: Operator not found }
+    patch:
+      summary: 'Edit operator: role, disabled, password. Sensitive changes revoke sessions.'
+      x-required-permission: admin_users
+      x-csrf-required: true
+      x-rate-limit-scope: operators.update
+      x-response-schema: OperatorResponse
+      x-audit-event: operator_updated
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{operator, changed, sessions_revoked}' }
+        '409': { description: 'Would remove the last viable administrator' }
+    delete:
+      summary: Delete an operator (last viable admin is protected)
+      x-required-permission: admin_users
+      x-csrf-required: true
+      x-rate-limit-scope: operators.delete
+      x-response-schema: DeleteResponse
+      x-audit-event: operator_deleted
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{deleted: true}' }
+        '404': { description: Operator not found }
+        '409': { description: 'Would delete the last viable administrator' }
+  /operators/{username}/passkeys:
+    get:
+      summary: Operator passkeys (opaque ref, no credential id or public key)
+      x-required-permission: admin_users
+      x-rate-limit-scope: default
+      x-response-schema: PasskeyPageResponse
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{passkeys: [{ref, name, created_at, sign_count}]}' }
+        '404': { description: Operator not found }
+  /operators/{username}/sessions/revoke-all:
+    post:
+      summary: Revoke every live operator session for the user (per-user epoch)
+      x-required-permission: admin_users
+      x-csrf-required: true
+      x-rate-limit-scope: operators.sessions_revoke
+      x-response-schema: SessionRevokeResponse
+      x-audit-event: operator_sessions_revoked
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{revoked: true}' }
+        '404': { description: Operator not found }
   /maintenance:
     get:
       summary: Maintenance mode state (operator)

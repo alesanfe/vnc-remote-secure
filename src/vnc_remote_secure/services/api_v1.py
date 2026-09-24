@@ -56,6 +56,11 @@ _RATE_LIMITS = {
     'audit.verify': (10, 60),
     'session.activate': (30, 60),
     'session.preview': (60, 60),
+    # Operator management — destructive scopes get tighter budgets.
+    'operators.create': (10, 60),
+    'operators.update': (30, 60),
+    'operators.delete': (10, 60),
+    'operators.sessions_revoke': (30, 60),
     'default': (120, 60),
 }
 _RATE_NS = 'api_rate'
@@ -696,6 +701,322 @@ def _post_logout(handler, query):
 
 
 # ---------------------------------------------------------------------------
+# Operator management
+# ---------------------------------------------------------------------------
+# Schemas (strict — unknown keys rejected):
+#   POST   /operators            {username, password, role, enabled?}
+#   PATCH  /operators/{username} {role?, disabled?, password?}
+#   DELETE /operators/{username}
+#   POST   /operators/{username}/sessions/revoke-all  {}
+_OPERATOR_CREATE_KEYS = {'username', 'password', 'role', 'enabled'}
+_OPERATOR_PATCH_KEYS = {'role', 'disabled', 'password'}
+
+
+def _operator_record(username: str):
+    """Store record for *username* or None."""
+    from vnc_remote_secure.security.operator_users import load_store
+    return load_store().get(username)
+
+
+def _viable_admin_count(excluding: str = '') -> int:
+    """Count enabled operators with the admin umbrella, excluding one.
+
+    The env bootstrap 'admin' counts as viable only while a
+    LANDING_PASSWORD is configured — a store user being demoted must
+    never assume the env admin silently exists.
+    """
+    import os
+
+    from vnc_remote_secure.security.operator_users import load_store
+    count = 0
+    if excluding != 'admin' and os.environ.get('LANDING_PASSWORD'):
+        count += 1
+    for name, rec in load_store().items():
+        if name == excluding or rec.get('disabled'):
+            continue
+        if rec.get('role') == 'admin':
+            count += 1
+    return count
+
+
+def _is_admin_operator(username: str) -> bool:
+    rec = _operator_record(username)
+    return rec is not None and rec.get('role') == 'admin'
+
+
+def _revoke_operator_sessions(username: str) -> None:
+    """Invalidate every live ``vnc_op`` session for *username*.
+
+    Operator cookies are stateless (signed sid.username.exp), so
+    revocation records a per-user epoch in shared state; the cookie
+    verify path rejects any session issued before the epoch.
+    """
+    import time as _time
+
+    from vnc_remote_secure.security.shared_state import get_backend
+    get_backend().set_ttl(
+        'op_revoked_users', username, str(_time.time()),
+        8 * 3600)  # matches LandingHandler._OP_SESSION_TTL
+
+
+def _get_operator_detail(handler, query):
+    username = handler._api_params['username']
+    rec = _operator_record(username)
+    if rec is None:
+        _err(handler, 'Operator not found', 404)
+        return
+    from vnc_remote_secure.security.operator_users import get_permissions
+    from vnc_remote_secure.security.webauthn import list_credentials
+    data = operator_to_api({'username': username, **rec})
+    data['permissions'] = sorted(get_permissions(username))
+    data['passkey_count'] = len(list_credentials(username))
+    _ok(handler, {'operator': data})
+
+
+def _get_operator_passkeys(handler, query):
+    """Public passkey view: opaque ref (sha256 prefix of the
+    credential id), name, timestamps — never the credential id or
+    public key."""
+    import hashlib as _hashlib
+    username = handler._api_params['username']
+    if _operator_record(username) is None:
+        _err(handler, 'Operator not found', 404)
+        return
+    from vnc_remote_secure.security.webauthn import list_credentials
+    keys = [{
+        'ref': _hashlib.sha256(c['credential_id'].encode()).hexdigest()[:16],
+        'name': c.get('name', ''),
+        'created_at': c.get('created_at', ''),
+        'sign_count': c.get('sign_count', 0),
+    } for c in list_credentials(username)]
+    _ok(handler, {'passkeys': keys})
+
+
+def _post_operator_create(handler, query):
+    """POST /api/v1/operators — strict schema; a misspelled flag must
+    never silently produce a wider account."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    unknown = set(payload) - _OPERATOR_CREATE_KEYS
+    if unknown:
+        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
+        return
+    username = payload.get('username')
+    password = payload.get('password')
+    role = payload.get('role', 'viewer')
+    enabled = payload.get('enabled', True)
+    if not isinstance(username, str):
+        _err(handler, 'username must be a string', 400)
+        return
+    username = username.strip()
+    if not isinstance(password, str) or not password:
+        _err(handler, 'password required', 400)
+        return
+    if type(enabled) is not bool:  # noqa: E721
+        _err(handler, 'enabled must be a boolean', 400)
+        return
+    from vnc_remote_secure.core.validation import ValidationError, validate_password
+    from vnc_remote_secure.security.operator_users import (
+        ROLE_PERMISSIONS,
+        _valid_username,
+        add_user,
+        set_disabled,
+    )
+    if not _valid_username(username):
+        _err(handler,
+             'username must be 1-64 chars of [a-zA-Z0-9._-@]', 400)
+        return
+    if role not in ROLE_PERMISSIONS:
+        _err(handler,
+             f'Unknown role: {role} — one of '
+             f'{sorted(ROLE_PERMISSIONS)}', 400)
+        return
+    if role == 'admin' and 'admin:*' not in set(
+            operator.get('permissions') or []):
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event('api_permission_denied',
+                    user=operator.get('username', '?'),
+                    detail='create admin operator')
+        _err(handler, 'Creating admin operators requires admin:*', 403)
+        return
+    try:
+        validate_password(password)
+    except ValidationError as exc:
+        _err(handler, str(exc), 400)
+        return
+    try:
+        add_user(username, password, role)
+    except ValueError as exc:
+        status = 409 if 'already exists' in str(exc) else 400
+        _err(handler, str(exc), status)
+        return
+    if not enabled:
+        set_disabled(username, True)
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event('operator_created',
+                user=operator.get('username', '?'),
+                detail=f'target={username} role={role}')
+    _ok(handler, {
+        'operator': operator_to_api(
+            {'username': username, **_operator_record(username)}),
+    }, status=201)
+
+
+def _patch_operator(handler, query):
+    """PATCH /api/v1/operators/{username} — role, disabled, password.
+    Internal fields (hash, timestamps) are never settable."""
+    operator = handler._api_operator
+    username = handler._api_params['username']
+    payload, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    unknown = set(payload) - _OPERATOR_PATCH_KEYS
+    if unknown or not payload:
+        _err(handler,
+             f'Allowed fields: {sorted(_OPERATOR_PATCH_KEYS)}'
+             + (f' (unknown: {sorted(unknown)})' if unknown else ''),
+             400)
+        return
+    if _operator_record(username) is None:
+        _err(handler, 'Operator not found', 404)
+        return
+    from vnc_remote_secure.security.audit import audit_event
+    from vnc_remote_secure.security.operator_users import (
+        ROLE_PERMISSIONS,
+        set_disabled,
+        set_password,
+        set_role,
+    )
+    changes = []
+    revoke_sessions = False
+
+    if 'role' in payload:
+        role = payload['role']
+        if role not in ROLE_PERMISSIONS:
+            _err(handler,
+                 f'Unknown role: {role} — one of '
+                 f'{sorted(ROLE_PERMISSIONS)}', 400)
+            return
+        if role != 'admin' and _is_admin_operator(username) \
+                and _viable_admin_count(excluding=username) == 0:
+            _err(handler,
+                 'Refused: would remove the last viable '
+                 'administrator', 409)
+            return
+        if role == 'admin' and 'admin:*' not in set(
+                operator.get('permissions') or []):
+            _err(handler, 'Granting admin requires admin:*', 403)
+            return
+        old_role = _operator_record(username).get('role')
+        if not set_role(username, role):
+            _err(handler, 'Role update failed', 500)
+            return
+        audit_event('operator_role_changed',
+                    user=operator.get('username', '?'),
+                    detail=f'target={username} {old_role}->{role}')
+        changes.append('role')
+        revoke_sessions = True
+
+    if 'disabled' in payload:
+        disabled = payload['disabled']
+        if type(disabled) is not bool:  # noqa: E721
+            _err(handler, 'disabled must be a boolean', 400)
+            return
+        if disabled and _is_admin_operator(username) \
+                and _viable_admin_count(excluding=username) == 0:
+            _err(handler,
+                 'Refused: would disable the last viable '
+                 'administrator', 409)
+            return
+        if not set_disabled(username, disabled):
+            _err(handler, 'State update failed', 500)
+            return
+        audit_event(
+            'operator_disabled' if disabled else 'operator_enabled',
+            user=operator.get('username', '?'),
+            detail=f'target={username}')
+        changes.append('disabled')
+        if disabled:
+            revoke_sessions = True
+
+    if 'password' in payload:
+        password = payload['password']
+        if not isinstance(password, str) or not password:
+            _err(handler, 'password must be a non-empty string', 400)
+            return
+        from vnc_remote_secure.core.validation import ValidationError, validate_password
+        try:
+            validate_password(password)
+        except ValidationError as exc:
+            _err(handler, str(exc), 400)
+            return
+        if not set_password(username, password):
+            _err(handler, 'Password update failed', 500)
+            return
+        audit_event('operator_password_changed',
+                    user=operator.get('username', '?'),
+                    detail=f'target={username}')
+        changes.append('password')
+        revoke_sessions = True
+
+    # A sensitive change must not leave live sessions running with a
+    # stale capability set — revoke them all; the operator re-logs in.
+    if revoke_sessions:
+        _revoke_operator_sessions(username)
+    _ok(handler, {
+        'operator': operator_to_api(
+            {'username': username, **_operator_record(username)}),
+        'changed': changes,
+        'sessions_revoked': revoke_sessions,
+    })
+
+
+def _delete_operator(handler, query):
+    """DELETE /api/v1/operators/{username} — refuses the last viable
+    administrator; live sessions die with the account."""
+    operator = handler._api_operator
+    username = handler._api_params['username']
+    if _operator_record(username) is None:
+        _err(handler, 'Operator not found', 404)
+        return
+    if _is_admin_operator(username) \
+            and _viable_admin_count(excluding=username) == 0:
+        _err(handler,
+             'Refused: would delete the last viable administrator',
+             409)
+        return
+    from vnc_remote_secure.security.audit import audit_event
+    from vnc_remote_secure.security.operator_users import remove_user
+    if not remove_user(username):
+        _err(handler, 'Operator delete failed', 500)
+        return
+    _revoke_operator_sessions(username)
+    audit_event('operator_deleted',
+                user=operator.get('username', '?'),
+                detail=f'target={username}')
+    _ok(handler, {'deleted': True})
+
+
+def _post_operator_revoke_sessions(handler, query):
+    """POST /api/v1/operators/{username}/sessions/revoke-all."""
+    operator = handler._api_operator
+    username = handler._api_params['username']
+    if _operator_record(username) is None:
+        _err(handler, 'Operator not found', 404)
+        return
+    _revoke_operator_sessions(username)
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event('operator_sessions_revoked',
+                user=operator.get('username', '?'),
+                detail=f'target={username}')
+    _ok(handler, {'revoked': True})
+
+
+# ---------------------------------------------------------------------------
 # Declarative route registry
 # ---------------------------------------------------------------------------
 # Single source of truth for the API contract. ``perm`` is the
@@ -758,6 +1079,27 @@ _ROUTES = {
     ('POST', 'logout'): _Route(
         _post_logout, 'operator', 'default', 'portal_logout',
         'LogoutResponse'),
+    # Operator management — {username} is a path parameter resolved
+    # by _dispatch into handler._api_params.
+    ('GET', 'operators/{username}'): _Route(
+        _get_operator_detail, 'admin_users', 'default', None,
+        'OperatorResponse'),
+    ('GET', 'operators/{username}/passkeys'): _Route(
+        _get_operator_passkeys, 'admin_users', 'default', None,
+        'PasskeyPageResponse'),
+    ('POST', 'operators'): _Route(
+        _post_operator_create, 'admin_users', 'operators.create',
+        'operator_created', 'OperatorResponse'),
+    ('PATCH', 'operators/{username}'): _Route(
+        _patch_operator, 'admin_users', 'operators.update',
+        'operator_updated', 'OperatorResponse'),
+    ('DELETE', 'operators/{username}'): _Route(
+        _delete_operator, 'admin_users', 'operators.delete',
+        'operator_deleted', 'DeleteResponse'),
+    ('POST', 'operators/{username}/sessions/revoke-all'): _Route(
+        _post_operator_revoke_sessions, 'admin_users',
+        'operators.sessions_revoke', 'operator_sessions_revoked',
+        'SessionRevokeResponse'),
 }
 
 # Operator capabilities the registry may reference — anything else is
@@ -768,18 +1110,55 @@ _KNOWN_PERMS = {
 }
 
 
+_TEMPLATE_ROUTES = None
+
+
+def _template_routes():
+    """Compile ``{name}`` path templates in _ROUTES to regexes once.
+
+    Segments like ``operators/{username}`` match a single non-empty
+    path segment; captured params are stashed on
+    ``handler._api_params`` for the handler.
+    """
+    global _TEMPLATE_ROUTES
+    if _TEMPLATE_ROUTES is None:
+        import re
+        compiled = []
+        for (method, rel), spec in _ROUTES.items():
+            if '{' not in rel:
+                continue
+            pattern = '/'.join(
+                f'(?P<{seg[1:-1]}>[^/]+)'
+                if seg.startswith('{') and seg.endswith('}')
+                else re.escape(seg)
+                for seg in rel.split('/'))
+            compiled.append((method, re.compile(f'^{pattern}$'), spec))
+        _TEMPLATE_ROUTES = compiled
+    return _TEMPLATE_ROUTES
+
+
 def _dispatch(handler, method: str, path: str, query: dict) -> bool:
     """Central dispatch: rate limit -> auth/capability -> handler.
 
     Returns True when the route was handled (response written), False
     when ``path`` matches no route.
     """
-    spec = _ROUTES.get((method, path[len(_API_PREFIX):]))
+    rel = path[len(_API_PREFIX):]
+    spec = _ROUTES.get((method, rel))
+    params = {}
+    if spec is None:
+        for rmethod, regex, rspec in _template_routes():
+            if rmethod != method:
+                continue
+            m = regex.match(rel)
+            if m:
+                spec, params = rspec, m.groupdict()
+                break
     if spec is None:
         return False
     if not _rate_limit(handler, spec.scope):
         return True
-    if method == 'POST':
+    if method != 'GET':
         # _operator_gate runs operator auth + Origin + Sec-Fetch-Site
         # + the nonce-bound CSRF check + the capability check.
         perm = None if spec.perm == 'operator' else spec.perm
@@ -791,6 +1170,7 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
         cap = None if spec.perm == 'operator' else spec.perm
         if _operator(handler, cap) is None:
             return True
+    handler._api_params = params
     spec.fn(handler, query)
     return True
 
@@ -803,3 +1183,13 @@ def handle_get(handler, path: str, query: dict) -> bool:
 def handle_post(handler, path: str) -> bool:
     """Dispatch a POST under /api/v1/. Returns True when handled."""
     return _dispatch(handler, 'POST', path, {})
+
+
+def handle_patch(handler, path: str) -> bool:
+    """Dispatch a PATCH under /api/v1/. Returns True when handled."""
+    return _dispatch(handler, 'PATCH', path, {})
+
+
+def handle_delete(handler, path: str) -> bool:
+    """Dispatch a DELETE under /api/v1/. Returns True when handled."""
+    return _dispatch(handler, 'DELETE', path, {})

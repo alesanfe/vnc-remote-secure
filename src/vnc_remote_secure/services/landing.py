@@ -1394,10 +1394,12 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         stashed on ``self._portal_sid`` — the CSRF token is bound to
         it, and logout/revocation targets it.
         """
-        op_cookie = cookie_value(
-            self.headers.get('Cookie', ''), 'vnc_op')
-        if op_cookie:
-            rec = self._verify_op_cookie(op_cookie)
+        cookie_header = self.headers.get('Cookie', '')
+        # A duplicated vnc_op name is ambiguous — cookie parsing order
+        # is not portable, so duplicated session cookies never auth.
+        if self._cookie_occurrences(cookie_header, 'vnc_op') == 1:
+            rec = self._verify_op_cookie(
+                cookie_value(cookie_header, 'vnc_op'))
             if rec is not None:
                 sid, operator = rec
                 self._portal_sid = sid
@@ -1413,51 +1415,133 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
                 operator.get('username', 'admin'))
         return ok, (operator if ok else None)
 
+    # Cap on simultaneous operator sessions per account — the oldest
+    # is revoked when a new one is minted past the limit.
+    _OP_SESSION_MAX_PER_USER = 10
+
     def _issue_op_session(self, username: str) -> str:
-        """Mint a signed operator-session cookie; returns the sid."""
+        """Mint a signed operator-session cookie; returns the sid.
+
+        Format: ``<sid>.<b64url username>.<exp>.<hmac>`` — the
+        username is base64url-encoded so dots in usernames can never
+        confuse the positional parser.
+        """
+        import base64 as _b64
         import hashlib as _hashlib
         import hmac as _hmac
         import secrets
         import time as _time
         sid = secrets.token_urlsafe(16)
         exp = int(_time.time()) + self._OP_SESSION_TTL
-        payload = f'{sid}.{username}.{exp}'
+        user64 = _b64.urlsafe_b64encode(
+            username.encode('utf-8')).rstrip(b'=').decode('ascii')
+        payload = f'{sid}.{user64}.{exp}'
         from vnc_remote_secure.security.authentication import _get_secret
         sig = _hmac.new(_get_secret(), f'op:{payload}'.encode(),
                         _hashlib.sha256).hexdigest()
         self._queue_cookie(
             f'vnc_op={payload}.{sig}; HttpOnly; Path=/; SameSite=Strict')
+        self._index_op_session(username, sid, exp)
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event('operator_session_issued',
+                    user=username, detail=f'sid={sid[:8]}…')
         return sid
+
+    def _index_op_session(self, username: str, sid: str, exp: int):
+        """Track live sids per operator; revoke the oldest past the cap."""
+        import time as _time
+        try:
+            from vnc_remote_secure.security.shared_state import get_backend
+            be = get_backend()
+            ns = 'op_sessions'
+            now = int(_time.time())
+            active = []
+            for k in be.list_keys(ns):
+                try:
+                    exp_i = int(be.get(ns, k) or 0)
+                except (TypeError, ValueError):
+                    be.delete(ns, k)
+                    continue
+                if exp_i <= now:
+                    be.delete(ns, k)
+                    continue
+                user, _, ksid = k.partition('\x00')
+                if user == username:
+                    active.append((exp_i, ksid))
+            while len(active) >= self._OP_SESSION_MAX_PER_USER:
+                oldest_exp, oldest_sid = min(active)
+                self._revoke_op_session(oldest_sid, oldest_exp)
+                be.delete(ns, f'{username}\x00{oldest_sid}')
+                active.remove((oldest_exp, oldest_sid))
+            be.set_ttl(ns, f'{username}\x00{sid}', str(exp),
+                       self._OP_SESSION_TTL)
+        except Exception:  # noqa: BLE001 - indexing is best-effort
+            pass
+
+    @staticmethod
+    def _cookie_occurrences(cookie_header: str, name: str) -> int:
+        """Count ``name=`` appearances — a duplicated cookie name makes
+        parsing order-dependent, so verifiers reject it outright."""
+        return sum(
+            1 for p in (cookie_header or '').split(';')
+            if p.strip().startswith(name + '='))
 
     def _verify_op_cookie(self, value: str):
         """Verify a ``vnc_op`` cookie; returns ``(sid, operator)``.
 
-        Format: ``<sid>.<username>.<exp>.<hmac>`` — the signature
-        covers 'op:sid.username.exp' and the sid is additionally
-        checked against the shared revocation set, so a copied cookie
-        dies on logout without waiting for expiry.
+        Format: ``<sid>.<b64user>.<exp>.<hmac>``. Strict checks: exact
+        part count, bounded size, no control chars, field shapes,
+        finite future expiry within the TTL window, constant-time
+        signature, shared-state revocation (per-sid and per-user
+        marks), and account disabled state.
         """
+        import base64 as _b64
         import hashlib as _hashlib
         import hmac
+        import re as _re
         import time as _time
+        if not value or len(value) > 256:
+            return None
+        if any(ord(c) < 0x21 or ord(c) == 0x7f for c in value):
+            return None
         parts = value.split('.')
         if len(parts) != 4:
             return None
-        sid, username, exp_s, sig = parts
-        if not sid or not username or not exp_s.isdigit() or not sig:
+        sid, user64, exp_s, sig = parts
+        if not _re.fullmatch(r'[A-Za-z0-9_-]{8,64}', sid):
             return None
+        if not _re.fullmatch(r'[0-9]{1,12}', exp_s) \
+                or not _re.fullmatch(r'[0-9a-f]{64}', sig):
+            return None
+        try:
+            username = _b64.urlsafe_b64decode(
+                user64 + '=' * (-len(user64) % 4)).decode('utf-8')
+        except Exception:  # noqa: BLE001 - malformed b64
+            return None
+        if not username or len(username) > 64:
+            return None
+        now = _time.time()
         exp = int(exp_s)
-        if exp <= _time.time():
+        if exp <= now or exp > now + self._OP_SESSION_TTL + 60:
             return None
         from vnc_remote_secure.security.authentication import _get_secret
         expected = hmac.new(
-            _get_secret(), f'op:{sid}.{username}.{exp_s}'.encode(),
+            _get_secret(),
+            f'op:{sid}.{user64}.{exp_s}'.encode(),
             _hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected):
             return None
         try:
             from vnc_remote_secure.security.shared_state import get_backend
-            if get_backend().get('op_revoked_sessions', sid):
+            backend = get_backend()
+            if backend.get('op_revoked_sessions', sid):
+                return None
+            # Per-user revocation mark: password/role/disable/delete
+            # kill sessions issued before the mark (issue time is
+            # exp - TTL).
+            revoked_at = backend.get('op_revoked_users', username)
+            if revoked_at and (exp - self._OP_SESSION_TTL) <= int(
+                    float(revoked_at)):
                 return None
         except Exception:  # noqa: BLE001 - fail closed
             return None
@@ -1470,6 +1554,8 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             )
             store = load_store()
             if username in store:
+                if store[username].get('disabled'):
+                    return None
                 return sid, {
                     'username': username,
                     'role': store[username].get('role', 'operator'),
@@ -1928,6 +2014,31 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         except Exception as e:  # noqa: BLE001 - never take the portal down
             log_exception(e, 'api POST')
             self.send_json_error('Internal error', 500)
+
+    def _serve_api_mutation(self, method: str) -> None:
+        """PATCH/DELETE reach only /api/v1/* — anything else is 404.
+        Body framing is validated before the dispatcher runs."""
+        from vnc_remote_secure.security.http_auth import request_headers_safe
+        if not request_headers_safe(self.headers):
+            self.send_json_error('Ambiguous request framing', 400)
+            return
+        path = self.path.split('?', 1)[0]
+        if not is_api_path(path):
+            self.send_json_error('Not found', 404)
+            return
+        from vnc_remote_secure.services.api_v1 import _dispatch
+        try:
+            if not _dispatch(self, method, path, {}):
+                self.send_json_error('Not found', 404)
+        except Exception as e:  # noqa: BLE001
+            log_exception(e, f'api {method}')
+            self.send_json_error('Internal error', 500)
+
+    def do_PATCH(self):  # noqa: N802 - stdlib API
+        self._serve_api_mutation('PATCH')
+
+    def do_DELETE(self):  # noqa: N802 - stdlib API
+        self._serve_api_mutation('DELETE')
 
     def _serve_sessions_json(self):
         """List active ephemeral sessions — operator-only.

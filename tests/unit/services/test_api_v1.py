@@ -11,6 +11,7 @@ import os
 import socketserver
 import sys
 import threading
+import time
 
 import pytest
 
@@ -83,12 +84,12 @@ def _auth_headers():
     return {'Authorization': f'Basic {cred}'}
 
 
-def _csrf_session(port):
+def _csrf_session(port, headers=None):
     """Real session flow: GET /me issues the vnc_op + vnc_csrf cookies
     and returns the token bound to (sid, nonce). Returns headers for
-    a POST."""
+    a POST. ``headers`` overrides the auth (e.g. a store operator)."""
     status, headers, body = _req(port, '/api/v1/me',
-                                 headers=_auth_headers())
+                                 headers=headers or _auth_headers())
     assert status == 200
     sc = headers.get('Set-Cookie', '')
     op = _cookie_value(sc, 'vnc_op')
@@ -484,8 +485,8 @@ def test_route_registry_contract():
         assert spec.resp, f'{method} {rel} declares no response schema'
         if spec.perm is not None:
             assert spec.perm in _KNOWN_PERMS, (method, rel, spec.perm)
-        if method == 'POST':
-            assert spec.audit, f'POST {rel} declares no audit event'
+        if method != 'GET':
+            assert spec.audit, f'{method} {rel} declares no audit event'
 
 
 def test_openapi_drift():
@@ -531,3 +532,310 @@ def test_revoke_missing_session_uniform_200(server, monkeypatch):
         headers=h)
     assert status == 200
     assert json.loads(body)['data']['revoked'] is False
+
+
+# ---------------------------------------------------------------------------
+# vnc_op operator session cookie — format, reuse, revocation
+# ---------------------------------------------------------------------------
+
+def _bare_handler(headers=None):
+    """Bare LandingHandler for direct cookie-verifier unit tests."""
+    h = object.__new__(landing.LandingHandler)
+    h.headers = headers or {}
+    h.__dict__['_pending_cookies'] = []
+    return h
+
+
+def _mint_op_cookie(handler, username='admin'):
+    sid = handler._issue_op_session(username)
+    cookie = handler.__dict__['_pending_cookies'][-1]
+    return sid, cookie.split(';', 1)[0].split('=', 1)[1]
+
+
+def test_op_cookie_roundtrip():
+    h = _bare_handler()
+    sid, value = _mint_op_cookie(h)
+    rec = h._verify_op_cookie(value)
+    assert rec is not None
+    assert rec[0] == sid
+    assert rec[1]['username'] == 'admin'
+
+
+def test_op_cookie_rejects_malformed():
+    h = _bare_handler()
+    _, value = _mint_op_cookie(h)
+    parts = value.split('.')
+    bad = [
+        '',                                    # empty
+        'a.b.c',                               # too few parts
+        value + '.extra',                      # too many
+        '.'.join(parts[:-1]) + '.zz',          # bad sig
+        parts[0] + '.' + parts[1] + '.0.' + parts[3],   # expired
+        parts[0] + '.' + parts[1] + '.99999999999999.' + parts[3],
+        value + '\x01',                        # control char
+        'x' * 300,                             # oversized
+        value.upper(),                         # tampered payload
+    ]
+    for v in bad:
+        assert h._verify_op_cookie(v) is None, v[:40]
+
+
+def test_op_cookie_revoked_sid_rejected():
+    h = _bare_handler()
+    sid, value = _mint_op_cookie(h)
+    h._revoke_op_session(sid, int(time.time()) + 3600)
+    assert h._verify_op_cookie(value) is None
+
+
+def test_op_cookie_disabled_user_rejected(monkeypatch):
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.operator_users.load_store',
+        lambda: {'bob': {'role': 'operator', 'disabled': True}})
+    h = _bare_handler()
+    _, value = _mint_op_cookie(h, 'bob')
+    assert h._verify_op_cookie(value) is None
+
+
+def test_op_cookie_marked_user_rejected(monkeypatch):
+    """A password/role change marks op_revoked_users — sessions issued
+    before the mark die even though the signature is valid."""
+    h = _bare_handler()
+    sid, value = _mint_op_cookie(h)
+    from vnc_remote_secure.security.shared_state import get_backend
+    # Mark "now" — the cookie was issued at exp-TTL <= now.
+    get_backend().set_ttl(
+        'op_revoked_users', 'admin', str(time.time()), 3600)
+    assert h._verify_op_cookie(value) is None
+
+
+def test_same_cookie_reuses_sid(server):
+    """A request holding a valid vnc_op cookie must NOT mint a new
+    session — no new Set-Cookie, same sid serves every request."""
+    h = _csrf_session(server)
+    cookie = h['Cookie']  # vnc_op=…; vnc_csrf=…
+    op = _cookie_value(cookie, 'vnc_op')
+    for _ in range(3):
+        status, headers, body = _req(
+            server, '/api/v1/me', headers={'Cookie': cookie})
+        assert status == 200
+        sc = headers.get('Set-Cookie', '')
+        assert 'vnc_op=' not in sc  # session reused, not re-issued
+        assert json.loads(body)['data']['operator']['username'] == 'admin'
+    assert _cookie_value(cookie, 'vnc_op') == op
+
+
+def test_duplicate_vnc_op_rejected(server):
+    """Cookie: vnc_op=A; vnc_op=B is ambiguous — must not authenticate
+    via cookie (Basic still works, cookie alone must not)."""
+    h = _csrf_session(server)
+    op = _cookie_value(h['Cookie'], 'vnc_op')
+    status, _, _ = _req(
+        server, '/api/v1/me',
+        headers={'Cookie': f'vnc_op={op}; vnc_op={op[:-2]}zz'})
+    assert status == 401
+
+
+def test_revoked_session_csrf_fails(server, monkeypatch):
+    """After logout the old (cookie, CSRF) pair is dead even though
+    the token was cryptographically valid when minted."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.revoke_session',
+        lambda tid: True)
+    h = _csrf_session(server)
+    status, _, _ = _api_post(server, '/api/v1/logout', {}, headers=h)
+    assert status == 200
+    # Reuse the dead session artifacts — cookie auth fails (401)
+    # before CSRF is even evaluated.
+    status, _, _ = _api_post(
+        server, '/api/v1/sessions/revoke', {'token_id': 'x'},
+        headers=h)
+    assert status in (401, 403)
+
+# ---------------------------------------------------------------------------
+# Operator management — real store under a tmp path
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def opstore(tmp_path, monkeypatch):
+    """Point the operator store at a tmp file so the real add_user /
+    set_role / remove_user logic is exercised end to end."""
+    import vnc_remote_secure.security.operator_users as ou
+    store = str(tmp_path / 'operator_users.json')
+    monkeypatch.setattr(ou, '_store_path', lambda: store)
+    return ou
+
+
+def test_operator_detail_and_create(opstore, server):
+    h = _csrf_session(server)
+    status, _, body = _api_post(
+        server, '/api/v1/operators',
+        {'username': 'bob', 'password': 'S3cure!Passw0rd',
+         'role': 'viewer'}, headers=h)
+    assert status == 201, body
+    status, _, body = _req(
+        server, '/api/v1/operators/bob', headers=_auth_headers())
+    assert status == 200
+    op = json.loads(body)['data']['operator']
+    assert op['username'] == 'bob'
+    assert op['role'] == 'viewer'
+    assert op['disabled'] is False
+    assert 'password_hash' not in body.decode()
+
+
+def test_operator_create_strict_schema(opstore, server):
+    h = _csrf_session(server)
+    for payload in (
+            {'username': 'x y', 'password': 'S3cure!Passw0rd'},
+            {'username': 'bob', 'password': 'weak'},
+            {'username': 'bob', 'password': 'S3cure!Passw0rd',
+             'role': 'superuser'},
+            {'username': 'bob', 'password': 'S3cure!Passw0rd',
+             'password_hash': 'injected'},
+            {'username': 'bob', 'password': 'S3cure!Passw0rd',
+             'enabled': 'yes'}):
+        status, _, _ = _api_post(
+            server, '/api/v1/operators', payload, headers=h)
+        assert status == 400, payload
+
+
+def test_operator_create_duplicate_409(opstore, server):
+    h = _csrf_session(server)
+    _api_post(server, '/api/v1/operators',
+              {'username': 'bob', 'password': 'S3cure!Passw0rd'},
+              headers=h)
+    status, _, _ = _api_post(
+        server, '/api/v1/operators',
+        {'username': 'bob', 'password': 'S3cure!Passw0rd'},
+        headers=h)
+    assert status == 409
+
+
+def test_operator_create_requires_csrf(server):
+    status, _, _ = _api_post(
+        server, '/api/v1/operators',
+        {'username': 'bob', 'password': 'S3cure!Passw0rd'},
+        headers=_auth_headers())
+    assert status == 403
+
+
+def test_operator_patch_and_delete(opstore, server):
+    h = _csrf_session(server)
+    _api_post(server, '/api/v1/operators',
+              {'username': 'bob', 'password': 'S3cure!Passw0rd',
+               'role': 'viewer'}, headers=h)
+    status, _, body = _req(
+        server, '/api/v1/operators/bob', method='PATCH',
+        headers={**h, 'Content-Type': 'application/json'},
+        body=json.dumps({'role': 'operator'}))
+    assert status == 200, body
+    assert json.loads(body)['data']['operator']['role'] == 'operator'
+    status, _, _ = _req(
+        server, '/api/v1/operators/bob', method='DELETE', headers=h)
+    assert status == 200
+    status, _, _ = _req(
+        server, '/api/v1/operators/bob', headers=_auth_headers())
+    assert status == 404
+
+
+def test_last_admin_guard(opstore, server):
+    """Demoting/deleting the only admin is refused — the env
+    bootstrap admin does not count (tests unset LANDING_PASSWORD via
+    env var still set...). With LANDING_PASSWORD set the env admin IS
+    viable, so a store admin CAN be demoted."""
+    h = _csrf_session(server)
+    _api_post(server, '/api/v1/operators',
+              {'username': 'root2', 'password': 'S3cure!Passw0rd',
+               'role': 'admin'}, headers=h)
+    # Env admin counts as viable: demoting root2 is allowed.
+    status, _, _ = _req(
+        server, '/api/v1/operators/root2', method='PATCH',
+        headers={**h, 'Content-Type': 'application/json'},
+        body=json.dumps({'role': 'viewer'}))
+    assert status == 200
+
+
+def test_last_admin_guard_no_env(opstore, server, monkeypatch):
+    """Without a viable env bootstrap, the last store admin is locked.
+
+    Flow: env session creates store admin root2; root2 gets a vnc_op
+    cookie via its own Basic creds; then LANDING_PASSWORD is removed
+    so the env admin is no longer viable — deleting/demoting root2
+    must 409. The cookie still authenticates (no Basic needed).
+    """
+    h = _csrf_session(server)
+    _api_post(server, '/api/v1/operators',
+              {'username': 'root2', 'password': 'S3cure!Passw0rd',
+               'role': 'admin'}, headers=h)
+    # root2's own session: Basic -> vnc_op + vnc_csrf + token.
+    cred = base64.b64encode(b'root2:S3cure!Passw0rd').decode()
+    status, headers, body = _req(
+        server, '/api/v1/me',
+        headers={'Authorization': f'Basic {cred}'})
+    assert status == 200
+    sc = headers.get('Set-Cookie', '')
+    cookie = (f"vnc_op={_cookie_value(sc, 'vnc_op')}; "
+              f"vnc_csrf={_cookie_value(sc, 'vnc_csrf')}")
+    token = json.loads(body)['data']['csrf_token']
+    monkeypatch.delenv('LANDING_PASSWORD', raising=False)
+    status, _, _ = _req(
+        server, '/api/v1/operators/root2', method='DELETE',
+        headers={'Cookie': cookie, 'X-CSRF-Token': token})
+    assert status == 409
+    status, _, _ = _req(
+        server, '/api/v1/operators/root2', method='PATCH',
+        headers={'Cookie': cookie, 'X-CSRF-Token': token,
+                 'Content-Type': 'application/json'},
+        body=json.dumps({'role': 'viewer'}))
+    assert status == 409
+
+
+def test_operator_passkeys_listed(opstore, server):
+    opstore.add_user('bob', 'S3cure!Passw0rd', 'viewer')
+    status, _, body = _req(
+        server, '/api/v1/operators/bob/passkeys',
+        headers=_auth_headers())
+    assert status == 200
+    assert json.loads(body)['data']['passkeys'] == []
+
+
+def test_operator_sessions_revoked_invalidates_cookie(
+        opstore, server, monkeypatch):
+    """Revoking an operator's sessions kills their vnc_op cookie even
+    though the cookie itself is still well-formed and unexpired."""
+    opstore.add_user('bob', 'S3cure!Passw0rd', 'viewer')
+    # Give bob a session: Basic for bob authenticates via verify().
+    cred = base64.b64encode(b'bob:S3cure!Passw0rd').decode()
+    bh = {'Authorization': f'Basic {cred}'}
+    status, headers, _ = _req(server, '/api/v1/me', headers=bh)
+    assert status == 200
+    sc = headers.get('Set-Cookie', '')
+    op_cookie = _cookie_value(sc, 'vnc_op')
+    assert op_cookie
+    # Admin revokes bob's sessions.
+    h = _csrf_session(server)
+    status, _, _ = _api_post(
+        server, '/api/v1/operators/bob/sessions/revoke-all', {},
+        headers=h)
+    assert status == 200
+    # bob's cookie must now be rejected — falls back to Basic which
+    # still works (re-mints), so hit with ONLY the cookie.
+    status, _, _ = _req(
+        server, '/api/v1/me',
+        headers={'Cookie': f'vnc_op={op_cookie}'})
+    assert status == 401
+
+
+def test_operator_endpoints_require_admin_users(opstore, server,
+                                                monkeypatch):
+    """A viewer-role operator cannot touch the operator surface."""
+    opstore.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    cred = base64.b64encode(b'vicky:S3cure!Passw0rd').decode()
+    vh = {'Authorization': f'Basic {cred}'}
+    for method, path in (
+            ('GET', '/api/v1/operators/vicky'),
+            ('GET', '/api/v1/operators/vicky/passkeys'),
+            ('POST', '/api/v1/operators'),
+            ('PATCH', '/api/v1/operators/vicky'),
+            ('DELETE', '/api/v1/operators/vicky')):
+        status, _, _ = _req(server, path, method=method, headers=vh)
+        assert status == 403, (method, path)
