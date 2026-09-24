@@ -232,17 +232,22 @@ def _issue_session_response(username: str, auth_method: str = 'password',
         # Ceremony-reported UV — password methods leave it unset
         # rather than implying True/False.
         session['user_verified'] = user_verified
-    # Persist the auth context so non-Flask services (terminal,
-    # websockify) can enforce auth_policy without seeing the cookie.
-    from vnc_remote_secure.security.auth_policy import record_auth_context
-    record_auth_context(username, {
-        'username': username,
-        'auth_method': auth_method,
-        'mfa': session['mfa'],
-        'phishing_resistant': session['phishing_resistant'],
-        'user_verified': session.get('user_verified'),
-        'authenticated_at': session['authenticated_at'],
-    })
+    # Persist the auth context keyed by THIS session's stable id
+    # (username:created — survives cookie refreshes, same key the
+    # revocation layer uses). Keyed by username, a strong login would
+    # overwrite a weaker concurrent session and elevate it.
+    from vnc_remote_secure.security.auth_policy import record_auth_context, session_id_for_cookie
+    sid = session_id_for_cookie(token)
+    if sid:
+        session['sid'] = sid
+        record_auth_context(sid, {
+            'username': username,
+            'auth_method': auth_method,
+            'mfa': session['mfa'],
+            'phishing_resistant': session['phishing_resistant'],
+            'user_verified': session.get('user_verified'),
+            'authenticated_at': session['authenticated_at'],
+        })
     from vnc_remote_secure.security.audit import audit_event
     audit_event('session_issued', user=username, ip=_client_ip(),
                 result='success', detail=f'method={auth_method}')
@@ -371,6 +376,14 @@ def logout():
         if live and live != token:
             revoke_session_connections(_resolve_session_id(live))
             revoke_session_connections(live)
+        # Drop the auth-assurance context for every cookie being
+        # invalidated — a session that no longer exists must not
+        # leave a reusable strong-auth record behind.
+        from vnc_remote_secure.security.auth_policy import drop_auth_context, session_id_for_cookie
+        for c in (token, live):
+            sid = session_id_for_cookie(c) if c else None
+            if sid:
+                drop_auth_context(sid)
     except Exception:  # noqa: BLE001 - logout must not fail on revoke
         pass
     session.clear()

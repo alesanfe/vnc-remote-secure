@@ -675,9 +675,14 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             if step_up_err:
                 self.close(code=1008, reason=step_up_err)
                 return False
-            from vnc_remote_secure.security.auth_policy import auth_context_for, evaluate
+            from vnc_remote_secure.security.auth_policy import (
+                auth_context_for,
+                evaluate,
+                session_id_for_cookie,
+            )
+            sid = session_id_for_cookie(session_cookie) if session_cookie else None
             decision = evaluate('open_terminal',
-                                auth_context_for(ws_user))
+                                auth_context_for(sid or ''))
             if not decision.allowed:
                 self.close(code=1008,
                            reason=f'Auth policy: {decision.reason_code}')

@@ -95,6 +95,53 @@ class TestHardenedProfiles:
         assert 'recent_auth' in d.missing
 
 
+class TestSessionIsolation:
+    """The context is keyed by session id, not username — a strong
+    login must never elevate a weaker concurrent session."""
+
+    def test_strong_session_does_not_elevate_weak_one(self):
+        from vnc_remote_secure.security.auth_policy import (
+            auth_context_for,
+            drop_auth_context,
+            record_auth_context,
+        )
+        sid_weak = 'alice:1000.0'
+        sid_strong = 'alice:2000.0'
+        try:
+            record_auth_context(sid_weak, _ctx(method='password'))
+            record_auth_context(sid_strong, _ctx(
+                method='webauthn', mfa=True, phishing=True, uv=True))
+            weak = auth_context_for(sid_weak)
+            strong = auth_context_for(sid_strong)
+            assert weak['auth_method'] == 'password'
+            assert weak.get('phishing_resistant') is False
+            assert strong['phishing_resistant'] is True
+            # The weak session evaluated against its OWN context fails
+            # a phishing-required op — B's passkey never leaks into A.
+            d = evaluate('secrets.rotate', weak,
+                         profile='public-hardened')
+            assert d.allowed is False
+        finally:
+            drop_auth_context(sid_weak)
+            drop_auth_context(sid_strong)
+
+    def test_drop_removes_only_target_session(self):
+        from vnc_remote_secure.security.auth_policy import (
+            auth_context_for,
+            drop_auth_context,
+            record_auth_context,
+        )
+        sid_a, sid_b = 'alice:1.0', 'alice:2.0'
+        try:
+            record_auth_context(sid_a, _ctx())
+            record_auth_context(sid_b, _ctx())
+            drop_auth_context(sid_a)
+            assert auth_context_for(sid_a) == {}
+            assert auth_context_for(sid_b).get('auth_method') == 'password'
+        finally:
+            drop_auth_context(sid_b)
+
+
 class TestDecisionShape:
     def test_structured_fields(self):
         d = evaluate('create_admin', _ctx(mfa=False),

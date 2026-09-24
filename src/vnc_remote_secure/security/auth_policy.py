@@ -77,25 +77,84 @@ _ENFORCE_ALL = ('private-overlay', 'public-hardened')
 _CTX_NS = 'web_auth_context'
 
 
-def record_auth_context(username: str, ctx: dict) -> None:
+def _session_key(session_id: str) -> str:
+    """Derive the shared-state key for a session's auth context.
+
+    Keyed by the SESSION id (``username:created`` — the same stable,
+    server-issued pair the revocation layer uses, so it survives
+    cookie refreshes), never by bare username — otherwise a strong
+    login (WebAuthn+UV) would overwrite the context of a weaker
+    concurrent session of the same principal and silently elevate it.
+    The hash keeps identifiers out of shared state; the key alone
+    cannot authenticate.
+    """
+    import hashlib
+    return hashlib.sha256(session_id.encode('utf-8')).hexdigest()
+
+
+def session_id_for_cookie(cookie_value: str) -> str | None:
+    """Resolve a verified ``vnc_session`` cookie to its stable
+    session id (``username:created``). None if the cookie is invalid."""
+    try:
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+        parsed = verify_session_cookie(cookie_value)
+        if parsed and parsed.get('username') and parsed.get('created'):
+            return f"{parsed['username']}:{parsed['created']}"
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def record_auth_context(session_id: str, ctx: dict) -> None:
     """Persist the login's auth properties for cross-process policy
     checks — the Flask session is a signed cookie unavailable to the
     terminal/health services, so enforcement needs shared state."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         ttl = int(os.environ.get('SESSION_MAX_LIFETIME', '86400'))
-        get_backend().set_ttl(_CTX_NS, username, ctx, ttl)
+        get_backend().set_ttl(_CTX_NS, _session_key(session_id),
+                              ctx, ttl)
     except Exception:  # noqa: BLE001 - ctx is advisory if state is down
         logger.debug('Could not record auth context', exc_info=True)
 
 
-def auth_context_for(username: str) -> dict:
-    """Load the recorded auth context for *username* (empty if none)."""
+def update_auth_context(session_id: str, **fields) -> None:
+    """Merge fields into an existing session's auth context — used
+    when a step-up ceremony refreshes ``authenticated_at`` without
+    re-issuing the session cookie."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        return get_backend().get(_CTX_NS, username) or {}
+        be = get_backend()
+        key = _session_key(session_id)
+        ctx = be.get(_CTX_NS, key)
+        if isinstance(ctx, dict):
+            ctx.update(fields)
+            ttl = int(os.environ.get('SESSION_MAX_LIFETIME', '86400'))
+            be.set_ttl(_CTX_NS, key, ctx, ttl)
+    except Exception:  # noqa: BLE001
+        logger.debug('Could not update auth context', exc_info=True)
+
+
+def auth_context_for(session_id: str) -> dict:
+    """Load the recorded auth context for this SESSION (empty if none)."""
+    if not session_id:
+        return {}
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        return get_backend().get(_CTX_NS,
+                                 _session_key(session_id)) or {}
     except Exception:  # noqa: BLE001
         return {}
+
+
+def drop_auth_context(session_id: str) -> None:
+    """Delete a session's auth context — logout, revocation, or any
+    event that invalidates the session must drop it too."""
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        get_backend().delete(_CTX_NS, _session_key(session_id))
+    except Exception:  # noqa: BLE001
+        logger.debug('Could not drop auth context', exc_info=True)
 
 
 def _profile() -> str:
@@ -120,6 +179,19 @@ def evaluate(operation: str, session_ctx: dict,
     auth_at = session_ctx.get('authenticated_at')
     age = (int(time.time() - auth_at)
            if isinstance(auth_at, (int, float)) else None)
+    # A timestamp far in the future is corruption or tampering, not
+    # "very fresh auth" — small skew tolerance only.
+    if isinstance(auth_at, (int, float)) and age is not None \
+            and age < -30:
+        logger.warning('auth_context authenticated_at is %.0fs in '
+                       'the future — denying', -age)
+        from vnc_remote_secure.security.audit import audit_event
+        audit_event('auth_policy', result='denied',
+                    user=session_ctx.get('username', '?'),
+                    detail=f'op={operation} future_timestamp age={age}')
+        return AuthDecision(False, operation, 'INVALID_AUTH_CONTEXT',
+                            method, age, ('recent_auth',),
+                            enforced=True)
     if req is None:
         return AuthDecision(True, operation, None, method, age, (),
                             enforced=False)
