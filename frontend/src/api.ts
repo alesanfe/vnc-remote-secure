@@ -54,7 +54,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (init?.method === 'POST') {
+  if (init?.method && init.method !== 'GET') {
     const token = await getCsrfToken();
     if (token) headers['X-CSRF-Token'] = token;
   }
@@ -89,6 +89,9 @@ export const api = {
       method: 'POST',
       body: payload === undefined ? '{}' : JSON.stringify(payload),
     }),
+  patch: <T>(path: string, payload: unknown) =>
+    request<T>(path, { method: 'PATCH', body: JSON.stringify(payload) }),
+  del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   /** Expire the vnc_csrf nonce server-side, then leave the SPA. */
   logout: async () => {
     try {
@@ -221,4 +224,21 @@ export interface OperatorUser {
   disabled: boolean;
   created_at: number | null;
   permissions: string[];
+}
+
+export interface OperatorDetail extends OperatorUser {
+  passkey_count: number;
+}
+
+export interface PasskeyItem {
+  ref: string;
+  name: string;
+  created_at: string;
+  sign_count: number;
+}
+
+export interface OperatorEditResult {
+  operator: OperatorUser;
+  changed: string[];
+  sessions_revoked: boolean;
 }

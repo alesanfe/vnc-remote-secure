@@ -175,3 +175,20 @@ label.check input { width: auto; }
   .sidebar nav { display: flex; flex-wrap: wrap; }
   .main { padding: 1rem; }
 }
+
+.link-btn {
+  background: none; border: none; color: var(--accent);
+  cursor: pointer; padding: 0; font: inherit; text-align: left;
+}
+.info-box {
+  border: 1px solid var(--border); border-left-color: var(--accent);
+  background: var(--surface-2); border-radius: 6px;
+  padding: 0.6rem 0.9rem; margin: 0.6rem 0;
+}
+.row { display: flex; gap: 0.6rem; align-items: center; margin: 0.5rem 0; }
+.row label { min-width: 10rem; color: var(--text-dim); }
+.row input, .row select {
+  flex: 1; padding: 0.5rem; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 6px; color: inherit;
+}
+td button { margin-right: 0.3rem; }
