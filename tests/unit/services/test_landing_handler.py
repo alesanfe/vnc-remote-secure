@@ -156,7 +156,6 @@ def _mock_valid_share(monkeypatch):
         max_uses = 0
         allowed_ip = None
         resource = None
-        resource = None
 
     class _Store:
         def _load_if_changed(self): pass
