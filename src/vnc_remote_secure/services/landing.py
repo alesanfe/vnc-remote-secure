@@ -1749,6 +1749,19 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             self.end_headers()
             self.wfile.write(_SHARE_JS)
             return
+        # Public surfaces precede the auth gate — by definition the
+        # client has no session yet:
+        # - perm='public' API routes (SPA login ceremonies)
+        # - the admin SPA bundle itself: static assets carry no data;
+        #   every API call still enforces operator auth.
+        pre_path = self.path.split('?', 1)[0]
+        from vnc_remote_secure.services.api_v1 import is_public_route
+        if is_public_route('GET', pre_path):
+            self._serve_api_get(pre_path)
+            return
+        if pre_path == '/admin' or pre_path.startswith('/admin/'):
+            self._serve_admin(pre_path)
+            return
         # Ephemeral share sessions or operator Basic-auth (env
         # bootstrap admin or a stored operator account — fail closed
         # either way). client_ip feeds the shared auth rate limiter
@@ -1809,17 +1822,14 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
     }
 
     def _serve_admin(self, path: str) -> None:
-        """Serve the React admin SPA (operator-only).
+        """Serve the React admin SPA bundle — publicly reachable.
 
         Static assets live in ``web/static/admin`` (the Vite build
         output). Paths without a file extension fall back to
-        index.html so client-side routing works on reload. Ephemeral
-        share-link sessions get 403 — the admin surface is
-        operator-only.
+        index.html so client-side routing works on reload. The bundle
+        carries no data: authentication is enforced by /api/v1/* —
+        an unauthenticated visitor only sees the login page.
         """
-        if self._portal_operator is None:
-            self.send_json_error('Operator access required', 403)
-            return
         rel = path[len('/admin'):].lstrip('/') or 'index.html'
         # SPA fallback: extensionless client routes serve index.html.
         if '.' not in os.path.basename(rel):

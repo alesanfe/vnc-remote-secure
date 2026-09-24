@@ -163,23 +163,76 @@ def update_operator(actor: str, actor_perms: set, username: str,
 
 def delete_operator(actor: str, username: str) -> None:
     """Remove the account and kill its sessions. The last viable
-    administrator is undeletable."""
-    if _store().get(username) is None:
+    administrator is undeletable.
+
+    A tombstone (non-secret snapshot: role, timestamps — never the
+    password hash) is kept for ~30 days so a bad deletion can be
+    undone via :func:`restore_operator`."""
+    rec = _store().get(username)
+    if rec is None:
         raise UseCaseError(ERR_NOT_FOUND, 'operator not found')
     if _is_admin(username) \
             and viable_admin_count(excluding=username) == 0:
         raise UseCaseError(
             ERR_LAST_ADMIN,
             'would delete the last viable administrator')
-    if not stores.operator_remove(username):
-        raise UseCaseError(ERR_INVALID, 'operator delete failed')
-    revoke_operator_sessions(username)
+    jid = stores.job_start('operator.delete', actor, username)
+    try:
+        stores.tombstone_save(username, rec)
+        if not stores.operator_remove(username):
+            raise UseCaseError(ERR_INVALID, 'operator delete failed')
+        revoke_operator_sessions(username)
+    except UseCaseError as exc:
+        stores.job_fail(jid, exc.detail or exc.code)
+        raise
+    except Exception as exc:  # noqa: BLE001
+        stores.job_fail(jid, str(exc))
+        raise
+    stores.job_finish(jid, 'deleted; tombstone kept')
     _audit('operator_deleted', actor, f'target={username}')
+
+
+def deleted_operators() -> list:
+    """Outstanding tombstones — restore candidates for the UI."""
+    return stores.tombstones()
+
+
+def restore_operator(actor: str, username: str) -> dict:
+    """Undo a deletion: recreate the account from its tombstone.
+
+    The restored operator starts **disabled** with a random,
+    unknowable password — an admin must explicitly re-enable it and
+    set a new password. Passkeys are NOT restored (they were deleted
+    with the account's credential records)."""
+    import secrets as _secrets
+    tomb = stores.tombstone_get(username)
+    if tomb is None:
+        raise UseCaseError(
+            ERR_NOT_FOUND, 'no deleted account for this username')
+    if username in _store():
+        raise UseCaseError(ERR_CONFLICT, 'operator already exists')
+    jid = stores.job_start('operator.restore', actor, username)
+    try:
+        stores.operator_add(
+            username, _secrets.token_urlsafe(24),
+            tomb.get('role', 'viewer'))
+        stores.operator_set_disabled(username, True)
+        stores.tombstone_remove(username)
+    except Exception as exc:  # noqa: BLE001
+        stores.job_fail(jid, str(exc))
+        raise UseCaseError(ERR_INVALID, 'operator restore failed') \
+            from exc
+    stores.job_finish(jid, 'restored disabled')
+    _audit('operator_restored', actor, f'target={username}')
+    return _store()[username]
 
 
 def revoke_sessions(actor: str, username: str) -> None:
     """Explicitly revoke all of an operator's live sessions."""
     if _store().get(username) is None:
         raise UseCaseError(ERR_NOT_FOUND, 'operator not found')
+    jid = stores.job_start('operator.sessions_revoke', actor,
+                           username)
     revoke_operator_sessions(username)
+    stores.job_finish(jid)
     _audit('operator_sessions_revoked', actor, f'target={username}')

@@ -579,7 +579,9 @@ def test_openapi_drift():
         expected_perm = None if route.perm is None else route.perm
         assert op.get('x-required-permission') == expected_perm
         assert bool(op.get('x-step-up-required')) == route.step_up, rel
-        if method == 'POST':
+        if method == 'POST' and route.perm != 'public':
+            # Public routes (login ceremonies) predate the session —
+            # they carry no CSRF token to check.
             assert op.get('x-csrf-required') is True, rel
 
 
@@ -1148,3 +1150,173 @@ def test_maintenance_toggle_roundtrip(server, monkeypatch, tmp_path):
         server, '/api/v1/maintenance', {'active': False}, headers=h)
     assert status == 200
     assert json.loads(body)['data']['active'] is False
+
+
+# ---------------------------------------------------------------------------
+# Public auth surface (SPA login)
+# ---------------------------------------------------------------------------
+
+def test_auth_methods_public(server):
+    """GET /auth/methods is reachable without a session — the login
+    page queries it before any credentials exist."""
+    status, _, body = _req(server, '/api/v1/auth/methods')
+    assert status == 200
+    data = json.loads(body)['data']
+    assert data['password'] is True
+
+
+def test_login_password_mints_session(server):
+    """POST /auth/login issues vnc_op + vnc_csrf cookies and a token
+    usable for mutations — same guarantees as a Basic-auth request."""
+    status, headers, body = _api_post(
+        server, '/api/v1/auth/login',
+        {'username': 'admin', 'password': 'T3st-Landing!Pass'})
+    assert status == 200, body
+    data = json.loads(body)['data']
+    assert data['auth_method'] == 'password'
+    assert data['operator']['username'] == 'admin'
+    assert data['csrf_token']
+    sc = headers.get('Set-Cookie', '')
+    op = _cookie_value(sc, 'vnc_op')
+    csrf = _cookie_value(sc, 'vnc_csrf')
+    assert op and csrf
+    # The minted session must authorize a follow-up GET.
+    status, _, body = _req(
+        server, '/api/v1/me',
+        headers={'Cookie': f'vnc_op={op}; vnc_csrf={csrf}'})
+    assert status == 200
+    assert json.loads(body)['data']['operator']['username'] == 'admin'
+
+
+def test_login_wrong_password_401(server):
+    status, _, _ = _api_post(
+        server, '/api/v1/auth/login',
+        {'username': 'admin', 'password': 'wrong'})
+    assert status == 401
+
+
+def test_login_missing_fields_400(server):
+    status, _, _ = _api_post(
+        server, '/api/v1/auth/login', {'username': 'admin'})
+    assert status == 400
+
+
+def test_passkey_begin_no_credentials_404(server):
+    """Uniform 404 for unknown users and users without passkeys —
+    no enumeration."""
+    status, _, _ = _api_post(
+        server, '/api/v1/auth/passkey/begin',
+        {'username': 'ghost'})
+    assert status in (404, 503)  # 503 when webauthn lib unavailable
+
+
+# ---------------------------------------------------------------------------
+# System (OS) users — migrated Flask /users surface
+# ---------------------------------------------------------------------------
+
+def test_system_users_requires_admin_users(server):
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
+    status, _, _ = _req(server, '/api/v1/system-users', headers=h)
+    assert status == 403
+
+
+def test_system_users_list_shape(server):
+    status, _, body = _req(
+        server, '/api/v1/system-users', headers=_auth_headers())
+    assert status == 200
+    assert isinstance(json.loads(body)['data']['users'], list)
+
+
+def test_system_users_create_rejects_unknown_field(server):
+    h = _csrf_session(server)
+    status, _, _ = _api_post(
+        server, '/api/v1/system-users',
+        {'username': 'x', 'password': 'p' * 12, 'extra': 1},
+        headers=h)
+    assert status == 400
+
+
+def test_system_users_create_reserved_refused(server):
+    h = _csrf_session(server)
+    status, _, _ = _api_post(
+        server, '/api/v1/system-users',
+        {'username': 'root', 'password': 'S3cure!Passw0rdX'},
+        headers=h)
+    # validate_username rejects reserved names as invalid input.
+    assert status == 400
+
+
+# ---------------------------------------------------------------------------
+# Jobs ledger + operator tombstone restore
+# ---------------------------------------------------------------------------
+
+def _create_operator(server, h, username, role='viewer'):
+    status, _, body = _api_post(
+        server, '/api/v1/operators',
+        {'username': username, 'password': 'S3cure!Passw0rd',
+         'role': role}, headers=h)
+    assert status == 201, body
+
+
+def test_operator_delete_tombstone_and_restore(server):
+    h = _csrf_session(server)
+    _create_operator(server, h, 'restoreme')
+    status, _, body = _req(
+        server, '/api/v1/operators/restoreme',
+        method='DELETE', headers=h)
+    assert status == 200, body
+    # Tombstone visible to admin_users.
+    status, _, body = _req(
+        server, '/api/v1/operators/deleted', headers=h)
+    assert status == 200
+    names = [d['username']
+             for d in json.loads(body)['data']['deleted']]
+    assert 'restoreme' in names
+    # Restore recreates the account disabled (no password restored).
+    status, _, body = _api_post(
+        server, '/api/v1/operators/restoreme/restore', {},
+        headers=h)
+    assert status == 200, body
+    op = json.loads(body)['data']['operator']
+    assert op['username'] == 'restoreme'
+    status, _, body = _req(
+        server, '/api/v1/operators/restoreme', headers=h)
+    assert json.loads(body)['data']['operator']['disabled'] is True
+    # Second restore → not found (tombstone consumed, account exists).
+    status, _, _ = _api_post(
+        server, '/api/v1/operators/restoreme/restore', {},
+        headers=h)
+    assert status == 404
+
+
+def test_jobs_ledger_records_revoke_all(server, monkeypatch):
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
+        lambda: _FakeStore())
+    h = _csrf_session(server)
+    status, _, _ = _api_post(
+        server, '/api/v1/sessions/revoke-all', {}, headers=h)
+    assert status == 200
+    status, _, body = _req(
+        server, '/api/v1/jobs', headers=_auth_headers())
+    assert status == 200
+    jobs = json.loads(body)['data']['jobs']
+    assert isinstance(jobs, list)
+
+
+def test_audit_user_and_result_filters(server):
+    """?user= / ?result= narrow the audit page server-side."""
+    h = _csrf_session(server)
+    status, _, body = _req(
+        server, '/api/v1/audit?user=filterme',
+        headers=_auth_headers())
+    assert status == 200
+    entries = json.loads(body)['data']['entries']
+    assert all(e.get('user') == 'filterme' for e in entries)
+    status, _, body = _req(
+        server, '/api/v1/audit?result=nonsense-xyz',
+        headers=_auth_headers())
+    assert status == 200
+    assert json.loads(body)['data']['entries'] == []

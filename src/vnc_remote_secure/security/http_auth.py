@@ -254,7 +254,9 @@ def check_landing_auth(auth_header, client_ip=None):
     if limiter is not None:
         if ok:
             limiter.record_success(client_ip)
-        else:
+        elif auth_header.strip():
+            # Credentialless probes are not brute-force attempts —
+            # only real credential submissions burn the budget.
             limiter.record_failure(client_ip)
     return ok
 
@@ -307,8 +309,14 @@ def authenticate_landing(auth_header, client_ip=None):
                 "env credentials", exc)
     ok = check_landing_auth(auth_header, client_ip=None)
     if limiter is not None:
-        (limiter.record_success if ok else
-         limiter.record_failure)(client_ip)
+        if ok:
+            limiter.record_success(client_ip)
+        elif auth_header.strip():
+            # A credentialless probe (the SPA's /me check before a
+            # session exists) is not a brute-force attempt — only
+            # requests that actually presented credentials burn the
+            # lockout budget.
+            limiter.record_failure(client_ip)
     if not ok:
         return False, None
     return True, {

@@ -269,3 +269,92 @@ def system_usernames_reserved() -> set:
 def system_current_user() -> str:
     import getpass
     return getpass.getuser()
+
+
+# --- Read-model backing -------------------------------------------------
+# Pure reads the admin views consume — the application layer shapes
+# them; transport stays out of the store details.
+
+def audit_read(limit: int, event: str | None = None,
+               before_seq: int | None = None,
+               user: str | None = None,
+               result: str | None = None) -> list:
+    from vnc_remote_secure.security.audit import get_audit_entries
+    return get_audit_entries(
+        limit=limit, event=event, before_seq=before_seq,
+        user=user, result=result)
+
+
+def audit_verify_chain() -> tuple[bool, str]:
+    from vnc_remote_secure.security.audit import verify_chain
+    return verify_chain()
+
+
+def config_effective() -> list:
+    """Redacted effective-config entries (ConfigEntry dicts)."""
+    from vnc_remote_secure.core.config_inspector import compute_effective_config
+    return compute_effective_config()
+
+
+def backups_paths() -> list:
+    """Backup file paths (stat'ing is left to the transport)."""
+    from vnc_remote_secure.core.backup import list_backups
+    return list(list_backups())
+
+
+def posture_report() -> dict:
+    from vnc_remote_secure.security.posture import calculate_posture
+    return calculate_posture()
+
+
+def doctor_report() -> dict:
+    from vnc_remote_secure.core.doctor import run_doctor
+    return run_doctor(as_json=True)
+
+
+def health_report() -> dict:
+    from vnc_remote_secure.monitoring.health import get_all_health
+    return get_all_health()
+
+
+# --- Job tracking + operator tombstones ---------------------------------
+
+def job_start(kind: str, actor: str, target: str = '',
+              detail: str = '') -> str:
+    from vnc_remote_secure.security.jobs import job_start
+    return job_start(kind, actor, target, detail)
+
+
+def job_finish(jid: str, detail: str = '') -> None:
+    from vnc_remote_secure.security.jobs import job_finish
+    job_finish(jid, detail)
+
+
+def job_fail(jid: str, error: str) -> None:
+    from vnc_remote_secure.security.jobs import job_fail
+    job_fail(jid, error)
+
+
+def jobs_list(limit: int = 100) -> list:
+    from vnc_remote_secure.security.jobs import list_jobs
+    return list_jobs(limit)
+
+
+def tombstone_save(username: str, record: dict) -> None:
+    from vnc_remote_secure.security.jobs import tombstone_save
+    tombstone_save(username, record)
+
+
+def tombstone_get(username: str) -> dict | None:
+    from vnc_remote_secure.security.jobs import tombstone_get
+    return tombstone_get(username)
+
+
+def tombstone_remove(username: str) -> None:
+    from vnc_remote_secure.security.jobs import tombstone_remove
+    tombstone_remove(username)
+
+
+def tombstones() -> list:
+    from vnc_remote_secure.security.jobs import tombstones
+    return tombstones()

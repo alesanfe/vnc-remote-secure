@@ -57,12 +57,15 @@ def create_system_user(actor: str, username: str,
         validate_password(password, 'user_password')
     except ValueError as exc:
         raise UseCaseError(ERR_INVALID, str(exc)) from exc
+    jid = stores.job_start('system_user.create', actor, username)
     try:
         stores.system_user_create(username, password)
     except Exception as exc:  # noqa: BLE001 - adapter failures differ per OS
+        stores.job_fail(jid, 'creation failed')
         _audit('user_create', actor, f'target={username}',
                result='failure')
         raise UseCaseError(ERR_INVALID, 'User creation failed') from exc
+    stores.job_finish(jid)
     _audit('user_create', actor, f'target={username}')
     return {'username': username}
 
@@ -85,14 +88,18 @@ def delete_system_user(actor: str, username: str) -> None:
         _audit('api_permission_denied', actor,
                f'protected system user delete: {username}')
         raise UseCaseError(ERR_LAST_ADMIN, 'Cannot delete system users')
+    jid = stores.job_start('system_user.delete', actor, username)
     try:
         deleted = stores.system_user_delete(username)
     except Exception as exc:  # noqa: BLE001
+        stores.job_fail(jid, 'deletion failed')
         _audit('user_delete', actor, f'target={username}',
                result='failure')
         raise UseCaseError(ERR_INVALID, 'User deletion failed') from exc
     if not deleted:
+        stores.job_fail(jid, 'deletion failed')
         _audit('user_delete', actor, f'target={username}',
                result='failure')
         raise UseCaseError(ERR_INVALID, 'User deletion failed')
+    stores.job_finish(jid)
     _audit('user_delete', actor, f'target={username}')

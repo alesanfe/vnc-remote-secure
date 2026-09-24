@@ -350,6 +350,94 @@ components:
             info: { type: object }
         error: { nullable: true }
         request_id: { type: string }
+    JobSummary:
+      type: object
+      required: [id, kind, actor, state, started_at]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        actor: { type: string }
+        target: { type: string }
+        state: { type: string, enum: [running, done, failed] }
+        started_at: { type: number }
+        finished_at: { type: number, nullable: true }
+        detail: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+    JobPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [jobs]
+          properties:
+            jobs:
+              type: array
+              items: { $ref: '#/components/schemas/JobSummary' }
+        error: { nullable: true }
+        request_id: { type: string }
+    DeletedOperatorSummary:
+      type: object
+      required: [username, role, deleted_at]
+      properties:
+        username: { type: string }
+        role: { type: string }
+        created_at: { type: number, nullable: true }
+        deleted_at: { type: number }
+    DeletedOperatorsResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [deleted]
+          properties:
+            deleted:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeletedOperatorSummary'
+        error: { nullable: true }
+        request_id: { type: string }
+    AuthMethodsResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [password, passkey]
+          properties:
+            password: { type: boolean }
+            passkey: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    LoginResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [operator, csrf_token, auth_method]
+          properties:
+            operator:
+              type: object
+              properties:
+                username: { type: string }
+                role: { type: string, nullable: true }
+            csrf_token: { type: string }
+            auth_method: { type: string, enum: [password, webauthn] }
+        error: { nullable: true }
+        request_id: { type: string }
+    PasskeyAuthOptionsResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [options]
+          properties:
+            options: { type: object }
+        error: { nullable: true }
+        request_id: { type: string }
     SystemUserSummary:
       type: object
       required: [username]
@@ -988,6 +1076,144 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionRevokeResponse'
         '404': { description: Operator not found }
+  /auth/methods:
+    get:
+      summary: Which login ceremonies are available (public)
+      x-required-permission: public
+      x-rate-limit-scope: default
+      x-response-schema: AuthMethodsResponse
+      responses:
+        '200':
+          description: '{password, passkey}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMethodsResponse'
+  /auth/login:
+    post:
+      summary: >-
+        Operator password login — mints vnc_op + vnc_csrf cookies and
+        returns the CSRF token. Origin + Sec-Fetch checked; rate
+        limited.
+      x-required-permission: public
+      x-rate-limit-scope: login
+      x-response-schema: LoginResponse
+      x-audit-event: operator_login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password]
+              properties:
+                username: { type: string, maxLength: 128 }
+                password: { type: string, maxLength: 512 }
+      responses:
+        '200': { description: '{operator, csrf_token, auth_method}' }
+        '400': { description: Missing/oversized credentials }
+        '401': { description: Invalid credentials }
+        '403': { description: Cross-site request rejected }
+        '429': { description: Rate limited }
+  /auth/passkey/begin:
+    post:
+      summary: >-
+        WebAuthn assertion options (public, rate-limited). Uniform
+        404 for unknown user or no credentials — no enumeration.
+      x-required-permission: public
+      x-rate-limit-scope: passkeys.auth
+      x-response-schema: PasskeyAuthOptionsResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username]
+              properties:
+                username: { type: string, maxLength: 128 }
+      responses:
+        '200': { description: '{options: PublicKeyCredentialRequestOptions}' }
+        '404': { description: Passkey authentication unavailable }
+  /auth/passkey/complete:
+    post:
+      summary: >-
+        Verify the WebAuthn assertion and mint the operator session.
+      x-required-permission: public
+      x-rate-limit-scope: passkeys.auth
+      x-response-schema: LoginResponse
+      x-audit-event: operator_login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, credential]
+              properties:
+                username: { type: string, maxLength: 128 }
+                credential: { type: object }
+      responses:
+        '200': { description: Session issued }
+        '400': { description: Missing fields }
+        '401': { description: Assertion rejected }
+  /jobs:
+    get:
+      summary: Recent destructive-operation jobs, newest first
+      x-required-permission: admin_audit
+      x-rate-limit-scope: default
+      x-response-schema: JobPageResponse
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+      responses:
+        '200':
+          description: '{jobs: [...]}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPageResponse'
+  /operators/deleted:
+    get:
+      summary: >-
+        Tombstoned operators (restore candidates). Snapshots are
+        non-secret: role and timestamps only.
+      x-required-permission: admin_users
+      x-rate-limit-scope: default
+      x-response-schema: DeletedOperatorsResponse
+      responses:
+        '200':
+          description: '{deleted: [{username, role, deleted_at}]}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedOperatorsResponse'
+  /operators/{username}/restore:
+    post:
+      summary: >-
+        Restore a tombstoned operator (admin_users + step-up). The
+        account returns disabled with a random password — an admin
+        must set a password and re-enable it explicitly.
+      x-required-permission: admin_users
+      x-csrf-required: true
+      x-step-up-required: true
+      x-rate-limit-scope: operators.create
+      x-response-schema: OperatorResponse
+      x-audit-event: operator_restored
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{operator}' }
+        '404': { description: No tombstone for this username }
+        '409': { description: Operator already exists }
   /system-users:
     get:
       summary: List non-reserved OS accounts (admin_users)

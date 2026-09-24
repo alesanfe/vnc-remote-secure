@@ -59,6 +59,9 @@ _RATE_LIMITS = {
     'passkeys.manage': (30, 60),
     'system_users.manage': (30, 60),
     'maintenance': (10, 60),
+    # Credential oracles — throttled as hard as the login limiter.
+    'login': (10, 60),
+    'passkeys.auth': (10, 60),
     # Step-up re-authentication — a password-verification oracle must
     # be throttled as hard as login itself.
     'stepup': (10, 60),
@@ -331,9 +334,9 @@ def _get_session_context(handler, query):
     internal = cookie_value(
         handler.headers.get('Cookie', ''), 'vnc_ephemeral')
     try:
-        from vnc_remote_secure.security.ephemeral_sessions import get_session_store
-        store = get_session_store()
-        store._load_if_changed()
+        from vnc_remote_secure.engine.infrastructure import stores
+        store = stores.session_store()
+        stores.session_refresh(store)
         sess = store.get(internal) if internal else None
     except Exception:  # noqa: BLE001 - fail closed
         sess = None
@@ -341,8 +344,8 @@ def _get_session_context(handler, query):
         _ok(handler, {'ephemeral': True, 'active': False})
         return
     try:
-        from vnc_remote_secure.security.maintenance import maintenance_active
-        maintenance = maintenance_active()
+        from vnc_remote_secure.engine.infrastructure import stores as _st
+        maintenance = _st.maintenance_active()
     except Exception:  # noqa: BLE001
         maintenance = False
     _ok(handler, {
@@ -361,8 +364,8 @@ def _get_session_context(handler, query):
 
 def _get_health(handler, query):
     try:
-        from vnc_remote_secure.monitoring.health import get_all_health
-        _ok(handler, get_all_health())
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, read_models.health())
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /health')
         _err(handler, 'Health status generation failed', 500)
@@ -370,8 +373,8 @@ def _get_health(handler, query):
 
 def _get_posture(handler, query):
     try:
-        from vnc_remote_secure.security.posture import calculate_posture
-        _ok(handler, calculate_posture())
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, read_models.posture())
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /security/posture')
         _err(handler, 'Posture calculation failed', 500)
@@ -379,8 +382,8 @@ def _get_posture(handler, query):
 
 def _get_doctor(handler, query):
     try:
-        from vnc_remote_secure.core.doctor import run_doctor
-        _ok(handler, run_doctor(as_json=True))
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, read_models.doctor())
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /doctor')
         _err(handler, 'Doctor run failed', 500)
@@ -388,7 +391,6 @@ def _get_doctor(handler, query):
 
 def _get_audit(handler, query):
     try:
-        from vnc_remote_secure.security.audit import get_audit_entries
         try:
             limit = int((query.get('limit') or ['100'])[0])
         except ValueError:
@@ -411,17 +413,15 @@ def _get_audit(handler, query):
                 return None
             v = v.strip()[:128]
             return v or None
-        entries = get_audit_entries(
-            limit=limit + 1, event=_flt('event'), before_seq=before_seq,
+        from vnc_remote_secure.engine.application import read_models
+        page = read_models.audit_page(
+            limit, event=_flt('event'), before_seq=before_seq,
             user=_flt('user'), result=_flt('result'))
-        has_more = len(entries) > limit
-        entries = entries[:limit]
-        next_cursor = (entries[-1].get('seq')
-                       if has_more and entries else None)
         _ok(handler, {
-            'entries': [audit_event_to_api(e) for e in entries],
-            'next_cursor': next_cursor,
-            'has_more': has_more,
+            'entries': [audit_event_to_api(e)
+                        for e in page['entries']],
+            'next_cursor': page['next_cursor'],
+            'has_more': page['has_more'],
         })
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /audit')
@@ -430,9 +430,8 @@ def _get_audit(handler, query):
 
 def _get_audit_verify(handler, query):
     try:
-        from vnc_remote_secure.security.audit import verify_chain
-        intact, message = verify_chain()
-        _ok(handler, {'intact': intact, 'message': message})
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, read_models.audit_integrity())
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /audit/verify')
         _err(handler, 'Audit verification failed', 500)
@@ -440,9 +439,9 @@ def _get_audit_verify(handler, query):
 
 def _get_config(handler, query):
     try:
-        from vnc_remote_secure.core.config_inspector import compute_effective_config
+        from vnc_remote_secure.engine.application import read_models
         _ok(handler, {'vars': [
-            config_entry_to_api(e) for e in compute_effective_config()]})
+            config_entry_to_api(e) for e in read_models.config_vars()]})
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /config')
         _err(handler, 'Config inspection failed', 500)
@@ -450,9 +449,9 @@ def _get_config(handler, query):
 
 def _get_backups(handler, query):
     try:
-        from vnc_remote_secure.core.backup import list_backups
+        from vnc_remote_secure.engine.application import read_models
         items = []
-        for path in list_backups():
+        for path in read_models.backup_paths():
             import os
             try:
                 items.append(backup_to_api(path, os.stat(path)))
@@ -466,13 +465,9 @@ def _get_backups(handler, query):
 
 def _get_operators(handler, query):
     try:
-        from vnc_remote_secure.security.operator_users import get_permissions, list_users
-        users = []
-        for u in list_users():
-            u['permissions'] = sorted(
-                get_permissions(u['username']))
-            users.append(operator_to_api(u))
-        _ok(handler, {'operators': users})
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, {'operators': [
+            operator_to_api(u) for u in read_models.operators_index()]})
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /operators')
         _err(handler, 'Operator listing failed', 500)
@@ -853,24 +848,11 @@ def _uc_error_status(err) -> int:
 
 def _get_operator_detail(handler, query):
     username = handler._api_params['username']
-    rec = _operator_record(username)
-    if rec is None:
+    from vnc_remote_secure.engine.application import read_models
+    data = read_models.operator_detail(username)
+    if data is None:
         _err(handler, 'Operator not found', 404)
         return
-    from vnc_remote_secure.engine.application.operators import viable_admin_count
-    from vnc_remote_secure.security.operator_users import get_permissions
-    from vnc_remote_secure.security.webauthn import list_credentials
-    data = operator_to_api({'username': username, **rec})
-    data['permissions'] = sorted(get_permissions(username))
-    data['passkey_count'] = len(list_credentials(username))
-    # Deletion gating for the UI: the backend still enforces at apply
-    # time — this is display metadata, not the authority.
-    blocking = []
-    if rec.get('role') == 'admin' \
-            and viable_admin_count(excluding=username) == 0:
-        blocking.append('last_viable_administrator')
-    data['deletion_allowed'] = not blocking
-    data['blocking_reasons'] = blocking
     _ok(handler, {'operator': data})
 
 
@@ -1059,6 +1041,206 @@ def _parse_operator_patch(payload: dict):
 _SYSTEM_USER_CREATE_KEYS = {'username', 'password'}
 
 
+def _public_gate(handler) -> bool:
+    """Origin + Fetch-Metadata checks for unauthenticated endpoints.
+
+    Public routes can't run ``_operator_gate`` (no session exists
+    yet) but a cross-site POST must still be rejected — rate limiting
+    was already applied by ``_dispatch``.
+    """
+    from vnc_remote_secure.security.auth_gateway import (
+        check_origin,
+        get_allowed_origins,
+    )
+    origin = handler.headers.get('Origin', '')
+    if origin and not check_origin(origin, get_allowed_origins()):
+        _err(handler, 'Invalid origin', 403)
+        return False
+    if handler.headers.get('Sec-Fetch-Site', '').lower() == 'cross-site':
+        _err(handler, 'Cross-site request rejected', 403)
+        return False
+    return True
+
+
+def _get_auth_methods(handler, query):
+    """GET /auth/methods — which login ceremonies the login page may
+    offer. Public by design: nothing sensitive is disclosed."""
+    passkey = True
+    try:
+        from vnc_remote_secure.engine.infrastructure import stores
+        passkey = stores.webauthn_gate_error() is None
+    except Exception:  # noqa: BLE001 - unavailable
+        passkey = False
+    _ok(handler, {'password': True, 'passkey': passkey})
+
+
+def _finish_operator_login(handler, username: str,
+                           auth_method: str) -> None:
+    """Mint the operator session + CSRF nonce and answer /login."""
+    handler._portal_sid = handler._issue_op_session(username)
+    _ok(handler, {
+        'operator': {
+            'username': username,
+            'role': 'admin' if username == 'admin' else None,
+        },
+        'csrf_token': handler._csrf_token(),
+        'auth_method': auth_method,
+    })
+
+
+def _post_auth_login(handler, query):
+    """POST /auth/login — password login for the SPA. Verifies through
+    the same path as Basic auth (store → env bootstrap, lockout,
+    audit), then mints the vnc_op cookie."""
+    if not _public_gate(handler):
+        return
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    username = payload.get('username')
+    password = payload.get('password')
+    if not isinstance(username, str) or not isinstance(password, str) \
+            or not username or not password:
+        _err(handler, 'username and password are required', 400)
+        return
+    if len(username) > 128 or len(password) > 512:
+        _err(handler, 'credentials too long', 400)
+        return
+    import base64
+    cred = base64.b64encode(
+        f'{username}:{password}'.encode()).decode()
+    from vnc_remote_secure.security.http_auth import (
+        authenticate_landing,
+        client_ip_from,
+    )
+    ok, operator = authenticate_landing(
+        f'Basic {cred}',
+        client_ip=client_ip_from(handler.headers, handler.peer_ip()))
+    from vnc_remote_secure.security.audit import audit_event
+    if not ok or operator is None:
+        audit_event('operator_login', user=username,
+                    result='failure')
+        _err(handler, 'Invalid credentials', 401)
+        return
+    audit_event('operator_login', user=username,
+                detail='method=password', result='success')
+    _finish_operator_login(handler, operator.get('username', username),
+                           'password')
+
+
+def _post_auth_passkey_begin(handler, query):
+    """POST /auth/passkey/begin — WebAuthn assertion options.
+    Same response for unknown user and no-credential accounts —
+    no enumeration through the ceremony."""
+    if not _public_gate(handler):
+        return
+    from vnc_remote_secure.engine.infrastructure import stores
+    gate = stores.webauthn_gate_error()
+    if gate:
+        _err(handler, gate, 503)
+        return
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    username = payload.get('username')
+    if not isinstance(username, str) or not username.strip():
+        _err(handler, 'username is required', 400)
+        return
+    from vnc_remote_secure.security.webauthn import begin_authentication
+    from vnc_remote_secure.engine.application.passkeys import _rp_id
+    options = begin_authentication(username.strip()[:128], _rp_id())
+    from vnc_remote_secure.security.audit import audit_event
+    if options is None:
+        audit_event('passkey_auth_begin', user=username,
+                    result='failure')
+        _err(handler, 'Passkey authentication unavailable', 404)
+        return
+    audit_event('passkey_auth_begin', user=username,
+                result='success')
+    _ok(handler, {'options': options})
+
+
+def _post_auth_passkey_complete(handler, query):
+    """POST /auth/passkey/complete — verify the assertion and mint
+    the operator session (a passkey ceremony is a fresh auth)."""
+    if not _public_gate(handler):
+        return
+    from vnc_remote_secure.engine.infrastructure import stores
+    gate = stores.webauthn_gate_error()
+    if gate:
+        _err(handler, gate, 503)
+        return
+    payload, error = _read_json_body(handler, limit=_MAX_BODY)
+    if error:
+        _err(handler, *error)
+        return
+    username = payload.get('username')
+    credential = payload.get('credential')
+    if not isinstance(username, str) or not isinstance(credential, dict):
+        _err(handler, 'username and credential are required', 400)
+        return
+    from vnc_remote_secure.security.webauthn import complete_authentication
+    from vnc_remote_secure.engine.application.passkeys import (
+        _origin,
+        _rp_id,
+    )
+    result = complete_authentication(
+        username.strip()[:128], credential, _rp_id(), _origin())
+    from vnc_remote_secure.security.audit import audit_event
+    if not result.ok:
+        audit_event('operator_login', user=username,
+                    detail='method=webauthn', result='failure')
+        _err(handler, result.message, 401)
+        return
+    audit_event('operator_login', user=username,
+                detail='method=webauthn', result='success')
+    _finish_operator_login(handler, username.strip()[:128], 'webauthn')
+
+
+def _get_jobs(handler, query):
+    """GET /api/v1/jobs — recent destructive-operation records."""
+    try:
+        limit = int((query.get('limit') or ['100'])[0])
+    except ValueError:
+        limit = 100
+    try:
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, {'jobs': read_models.jobs(limit)})
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /jobs')
+        _err(handler, 'Job listing failed', 500)
+
+
+def _get_operators_deleted(handler, query):
+    """GET /api/v1/operators/deleted — tombstone restore candidates."""
+    try:
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, {'deleted': read_models.deleted_operators()})
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /operators/deleted')
+        _err(handler, 'Deleted-operator listing failed', 500)
+
+
+def _post_operator_restore(handler, query):
+    """POST /api/v1/operators/{u}/restore — undo a deletion from its
+    tombstone. The account returns disabled with a random password —
+    an admin must set a password and re-enable it."""
+    operator = handler._api_operator
+    username = handler._api_params['username']
+    from vnc_remote_secure.engine.application.operators import restore_operator
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        rec = restore_operator(
+            operator.get('username', '?'), username)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'operator': operator_to_api(
+        {'username': username, **rec})})
+
+
 def _get_system_users(handler, query):
     from vnc_remote_secure.engine.application.system_users import list_system_users
     _ok(handler, {'users': list_system_users()})
@@ -1235,6 +1417,21 @@ _ROUTES = {
     ('GET', 'maintenance'): _Route(
         _get_maintenance, 'operator', 'default', None,
         'MaintenanceResponse'),
+    # Public auth surface — the SPA login page consumes these before
+    # any session exists. 'public' skips _operator_gate; handlers run
+    # _public_gate (Origin + Sec-Fetch) instead.
+    ('GET', 'auth/methods'): _Route(
+        _get_auth_methods, 'public', 'default', None,
+        'AuthMethodsResponse'),
+    ('POST', 'auth/login'): _Route(
+        _post_auth_login, 'public', 'login', 'operator_login',
+        'LoginResponse'),
+    ('POST', 'auth/passkey/begin'): _Route(
+        _post_auth_passkey_begin, 'public', 'passkeys.auth',
+        'passkey_auth_begin', 'PasskeyAuthOptionsResponse'),
+    ('POST', 'auth/passkey/complete'): _Route(
+        _post_auth_passkey_complete, 'public', 'passkeys.auth',
+        'operator_login', 'LoginResponse'),
     ('POST', 'maintenance'): _Route(
         _post_maintenance, 'admin:*', 'maintenance',
         'maintenance_toggle', 'MaintenanceSetResponse', True),
@@ -1287,6 +1484,16 @@ _ROUTES = {
         _post_operator_revoke_sessions, 'admin_users',
         'operators.sessions_revoke', 'operator_sessions_revoked',
         'SessionRevokeResponse', True),
+    # Destructive-op ledger + operator restore (tombstone recovery).
+    ('GET', 'jobs'): _Route(
+        _get_jobs, 'admin_audit', 'default', None,
+        'JobPageResponse'),
+    ('GET', 'operators/deleted'): _Route(
+        _get_operators_deleted, 'admin_users', 'default', None,
+        'DeletedOperatorsResponse'),
+    ('POST', 'operators/{username}/restore'): _Route(
+        _post_operator_restore, 'admin_users', 'operators.create',
+        'operator_restored', 'OperatorResponse', True),
     # OS-level runtime accounts (migrated from the Flask users UI).
     ('GET', 'system-users'): _Route(
         _get_system_users, 'admin_users', 'default', None,
@@ -1304,6 +1511,8 @@ _ROUTES = {
 _KNOWN_PERMS = {
     'operator', 'admin_sessions', 'admin_audit', 'admin_config',
     'admin_users', 'admin_secrets',
+    # Unauthenticated surface — login ceremonies only.
+    'public',
     # System-wide gate — only the umbrella holder may touch it.
     'admin:*',
 }
@@ -1334,6 +1543,16 @@ def _template_routes():
             compiled.append((method, re.compile(f'^{pattern}$'), spec))
         _TEMPLATE_ROUTES = compiled
     return _TEMPLATE_ROUTES
+
+
+def is_public_route(method: str, path: str) -> bool:
+    """True when ``method path`` resolves to a ``perm='public'``
+    route — the caller (landing) must let these past the portal
+    auth gate, since login ceremonies predate any session."""
+    rel = path[len(_API_PREFIX):] if path.startswith(_API_PREFIX) \
+        else path
+    spec, _ = _match_route(method, rel)
+    return spec is not None and spec.perm == 'public'
 
 
 def _match_route(method: str, rel: str):
@@ -1378,6 +1597,13 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
     if spec is None:
         return False
     if not _rate_limit(handler, spec.scope):
+        return True
+    if spec.perm == 'public':
+        # Unauthenticated surface (login ceremonies): no operator
+        # gate — handlers run _public_gate for Origin/Sec-Fetch
+        # checks; CSRF is meaningless before a session exists.
+        handler._api_params = params
+        spec.fn(handler, query)
         return True
     if method != 'GET':
         # _operator_gate runs operator auth + Origin + Sec-Fetch-Site
