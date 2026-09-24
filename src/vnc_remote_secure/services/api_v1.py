@@ -718,45 +718,16 @@ def _operator_record(username: str):
     return load_store().get(username)
 
 
-def _viable_admin_count(excluding: str = '') -> int:
-    """Count enabled operators with the admin umbrella, excluding one.
-
-    The env bootstrap 'admin' counts as viable only while a
-    LANDING_PASSWORD is configured — a store user being demoted must
-    never assume the env admin silently exists.
-    """
-    import os
-
-    from vnc_remote_secure.security.operator_users import load_store
-    count = 0
-    if excluding != 'admin' and os.environ.get('LANDING_PASSWORD'):
-        count += 1
-    for name, rec in load_store().items():
-        if name == excluding or rec.get('disabled'):
-            continue
-        if rec.get('role') == 'admin':
-            count += 1
-    return count
-
-
-def _is_admin_operator(username: str) -> bool:
-    rec = _operator_record(username)
-    return rec is not None and rec.get('role') == 'admin'
-
-
-def _revoke_operator_sessions(username: str) -> None:
-    """Invalidate every live ``vnc_op`` session for *username*.
-
-    Operator cookies are stateless (signed sid.username.exp), so
-    revocation records a per-user epoch in shared state; the cookie
-    verify path rejects any session issued before the epoch.
-    """
-    import time as _time
-
-    from vnc_remote_secure.security.shared_state import get_backend
-    get_backend().set_ttl(
-        'op_revoked_users', username, str(_time.time()),
-        8 * 3600)  # matches LandingHandler._OP_SESSION_TTL
+def _uc_error_status(err) -> int:
+    """Map a domain UseCaseError code to a public HTTP status."""
+    from vnc_remote_secure.engine.domain.decision import (
+        ERR_CONFLICT,
+        ERR_LAST_ADMIN,
+        ERR_NOT_FOUND,
+        ERR_PERMISSION,
+    )
+    return {ERR_NOT_FOUND: 404, ERR_PERMISSION: 403,
+            ERR_CONFLICT: 409, ERR_LAST_ADMIN: 409}.get(err.code, 400)
 
 
 def _get_operator_detail(handler, query):
@@ -819,49 +790,28 @@ def _post_operator_create(handler, query):
         _err(handler, 'enabled must be a boolean', 400)
         return
     from vnc_remote_secure.core.validation import ValidationError, validate_password
-    from vnc_remote_secure.security.operator_users import (
-        ROLE_PERMISSIONS,
-        _valid_username,
-        add_user,
-        set_disabled,
-    )
+    from vnc_remote_secure.security.operator_users import _valid_username
     if not _valid_username(username):
         _err(handler,
              'username must be 1-64 chars of [a-zA-Z0-9._-@]', 400)
-        return
-    if role not in ROLE_PERMISSIONS:
-        _err(handler,
-             f'Unknown role: {role} — one of '
-             f'{sorted(ROLE_PERMISSIONS)}', 400)
-        return
-    if role == 'admin' and 'admin:*' not in set(
-            operator.get('permissions') or []):
-        from vnc_remote_secure.security.audit import audit_event
-        audit_event('api_permission_denied',
-                    user=operator.get('username', '?'),
-                    detail='create admin operator')
-        _err(handler, 'Creating admin operators requires admin:*', 403)
         return
     try:
         validate_password(password)
     except ValidationError as exc:
         _err(handler, str(exc), 400)
         return
+    from vnc_remote_secure.engine.application.operators import create_operator
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        add_user(username, password, role)
-    except ValueError as exc:
-        status = 409 if 'already exists' in str(exc) else 400
-        _err(handler, str(exc), status)
+        rec = create_operator(
+            operator.get('username', '?'),
+            set(operator.get('permissions') or []),
+            username, password, role, enabled)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
-    if not enabled:
-        set_disabled(username, True)
-    from vnc_remote_secure.security.audit import audit_event
-    audit_event('operator_created',
-                user=operator.get('username', '?'),
-                detail=f'target={username} role={role}')
     _ok(handler, {
-        'operator': operator_to_api(
-            {'username': username, **_operator_record(username)}),
+        'operator': operator_to_api({'username': username, **rec}),
     }, status=201)
 
 
@@ -884,65 +834,21 @@ def _patch_operator(handler, query):
     if _operator_record(username) is None:
         _err(handler, 'Operator not found', 404)
         return
-    from vnc_remote_secure.security.audit import audit_event
-    from vnc_remote_secure.security.operator_users import (
-        ROLE_PERMISSIONS,
-        set_disabled,
-        set_password,
-        set_role,
-    )
-    changes = []
-    revoke_sessions = False
-
+    from vnc_remote_secure.engine.application.operators import update_operator
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    kw: dict = {}
     if 'role' in payload:
         role = payload['role']
-        if role not in ROLE_PERMISSIONS:
-            _err(handler,
-                 f'Unknown role: {role} — one of '
-                 f'{sorted(ROLE_PERMISSIONS)}', 400)
+        if not isinstance(role, str):
+            _err(handler, 'role must be a string', 400)
             return
-        if role != 'admin' and _is_admin_operator(username) \
-                and _viable_admin_count(excluding=username) == 0:
-            _err(handler,
-                 'Refused: would remove the last viable '
-                 'administrator', 409)
-            return
-        if role == 'admin' and 'admin:*' not in set(
-                operator.get('permissions') or []):
-            _err(handler, 'Granting admin requires admin:*', 403)
-            return
-        old_role = _operator_record(username).get('role')
-        if not set_role(username, role):
-            _err(handler, 'Role update failed', 500)
-            return
-        audit_event('operator_role_changed',
-                    user=operator.get('username', '?'),
-                    detail=f'target={username} {old_role}->{role}')
-        changes.append('role')
-        revoke_sessions = True
-
+        kw['role'] = role
     if 'disabled' in payload:
         disabled = payload['disabled']
         if type(disabled) is not bool:  # noqa: E721
             _err(handler, 'disabled must be a boolean', 400)
             return
-        if disabled and _is_admin_operator(username) \
-                and _viable_admin_count(excluding=username) == 0:
-            _err(handler,
-                 'Refused: would disable the last viable '
-                 'administrator', 409)
-            return
-        if not set_disabled(username, disabled):
-            _err(handler, 'State update failed', 500)
-            return
-        audit_event(
-            'operator_disabled' if disabled else 'operator_enabled',
-            user=operator.get('username', '?'),
-            detail=f'target={username}')
-        changes.append('disabled')
-        if disabled:
-            revoke_sessions = True
-
+        kw['disabled'] = disabled
     if 'password' in payload:
         password = payload['password']
         if not isinstance(password, str) or not password:
@@ -954,24 +860,20 @@ def _patch_operator(handler, query):
         except ValidationError as exc:
             _err(handler, str(exc), 400)
             return
-        if not set_password(username, password):
-            _err(handler, 'Password update failed', 500)
-            return
-        audit_event('operator_password_changed',
-                    user=operator.get('username', '?'),
-                    detail=f'target={username}')
-        changes.append('password')
-        revoke_sessions = True
-
-    # A sensitive change must not leave live sessions running with a
-    # stale capability set — revoke them all; the operator re-logs in.
-    if revoke_sessions:
-        _revoke_operator_sessions(username)
+        kw['password'] = password
+    try:
+        result = update_operator(
+            operator.get('username', '?'),
+            set(operator.get('permissions') or []),
+            username, **kw)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
     _ok(handler, {
         'operator': operator_to_api(
-            {'username': username, **_operator_record(username)}),
-        'changed': changes,
-        'sessions_revoked': revoke_sessions,
+            {'username': username, **result['record']}),
+        'changed': result['changed'],
+        'sessions_revoked': result['sessions_revoked'],
     })
 
 
@@ -980,24 +882,13 @@ def _delete_operator(handler, query):
     administrator; live sessions die with the account."""
     operator = handler._api_operator
     username = handler._api_params['username']
-    if _operator_record(username) is None:
-        _err(handler, 'Operator not found', 404)
+    from vnc_remote_secure.engine.application.operators import delete_operator
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        delete_operator(operator.get('username', '?'), username)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
-    if _is_admin_operator(username) \
-            and _viable_admin_count(excluding=username) == 0:
-        _err(handler,
-             'Refused: would delete the last viable administrator',
-             409)
-        return
-    from vnc_remote_secure.security.audit import audit_event
-    from vnc_remote_secure.security.operator_users import remove_user
-    if not remove_user(username):
-        _err(handler, 'Operator delete failed', 500)
-        return
-    _revoke_operator_sessions(username)
-    audit_event('operator_deleted',
-                user=operator.get('username', '?'),
-                detail=f'target={username}')
     _ok(handler, {'deleted': True})
 
 
@@ -1005,14 +896,13 @@ def _post_operator_revoke_sessions(handler, query):
     """POST /api/v1/operators/{username}/sessions/revoke-all."""
     operator = handler._api_operator
     username = handler._api_params['username']
-    if _operator_record(username) is None:
-        _err(handler, 'Operator not found', 404)
+    from vnc_remote_secure.engine.application.operators import revoke_sessions
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        revoke_sessions(operator.get('username', '?'), username)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
-    _revoke_operator_sessions(username)
-    from vnc_remote_secure.security.audit import audit_event
-    audit_event('operator_sessions_revoked',
-                user=operator.get('username', '?'),
-                detail=f'target={username}')
     _ok(handler, {'revoked': True})
 
 
