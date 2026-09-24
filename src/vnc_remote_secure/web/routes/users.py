@@ -1,10 +1,12 @@
 """User management route handler for the web UI.
 
-Provides login/logout and user CRUD endpoints. Authentication is backed
-by :mod:`vnc_remote_secure.security.authentication` and rate-limited via
+Provides login/logout, user CRUD and WebAuthn/passkey endpoints.
+Authentication is backed by
+:mod:`vnc_remote_secure.security.authentication` and rate-limited via
 :mod:`vnc_remote_secure.security.rate_limit`.
 """
 import logging
+import os
 import secrets
 
 from flask import (
@@ -177,6 +179,59 @@ def _check_csrf():
         str(expected).encode('utf-8', 'replace'))
 
 
+def _issue_session_response(username: str):
+    """Create the authenticated session + cookies for *username*.
+
+    Shared by the password login and the WebAuthn assertion path —
+    both must produce identical session state (Flask session keys,
+    ``vnc_session`` HMAC cookie, step-up auth time).
+    """
+    # Regenerate the session on privilege change: clear any
+    # pre-login keys (attacker-fixated or stale) so the
+    # authenticated session carries only fresh state.
+    session.clear()
+    token = create_web_session(session, username)
+    # Record auth time for step-up auth enforcement.
+    from vnc_remote_secure.security.step_up_auth import record_auth_time
+    record_auth_time(username)
+    resp = redirect(url_for('users.users'))
+    # Also issue the raw HMAC session token as the 'vnc_session'
+    # cookie — the non-Flask services (noVNC, terminal, audio,
+    # gamepad, landing) verify it via verify_session_cookie.
+    # Flask's own session cookie was renamed 'vnc_flask_session'
+    # to avoid colliding on the same name.
+    from flask import current_app
+
+    from vnc_remote_secure.core.constants import (
+        DEFAULT_SESSION_IDLE_TIMEOUT,
+        DEFAULT_SESSION_MAX_LIFETIME,
+    )
+    from vnc_remote_secure.security.sessions import (
+        _get_env_int,
+        get_cookie_attributes,
+    )
+    attrs = get_cookie_attributes(
+        secure=current_app.config.get(
+            'SESSION_COOKIE_SECURE', True))
+    # Same max_age as create_session_cookie:
+    # min(idle, max_lifetime) — the idle window, not the
+    # absolute cap (PERMANENT_SESSION_LIFETIME may surface as
+    # a timedelta under Flask, so read the env ints directly).
+    max_age = min(
+        _get_env_int('SESSION_IDLE_TIMEOUT',
+                     DEFAULT_SESSION_IDLE_TIMEOUT),
+        _get_env_int('SESSION_MAX_LIFETIME',
+                     DEFAULT_SESSION_MAX_LIFETIME))
+    resp.set_cookie(
+        'vnc_session', token,
+        max_age=max_age,
+        httponly=True,
+        secure=attrs['secure'],
+        samesite=attrs['samesite'],
+        path=attrs['path'])
+    return resp
+
+
 @users_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """Authenticate a user and create a session.
@@ -209,53 +264,11 @@ def login():
         ok, message, _data = attempt_login(
             username, password, totp_code=totp_code, client_ip=ip)
         if ok:
-            # Regenerate the session on privilege change: clear any
-            # pre-login keys (attacker-fixated or stale) so the
-            # authenticated session carries only fresh state.
-            session.clear()
-            token = create_web_session(session, username)
-            # Record auth time for step-up auth enforcement.
-            from vnc_remote_secure.security.step_up_auth import record_auth_time
-            record_auth_time(username)
-            resp = redirect(url_for('users.users'))
-            # Also issue the raw HMAC session token as the 'vnc_session'
-            # cookie — the non-Flask services (noVNC, terminal, audio,
-            # gamepad, landing) verify it via verify_session_cookie.
-            # Flask's own session cookie was renamed 'vnc_flask_session'
-            # to avoid colliding on the same name.
-            from flask import current_app
-
-            from vnc_remote_secure.core.constants import (
-                DEFAULT_SESSION_IDLE_TIMEOUT,
-                DEFAULT_SESSION_MAX_LIFETIME,
-            )
-            from vnc_remote_secure.security.sessions import (
-                _get_env_int,
-                get_cookie_attributes,
-            )
-            attrs = get_cookie_attributes(
-                secure=current_app.config.get(
-                    'SESSION_COOKIE_SECURE', True))
-            # Same max_age as create_session_cookie:
-            # min(idle, max_lifetime) — the idle window, not the
-            # absolute cap (PERMANENT_SESSION_LIFETIME may surface as
-            # a timedelta under Flask, so read the env ints directly).
-            max_age = min(
-                _get_env_int('SESSION_IDLE_TIMEOUT',
-                             DEFAULT_SESSION_IDLE_TIMEOUT),
-                _get_env_int('SESSION_MAX_LIFETIME',
-                             DEFAULT_SESSION_MAX_LIFETIME))
-            resp.set_cookie(
-                'vnc_session', token,
-                max_age=max_age,
-                httponly=True,
-                secure=attrs['secure'],
-                samesite=attrs['samesite'],
-                path=attrs['path'])
-            return resp
+            return _issue_session_response(username)
         return render_template(
             'login.html', error=message,
             mfa_required=mfa_required_for_login(),
+            webauthn_enabled=_webauthn_gate() is None,
             csrf_token=session.get('csrf_token', '')), 401
     # Generate a CSRF token for the login form.
     if 'csrf_token' not in session:
@@ -263,6 +276,7 @@ def login():
     from vnc_remote_secure.security.mfa import mfa_required_for_login
     return render_template(
         'login.html', csrf_token=session['csrf_token'],
+        webauthn_enabled=_webauthn_gate() is None,
         mfa_required=mfa_required_for_login())
 
 
@@ -342,6 +356,7 @@ def users():
         pass
     return render_template('users.html', users=users_list,
                            csrf_token=session.get('csrf_token', ''),
+                           webauthn_enabled=_webauthn_gate() is None,
                            RESERVED_USERNAMES=RESERVED_USERNAMES)
 
 
@@ -537,3 +552,155 @@ def api_users():
         return result
 
     return json_error('Method not allowed', 405)
+
+
+# ------------------------------------------------------------------
+# WebAuthn / passkey endpoints (opt-in: WEBAUTHN_ENABLED + the
+# 'webauthn' package). Registration requires an authenticated
+# session + step-up; assertion is the public login ceremony.
+# ------------------------------------------------------------------
+
+def _webauthn_rp_id() -> str:
+    return (os.environ.get('WEBAUTHN_RP_ID', '').strip()
+            or request.host.split(':')[0])
+
+
+def _webauthn_origin() -> str:
+    return (os.environ.get('WEBAUTHN_ORIGIN', '').strip()
+            or request.url_root.rstrip('/'))
+
+
+def _webauthn_rp_name() -> str:
+    return (os.environ.get('WEBAUTHN_RP_NAME', '').strip()
+            or 'VNC Remote Secure')
+
+
+def _webauthn_gate():
+    """503 when the feature is off or the library is missing."""
+    from vnc_remote_secure.security.webauthn import webauthn_available
+    if not webauthn_available():
+        return json_error('WebAuthn is not enabled', 503)
+    return None
+
+
+@users_bp.route('/webauthn/register/begin', methods=['POST'])
+def webauthn_register_begin():
+    """Start a passkey registration ceremony (auth + step-up)."""
+    gate = _webauthn_gate()
+    if gate is not None:
+        return gate
+    actor, err = _require_session()
+    if err is not None:
+        return err
+    from vnc_remote_secure.security.step_up_auth import require_step_up
+    step_up_err = require_step_up(actor, 'webauthn_register')
+    if step_up_err:
+        return json_error(step_up_err, 403)
+    if not _check_csrf():
+        return json_error('Invalid or missing CSRF token', 403)
+    from vnc_remote_secure.security.webauthn import begin_registration
+    options = begin_registration(
+        actor, actor, _webauthn_rp_id(), _webauthn_rp_name())
+    return jsonify(options)
+
+
+@users_bp.route('/webauthn/register/complete', methods=['POST'])
+def webauthn_register_complete():
+    """Finish a passkey registration ceremony."""
+    gate = _webauthn_gate()
+    if gate is not None:
+        return gate
+    actor, err = _require_session()
+    if err is not None:
+        return err
+    if not _check_csrf():
+        return json_error('Invalid or missing CSRF token', 403)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or 'credential' not in data:
+        return json_error('Request body must contain a credential', 400)
+    from vnc_remote_secure.security.webauthn import complete_registration
+    ok, message = complete_registration(
+        actor, data['credential'], _webauthn_rp_id(),
+        _webauthn_origin(), name=str(data.get('name', ''))[:64])
+    if not ok:
+        return json_error(message, 400)
+    return jsonify({'registered': True})
+
+
+@users_bp.route('/webauthn/credentials', methods=['GET'])
+def webauthn_credentials():
+    """List the caller's registered passkeys."""
+    gate = _webauthn_gate()
+    if gate is not None:
+        return gate
+    actor, err = _require_session()
+    if err is not None:
+        return err
+    from vnc_remote_secure.security.webauthn import list_credentials
+    return jsonify({'credentials': list_credentials(actor)})
+
+
+@users_bp.route('/webauthn/credentials/<credential_id>',
+                methods=['DELETE'])
+def webauthn_delete_credential(credential_id):
+    """Delete one of the caller's passkeys (step-up required)."""
+    gate = _webauthn_gate()
+    if gate is not None:
+        return gate
+    actor, err = _require_session()
+    if err is not None:
+        return err
+    from vnc_remote_secure.security.step_up_auth import require_step_up
+    step_up_err = require_step_up(actor, 'webauthn_delete')
+    if step_up_err:
+        return json_error(step_up_err, 403)
+    if not _check_csrf():
+        return json_error('Invalid or missing CSRF token', 403)
+    from vnc_remote_secure.security.webauthn import delete_credential
+    if not delete_credential(credential_id, actor):
+        return json_error('Credential not found', 404)
+    return jsonify({'deleted': True})
+
+
+@users_bp.route('/webauthn/assert/begin', methods=['POST'])
+def webauthn_assert_begin():
+    """Start a passkey login ceremony (public, rate-limited)."""
+    gate = _webauthn_gate()
+    if gate is not None:
+        return gate
+    ip = _client_ip()
+    if not check_rate_limit(ip):
+        return json_error('Too many attempts. Try again later.', 429)
+    data = request.get_json(silent=True) or {}
+    username = sanitize_input(str(data.get('username', '')))
+    if not username:
+        return json_error('username is required', 400)
+    from vnc_remote_secure.security.webauthn import begin_authentication
+    options = begin_authentication(username, _webauthn_rp_id())
+    if options is None:
+        # Same response whether the user or their passkeys exist —
+        # no account enumeration through the ceremony.
+        return json_error('Passkey authentication unavailable', 404)
+    return jsonify(options)
+
+
+@users_bp.route('/webauthn/assert/complete', methods=['POST'])
+def webauthn_assert_complete():
+    """Finish a passkey login ceremony and issue the session."""
+    gate = _webauthn_gate()
+    if gate is not None:
+        return gate
+    ip = _client_ip()
+    if not check_rate_limit(ip):
+        return json_error('Too many attempts. Try again later.', 429)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or 'credential' not in data:
+        return json_error('Request body must contain a credential', 400)
+    username = sanitize_input(str(data.get('username', '')))
+    from vnc_remote_secure.security.webauthn import complete_authentication
+    ok, message = complete_authentication(
+        username, data['credential'], _webauthn_rp_id(),
+        _webauthn_origin())
+    if not ok:
+        return json_error(message, 401)
+    return _issue_session_response(username)

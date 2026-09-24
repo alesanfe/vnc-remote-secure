@@ -51,6 +51,11 @@ dev = [
 linux = [
   "evdev>=1.0,<2.0"
 ]
+# Optional: WebAuthn/passkey ceremonies (WEBAUTHN_ENABLED + the
+# /webauthn/* routes). Without it the endpoints report 503.
+webauthn = [
+  "webauthn>=2.0,<3.0"
+]
 # Optional: enables orphan-process reaping in the service manager
 # (_reap_stale_service). Without it the stale-PID cleanup no-ops.
 ops = [

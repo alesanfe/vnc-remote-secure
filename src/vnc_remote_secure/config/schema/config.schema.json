@@ -133,6 +133,22 @@
       "type": "boolean",
       "description": "Block new non-admin sessions (share links and logins) while keeping operator/env-admin access and existing sessions. Also toggled at runtime via 'vnc-remote maintenance on|off' (flag file)."
     },
+    "WEBAUTHN_ENABLED": {
+      "type": "boolean",
+      "description": "Enable WebAuthn/passkey registration and login ceremonies (requires the 'webauthn' package — pip install vnc-remote-secure[webauthn]). Default off."
+    },
+    "WEBAUTHN_RP_ID": {
+      "type": "string",
+      "description": "Relying Party ID for WebAuthn ceremonies (default: the request host). Must match the origin's registrable domain."
+    },
+    "WEBAUTHN_RP_NAME": {
+      "type": "string",
+      "description": "Relying Party display name shown by authenticators (default: 'VNC Remote Secure')."
+    },
+    "WEBAUTHN_ORIGIN": {
+      "type": "string",
+      "description": "Expected origin for WebAuthn verification (default: request.url_root). Set explicitly when behind a reverse proxy that rewrites Host/scheme."
+    },
     "AUTH_LOCKOUT_SECONDS": {
       "type": "integer",
       "minimum": 1,
