@@ -75,11 +75,23 @@ Never hardcode the version string in more than `pyproject.toml` (the
   - `core/` — backup, config, **config_inspector**, constants, **doctor**, errors, exceptions, logging, paths, processes, validation, lifecycle, **service_manager**, uninstall
   - `platform/{linux,windows}/` — platform adapters (adapter, installer, services, users, permissions, metrics, gamepad; Windows also firewall + `_powershell`), plus shared `platform/{base,detection}.py`
   - `services/` — audio, gamepad, health, landing, novnc (static +
-    `/websockify` proxy to the loopback websockify bridge), terminal, vnc
+    `/websockify` proxy to the loopback websockify bridge), terminal, vnc,
+    **api_v1** (versioned JSON API for the admin SPA)
   - `security/` — audit, **auth_gateway**, authentication, certificates, credentials, ephemeral_sessions, file_permissions, http_auth, http_headers, mfa, posture, **profiles**, **rate_limit**, redaction, sessions, **shared_state**, step_up_auth, tls_validation, **token_signing**, **websocket_registry**
   - `monitoring/` — health, prometheus, **alerts** (Discord/webhook/email dispatch)
-  - `web/` — Flask application, routes, templates
+  - `web/` — Flask application, routes, templates, `static/admin/` (built admin SPA)
   - `vendor/d3des.py` — VNC DES (legacy protocol compatibility, pycryptodome-backed)
+- **Admin frontend**: `frontend/` — React + TypeScript + Vite SPA
+  (`react-router-dom`, `@tanstack/react-query`). `npm run build` emits
+  the bundle to `src/vnc_remote_secure/web/static/admin/`; the landing
+  service serves it under `/admin/` (operator-only) with SPA fallback
+  to `index.html`. The SPA talks to `/api/v1/*` on the landing service
+  (`services/api_v1.py`) — Python remains the sole authority on
+  security decisions; React only renders and posts actions.
+- **Share-link flow**: `GET /?session=<token>` renders a non-consuming
+  interstitial (role/expiry preview + POST form); activation happens
+  only via `POST /session/activate`, which issues the `vnc_ephemeral`
+  cookie and redirects to `/`.
 - **Linux Bash**: `src/rpi-vnc-remote.sh` (thin compatibility wrapper → Python CLI)
 - **Windows PowerShell**: `src/vnc_remote_secure/native/windows/` (module + commands)
 - **Native assets**: `src/vnc_remote_secure/native/` — `linux/{bin,systemd}/` (launcher + unit), `windows/` (`VncRemote.psm1/.psd1`, `commands/*.ps1`, `Firewall.ps1`, `service/service-config.xml`)

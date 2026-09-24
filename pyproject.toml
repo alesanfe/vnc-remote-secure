@@ -176,7 +176,9 @@ vnc_remote_secure = [
   "third_party/README.md",
   "static/xterm/*",
   "static/landing.css",
-  "static/terminal.html"
+  "static/terminal.html",
+  "web/static/admin/index.html",
+  "web/static/admin/assets/*"
 ]
 
 [tool.setuptools.packages.find]
