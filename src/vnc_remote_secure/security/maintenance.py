@@ -130,8 +130,13 @@ def enforce_drain_deadline() -> bool:
         return False
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+        # The claim is a LEASE, not a completion record: it expires in
+        # 30s. An executor that claims and dies before revoking leaves
+        # no false "done" marker — the next process to check retries
+        # the sweep. drain_sessions() is idempotent, so a duplicate
+        # sweep is harmless while a skipped one is not.
         if get_backend().set_if_absent(
-                'maintenance', 'drain_done', '1'):
+                'maintenance', 'drain_done', '1', ttl_seconds=30):
             n = drain_sessions()
             logger.info('Maintenance drain deadline reached — '
                         'revoked %d ephemeral session(s)', n)

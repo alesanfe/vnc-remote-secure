@@ -100,19 +100,25 @@ class TestNegativeMatrix:
 
     def test_granular_terminal_not_collapsed(self):
         """'terminal:write' must check terminal_write — a view-only
-        terminal session must NOT satisfy it, and a write-only session
-        must NOT satisfy view."""
+        terminal session must NOT satisfy it."""
         viewer = _session_with({'terminal_view'})
-        writer = _session_with({'terminal_write'})
         assert viewer.has_permission('terminal:write') is False
         assert viewer.has_permission('terminal_write') is False
         assert viewer.has_permission('terminal:view') is True
-        assert writer.has_permission('terminal:view') is False
-        assert writer.has_permission('terminal:write') is True
         # Umbrella still satisfies both.
         full = _session_with({'terminal'})
         assert full.has_permission('terminal:write') is True
         assert full.has_permission('terminal:view') is True
+
+    def test_write_implies_view_declared(self):
+        """Explicit implication: a writer must see the output —
+        terminal_write grants terminal_view by declaration, not by
+        accident. The reverse must NOT hold."""
+        writer = _session_with({'terminal_write'})
+        assert writer.has_permission('terminal:write') is True
+        assert writer.has_permission('terminal:view') is True
+        viewer = _session_with({'terminal_view'})
+        assert viewer.has_permission('terminal:write') is False
 
     def test_expansion_is_one_hop(self):
         """Expanding an already-expanded set adds nothing — a

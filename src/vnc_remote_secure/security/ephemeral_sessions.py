@@ -138,6 +138,10 @@ _PERMISSION_EXPANSION = {
     PERM_CONTROL: {PERM_KEYBOARD, PERM_POINTER},
     PERM_CLIPBOARD: {PERM_CLIPBOARD_WRITE, PERM_CLIPBOARD_READ},
     PERM_TERMINAL: {PERM_TERMINAL_VIEW, PERM_TERMINAL_WRITE},
+    # Explicit implication, not a side effect: a writer that cannot
+    # see output is useless, so write grants view. One hop only —
+    # terminal_view expands to nothing.
+    PERM_TERMINAL_WRITE: {PERM_TERMINAL_VIEW},
     PERM_ADMIN: {PERM_ADMIN_USERS, PERM_ADMIN_CONFIG,
                  PERM_ADMIN_SECRETS, PERM_ADMIN_AUDIT},
 }
@@ -431,8 +435,7 @@ def _deny_drained(_s, _ip, _res):
     # first process to notice claims the drain marker and revokes all
     # sessions — propagating to live websockets, so grace ends in an
     # actual close, not just a denied next check.
-    from vnc_remote_secure.security.maintenance import (
-        enforce_drain_deadline)
+    from vnc_remote_secure.security.maintenance import enforce_drain_deadline
     return 'maintenance drain' if enforce_drain_deadline() else None
 
 

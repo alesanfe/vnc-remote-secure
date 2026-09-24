@@ -54,7 +54,8 @@ _CATALOG: tuple[Capability, ...] = (
     Capability('terminal_view', 'terminal', 'medium',
                'Open a terminal session, read-only builtins only'),
     Capability('terminal_write', 'terminal', 'high',
-               'Execute arbitrary commands in the terminal'),
+               'Execute arbitrary commands in the terminal '
+               '(implies terminal_view)', umbrella=True),
     Capability('audio', 'audio', 'low',
                'Listen to the remote audio stream'),
     Capability('gamepad', 'gamepad', 'medium',

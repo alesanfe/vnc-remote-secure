@@ -514,16 +514,34 @@ def validate_config(
     # Scoped health tokens: under a hardened profile the metrics
     # scraper and the audit reader must hold DIFFERENT credentials —
     # otherwise one leaked scraper token exposes the audit trail.
+    # Missing tokens are an error in overlay/hardened (the profile
+    # claims separation; starting without it is a false guarantee),
+    # a strong warning in trusted-lan.
     if profile_name in ('public-hardened', 'private-overlay',
                         'trusted-lan'):
+        severity = ('warning' if profile_name == 'trusted-lan'
+                    else 'critical')
         for var in ('AUDIT_AUTH_TOKEN', 'METRICS_AUTH_TOKEN'):
             if not effective_dict.get(var):
                 findings.append({
-                    'severity': 'warning',
+                    'severity': severity,
                     'message': f'{var} unset in profile {profile_name} '
                                '— /audit and /metrics fall back to '
                                'HEALTH_AUTH_TOKEN (set scoped tokens)',
                 })
+        # Same value in all three = the settings exist but no real
+        # credential separation does.
+        tokens = {effective_dict.get(v, '')
+                  for v in ('HEALTH_AUTH_TOKEN', 'AUDIT_AUTH_TOKEN',
+                            'METRICS_AUTH_TOKEN')}
+        tokens.discard('')
+        if len(tokens) == 1 and effective_dict.get('AUDIT_AUTH_TOKEN'):
+            findings.append({
+                'severity': 'critical',
+                'message': 'AUDIT_AUTH_TOKEN, METRICS_AUTH_TOKEN and '
+                           'HEALTH_AUTH_TOKEN are identical — scoped '
+                           'tokens must differ to separate credentials',
+            })
 
     # FLASK_SECRET_KEY set in non-development profiles. The persisted
     # auth_secret.key fallback only applies in development —
