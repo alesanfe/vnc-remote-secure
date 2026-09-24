@@ -180,3 +180,34 @@ class TestStoreFormat:
         (tmp_path / 'webauthn_credentials.json').write_text(
             _j.dumps({'cid1': {'username': 'a'}}))
         assert wn.list_credentials('a')[0]['credential_id'] == 'cid1'
+
+
+class TestStoreLock:
+    def test_concurrent_writes_no_lost_update(self):
+        import threading
+
+        def add(i):
+            with wn._store_lock():
+                store = wn._load_store()
+                store[f'k{i}'] = {'username': 'u'}
+                wn._save_store(store)
+        ts = [threading.Thread(target=add, args=(i,))
+              for i in range(8)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        assert len(wn._load_store()) == 8
+
+    def test_symlink_store_refused(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(wn, 'get_data_dir',
+                            lambda: str(tmp_path))
+        import json as _j
+        target = tmp_path / 'real.json'
+        target.write_text(_j.dumps({'evil': {'username': 'root'}}))
+        link = tmp_path / 'webauthn_credentials.json'
+        try:
+            link.symlink_to(target)
+        except OSError:
+            pytest.skip('symlink requires privilege on Windows')
+        assert wn._load_store() == {}

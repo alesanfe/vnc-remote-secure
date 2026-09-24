@@ -100,9 +100,49 @@ def _store_path() -> str:
 _STORE_FORMAT_VERSION = 1
 
 
-def _load_store() -> dict:
+@contextlib.contextmanager
+def _store_lock():
+    """Cross-process lock for store read-modify-write.
+
+    ``_save_store`` writes atomically, but atomicity alone doesn't
+    stop two services from interleaving load→mutate→save (lost
+    update: the second writer silently drops the first's credential).
+    flock/msvcrt serialise the critical section; the lock file lives
+    next to the store so it follows the same isolation in tests.
+    """
+    lock_path = _store_path() + '.lock'
+    Path(lock_path).parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT)
     try:
-        raw = json.loads(Path(_store_path()).read_text(encoding='utf-8'))
+        if os.name == 'nt':
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _load_store() -> dict:
+    path = Path(_store_path())
+    if path.is_symlink():
+        # A symlinked credential store is a redirection attack —
+        # refuse to follow it rather than read attacker-chosen data.
+        logger.warning('Refusing symlinked WebAuthn store: %s', path)
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
     # Versioned envelope since format v1; tolerate a bare legacy map
@@ -126,6 +166,9 @@ def _save_store(store: dict) -> None:
     payload = json.dumps(
         {'format_version': _STORE_FORMAT_VERSION,
          'credentials': store}, indent=2)
+    if path.is_symlink():
+        raise RuntimeError(
+            f'Refusing to write WebAuthn store through symlink: {path}')
     fd, tmp = tempfile.mkstemp(
         dir=str(path.parent), prefix='.webauthn-', suffix='.tmp')
     try:
@@ -158,12 +201,13 @@ def list_credentials(username: str) -> list:
 
 def delete_credential(credential_id: str, username: str) -> bool:
     """Remove a credential owned by *username*. Returns True if deleted."""
-    store = _load_store()
-    rec = store.get(credential_id)
-    if not rec or rec.get('username') != username:
-        return False
-    del store[credential_id]
-    _save_store(store)
+    with _store_lock():
+        store = _load_store()
+        rec = store.get(credential_id)
+        if not rec or rec.get('username') != username:
+            return False
+        del store[credential_id]
+        _save_store(store)
     return True
 
 
@@ -253,17 +297,19 @@ def complete_registration(username: str, credential: dict,
         logger.warning('WebAuthn registration rejected: %s', exc)
         return False, 'Registration verification failed.'
     cid = _b64e(verification.credential_id)
-    store = _load_store()
-    if cid in store:
-        return False, 'Credential already registered.'
-    store[cid] = {
-        'username': username,
-        'public_key': _b64e(verification.credential_public_key),
-        'sign_count': verification.sign_count,
-        'name': name,
-        'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-    }
-    _save_store(store)
+    with _store_lock():
+        store = _load_store()
+        if cid in store:
+            return False, 'Credential already registered.'
+        store[cid] = {
+            'username': username,
+            'public_key': _b64e(verification.credential_public_key),
+            'sign_count': verification.sign_count,
+            'name': name,
+            'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ',
+                                        time.gmtime()),
+        }
+        _save_store(store)
     from vnc_remote_secure.security.audit import audit_event
     audit_event('webauthn_register', user=username,
                 detail=f'credential={cid[:12]}')
@@ -321,10 +367,11 @@ def complete_authentication(username: str, credential: dict,
     except Exception as exc:  # noqa: BLE001 - verification failure = deny
         logger.warning('WebAuthn assertion rejected: %s', exc)
         return False, 'Authentication verification failed.'
-    store = _load_store()
-    if cred_id in store:
-        store[cred_id]['sign_count'] = verification.new_sign_count
-        _save_store(store)
+    with _store_lock():
+        store = _load_store()
+        if cred_id in store:
+            store[cred_id]['sign_count'] = verification.new_sign_count
+            _save_store(store)
     from vnc_remote_secure.security.audit import audit_event
     audit_event('webauthn_assert', user=username,
                 detail=f'credential={cred_id[:12]}')
