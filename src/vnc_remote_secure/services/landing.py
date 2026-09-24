@@ -17,10 +17,10 @@ import logging
 import os
 import platform
 
+from vnc_remote_secure.backend.api import is_api_path
 from vnc_remote_secure.core.errors import log_exception
 from vnc_remote_secure.platform.detection import is_windows
 from vnc_remote_secure.security.http_auth import client_ip_from, cookie_value
-from vnc_remote_secure.backend.api import is_api_path
 from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 logger = logging.getLogger(__name__)

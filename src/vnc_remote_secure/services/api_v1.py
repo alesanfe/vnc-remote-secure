@@ -790,10 +790,9 @@ def _get_operator_detail(handler, query):
     if rec is None:
         _err(handler, 'Operator not found', 404)
         return
+    from vnc_remote_secure.engine.application.operators import viable_admin_count
     from vnc_remote_secure.security.operator_users import get_permissions
     from vnc_remote_secure.security.webauthn import list_credentials
-    from vnc_remote_secure.engine.application.operators import (
-        viable_admin_count)
     data = operator_to_api({'username': username, **rec})
     data['permissions'] = sorted(get_permissions(username))
     data['passkey_count'] = len(list_credentials(username))

@@ -22,11 +22,6 @@ def revoke_ephemeral_token(token_id: str) -> bool:
     return revoke_session(token_id)
 
 
-def mint_session_token(session, ttl_seconds: int) -> str:
-    from vnc_remote_secure.security.ephemeral_sessions import create_ephemeral_token
-    return create_ephemeral_token(session, ttl_seconds)
-
-
 def session_refresh(store) -> None:
     """Re-read persisted sessions when the backend supports it —
     tests and future adapters may not need the hook."""
@@ -91,16 +86,6 @@ def operator_permissions(username: str) -> set:
 
 
 # --- Revocation (shared state) ----------------------------------------
-
-
-def mark_session_revoked(sid: str, exp: int) -> None:
-    from vnc_remote_secure.security.revocation import mark_op_session_revoked
-    mark_op_session_revoked(sid, exp)
-
-
-def bump_user_epoch(username: str) -> None:
-    from vnc_remote_secure.security.revocation import bump_op_user_epoch
-    bump_op_user_epoch(username)
 
 
 def shared_backend():

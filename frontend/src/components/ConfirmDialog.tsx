@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Props {
   open: boolean;
@@ -36,12 +36,12 @@ export default function ConfirmDialog({
   const ref = useRef<HTMLDivElement>(null);
   const opener = useRef<Element | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const typed = useRef('');
+  const [typedOk, setTypedOk] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     opener.current = document.activeElement;
-    typed.current = '';
+    setTypedOk(false);
     const el = ref.current;
     const focusTarget =
       inputRef.current ??
@@ -98,16 +98,8 @@ export default function ConfirmDialog({
             ref={inputRef}
             aria-label={`Escribe ${confirmText} para confirmar`}
             placeholder={confirmText}
-            onChange={(e) => {
-              typed.current = e.target.value;
-              e.currentTarget
-                .closest('.dialog')
-                ?.querySelector('button[data-confirm]')
-                ?.toggleAttribute(
-                  'disabled',
-                  typed.current !== confirmText,
-                );
-            }}
+            onChange={(e) =>
+              setTypedOk(e.target.value === confirmText)}
           />
         )}
         <div className="dialog-actions">
@@ -122,7 +114,7 @@ export default function ConfirmDialog({
           <button
             className={danger ? 'danger' : ''}
             data-confirm
-            disabled={busy || needsTyping}
+            disabled={busy || (needsTyping && !typedOk)}
             onClick={onConfirm}
           >
             {confirmLabel}
