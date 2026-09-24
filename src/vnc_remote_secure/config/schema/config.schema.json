@@ -104,6 +104,31 @@
       "type": "boolean",
       "description": "Fail-closed auditing: abort the audited action when its record cannot be persisted (default off — failures alert instead)."
     },
+    "AUDIT_SYSLOG_HOST": {
+      "type": "string",
+      "description": "Syslog collector for audit export (RFC 5424). Empty = disabled. The syslog MSG carries the exact JSON line written locally, chain hash included."
+    },
+    "AUDIT_SYSLOG_PORT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Syslog collector port (default 514)."
+    },
+    "AUDIT_SYSLOG_PROTO": {
+      "type": "string",
+      "enum": ["udp", "tcp"],
+      "description": "Syslog transport (default udp)."
+    },
+    "AUDIT_SYSLOG_FACILITY": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 23,
+      "description": "Syslog facility (default 4 = auth/security)."
+    },
+    "AUDIT_EXPORT_WEBHOOK": {
+      "type": "string",
+      "description": "HTTPS endpoint that receives each persisted audit entry as JSON. Delivered via the DNS-pinned, redirect-refusing alert transport. Empty = disabled."
+    },
     "AUTH_LOCKOUT_SECONDS": {
       "type": "integer",
       "minimum": 1,

@@ -456,6 +456,7 @@ def audit_log(
         # Append to log file (create parent dirs if needed).
         line = json.dumps(entry, separators=(',', ':')) + '\n'
         path = Path(_audit_log_file())
+        persisted = False
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, 'a', encoding='utf-8') as f:
@@ -468,6 +469,7 @@ def audit_log(
             # what was merely a full disk.
             _chain_hash = str(entry['hash'])
             _record_tip(_chain_hash)
+            persisted = True
         except Exception:
             logger.exception("Failed to write audit log:")
             _alert_audit_write_failure()
@@ -497,6 +499,14 @@ def audit_log(
             except Exception:
                 logger.exception("Failed to write audit mirror:")
                 _alert_audit_write_failure()
+
+    # Ship the entry to configured network sinks — outside the chain
+    # lock (a slow sink must not stall writers) and only when the
+    # record persisted: exporting an unchained entry would give the
+    # SIEM a record absent from the verified chain.
+    if persisted:
+        from vnc_remote_secure.security.audit_export import export_entry
+        export_entry(entry, line)
 
     # Also log at INFO level for console visibility.
     logger.info(
