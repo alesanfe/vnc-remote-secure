@@ -430,15 +430,26 @@ def test_post_cross_site_fetch_metadata_rejected(server):
 
 def _portal_csrf(port):
     """Real CSRF flow for legacy portal POSTs: an authenticated GET
-    issues the vnc_csrf nonce cookie; the token is HMAC-bound to it.
-    Returns (cookie_header, token)."""
-    status, headers, _ = _req(port, '/', headers=_auth_headers())
-    assert status == 200
-    cookie = headers.get('Set-Cookie', '').split(';')[0]
-    assert cookie.startswith('vnc_csrf=')
-    nonce = cookie.split('=', 1)[1]
+    issues the vnc_op session + vnc_csrf nonce cookies; the token is
+    HMAC-bound to (sid, nonce). Returns (cookie_header, token)."""
+    import http.client
+    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+    conn.request('GET', '/', headers=_auth_headers())
+    resp = conn.getresponse()
+    resp.read()
+    cookies = [v for k, v in resp.getheaders()
+               if k.lower() == 'set-cookie']
+    conn.close()
+    assert resp.status == 200
+    joined = '; '.join(cookies)
+    import re
+    op = re.search(r'vnc_op=([^;\s]+)', joined)
+    nonce = re.search(r'vnc_csrf=([^;\s]+)', joined)
+    assert op and nonce
+    sid = op.group(1).split('.')[0]
     from vnc_remote_secure.services.api_v1 import _csrf_token
-    return cookie, _csrf_token(nonce)
+    cookie = f'vnc_op={op.group(1)}; vnc_csrf={nonce.group(1)}'
+    return cookie, _csrf_token(sid, nonce.group(1))
 
 
 def test_post_same_site_fetch_metadata_passes_gate(server):

@@ -63,7 +63,19 @@ def _req(port, path, method='GET', headers=None, body=None):
     resp = conn.getresponse()
     data = resp.read()
     conn.close()
-    return resp.status, dict(resp.getheaders()), data
+    # Merge repeated headers (Set-Cookie arrives more than once per
+    # response) — a plain dict() would silently drop all but one.
+    hdrs = {}
+    for k, v in resp.getheaders():
+        hdrs[k] = f'{hdrs[k]}; {v}' if k in hdrs else v
+    return resp.status, hdrs, data
+
+
+def _cookie_value(set_cookie: str, name: str) -> str:
+    """Extract a cookie value from a possibly-merged Set-Cookie str."""
+    import re
+    m = re.search(rf'(?:^|;\s*){re.escape(name)}=([^;\s]+)', set_cookie)
+    return m.group(1) if m else ''
 
 
 def _auth_headers():
@@ -72,16 +84,19 @@ def _auth_headers():
 
 
 def _csrf_session(port):
-    """Real CSRF flow: GET /me issues the vnc_csrf nonce cookie and
-    returns the token bound to it. Returns headers for a POST."""
+    """Real session flow: GET /me issues the vnc_op + vnc_csrf cookies
+    and returns the token bound to (sid, nonce). Returns headers for
+    a POST."""
     status, headers, body = _req(port, '/api/v1/me',
                                  headers=_auth_headers())
     assert status == 200
-    cookie = headers.get('Set-Cookie', '').split(';')[0]
-    assert cookie.startswith('vnc_csrf=')
+    sc = headers.get('Set-Cookie', '')
+    op = _cookie_value(sc, 'vnc_op')
+    csrf = _cookie_value(sc, 'vnc_csrf')
+    assert op and csrf
     token = json.loads(body)['data']['csrf_token']
     h = _auth_headers()
-    h['Cookie'] = cookie
+    h['Cookie'] = f'vnc_op={op}; vnc_csrf={csrf}'
     h['X-CSRF-Token'] = token
     return h
 
@@ -173,6 +188,15 @@ def _create(server, monkeypatch, payload, username='admin',
         'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
         lambda: store)
     if permissions != ('admin:*',):
+        # The vnc_op cookie resolves the operator from the store —
+        # mock both so 'bob' survives cookie verification AND the
+        # Basic-auth fallback used to mint the session.
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.operator_users.load_store',
+            lambda: {username: {'role': 'operator'}}, raising=False)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.operator_users.get_permissions',
+            lambda u: set(permissions), raising=False)
         monkeypatch.setattr(
             'vnc_remote_secure.security.http_auth.authenticate_landing',
             lambda *a, **k: (True, {
@@ -357,8 +381,8 @@ def test_share_page_public(server):
     assert b'src="/share.js"' in body
     csp = headers.get('Content-Security-Policy', '')
     assert "script-src 'self'" in csp
-    assert "'unsafe-inline'" not in csp.replace(
-        "style-src 'unsafe-inline'", '')
+    assert "unsafe-inline" not in csp.split(
+        'script-src', 1)[1].split(';')[0]
     # The script itself is public too (same-origin CSP fetch).
     status, _, js = _req(server, '/share.js')
     assert status == 200
@@ -401,3 +425,109 @@ def test_session_preview_invalid_403(server, monkeypatch):
     status, _, _ = _api_post(server, '/session/preview',
                              {'token': 'bogus'})
     assert status == 403
+
+
+# ---------------------------------------------------------------------------
+# Session-bound CSRF
+# ---------------------------------------------------------------------------
+
+def test_two_sessions_get_different_csrf(server):
+    """Each operator session gets its own vnc_csrf nonce — and a
+    different token, so a stolen token dies with its session."""
+    h1 = _csrf_session(server)
+    h2 = _csrf_session(server)
+    assert h1['Cookie'] != h2['Cookie']
+    assert h1['X-CSRF-Token'] != h2['X-CSRF-Token']
+
+
+def test_csrf_of_session_a_fails_with_cookie_b(server, monkeypatch):
+    """A token minted for nonce A is invalid under cookie B."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
+        lambda: _FakeStore())
+    h1 = _csrf_session(server)
+    h2 = _csrf_session(server)
+    h2['X-CSRF-Token'] = h1['X-CSRF-Token']  # wrong-session token
+    status, _, _ = _api_post(
+        server, '/api/v1/sessions/revoke', {'token_id': 'x'}, headers=h2)
+    assert status == 403
+
+
+def test_logout_expires_csrf(server):
+    """POST /api/v1/logout clears the nonce cookie — the old CSRF
+    token is dead from that response on."""
+    h = _csrf_session(server)
+    status, headers, _ = _api_post(server, '/api/v1/logout', {},
+                                   headers=h)
+    assert status == 200
+    assert 'vnc_csrf=;' in headers.get('Set-Cookie', '')
+    assert 'Max-Age=0' in headers.get('Set-Cookie', '')
+
+
+# ---------------------------------------------------------------------------
+# Declarative route registry — contract invariants
+# ---------------------------------------------------------------------------
+
+def test_route_registry_contract():
+    """Every registered route satisfies the API contract:
+    a declared rate-limit scope, a known permission (or the explicit
+    portal-auth/'operator' sentinels), a named response schema, and an
+    audit event on every mutation."""
+    from vnc_remote_secure.services.api_v1 import (
+        _KNOWN_PERMS,
+        _RATE_LIMITS,
+        _ROUTES,
+    )
+    assert _ROUTES, 'registry must not be empty'
+    for (method, rel), spec in _ROUTES.items():
+        assert spec.scope in _RATE_LIMITS, (method, rel, spec.scope)
+        assert spec.resp, f'{method} {rel} declares no response schema'
+        if spec.perm is not None:
+            assert spec.perm in _KNOWN_PERMS, (method, rel, spec.perm)
+        if method == 'POST':
+            assert spec.audit, f'POST {rel} declares no audit event'
+
+
+def test_openapi_drift():
+    """docs/api/openapi.v1.yaml must document every registered route —
+    a route added to _ROUTES without updating the spec fails here."""
+    import yaml
+
+    from vnc_remote_secure.services.api_v1 import _ROUTES
+    spec_path = os.path.join(
+        os.path.dirname(__file__), '..', '..', '..',
+        'docs', 'api', 'openapi.v1.yaml')
+    with open(spec_path, encoding='utf-8') as f:
+        spec = yaml.safe_load(f)
+    documented = set()
+    for path, ops in spec['paths'].items():
+        for method in ops:
+            documented.add((method.upper(), path.lstrip('/')))
+    registered = {(m, p) for (m, p) in _ROUTES}
+    assert registered == documented, (
+        f'missing in spec: {registered - documented}; '
+        f'documented but not registered: {documented - registered}')
+    # Security metadata parity: perm, scope, CSRF flag, response schema.
+    for (method, rel), route in _ROUTES.items():
+        op = spec['paths'][f'/{rel}'][method.lower()]
+        assert op.get('x-rate-limit-scope') == route.scope
+        assert op.get('x-response-schema') == route.resp
+        expected_perm = None if route.perm is None else route.perm
+        assert op.get('x-required-permission') == expected_perm
+        if method == 'POST':
+            assert op.get('x-csrf-required') is True, rel
+
+
+def test_revoke_missing_session_uniform_200(server, monkeypatch):
+    """Revoking a nonexistent token returns the same 200 envelope as a
+    real revocation — authorized callers can't use the endpoint to
+    enumerate live token ids."""
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.revoke_session',
+        lambda tid: False)
+    h = _csrf_session(server)
+    status, _, body = _api_post(
+        server, '/api/v1/sessions/revoke', {'token_id': 'ghost'},
+        headers=h)
+    assert status == 200
+    assert json.loads(body)['data']['revoked'] is False

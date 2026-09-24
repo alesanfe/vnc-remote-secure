@@ -1378,6 +1378,30 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         """
         if self._valid_ephemeral_cookie():
             return True, None
+        ok, operator = self._resolve_operator()
+        if ok and operator is not None:
+            self._csrf_nonce()  # ensure the nonce cookie exists
+        return ok, (operator if ok else None)
+
+    # Operator session cookie lifetime (absolute).
+    _OP_SESSION_TTL = 8 * 3600
+
+    def _resolve_operator(self):
+        """Authenticate an operator: ``vnc_op`` session cookie first,
+        then Basic credentials (which mint a fresh session).
+
+        Returns ``(ok, operator)``. On success the session id is
+        stashed on ``self._portal_sid`` — the CSRF token is bound to
+        it, and logout/revocation targets it.
+        """
+        op_cookie = cookie_value(
+            self.headers.get('Cookie', ''), 'vnc_op')
+        if op_cookie:
+            rec = self._verify_op_cookie(op_cookie)
+            if rec is not None:
+                sid, operator = rec
+                self._portal_sid = sid
+                return True, operator
         from vnc_remote_secure.security.http_auth import authenticate_landing
         ok, operator = authenticate_landing(
             self.headers.get('Authorization', ''),
@@ -1385,8 +1409,90 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
                 self.headers,
                 self.peer_ip()))
         if ok and operator is not None:
-            self._csrf_nonce()  # ensure the nonce cookie exists
+            self._portal_sid = self._issue_op_session(
+                operator.get('username', 'admin'))
         return ok, (operator if ok else None)
+
+    def _issue_op_session(self, username: str) -> str:
+        """Mint a signed operator-session cookie; returns the sid."""
+        import hashlib as _hashlib
+        import hmac as _hmac
+        import secrets
+        import time as _time
+        sid = secrets.token_urlsafe(16)
+        exp = int(_time.time()) + self._OP_SESSION_TTL
+        payload = f'{sid}.{username}.{exp}'
+        from vnc_remote_secure.security.authentication import _get_secret
+        sig = _hmac.new(_get_secret(), f'op:{payload}'.encode(),
+                        _hashlib.sha256).hexdigest()
+        self._queue_cookie(
+            f'vnc_op={payload}.{sig}; HttpOnly; Path=/; SameSite=Strict')
+        return sid
+
+    def _verify_op_cookie(self, value: str):
+        """Verify a ``vnc_op`` cookie; returns ``(sid, operator)``.
+
+        Format: ``<sid>.<username>.<exp>.<hmac>`` — the signature
+        covers 'op:sid.username.exp' and the sid is additionally
+        checked against the shared revocation set, so a copied cookie
+        dies on logout without waiting for expiry.
+        """
+        import hashlib as _hashlib
+        import hmac
+        import time as _time
+        parts = value.split('.')
+        if len(parts) != 4:
+            return None
+        sid, username, exp_s, sig = parts
+        if not sid or not username or not exp_s.isdigit() or not sig:
+            return None
+        exp = int(exp_s)
+        if exp <= _time.time():
+            return None
+        from vnc_remote_secure.security.authentication import _get_secret
+        expected = hmac.new(
+            _get_secret(), f'op:{sid}.{username}.{exp_s}'.encode(),
+            _hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        try:
+            from vnc_remote_secure.security.shared_state import get_backend
+            if get_backend().get('op_revoked_sessions', sid):
+                return None
+        except Exception:  # noqa: BLE001 - fail closed
+            return None
+        # Resolve the operator record: store users first, env
+        # bootstrap 'admin' as the fallback.
+        try:
+            from vnc_remote_secure.security.operator_users import (
+                get_permissions,
+                load_store,
+            )
+            store = load_store()
+            if username in store:
+                return sid, {
+                    'username': username,
+                    'role': store[username].get('role', 'operator'),
+                    'permissions': sorted(get_permissions(username)),
+                }
+        except Exception:  # noqa: BLE001
+            return None
+        if username == 'admin':
+            return sid, {'username': 'admin', 'role': 'admin',
+                         'permissions': ['admin:*']}
+        return None
+
+    def _queue_cookie(self, cookie: str) -> None:
+        """Queue a Set-Cookie for this response (emitted by
+        end_headers so every code path is covered once)."""
+        self.__dict__.setdefault('_pending_cookies', []).append(cookie)
+
+    def _revoke_op_session(self, sid: str, exp: int) -> None:
+        """Mark an operator session id as revoked for its remaining TTL."""
+        import time as _time
+        ttl = max(1, exp - int(_time.time()))
+        from vnc_remote_secure.security.shared_state import get_backend
+        get_backend().set_ttl('op_revoked_sessions', sid, '1', ttl)
 
     def _csrf_nonce(self) -> str:
         """Return this session's CSRF nonce, issuing a cookie if needed.
@@ -1412,12 +1518,17 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         import secrets
         nonce = secrets.token_urlsafe(32)
         self._pending_csrf_nonce = nonce
+        self._queue_cookie(
+            f'vnc_csrf={nonce}; HttpOnly; Path=/; SameSite=Strict')
         return nonce
 
     def _csrf_token(self) -> str:
-        """The token a mutation must present for this session."""
+        """The token a mutation must present for this session —
+        bound to BOTH the operator session id and the CSRF nonce, so a
+        copied nonce cookie alone cannot mint a usable token."""
         from vnc_remote_secure.services.api_v1 import _csrf_token
-        return _csrf_token(self._csrf_nonce())
+        return _csrf_token(getattr(self, '_portal_sid', ''),
+                           self._csrf_nonce())
 
     def _check_csrf(self) -> bool:
         """Verify the CSRF token on a mutating request.
@@ -1431,30 +1542,29 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
 
         from vnc_remote_secure.services.api_v1 import _csrf_token
         nonce = cookie_value(self.headers.get('Cookie', ''), 'vnc_csrf')
-        if not nonce:
+        sid = getattr(self, '_portal_sid', '')
+        if not nonce or not sid:
             return False
         presented = self.headers.get('X-CSRF-Token', '')
         if not presented:
             return False
-        return _hmac.compare_digest(presented, _csrf_token(nonce))
+        return _hmac.compare_digest(presented, _csrf_token(sid, nonce))
 
     def end_headers(self):  # noqa: N802 - stdlib API
-        # Deliver the pending CSRF nonce cookie exactly once per
-        # response — issuing it here covers every response path
-        # (JSON, HTML, redirects) without per-handler plumbing.
-        nonce = getattr(self, '_pending_csrf_nonce', None)
-        if nonce:
-            self._pending_csrf_nonce = None
+        # Deliver queued cookies (vnc_op session, vnc_csrf nonce,
+        # logout expirations) exactly once per response — emitting
+        # here covers every code path without per-handler plumbing.
+        cookies = self.__dict__.pop('_pending_cookies', None) or []
+        if cookies:
             import ssl as _ssl
             trusted = env_flag('TRUSTED_PROXY', 'false')
             is_tls = ((trusted and
                        self.headers.get('X-Forwarded-Proto', '') == 'https')
                       or isinstance(self.connection, _ssl.SSLSocket))
-            secure = ' Secure;' if is_tls else ''
-            self.send_header(
-                'Set-Cookie',
-                f'vnc_csrf={nonce};{secure} HttpOnly; Path=/; '
-                'SameSite=Strict')
+            for cookie in cookies:
+                if is_tls and ' Secure' not in cookie:
+                    cookie = cookie.replace('; HttpOnly', '; Secure; HttpOnly', 1)
+                self.send_header('Set-Cookie', cookie)
         super().end_headers()
 
     def _require_portal_auth(self) -> bool:
@@ -1931,12 +2041,7 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         success; on failure it has already written the error response
         (401/403) and returns ``None``.
         """
-        from vnc_remote_secure.security.http_auth import authenticate_landing
-        ok, operator = authenticate_landing(
-            self.headers.get('Authorization', ''),
-            client_ip=client_ip_from(
-                self.headers,
-                self.peer_ip()))
+        ok, operator = self._resolve_operator()
         if not ok:
             self.send_json_error('Operator credentials required', 401, www_authenticate='Basic realm="VNC Portal"')
             return None

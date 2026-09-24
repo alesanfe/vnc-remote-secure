@@ -20,6 +20,7 @@ import uuid
 
 from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.errors import log_exception
+from vnc_remote_secure.security.http_auth import cookie_value
 
 logger = logging.getLogger(__name__)
 
@@ -85,13 +86,16 @@ def _rate_limit(handler, scope: str) -> bool:
     return allowed
 
 
-def _csrf_token(nonce: str) -> str:
-    """CSRF token bound to the session nonce (``vnc_csrf`` cookie)
-    and the deployment signing secret — a cross-site page cannot
-    read or forge it, and two sessions of the same operator hold
-    different tokens."""
+def _csrf_token(sid: str, nonce: str) -> str:
+    """CSRF token bound to the operator session id (``vnc_op``) AND
+    the ``vnc_csrf`` nonce cookie.
+
+    Binding to the sid means a nonce cookie copied between sessions
+    cannot mint a usable token; binding to the nonce means the token
+    dies when the cookie rotates (logout, step-up).
+    """
     from vnc_remote_secure.security.authentication import _get_secret
-    return hmac.new(_get_secret(), f'csrf:{nonce}'.encode(),
+    return hmac.new(_get_secret(), f'csrf:{sid}:{nonce}'.encode(),
                     hashlib.sha256).hexdigest()
 
 
@@ -151,6 +155,48 @@ def _read_json_body(handler, limit: int = _MAX_BODY):
     if not isinstance(payload, dict):
         return None, ('JSON object expected', 400)
     return payload, None
+
+
+# ---------------------------------------------------------------------------
+# Public serializers — whitelist field selection. Never serialize an
+# internal object wholesale; the allowed keys ARE the response schema.
+# ---------------------------------------------------------------------------
+
+def session_to_api(s: dict) -> dict:
+    """Ephemeral-session dict -> public shape. Never emits the raw
+    session token or any server-side secret."""
+    keys = ('token_id', 'role', 'permissions', 'expires_at',
+            'single_use', 'view_only', 'no_terminal', 'allowed_ip',
+            'created_by', 'created_at', 'used', 'revoked', 'resource',
+            'max_uses', 'use_count')
+    return {k: s.get(k) for k in keys if k in s}
+
+
+def operator_to_api(u: dict) -> dict:
+    keys = ('username', 'role', 'disabled', 'created_at', 'permissions')
+    return {k: u.get(k) for k in keys if k in u}
+
+
+def backup_to_api(path: str, st) -> dict:
+    import os
+    return {
+        'name': os.path.basename(path),
+        'size': st.st_size,
+        'modified': st.st_mtime,
+        'encrypted': path.endswith('.enc.tar.gz'),
+    }
+
+
+def audit_event_to_api(e: dict) -> dict:
+    keys = ('seq', 'timestamp', 'event', 'user', 'result', 'detail')
+    return {k: e.get(k) for k in keys if k in e}
+
+
+def config_entry_to_api(e: dict) -> dict:
+    # Values arrive already redacted by config_inspector._redact_value;
+    # the whitelist keeps the contract explicit.
+    keys = ('name', 'value', 'source')
+    return {k: e.get(k) for k in keys if k in e}
 
 
 def _external_base(handler) -> str | None:
@@ -228,10 +274,53 @@ def _get_sessions(handler, query):
         from vnc_remote_secure.security.ephemeral_sessions import get_session_store
         store = get_session_store()
         store._load_if_changed()
-        _ok(handler, {'sessions': store.list_active()})
+        _ok(handler, {'sessions': [
+            session_to_api(s) for s in store.list_active()]})
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /sessions')
         _err(handler, 'Failed to list sessions', 500)
+
+
+def _get_session_context(handler, query):
+    """GET /api/v1/session-context — the share-link session's own
+    minimal context (what an ephemeral client may know about itself).
+
+    Separates ephemeral reads from the operator /status contract:
+    this payload can never grow admin telemetry by accident.
+    """
+    operator = getattr(handler, '_portal_operator', None)
+    if operator is not None:
+        _ok(handler, {'ephemeral': False})
+        return
+    internal = cookie_value(
+        handler.headers.get('Cookie', ''), 'vnc_ephemeral')
+    try:
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+        store = get_session_store()
+        store._load_if_changed()
+        sess = store.get(internal) if internal else None
+    except Exception:  # noqa: BLE001 - fail closed
+        sess = None
+    if sess is None or getattr(sess, 'revoked', False):
+        _ok(handler, {'ephemeral': True, 'active': False})
+        return
+    try:
+        from vnc_remote_secure.security.maintenance import maintenance_active
+        maintenance = maintenance_active()
+    except Exception:  # noqa: BLE001
+        maintenance = False
+    _ok(handler, {
+        'ephemeral': True,
+        'active': True,
+        'role': getattr(sess, 'role', ''),
+        'permissions': sorted(getattr(sess, 'permissions', []) or []),
+        'expires_at': getattr(sess, 'expires_at', None),
+        'view_only': bool(getattr(sess, 'view_only', False)),
+        'single_use': bool(getattr(sess, 'single_use', False)),
+        'no_terminal': bool(getattr(sess, 'no_terminal', False)),
+        'resource': getattr(sess, 'resource', None),
+        'maintenance': maintenance,
+    })
 
 
 def _get_health(handler, query):
@@ -286,7 +375,7 @@ def _get_audit(handler, query):
         next_cursor = (entries[-1].get('seq')
                        if has_more and entries else None)
         _ok(handler, {
-            'entries': entries,
+            'entries': [audit_event_to_api(e) for e in entries],
             'next_cursor': next_cursor,
             'has_more': has_more,
         })
@@ -308,7 +397,8 @@ def _get_audit_verify(handler, query):
 def _get_config(handler, query):
     try:
         from vnc_remote_secure.core.config_inspector import compute_effective_config
-        _ok(handler, {'vars': compute_effective_config()})
+        _ok(handler, {'vars': [
+            config_entry_to_api(e) for e in compute_effective_config()]})
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /config')
         _err(handler, 'Config inspection failed', 500)
@@ -321,13 +411,7 @@ def _get_backups(handler, query):
         for path in list_backups():
             import os
             try:
-                st = os.stat(path)
-                items.append({
-                    'name': os.path.basename(path),
-                    'size': st.st_size,
-                    'modified': st.st_mtime,
-                    'encrypted': path.endswith('.enc.tar.gz'),
-                })
+                items.append(backup_to_api(path, os.stat(path)))
             except OSError:
                 continue
         _ok(handler, {'backups': items})
@@ -343,7 +427,7 @@ def _get_operators(handler, query):
         for u in list_users():
             u['permissions'] = sorted(
                 get_permissions(u['username']))
-            users.append(u)
+            users.append(operator_to_api(u))
         _ok(handler, {'operators': users})
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /operators')
@@ -561,30 +645,54 @@ def _post_session_revoke_all(handler, query):
 
 
 def _post_logout(handler, query):
-    """POST /api/v1/logout — end this operator session's CSRF lifetime.
+    """POST /api/v1/logout — revoke this operator session.
 
-    Basic auth itself is stateless (the browser re-sends it), so
-    logout's real effect is expiring the ``vnc_csrf`` nonce cookie:
-    every CSRF token minted for this session dies with it, and the
-    SPA drops its cached token. The operator must re-obtain a nonce
-    on the next visit.
+    Revokes the ``vnc_op`` sid server-side (shared state — the cookie
+    stops working even if copied), then expires both session cookies
+    and every CSRF token minted for them. Idempotent: an already
+    revoked session still gets expired cookies. ``no-store`` keeps
+    the response out of caches.
+
+    Basic auth is stateless — a browser that still holds the
+    credentials silently re-authenticates on the next request. This
+    endpoint protects the *session artifact*: a stolen ``vnc_op`` or
+    ``vnc_csrf`` cookie dies here even while the password remains
+    valid.
     """
+    # The sid arrives via _portal_sid (gate-resolved session) or is
+    # parsed from the vnc_op cookie being revoked — covering the case
+    # where the gate authenticated via Basic while the browser still
+    # holds a stale cookie.
+    sid = getattr(handler, '_portal_sid', '')
+    raw = cookie_value(handler.headers.get('Cookie', ''), 'vnc_op')
+    parts = raw.split('.')
+    cookie_sid, cookie_exp = '', 0
+    if len(parts) == 4:
+        cookie_sid = parts[0]
+        try:
+            cookie_exp = int(parts[2])
+        except ValueError:
+            cookie_exp = 0
+    for target_sid, exp in ((sid, cookie_exp),
+                            (cookie_sid, cookie_exp)):
+        if target_sid:
+            try:
+                handler._revoke_op_session(
+                    target_sid,
+                    exp or int(time.time()) + handler._OP_SESSION_TTL)
+            except Exception:  # noqa: BLE001 - best-effort
+                pass
     from vnc_remote_secure.security.audit import audit_event
     audit_event('portal_logout',
                 user=handler._api_operator.get('username', 'unknown'))
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'application/json')
-    # Expire the nonce cookie immediately.
-    handler.send_header(
-        'Set-Cookie',
+    # Cancel any pending session cookies this request minted, then
+    # expire both explicitly.
+    handler.__dict__['_pending_cookies'] = []
+    handler._queue_cookie(
+        'vnc_op=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict')
+    handler._queue_cookie(
         'vnc_csrf=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict')
-    handler.send_header('Cache-Control', 'no-store')
-    body = json.dumps(
-        {'data': {'logged_out': True}, 'error': None,
-         'request_id': _request_id()}).encode()
-    handler.send_header('Content-Length', str(len(body)))
-    handler.end_headers()
-    handler.wfile.write(body)
+    _ok(handler, {'logged_out': True})
 
 
 # ---------------------------------------------------------------------------
@@ -595,37 +703,61 @@ def _post_logout(handler, query):
 # user, including ephemeral share-link sessions; the literal
 # 'operator' = operator account, no specific capability). ``scope``
 # selects the rate-limit budget; ``audit`` names the event a mutation
-# must emit — declared here so a contract test can flag a mutation
-# that forgets it.
+# must emit; ``resp`` names the public response schema the handler
+# serializes through — declared here so a contract test can flag a
+# mutation that forgets either.
 from collections import namedtuple
 
-_Route = namedtuple('_Route', 'fn perm scope audit')
+_Route = namedtuple('_Route', 'fn perm scope audit resp')
 
 _ROUTES = {
-    ('GET', 'me'): _Route(_get_me, None, 'default', None),
-    ('GET', 'status'): _Route(_get_status, None, 'default', None),
-    ('GET', 'services'): _Route(_get_services, 'operator', 'default', None),
-    ('GET', 'sessions'): _Route(_get_sessions, 'admin_sessions', 'default', None),
-    ('GET', 'health'): _Route(_get_health, 'operator', 'default', None),
-    ('GET', 'security/posture'): _Route(_get_posture, 'operator', 'default', None),
-    ('GET', 'doctor'): _Route(_get_doctor, 'operator', 'doctor', None),
-    ('GET', 'audit'): _Route(_get_audit, 'admin_audit', 'audit', None),
-    ('GET', 'audit/verify'): _Route(_get_audit_verify, 'admin_audit', 'audit.verify', None),
-    ('GET', 'config'): _Route(_get_config, 'admin_config', 'default', None),
-    ('GET', 'backups'): _Route(_get_backups, 'operator', 'default', None),
-    ('GET', 'operators'): _Route(_get_operators, 'admin_users', 'default', None),
-    ('GET', 'maintenance'): _Route(_get_maintenance, 'operator', 'default', None),
+    ('GET', 'me'): _Route(
+        _get_me, None, 'default', None, 'MeResponse'),
+    ('GET', 'status'): _Route(
+        _get_status, None, 'default', None, 'StatusResponse'),
+    ('GET', 'session-context'): _Route(
+        _get_session_context, None, 'default', None,
+        'SessionContextResponse'),
+    ('GET', 'services'): _Route(
+        _get_services, 'operator', 'default', None, 'ServicesResponse'),
+    ('GET', 'sessions'): _Route(
+        _get_sessions, 'admin_sessions', 'default', None,
+        'SessionPageResponse'),
+    ('GET', 'health'): _Route(
+        _get_health, 'operator', 'default', None, 'HealthResponse'),
+    ('GET', 'security/posture'): _Route(
+        _get_posture, 'operator', 'default', None, 'PostureResponse'),
+    ('GET', 'doctor'): _Route(
+        _get_doctor, 'operator', 'doctor', None, 'DoctorResponse'),
+    ('GET', 'audit'): _Route(
+        _get_audit, 'admin_audit', 'audit', None, 'AuditPageResponse'),
+    ('GET', 'audit/verify'): _Route(
+        _get_audit_verify, 'admin_audit', 'audit.verify', None,
+        'AuditVerifyResponse'),
+    ('GET', 'config'): _Route(
+        _get_config, 'admin_config', 'default', None,
+        'ConfigPageResponse'),
+    ('GET', 'backups'): _Route(
+        _get_backups, 'operator', 'default', None,
+        'BackupPageResponse'),
+    ('GET', 'operators'): _Route(
+        _get_operators, 'admin_users', 'default', None,
+        'OperatorPageResponse'),
+    ('GET', 'maintenance'): _Route(
+        _get_maintenance, 'operator', 'default', None,
+        'MaintenanceResponse'),
     ('POST', 'sessions'): _Route(
         _post_session_create, 'admin_sessions', 'sessions.create',
-        'portal_session_create'),
+        'portal_session_create', 'SessionCreatedResponse'),
     ('POST', 'sessions/revoke'): _Route(
         _post_session_revoke, 'admin_sessions', 'sessions.revoke',
-        'portal_session_revoke'),
+        'portal_session_revoke', 'SessionRevokeResponse'),
     ('POST', 'sessions/revoke-all'): _Route(
         _post_session_revoke_all, 'admin_sessions', 'sessions.revoke-all',
-        'portal_session_revoke_all'),
+        'portal_session_revoke_all', 'SessionRevokeResponse'),
     ('POST', 'logout'): _Route(
-        _post_logout, 'operator', 'default', 'portal_logout'),
+        _post_logout, 'operator', 'default', 'portal_logout',
+        'LogoutResponse'),
 }
 
 # Operator capabilities the registry may reference — anything else is

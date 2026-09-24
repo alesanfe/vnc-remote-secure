@@ -110,5 +110,15 @@ def send_security_headers(handler, tls_enabled=None) -> None:
         import ssl
         tls_enabled = isinstance(
             getattr(handler, 'connection', None), ssl.SSLSocket)
+    # Skip header names the handler already emitted explicitly — a
+    # route that sets a stricter CSP (e.g. /share running
+    # script-src 'self') must not get a second, looser policy header;
+    # browsers AND duplicate CSPs, but the explicit one should win
+    # cleanly rather than rely on intersection semantics.
+    emitted = {
+        line.split(b':', 1)[0].strip().lower()
+        for line in getattr(handler, '_headers_buffer', None) or []
+        if isinstance(line, bytes)}
     for name, value in get_security_headers(tls_enabled).items():
-        handler.send_header(name, value)
+        if name.lower().encode() not in emitted:
+            handler.send_header(name, value)
