@@ -133,10 +133,14 @@ def _parse_permissions(raw):
 def _print_session_created(args, signed_token, expires_in, role,
                            base_url):
     """Emit the create output in JSON or human-readable form."""
+    # Fragment-carried link: the token stays out of the URL path, so it
+    # cannot leak via browser history, Referer headers, or server logs.
+    share_url = f"{base_url}/share#t={signed_token}"
     if args.json:
         print(json.dumps({
             'token': signed_token,
-            'url': f"{base_url}/?session={signed_token}",
+            'url': share_url,
+            'legacy_url': f"{base_url}/?session={signed_token}",
             'expires_in': expires_in,
             'role': role,
             'view_only': args.view_only,
@@ -147,7 +151,7 @@ def _print_session_created(args, signed_token, expires_in, role,
         }, indent=2))
         return
     print(f"Session created (role: {role}, expires in {expires_in}s)")
-    print(f"URL: {base_url}/?session={signed_token}")
+    print(f"URL: {share_url}")
     if args.view_only:
         print("  View-only: yes")
         print("  NOTE: view-only blocks control channels (gamepad,"

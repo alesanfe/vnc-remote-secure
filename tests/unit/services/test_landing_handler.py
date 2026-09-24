@@ -141,6 +141,38 @@ def _post_activate(port, token, headers=None):
                 headers=h, body=body), body
 
 
+def _mock_valid_share(monkeypatch):
+    """Make the interstitial preview see a live session for
+    'SIGNEDTOK' — verify + store lookups both succeed."""
+    import time as _t
+
+    class _Sess:
+        revoked = False
+        expires_at = _t.time() + 300
+        role = 'viewer'
+        view_only = True
+        single_use = True
+        no_terminal = False
+        max_uses = 0
+        allowed_ip = None
+        resource = None
+        resource = None
+
+    class _Store:
+        def _load_if_changed(self): pass
+        def get(self, token): return _Sess()
+
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.'
+        'verify_ephemeral_token',
+        lambda t: {'session_token': 'internal'} if t else None,
+        raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.'
+        'get_session_store',
+        lambda: _Store(), raising=False)
+
+
 def test_session_exchange_get_shows_interstitial(server, monkeypatch):
     """GET never activates: the link lands on an interstitial whose
     POST form carries the token."""
@@ -150,11 +182,30 @@ def test_session_exchange_get_shows_interstitial(server, monkeypatch):
         'activate_ephemeral_session',
         lambda *a, **kw: calls.append(1) or 'internal-tok',
         raising=False)
+    _mock_valid_share(monkeypatch)
     status, _, body = _req(server, '/?session=SIGNEDTOK')
     assert status == 200
     assert calls == []  # GET does not consume
     assert b'action="/session/activate"' in body
     assert b'SIGNEDTOK' in body  # token carried in the hidden field
+
+
+def test_session_exchange_bad_token_shows_expired(server, monkeypatch):
+    """An unverifiable token renders the 'expired' interstitial —
+    no form, no activation path."""
+    calls = []
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.'
+        'activate_ephemeral_session',
+        lambda *a, **kw: calls.append(1), raising=False)
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.'
+        'verify_ephemeral_token',
+        lambda t: None, raising=False)
+    status, _, body = _req(server, '/?session=BADTOK')
+    assert status == 200
+    assert calls == []
+    assert b'action="/session/activate"' not in body
 
 
 def test_session_activate_invalid_token_403(server, monkeypatch):
@@ -211,6 +262,7 @@ def test_prefetch_does_not_consume_token(server, monkeypatch):
         'activate_ephemeral_session',
         lambda *a, **kw: calls.append(1) or _FakeSession(),
         raising=False)
+    _mock_valid_share(monkeypatch)
     status, headers, body = _req(
         server, '/?session=SIGNEDTOK',
         headers={**_auth_headers(), 'Sec-Purpose': 'prefetch'})
@@ -229,6 +281,7 @@ def test_real_navigation_consumes_token(server, monkeypatch):
         'activate_ephemeral_session',
         lambda *a, **kw: calls.append(1) or _FakeSession(),
         raising=False)
+    _mock_valid_share(monkeypatch)
     status, headers, body = _req(
         server, '/?session=SIGNEDTOK', headers=_auth_headers())
     assert status == 200

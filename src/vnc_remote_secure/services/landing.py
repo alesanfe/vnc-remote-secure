@@ -1001,6 +1001,61 @@ class LandingHandler(SecuredHandlerMixin,
         self._render_share_interstitial(signed)
         return True
 
+    def _session_preview(self, signed: str) -> dict | None:
+        """Non-consuming preview of a share-link token.
+
+        Returns what a recipient may see BEFORE accepting — role,
+        expiry, coarse flags. Deliberately omits creator identity,
+        bound IPs, hostnames and any infrastructure detail: the link
+        grants access, not reconnaissance. Invalid/expired/revoked
+        tokens all return None (uniform response, no enumeration).
+        """
+        import time as _time
+        try:
+            from vnc_remote_secure.security.ephemeral_sessions import (
+                get_session_store,
+                verify_ephemeral_token,
+            )
+            payload = verify_ephemeral_token(signed)
+            if not payload:
+                return None
+            store = get_session_store()
+            store._load_if_changed()
+            session = store.get(payload['session_token'])
+            if session is None or session.revoked:
+                return None
+            return {
+                'role': session.role,
+                'expires_in_seconds': max(
+                    0, int(session.expires_at - _time.time())),
+                'view_only': bool(session.view_only),
+                'single_use': bool(session.single_use),
+                'no_terminal': bool(session.no_terminal),
+                'max_uses': session.max_uses,
+                'resource': session.resource,
+            }
+        except Exception:  # noqa: BLE001 - preview is best-effort
+            return None
+
+    @staticmethod
+    def _preview_rows(preview: dict) -> str:
+        mins, secs = divmod(preview['expires_in_seconds'], 60)
+        flags = []
+        if preview['view_only']:
+            flags.append('solo visualización')
+        if preview['single_use']:
+            flags.append('uso único')
+        if preview['no_terminal']:
+            flags.append('sin terminal')
+        if preview['max_uses']:
+            flags.append(f'máx. {preview["max_uses"]} usos')
+        return (
+            f'<tr><td>Rol</td><td>{html.escape(str(preview["role"]))}</td></tr>'
+            f'<tr><td>Expira en</td><td>{mins}m{secs:02d}s</td></tr>'
+            + (f'<tr><td>Restricciones</td><td>'
+               f'{html.escape(", ".join(flags))}</td></tr>'
+               if flags else ''))
+
     def _render_share_interstitial(self, signed: str) -> None:
         """Render the share-link activation page (no state changes).
 
@@ -1008,41 +1063,15 @@ class LandingHandler(SecuredHandlerMixin,
         recipient can make an informed click; the token is only
         consumed by the POST to /session/activate.
         """
-        import time as _time
-        rows = ''
-        try:
-            from vnc_remote_secure.security.ephemeral_sessions import (
-                get_session_store,
-                verify_ephemeral_token,
-            )
-            payload = verify_ephemeral_token(signed)
-            session = None
-            if payload:
-                store = get_session_store()
-                store._load_if_changed()
-                session = store.get(payload['session_token'])
-            if session is not None and not session.revoked:
-                remaining = max(0, int(session.expires_at - _time.time()))
-                mins, secs = divmod(remaining, 60)
-                flags = []
-                if session.view_only:
-                    flags.append('solo visualización')
-                if session.single_use:
-                    flags.append('uso único')
-                if session.no_terminal:
-                    flags.append('sin terminal')
-                if session.max_uses:
-                    flags.append(f'máx. {session.max_uses} usos')
-                if session.allowed_ip:
-                    flags.append(f'IP: {session.allowed_ip}')
-                rows = (
-                    f'<tr><td>Rol</td><td>{html.escape(session.role)}</td></tr>'
-                    f'<tr><td>Expira en</td><td>{mins}m{secs:02d}s</td></tr>'
-                    + (f'<tr><td>Restricciones</td><td>'
-                       f'{html.escape(", ".join(flags))}</td></tr>'
-                       if flags else ''))
-        except Exception:  # noqa: BLE001 - preview is best-effort
-            rows = ''
+        preview = self._session_preview(signed)
+        rows = self._preview_rows(preview) if preview else ''
+        if not preview:
+            rows = ('<tr><td colspan="2">Este enlace ha caducado o ya '
+                    'no es válido.</td></tr>')
+        # NOTE: the token travels in the URL for these legacy links —
+        # Referrer-Policy:no-referrer keeps it out of outbound
+        # requests, and the CSP blocks anything that could exfiltrate
+        # it (no external resources, no forms to foreign origins).
         body = f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1063,20 +1092,192 @@ button:hover {{ background: #245bcc; }}
 </style></head><body>
 <div class="card">
 <h1>Sesión compartida</h1>
-<p>Este enlace concede acceso remoto temporal a este equipo.</p>
+<p>Este enlace permitirá <strong>ver{'' if (preview and preview['view_only']) else ' y controlar'}</strong>
+este equipo de forma remota.</p>
 {('<table>' + rows + '</table>') if rows else ''}
-<form method="post" action="/session/activate">
-<input type="hidden" name="token" value="{html.escape(signed, quote=True)}">
-<button type="submit">Abrir sesión</button>
-</form>
+{'''<form method="post" action="/session/activate">
+<input type="hidden" name="token" value="''' + html.escape(signed, quote=True) + '''">
+<button type="submit">Aceptar y abrir sesión</button>
+</form>''' if preview else ''}
 </div></body></html>"""
         data = body.encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header(
+            'Content-Security-Policy',
+            "default-src 'none'; style-src 'unsafe-inline'; "
+            "form-action 'self'; base-uri 'none'")
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _serve_share_page(self) -> None:
+        """Serve the fragment-token exchange page (GET /share).
+
+        The signed token travels in the URL FRAGMENT (``#t=…``), which
+        browsers never send to the server — it cannot land in access
+        logs, Referer headers, proxies or history entries. The inline
+        script reads it, wipes the location bar, previews the grant
+        via POST /session/preview and activates via POST
+        /session/activate on explicit user consent.
+        """
+        body = b"""<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VNC Remote Secure \xe2\x80\x94 Abrir sesi\xc3\xb3n</title>
+<style>
+body { font-family: Arial, sans-serif; background: #0f1420;
+       color: #e6e9f0; display: flex; justify-content: center;
+       align-items: center; min-height: 100vh; margin: 0; }
+.card { background: #1a2233; border: 1px solid #2a3550;
+        border-radius: 10px; padding: 2em; max-width: 420px; }
+table { border-collapse: collapse; margin: 1em 0; width: 100%; }
+td { padding: 6px 10px; border-bottom: 1px solid #2a3550; }
+td:first-child { color: #9aa7c0; }
+button { width: 100%; padding: 12px; font-size: 1em; border: 0;
+         border-radius: 6px; background: #2f6fed; color: #fff;
+         cursor: pointer; }
+button:hover { background: #245bcc; }
+.err { color: #e05b5b; }
+</style></head><body>
+<div class="card">
+<h1>Sesi\xc3\xb3n compartida</h1>
+<noscript><p>Se necesita JavaScript para este enlace. Pide al
+administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p></noscript>
+<div id="info"><p>Comprobando enlace\xe2\x80\xa6</p></div>
+<div id="actions"></div>
+</div>
+<script>
+(function () {
+  // Read the token from the fragment and IMMEDIATELY wipe it from the
+  // address bar - it must not linger in history or a screenshot.
+  var hash = location.hash || '';
+  var token = '';
+  if (hash.indexOf('#t=') === 0) token = hash.slice(3);
+  else if (hash.length > 1) token = hash.slice(1);
+  history.replaceState(null, '', '/share');
+  var info = document.getElementById('info');
+  var actions = document.getElementById('actions');
+  if (!token) {
+    info.innerHTML = '<p class="err">Enlace incompleto: falta el token.</p>';
+    return;
+  }
+  function fail(msg) {
+    info.innerHTML = '<p class="err">' + msg + '</p>';
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  fetch('/session/preview', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    credentials: 'same-origin',
+    body: JSON.stringify({token: token})
+  }).then(function (r) {
+    if (!r.ok) throw new Error('invalid');
+    return r.json();
+  }).then(function (p) {
+    var mins = Math.floor(p.expires_in_seconds / 60);
+    var secs = p.expires_in_seconds % 60;
+    var flags = [];
+    if (p.view_only) flags.push('solo visualizaci\xc3\xb3n');
+    if (p.single_use) flags.push('uso \xc3\xbanico');
+    if (p.no_terminal) flags.push('sin terminal');
+    if (p.max_uses) flags.push('m\xc3\xa1x. ' + p.max_uses + ' usos');
+    var rows = '<tr><td>Rol</td><td>' + esc(p.role) + '</td></tr>' +
+      '<tr><td>Expira en</td><td>' + mins + 'm' +
+      ('0' + secs).slice(-2) + 's</td></tr>' +
+      (flags.length ? '<tr><td>Restricciones</td><td>' +
+       esc(flags.join(', ')) + '</td></tr>' : '');
+    info.innerHTML = '<p>Este enlace permitir\xc3\xa1 <strong>ver' +
+      (p.view_only ? '' : ' y controlar') + '</strong> este equipo de ' +
+      'forma remota.</p><table>' + rows + '</table>';
+    var btn = document.createElement('button');
+    btn.textContent = 'Aceptar y abrir sesi\xc3\xb3n';
+    btn.onclick = function () {
+      btn.disabled = true;
+      var body = 'token=' + encodeURIComponent(token);
+      fetch('/session/activate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        credentials: 'same-origin',
+        redirect: 'follow',
+        body: body
+      }).then(function (r) {
+        if (r.redirected || r.ok) { location.href = '/'; return; }
+        fail('El enlace ha caducado o ya ha sido utilizado.');
+      }).catch(function () {
+        fail('Error de red. Int\xc3\xa9ntalo de nuevo.');
+      });
+    };
+    actions.appendChild(btn);
+  }).catch(function () {
+    fail('El enlace ha caducado o ya ha sido utilizado.');
+  });
+})();
+</script>
+</body></html>"""
+        data = body  # already bytes (b"""...""" with \xNN escapes)
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header(
+            'Content-Security-Policy',
+            "default-src 'none'; style-src 'unsafe-inline'; "
+            "script-src 'unsafe-inline'; connect-src 'self'; "
+            "form-action 'self'; base-uri 'none'")
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _post_session_preview(self) -> None:
+        """POST /session/preview — non-consuming grant summary.
+
+        The token IS the credential; knowing it already grants access,
+        so the preview reveals only what the link does (role, expiry,
+        coarse flags) — never creator, IPs, or host details.
+        """
+        from vnc_remote_secure.services.api_v1 import _rate_limit
+        if not _rate_limit(self, 'session.preview'):
+            return
+        token, error = self._read_activate_body()
+        if error:
+            self.send_json_error(error[0], error[1])
+            return
+        preview = self._session_preview(token)
+        if preview is None:
+            self.send_json_error(
+                'Session link is invalid, expired, or already used',
+                403)
+            return
+        self.send_json(preview, 200)
+
+    def _read_activate_body(self):
+        """Parse a share-link token from a POST body (form or JSON)."""
+        from urllib.parse import parse_qs
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            length = 0
+        if not 0 < length <= 4096:
+            return None, ('Bad request', 400)
+        raw = self.rfile.read(length)
+        ctype = self.headers.get('Content-Type', '')
+        if 'application/json' in ctype:
+            try:
+                return str(json.loads(raw).get('token', '')), None
+            except (json.JSONDecodeError, ValueError):
+                return None, ('Invalid JSON', 400)
+        token = (parse_qs(
+            raw.decode('utf-8', 'replace')).get('token') or [''])[0]
+        if not token:
+            return None, ('token required', 400)
+        return token, None
 
     def _issue_ephemeral_cookie(self, internal: str) -> None:
         """Set the ``vnc_ephemeral`` cookie and redirect to '/'.
@@ -1114,26 +1315,12 @@ button:hover {{ background: #245bcc; }}
         token arrives in the request BODY (form or JSON), never in a
         URL the server logs or a Referer could carry onward.
         """
-        from urllib.parse import parse_qs
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-        except ValueError:
-            length = 0
-        if not 0 < length <= 4096:
-            self.send_json_error('Bad request', 400)
+        from vnc_remote_secure.services.api_v1 import _rate_limit
+        if not _rate_limit(self, 'session.activate'):
             return
-        raw = self.rfile.read(length)
-        ctype = self.headers.get('Content-Type', '')
-        if 'application/json' in ctype:
-            try:
-                signed = str(json.loads(raw).get('token', ''))
-            except (json.JSONDecodeError, ValueError):
-                signed = ''
-        else:
-            signed = (parse_qs(
-                raw.decode('utf-8', 'replace')).get('token') or [''])[0]
-        if not signed:
-            self.send_json_error('token required', 400)
+        signed, error = self._read_activate_body()
+        if error:
+            self.send_json_error(error[0], error[1])
             return
         from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
         # Forwarded-aware like check_session_permission: behind a
@@ -1209,6 +1396,12 @@ button:hover {{ background: #245bcc; }}
         # Ephemeral share links exchange the signed token for a cookie
         # before any auth check (the link itself is the credential).
         if self._handle_session_exchange():
+            return
+        # Fragment-carried share links (…/share#t=<token>) keep the
+        # token out of the URL entirely — the page is public and its
+        # JS POSTs the token to /session/activate.
+        if self.path.split('?', 1)[0] == '/share':
+            self._serve_share_page()
             return
         # Ephemeral share sessions or operator Basic-auth (env
         # bootstrap admin or a stored operator account — fail closed
@@ -1556,8 +1749,11 @@ button:hover {{ background: #245bcc; }}
             self.send_json_error('Ambiguous request framing', 400)
             return
         path = self.path.split('?', 1)[0]
-        # Share-link activation: the token is the credential, so this
-        # route precedes the operator-gated mutations.
+        # Share-link preview + activation: the token is the credential,
+        # so both routes precede the operator-gated mutations.
+        if path == '/session/preview':
+            self._post_session_preview()
+            return
         if path == '/session/activate':
             self._post_session_activate()
             return
