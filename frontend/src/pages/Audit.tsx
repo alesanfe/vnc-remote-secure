@@ -50,12 +50,14 @@ export default function Audit() {
       <div className="toolbar">
         <input
           style={{ maxWidth: 260 }}
+          aria-label="Filtrar por tipo de evento"
           placeholder="Filtrar por tipo de evento"
           value={eventFilter}
           onChange={(e) => setEventFilter(e.target.value)}
         />
         <select
           style={{ maxWidth: 120 }}
+          aria-label="Filas por página"
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
         >

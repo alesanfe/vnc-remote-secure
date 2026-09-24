@@ -88,6 +88,12 @@ Never hardcode the version string in more than `pyproject.toml` (the
   to `index.html`. The SPA talks to `/api/v1/*` on the landing service
   (`services/api_v1.py`) — Python remains the sole authority on
   security decisions; React only renders and posts actions.
+  - `npm run gen:types` regenerates `src/api/generated/types.ts` from
+    `docs/api/openapi.v1.yaml` — run it whenever the spec changes.
+  - `npm run test:e2e` runs the Playwright suite in `frontend/e2e/`;
+    the global setup spawns the real landing service on a random
+    loopback port with an isolated run dir (no Node needed at runtime,
+    only for development).
 - **Share-link flow**: `GET /?session=<token>` renders a non-consuming
   interstitial (role/expiry preview + POST form); activation happens
   only via `POST /session/activate`, which issues the `vnc_ephemeral`

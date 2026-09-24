@@ -35,6 +35,20 @@ components:
         message: { type: string }
     SessionSummary:
       type: object
+      required:
+        - token_id
+        - role
+        - permissions
+        - expires_at
+        - single_use
+        - view_only
+        - no_terminal
+        - created_by
+        - created_at
+        - used
+        - revoked
+        - max_uses
+        - use_count
       properties:
         token_id: { type: string, description: 'Fingerprint, not the token' }
         role: { type: string, enum: [viewer, support, operator, administrator] }
@@ -53,6 +67,7 @@ components:
         use_count: { type: integer }
     AuditEntry:
       type: object
+      required: [seq, timestamp, event, user, result, detail]
       properties:
         seq: { type: integer }
         timestamp: { type: string }
@@ -62,6 +77,7 @@ components:
         detail: { type: string }
     OperatorSummary:
       type: object
+      required: [username, role, disabled, permissions]
       properties:
         username: { type: string }
         role: { type: string }
@@ -70,6 +86,7 @@ components:
         permissions: { type: array, items: { type: string } }
     BackupSummary:
       type: object
+      required: [name, size, modified, encrypted]
       properties:
         name: { type: string }
         size: { type: integer }
@@ -77,10 +94,264 @@ components:
         encrypted: { type: boolean }
     ConfigEntry:
       type: object
+      required: [name, value, source]
       properties:
         name: { type: string }
-        value: { nullable: true }
+        value: { type: string, nullable: true }
         source: { type: string }
+    # --- Response envelopes (x-response-schema names) ------------------
+    # Each is the full {data, error, request_id} envelope with `data`
+    # typed to the payload the endpoint actually emits.
+    MeResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [authenticated, operator, ephemeral, csrf_token]
+          properties:
+            authenticated: { type: boolean }
+            operator: { $ref: '#/components/schemas/OperatorSummary', nullable: true }
+            ephemeral: { type: boolean }
+            csrf_token: { type: string, nullable: true }
+        error: { nullable: true }
+        request_id: { type: string }
+    StatusResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [services]
+          properties:
+            services: { type: object, additionalProperties: { type: boolean } }
+            audio_capture: { type: boolean }
+            lan_ips: { type: array, items: { type: string }, description: 'operators only' }
+            system: { type: object, description: 'operators only' }
+        error: { nullable: true }
+        request_id: { type: string }
+    SessionContextResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [ephemeral]
+          properties:
+            ephemeral: { type: boolean }
+            active: { type: boolean }
+            role: { type: string }
+            permissions: { type: array, items: { type: string } }
+            expires_at: { type: number, nullable: true }
+            view_only: { type: boolean }
+            single_use: { type: boolean }
+            no_terminal: { type: boolean }
+            resource: { type: string, nullable: true }
+            maintenance: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    ServicesResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            services: { type: array, items: { type: object } }
+        error: { nullable: true }
+        request_id: { type: string }
+    SessionPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [sessions]
+          properties:
+            sessions: { type: array, items: { $ref: '#/components/schemas/SessionSummary' } }
+        error: { nullable: true }
+        request_id: { type: string }
+    SessionCreatedResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [url, token_id, expires_at, role]
+          properties:
+            url: { type: string, description: 'fragment-carried share link' }
+            legacy_url: { type: string, deprecated: true }
+            token_id: { type: string }
+            expires_at: { type: number }
+            role: { type: string }
+            permissions: { type: array, items: { type: string } }
+            single_use: { type: boolean }
+            view_only: { type: boolean }
+            no_terminal: { type: boolean }
+            max_uses: { type: integer }
+            resource: { type: string, nullable: true }
+            allowed_ip: { type: string, nullable: true }
+        error: { nullable: true }
+        request_id: { type: string }
+    SessionRevokeResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            revoked: { description: 'bool (single) or count (revoke-all)' }
+        error: { nullable: true }
+        request_id: { type: string }
+    HealthResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data: { type: object }
+        error: { nullable: true }
+        request_id: { type: string }
+    PostureResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data: { type: object }
+        error: { nullable: true }
+        request_id: { type: string }
+    DoctorResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data: { type: object }
+        error: { nullable: true }
+        request_id: { type: string }
+    AuditPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [entries, next_cursor, has_more]
+          properties:
+            entries: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } }
+            next_cursor: { type: integer, nullable: true }
+            has_more: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    AuditVerifyResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            intact: { type: boolean }
+            message: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    ConfigPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [vars]
+          properties:
+            vars: { type: array, items: { $ref: '#/components/schemas/ConfigEntry' } }
+        error: { nullable: true }
+        request_id: { type: string }
+    BackupPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [backups]
+          properties:
+            backups: { type: array, items: { $ref: '#/components/schemas/BackupSummary' } }
+        error: { nullable: true }
+        request_id: { type: string }
+    OperatorPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [operators]
+          properties:
+            operators: { type: array, items: { $ref: '#/components/schemas/OperatorSummary' } }
+        error: { nullable: true }
+        request_id: { type: string }
+    OperatorResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [operator]
+          properties:
+            operator:
+              allOf:
+                - $ref: '#/components/schemas/OperatorSummary'
+                - type: object
+                  properties:
+                    passkey_count: { type: integer }
+            changed: { type: array, items: { type: string } }
+            sessions_revoked: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    PasskeyPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [passkeys]
+          properties:
+            passkeys:
+              type: array
+              items:
+                type: object
+                required: [ref, name, created_at, sign_count]
+                properties:
+                  ref: { type: string, description: 'sha256 prefix, opaque' }
+                  name: { type: string }
+                  created_at: { type: string }
+                  sign_count: { type: integer }
+        error: { nullable: true }
+        request_id: { type: string }
+    MaintenanceResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            active: { type: boolean }
+            info: { type: object }
+        error: { nullable: true }
+        request_id: { type: string }
+    DeleteResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [deleted]
+          properties:
+            deleted: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    LogoutResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [logged_out]
+          properties:
+            logged_out: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
     SessionCreateRequest:
       type: object
       additionalProperties: false
@@ -113,7 +384,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: MeResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
   /status:
     get:
       summary: Service liveness (redacted for ephemeral sessions)
@@ -122,7 +398,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: StatusResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
   /session-context:
     get:
       summary: Ephemeral session's own minimal context
@@ -131,7 +412,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: SessionContextResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionContextResponse'
   /services:
     get:
       summary: Service cards (operator)
@@ -139,7 +425,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: ServicesResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServicesResponse'
         '403': { description: Operator access required }
   /sessions:
     get:
@@ -148,7 +439,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: SessionPageResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPageResponse'
     post:
       summary: Create a share link
       x-required-permission: admin_sessions
@@ -180,7 +476,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/csrfHeader'
       responses:
-        '200': { description: '{revoked: bool} — existence is never disclosed' }
+        '200':
+          description: '{revoked: bool} — existence is never disclosed'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRevokeResponse'
   /sessions/revoke-all:
     post:
       summary: Revoke every share-link session
@@ -192,7 +493,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/csrfHeader'
       responses:
-        '200': { description: '{revoked: count}' }
+        '200':
+          description: '{revoked: count}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRevokeResponse'
   /logout:
     post:
       summary: Revoke the operator session (vnc_op + vnc_csrf expire)
@@ -204,7 +510,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/csrfHeader'
       responses:
-        '200': { description: Idempotent logout }
+        '200':
+          description: Idempotent logout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
   /health:
     get:
       summary: Aggregated health (operator)
@@ -212,7 +523,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: HealthResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
   /security/posture:
     get:
       summary: Security posture report (operator)
@@ -220,7 +536,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: PostureResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureResponse'
   /doctor:
     get:
       summary: Doctor checks (operator, rate limited)
@@ -228,7 +549,12 @@ paths:
       x-rate-limit-scope: doctor
       x-response-schema: DoctorResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorResponse'
         '429': { description: Rate limited }
   /audit:
     get:
@@ -247,7 +573,12 @@ paths:
           in: query
           schema: { type: integer, description: 'seq of last entry of previous page' }
       responses:
-        '200': { description: '{entries, next_cursor, has_more}' }
+        '200':
+          description: '{entries, next_cursor, has_more}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditPageResponse'
   /audit/verify:
     get:
       summary: Verify audit chain integrity
@@ -255,7 +586,12 @@ paths:
       x-rate-limit-scope: audit.verify
       x-response-schema: AuditVerifyResponse
       responses:
-        '200': { description: '{intact, message}' }
+        '200':
+          description: '{intact, message}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditVerifyResponse'
   /config:
     get:
       summary: Effective config, values redacted
@@ -263,7 +599,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: ConfigPageResponse
       responses:
-        '200': { description: '{vars: [ConfigEntry]}' }
+        '200':
+          description: '{vars: [ConfigEntry]}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigPageResponse'
   /backups:
     get:
       summary: Backup inventory (operator)
@@ -271,7 +612,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: BackupPageResponse
       responses:
-        '200': { description: '{backups: [BackupSummary]}' }
+        '200':
+          description: '{backups: [BackupSummary]}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupPageResponse'
   /operators:
     get:
       summary: Operator accounts
@@ -279,7 +625,12 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: OperatorPageResponse
       responses:
-        '200': { description: '{operators: [OperatorSummary]}' }
+        '200':
+          description: '{operators: [OperatorSummary]}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperatorPageResponse'
     post:
       summary: Create an operator (strict schema)
       x-required-permission: admin_users
@@ -306,7 +657,12 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperatorResponse'
         '404': { description: Operator not found }
     patch:
       summary: 'Edit operator: role, disabled, password. Sensitive changes revoke sessions.'
@@ -322,7 +678,12 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200': { description: '{operator, changed, sessions_revoked}' }
+        '200':
+          description: '{operator, changed, sessions_revoked}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperatorResponse'
         '409': { description: 'Would remove the last viable administrator' }
     delete:
       summary: Delete an operator (last viable admin is protected)
@@ -338,7 +699,12 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200': { description: '{deleted: true}' }
+        '200':
+          description: '{deleted: true}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
         '404': { description: Operator not found }
         '409': { description: 'Would delete the last viable administrator' }
   /operators/{username}/passkeys:
@@ -353,7 +719,12 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200': { description: '{passkeys: [{ref, name, created_at, sign_count}]}' }
+        '200':
+          description: '{passkeys: [{ref, name, created_at, sign_count}]}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyPageResponse'
         '404': { description: Operator not found }
   /operators/{username}/sessions/revoke-all:
     post:
@@ -370,7 +741,12 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200': { description: '{revoked: true}' }
+        '200':
+          description: '{revoked: true}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRevokeResponse'
         '404': { description: Operator not found }
   /maintenance:
     get:
@@ -379,4 +755,9 @@ paths:
       x-rate-limit-scope: default
       x-response-schema: MaintenanceResponse
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceResponse'

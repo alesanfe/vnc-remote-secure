@@ -1,6 +1,18 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, type EphemeralSessionInfo } from '../api';
+import {
+  api,
+  ApiError,
+  type EphemeralSessionInfo,
+  type SessionCreateRequest,
+} from '../api';
+import ConfirmDialog from '../components/ConfirmDialog';
+import DataTable from '../components/DataTable';
+import {
+  RelativeTime,
+  SessionReference,
+  StatusBadge,
+} from '../components/bits';
 
 const ROLES = ['viewer', 'support', 'operator', 'administrator'];
 const RESOURCES = ['', 'desktop', 'terminal', 'audio', 'gamepad'];
@@ -13,13 +25,6 @@ interface CreateResult {
   permissions: string[];
 }
 
-function fmtExpiry(expiresAt: number): string {
-  const remaining = Math.max(0, Math.floor(expiresAt - Date.now() / 1000));
-  const m = Math.floor(remaining / 60);
-  const s = remaining % 60;
-  return `${m}m${String(s).padStart(2, '0')}s`;
-}
-
 export default function Sessions() {
   const qc = useQueryClient();
   const sessions = useQuery({
@@ -28,8 +33,10 @@ export default function Sessions() {
     refetchInterval: 15_000,
   });
 
+  // Form state keeps `resource` as a plain string ('' = all); the
+  // generated SessionCreateRequest type is applied at submit time.
   const [form, setForm] = useState({
-    role: 'viewer',
+    role: 'viewer' as SessionCreateRequest['role'],
     ttl_seconds: 1800,
     single_use: false,
     view_only: false,
@@ -40,6 +47,9 @@ export default function Sessions() {
   });
   const [created, setCreated] = useState<CreateResult | null>(null);
   const [createError, setCreateError] = useState('');
+  const [revokeTarget, setRevokeTarget] =
+    useState<EphemeralSessionInfo | null>(null);
+  const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
 
   const create = useMutation({
     mutationFn: () =>
@@ -51,7 +61,7 @@ export default function Sessions() {
         no_terminal: form.no_terminal,
         max_uses: form.max_uses,
         allowed_ip: form.allowed_ip || null,
-        resource: form.resource || null,
+        resource: (form.resource || null) as SessionCreateRequest['resource'],
       }),
     onSuccess: (data) => {
       setCreated(data);
@@ -68,12 +78,26 @@ export default function Sessions() {
     mutationFn: (token_id: string) =>
       api.post('sessions/revoke', { token_id }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }),
+    onSettled: () => setRevokeTarget(null),
   });
 
   const revokeAll = useMutation({
     mutationFn: () => api.post<{ revoked: number }>('sessions/revoke-all'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }),
+    onSettled: () => setConfirmRevokeAll(false),
   });
+
+  const flagBadges = (s: EphemeralSessionInfo) => (
+    <>
+      {s.view_only && <StatusBadge status="dim" label="view-only" />}{' '}
+      {s.single_use && <StatusBadge status="warn" label="single-use" />}{' '}
+      {s.no_terminal && <StatusBadge status="dim" label="no-terminal" />}{' '}
+      {s.allowed_ip && (
+        <StatusBadge status="warn" label={`ip:${s.allowed_ip}`} />
+      )}
+      {!s.view_only && !s.single_use && !s.no_terminal && !s.allowed_ip && '—'}
+    </>
+  );
 
   return (
     <>
@@ -93,7 +117,12 @@ export default function Sessions() {
             <select
               id="role"
               value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  role: e.target.value as SessionCreateRequest['role'],
+                })
+              }
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>{r}</option>
@@ -128,7 +157,7 @@ export default function Sessions() {
             <label htmlFor="resource">Recurso</label>
             <select
               id="resource"
-              value={form.resource}
+              value={form.resource ?? ''}
               onChange={(e) => setForm({ ...form, resource: e.target.value })}
             >
               {RESOURCES.map((r) => (
@@ -141,7 +170,7 @@ export default function Sessions() {
             <input
               id="allowedip"
               placeholder="first-observed o 10.0.0.0/24"
-              value={form.allowed_ip}
+              value={form.allowed_ip ?? ''}
               onChange={(e) =>
                 setForm({ ...form, allowed_ip: e.target.value })}
             />
@@ -181,7 +210,9 @@ export default function Sessions() {
             </button>
           </div>
         </form>
-        {createError && <div className="error-box">{createError}</div>}
+        {createError && (
+          <div className="error-box" role="alert">{createError}</div>
+        )}
         {created && (
           <div className="notice">
             <strong>Enlace creado</strong> (se muestra una sola vez):
@@ -205,83 +236,101 @@ export default function Sessions() {
         <button
           className="danger"
           disabled={revokeAll.isPending || !(sessions.data?.sessions.length)}
-          onClick={() => {
-            if (
-              window.confirm(
-                '¿Cerrar TODAS las sesiones activas? Las conexiones se cortarán ahora.',
-              )
-            ) {
-              revokeAll.mutate();
-            }
-          }}
+          onClick={() => setConfirmRevokeAll(true)}
         >
           Cerrar todas
         </button>
       </div>
 
-      {sessions.isError && (
-        <div className="error-box">
-          No se pudieron cargar las sesiones (¿falta el permiso admin_sessions?).
-        </div>
-      )}
-      <table className="data">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Rol</th>
-            <th>Permisos</th>
-            <th>Recurso</th>
-            <th>Expira</th>
-            <th>Flags</th>
-            <th>Creador</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {(sessions.data?.sessions ?? []).map((s) => (
-            <tr key={s.token_id}>
-              <td className="mono">{s.token_id}</td>
-              <td>{s.role}</td>
-              <td title={s.permissions.join(', ')}>
-                {s.permissions.length} perm
-              </td>
-              <td>{s.resource ?? '—'}</td>
-              <td>{fmtExpiry(s.expires_at)}</td>
-              <td>
-                {[
-                  s.view_only && 'view-only',
-                  s.single_use && 'single-use',
-                  s.no_terminal && 'no-terminal',
-                  s.allowed_ip && `ip:${s.allowed_ip}`,
-                ]
-                  .filter(Boolean)
-                  .join(', ') || '—'}
-              </td>
-              <td>{s.created_by}</td>
-              <td>
-                <button
-                  className="danger"
-                  disabled={revoke.isPending}
-                  onClick={() => {
-                    if (window.confirm('¿Revocar esta sesión?')) {
-                      revoke.mutate(s.token_id);
-                    }
-                  }}
-                >
-                  Revocar
-                </button>
-              </td>
-            </tr>
-          ))}
-          {sessions.data && sessions.data.sessions.length === 0 && (
-            <tr>
-              <td colSpan={8} className="muted">
-                No hay sesiones efímeras activas.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <DataTable<EphemeralSessionInfo>
+        loading={sessions.isLoading}
+        error={sessions.isError}
+        errorText="No se pudieron cargar las sesiones (¿falta el permiso admin_sessions?)."
+        emptyText="No hay sesiones efímeras activas."
+        rows={sessions.data?.sessions}
+        rowKey={(s) => s.token_id}
+        columns={[
+          {
+            key: 'id',
+            header: 'Referencia',
+            render: (s) => <SessionReference id={s.token_id} />,
+          },
+          { key: 'role', header: 'Rol', render: (s) => s.role },
+          {
+            key: 'perms',
+            header: 'Permisos',
+            render: (s) => `${s.permissions.length} perm`,
+            title: (s) => s.permissions.join(', '),
+          },
+          {
+            key: 'resource',
+            header: 'Recurso',
+            render: (s) => s.resource ?? '—',
+          },
+          {
+            key: 'exp',
+            header: 'Expira en',
+            render: (s) => <RelativeTime epoch={s.expires_at} />,
+          },
+          { key: 'flags', header: 'Flags', render: flagBadges },
+          { key: 'by', header: 'Creador', render: (s) => s.created_by },
+          {
+            key: 'actions',
+            header: '',
+            render: (s) => (
+              <button
+                className="danger"
+                disabled={revoke.isPending}
+                onClick={() => setRevokeTarget(s)}
+              >
+                Revocar
+              </button>
+            ),
+          },
+        ]}
+      />
+
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        title="Revocar sesión"
+        danger
+        busy={revoke.isPending}
+        confirmLabel="Revocar"
+        onCancel={() => setRevokeTarget(null)}
+        onConfirm={() =>
+          revokeTarget && revoke.mutate(revokeTarget.token_id)}
+      >
+        {revokeTarget && (
+          <p>
+            Se cerrará la sesión <code>{revokeTarget.token_id}</code>
+            {' '}(rol {revokeTarget.role}
+            {revokeTarget.resource
+              ? `, recurso ${revokeTarget.resource}`
+              : ''}
+            ). La conexión se corta de inmediato.
+          </p>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmRevokeAll}
+        title="Cerrar todas las sesiones"
+        danger
+        busy={revokeAll.isPending}
+        confirmLabel="Cerrar todas"
+        confirmText="CERRAR TODO"
+        onCancel={() => setConfirmRevokeAll(false)}
+        onConfirm={() => revokeAll.mutate()}
+      >
+        <p>
+          Se revocarán{' '}
+          <strong>{sessions.data?.sessions.length ?? 0} sesiones</strong>{' '}
+          activas. Todas las conexiones en curso se cortarán ahora.
+        </p>
+        <p className="muted">
+          Escribe <code>CERRAR TODO</code> para confirmar.
+        </p>
+      </ConfirmDialog>
     </>
   );
 }

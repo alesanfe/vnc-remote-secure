@@ -5,6 +5,8 @@
 // message). A 401/403 means the operator session is gone — the app
 // redirects to the portal, which re-prompts Basic auth.
 
+import type { components } from './api/generated/types';
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -145,23 +147,17 @@ export interface ServiceCard {
   category: string;
 }
 
-export interface EphemeralSessionInfo {
-  token_id: string;
-  role: string;
-  permissions: string[];
-  expires_at: number;
-  single_use: boolean;
-  view_only: boolean;
-  no_terminal: boolean;
-  allowed_ip: string | null;
-  created_by: string;
-  created_at: number;
-  used: boolean;
-  revoked: boolean;
-  resource: string | null;
-  max_uses: number;
-  use_count: number;
-}
+// Types below are aliases to the OpenAPI-generated schemas — the
+// contract lives in docs/api/openapi.v1.yaml, regenerated with
+// `npm run gen:types`. Hand-maintained interfaces follow them.
+
+export type EphemeralSessionInfo =
+  components['schemas']['SessionSummary'];
+export type ConfigVar = components['schemas']['ConfigEntry'];
+export type BackupItem = components['schemas']['BackupSummary'];
+export type OperatorUser = components['schemas']['OperatorSummary'];
+export type SessionCreateRequest =
+  components['schemas']['SessionCreateRequest'];
 
 export interface PostureCheck {
   name: string;
@@ -199,46 +195,22 @@ export interface AuditEntry {
   [key: string]: unknown;
 }
 
+export type AuditEntrySchema = components['schemas']['AuditEntry'];
+
 export interface AuditPage {
   entries: AuditEntry[];
   next_cursor: number | null;
   has_more: boolean;
 }
 
-export interface ConfigVar {
-  name: string;
-  value: string;
-  source: string;
-}
 
-export interface BackupItem {
-  name: string;
-  size: number;
-  modified: number;
-  encrypted: boolean;
-}
 
-export interface OperatorUser {
-  username: string;
-  role: string;
-  disabled: boolean;
-  created_at: number | null;
-  permissions: string[];
-}
+export type OperatorDetail = OperatorUser & { passkey_count?: number };
 
-export interface OperatorDetail extends OperatorUser {
-  passkey_count: number;
-}
+export type PasskeyItem = NonNullable<
+  components['schemas']['PasskeyPageResponse']['data']
+>['passkeys'][number];
 
-export interface PasskeyItem {
-  ref: string;
-  name: string;
-  created_at: string;
-  sign_count: number;
-}
-
-export interface OperatorEditResult {
-  operator: OperatorUser;
-  changed: string[];
-  sessions_revoked: boolean;
-}
+export type OperatorEditResult = NonNullable<
+  components['schemas']['OperatorResponse']['data']
+>;

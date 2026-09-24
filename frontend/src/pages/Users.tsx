@@ -8,6 +8,7 @@ import {
   type OperatorUser,
   type PasskeyItem,
 } from '../api';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
 
@@ -20,6 +21,11 @@ export default function Users() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [flash, setFlash] = useState('');
+  // Pending destructive confirmation: which operator + which action.
+  const [pending, setPending] = useState<{
+    kind: 'revoke' | 'delete';
+    username: string;
+  } | null>(null);
 
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: ['operators'] });
@@ -107,17 +113,10 @@ export default function Users() {
               onPatch={(p) =>
                 act.mutate({ kind: 'patch', username: u.username,
                              payload: p })}
-              onRevokeSessions={() => {
-                if (window.confirm(
-                    `¿Revocar todas las sesiones de ${u.username}?`))
-                  act.mutate({ kind: 'revoke', username: u.username });
-              }}
-              onDelete={() => {
-                if (window.confirm(
-                    `¿ELIMINAR el operador ${u.username}? ` +
-                    'Se revocarán sus sesiones.'))
-                  act.mutate({ kind: 'delete', username: u.username });
-              }}
+              onRevokeSessions={() =>
+                setPending({ kind: 'revoke', username: u.username })}
+              onDelete={() =>
+                setPending({ kind: 'delete', username: u.username })}
             />
           ))}
           {ops.data && ops.data.operators.length === 0 && (
@@ -130,6 +129,52 @@ export default function Users() {
           )}
         </tbody>
       </table>
+
+      <ConfirmDialog
+        open={pending?.kind === 'revoke'}
+        title="Revocar sesiones del operador"
+        danger
+        busy={act.isPending}
+        confirmLabel="Revocar todas"
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          if (pending) {
+            act.mutate({ kind: 'revoke', username: pending.username });
+            setPending(null);
+          }
+        }}
+      >
+        <p>
+          Todas las sesiones activas de{' '}
+          <code>{pending?.username}</code> quedarán invalidadas de
+          inmediato — tendrá que volver a autenticarse.
+        </p>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={pending?.kind === 'delete'}
+        title="Eliminar operador"
+        danger
+        busy={act.isPending}
+        confirmLabel="Eliminar"
+        confirmText="ELIMINAR"
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          if (pending) {
+            act.mutate({ kind: 'delete', username: pending.username });
+            setPending(null);
+          }
+        }}
+      >
+        <p>
+          Se eliminará la cuenta <code>{pending?.username}</code> y se
+          revocarán sus sesiones. El último administrador viable está
+          protegido por el backend.
+        </p>
+        <p className="muted">
+          Escribe <code>ELIMINAR</code> para confirmar.
+        </p>
+      </ConfirmDialog>
     </>
   );
 }
@@ -279,7 +324,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
     <div className="card">
       <h2>{op.username}</h2>
       <p>
-        Rol <strong>{op.role}</strong> · {op.passkey_count} passkey(s)
+        Rol <strong>{op.role}</strong> · {op.passkey_count ?? 0} passkey(s)
       </p>
       <p className="muted">Permisos: {op.permissions.join(', ') || '—'}</p>
       <h3>Passkeys</h3>

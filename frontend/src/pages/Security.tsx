@@ -33,10 +33,10 @@ export default function Security() {
                 style={{
                   color:
                     p.score >= 75
-                      ? 'var(--ok)'
+                      ? 'var(--ok-text)'
                       : p.score >= 50
-                        ? 'var(--warn)'
-                        : 'var(--fail)',
+                        ? 'var(--warn-text)'
+                        : 'var(--fail-text)',
                 }}
               >
                 {p.score}/100

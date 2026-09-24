@@ -152,6 +152,24 @@ def remove_user(username: str) -> bool:
     return True
 
 
+def _mark_sessions_revoked(username: str) -> None:
+    """Invalidate every vnc_op session issued for ``username``.
+
+    The shared ``op_revoked_users`` mark is compared against each
+    cookie's issue time (exp - TTL) at verification — password, role
+    and disable changes kill the operator's live sessions without
+    enumerating them. Best-effort: a backend outage must not block
+    the account mutation itself.
+    """
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        get_backend().set_ttl(
+            'op_revoked_users', username, str(time.time()),
+            86400 * 30)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def set_password(username: str, password: str) -> bool:
     """Replace an operator's password; False when unknown."""
     data = load_store()
@@ -159,6 +177,7 @@ def set_password(username: str, password: str) -> bool:
         return False
     data[username]['password_hash'] = hash_password(password)
     _save(data)
+    _mark_sessions_revoked(username)
     _audit('operator_set_password', username)
     return True
 
@@ -172,6 +191,7 @@ def set_role(username: str, role: str) -> bool:
         return False
     data[username]['role'] = role
     _save(data)
+    _mark_sessions_revoked(username)
     _audit('operator_set_role', username, f'role={role}')
     return True
 
@@ -183,6 +203,7 @@ def set_disabled(username: str, disabled: bool) -> bool:
         return False
     data[username]['disabled'] = bool(disabled)
     _save(data)
+    _mark_sessions_revoked(username)
     _audit('operator_disable' if disabled else 'operator_enable',
            username)
     return True

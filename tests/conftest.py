@@ -133,6 +133,8 @@ _SHARED_STATE_TEST_NAMESPACES = (
     'ephemeral_consumed', 'ephemeral_uses',
     'mfa_last_step', 'mfa_used_steps', 'mfa_used_recovery_codes',
     'step_up_auth_times', 'webauthn_challenges', 'maintenance',
+    'api_rate', 'op_revoked_sessions', 'op_revoked_users',
+    'op_sessions',
 )
 
 
