@@ -178,3 +178,20 @@ class TestUnknownEnvKeys:
         findings = ci.validate_config(env_snapshot={})
         assert not any('Unknown config key' in f['message']
                        for f in findings)
+
+
+
+class TestSchemaCoverage:
+    """Every schema-declared key must survive the effective-config
+    filter — a parallel prefix list once dropped entire var families
+    (AUDIT_*, TERMINAL_*, RFB_*)."""
+
+    def test_all_schema_keys_appear_when_set(self):
+        from vnc_remote_secure.core.config_inspector import _schema_known_vars
+        schema_keys = _schema_known_vars()
+        assert schema_keys, 'schema not found'
+        env = {k: 'x' for k in schema_keys}
+        eff = {e['name'] for e in compute_effective_config(
+            env_snapshot=env, profile_name='development')}
+        missing = schema_keys - eff
+        assert not missing, f'schema keys filtered out: {missing}'

@@ -213,6 +213,26 @@ def perform_upgrade(source: str | None = None) -> dict:
                 'revert)')
             return result
 
+    # 0. Preflight: the new version may enforce guarantees the current
+    #    config doesn't meet (e.g. hardened profiles refusing to start
+    #    without scoped tokens). Failing here beats upgrading into a
+    #    deployment that can't start. Same policy as startup(): only
+    #    hardened profiles hard-block.
+    try:
+        from vnc_remote_secure.core.config_inspector import validate_config
+        from vnc_remote_secure.security.profiles import get_profile
+        criticals = [f for f in validate_config()
+                     if f.get('severity') == 'critical']
+        if criticals and get_profile() in (
+                'public-hardened', 'private-overlay'):
+            result['error'] = (
+                'preflight config validation failed — fix critical '
+                'findings before upgrading: '
+                + '; '.join(f['message'] for f in criticals[:3]))
+            return result
+    except ImportError:
+        pass  # older trees may lack the inspector — not fatal
+
     # 1. Backup BEFORE touching anything — the rollback receipt only
     #    matters if the pre-upgrade state is captured first.
     try:

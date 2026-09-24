@@ -100,6 +100,15 @@ def set_maintenance(active: bool, by: str = 'cli',
     same boot; after a reboot it degrades to wall-clock only.
     """
     path = _flag_path()
+    # Stale generation keys would accumulate one pair per window —
+    # clean them when a new window opens.
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        be = get_backend()
+        for key in be.list_keys('maintenance', prefix='drain_'):
+            be.delete('maintenance', key)
+    except Exception:  # noqa: BLE001 - marker cleanup is best-effort
+        pass
     if active:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         import secrets as _secrets
@@ -187,7 +196,10 @@ def enforce_drain_deadline() -> bool:
             # completion — a swap between the sweep and this write
             # would otherwise stamp "done" onto a different window.
             if _read_flag().get('maintenance_id', '') == mid:
-                be.set('maintenance', f'drain_done:{mid}', '1')
+                # TTL bounds the marker — a generation's record needn't
+                # outlive the deployment's maintenance cadence.
+                be.set_ttl('maintenance', f'drain_done:{mid}', '1',
+                           30 * 86400)
             logger.info('Maintenance drain deadline reached — '
                         'revoked %d ephemeral session(s)', n)
     except Exception:  # noqa: BLE001 - deny regardless of sweep result

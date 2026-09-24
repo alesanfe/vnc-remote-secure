@@ -237,7 +237,11 @@ def compute_effective_config(
     for _p in ('public-hardened', 'private-overlay', 'trusted-lan'):
         all_vars.update(_locked_vars_for_profile(_p).keys())
 
-    # Filter out non-config env vars (PATH, HOME, etc.).
+    # Filter out non-config env vars (PATH, HOME, etc.). The schema is
+    # the source of truth for recognised keys — the prefix list is a
+    # legacy admission path for runtime vars not (yet) declared. A
+    # schema key must ALWAYS survive the filter; the contract test
+    # test_schema_keys_survive_effective_config guards this.
     config_prefixes = (
         'VNC_', 'NOVNC_', 'TTYD_', 'LANDING_', 'HEALTH_', 'BIND_',
         'SECURITY_', 'TLS_', 'DISABLE_', 'SSL_', 'MFA_', 'TOTP_',
@@ -252,11 +256,13 @@ def compute_effective_config(
     )
     # Unprefixed variables that are still configuration.
     explicit_vars = {'EMAIL', 'SERVE_NOVNC_HOST'}
+    schema_keys = _schema_known_vars()
     all_vars = {
         v for v in all_vars
         if any(v.startswith(p) for p in config_prefixes)
         or v in LOCKED_VARS
         or v in explicit_vars
+        or v in schema_keys
     }
 
     # Sort for deterministic output.
