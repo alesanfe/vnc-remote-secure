@@ -38,6 +38,7 @@ def test_startup_applies_security_profile(monkeypatch):
     # Policy satisfiability: hardened enforces phishing_resistant
     # requirements (webauthn_delete) — needs WebAuthn enabled.
     monkeypatch.setenv('WEBAUTHN_ENABLED', 'true')
+    monkeypatch.setenv('WEBAUTHN_USER_VERIFICATION', 'required')
 
     from vnc_remote_secure.core import lifecycle
     # Reset state so startup runs fresh.

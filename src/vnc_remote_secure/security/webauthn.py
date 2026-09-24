@@ -338,8 +338,18 @@ def begin_authentication(username: str, rp_id: str) -> dict | None:
             id=_b64d(cid))
         for cid in creds
     ]
+    from webauthn.helpers.structs import UserVerificationRequirement
+    _UV = {
+        'required': UserVerificationRequirement.REQUIRED,
+        'preferred': UserVerificationRequirement.PREFERRED,
+        'discouraged': UserVerificationRequirement.DISCOURAGED,
+    }
+    uv = _UV.get(
+        os.environ.get('WEBAUTHN_USER_VERIFICATION',
+                       'preferred').strip().lower(),
+        UserVerificationRequirement.PREFERRED)
     options = generate_authentication_options(
-        rp_id=rp_id, allow_credentials=allow)
+        rp_id=rp_id, allow_credentials=allow, user_verification=uv)
     _put_challenge('assert', username, options.challenge)
     return json.loads(options_to_json(options))
 

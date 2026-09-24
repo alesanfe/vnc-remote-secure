@@ -206,3 +206,28 @@ class TestOperatorEpoch:
         cookie = sessions.create_session_cookie('admin')['value']
         ok, _u = check_authenticated(cookie)
         assert ok is True
+
+
+def test_v3_cookie_carries_random_sid():
+    cookie_a = create_session_cookie('alice')
+    cookie_b = create_session_cookie('alice')
+    sa = verify_session_cookie(cookie_a['value'])
+    sb = verify_session_cookie(cookie_b['value'])
+    assert sa['sid'] and sb['sid']
+    assert sa['sid'] != sb['sid']
+
+
+def test_refresh_preserves_sid():
+    cookie = create_session_cookie('alice')
+    first = verify_session_cookie(cookie['value'])
+    refreshed = refresh_session_cookie(cookie['value'], refresh_grace=0)
+    assert refreshed is not None
+    second = verify_session_cookie(refreshed)
+    assert second['sid'] == first['sid']
+    assert second['expires'] == first['expires']
+
+
+def test_malformed_sid_rejected():
+    payload = 'alice:1:1:9999999999:not a sid!'
+    token = sign_token(TOKEN_TYPE_SESSION, payload)
+    assert verify_session_cookie(token) is None

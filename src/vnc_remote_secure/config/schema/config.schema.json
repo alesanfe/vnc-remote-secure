@@ -145,6 +145,11 @@
       "type": "string",
       "description": "Relying Party display name shown by authenticators (default: 'VNC Remote Secure')."
     },
+    "WEBAUTHN_USER_VERIFICATION": {
+      "type": "string",
+      "enum": ["required", "preferred", "discouraged"],
+      "description": "User-verification requirement for WebAuthn ceremonies (default 'preferred'). 'required' is mandatory for profiles enforcing user_verified auth policies."
+    },
     "AUDIT_AUTH_TOKEN": {
       "type": "string",
       "sensitive": true,

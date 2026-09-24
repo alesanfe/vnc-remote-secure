@@ -168,8 +168,12 @@ def record_auth_context(session_id: str, ctx: dict,
         ttl = int(os.environ.get('SESSION_MAX_LIFETIME', '86400'))
         be.set_ttl(_CTX_NS, _session_key(session_id), ctx, ttl)
         if stable_id:
-            be.set_ttl(_CTX_NS, 'idx:' + _session_key(stable_id),
-                       session_id, ttl)
+            # Composite key = a SET of sids per stable pair — two
+            # same-second logins share username:created, so a single
+            # idx value would overwrite one session's index entry.
+            be.set_ttl(_CTX_NS,
+                       f'idx:{_session_key(stable_id)}:{_session_key(session_id)}',
+                       '1', ttl)
     except Exception:  # noqa: BLE001 - ctx is advisory if state is down
         logger.debug('Could not record auth context', exc_info=True)
 
@@ -236,15 +240,22 @@ def drop_auth_context_for(cookie_or_stable: str) -> None:
     if not cookie_or_stable:
         return
     sid = session_id_for_cookie(cookie_or_stable)
-    if sid is None:
-        try:
-            from vnc_remote_secure.security.shared_state import get_backend
-            sid = get_backend().get(
-                _CTX_NS, 'idx:' + _session_key(cookie_or_stable))
-        except Exception:  # noqa: BLE001
-            sid = None
-    if sid:
+    if sid is not None:
         drop_auth_context(sid)
+        return
+    # Stable pair: revoking it revokes every session sharing it, so
+    # drop every indexed context — not just one.
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        be = get_backend()
+        prefix = f'idx:{_session_key(cookie_or_stable)}:'
+        for idx_key in be.list_keys(_CTX_NS, prefix=prefix):
+            be.delete(_CTX_NS, idx_key)
+            # idx value key embeds sha256(sid) — drop the ctx record.
+            be.delete(_CTX_NS, idx_key[len(prefix):])
+    except Exception:  # noqa: BLE001
+        logger.debug('Could not resolve ctx by stable id',
+                     exc_info=True)
 
 
 def drop_all_auth_contexts() -> int:

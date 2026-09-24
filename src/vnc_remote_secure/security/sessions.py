@@ -211,8 +211,14 @@ def refresh_session_cookie(cookie_value: str,
     now = time.time()
     if now - session.get('last_seen', session['created']) < refresh_grace:
         return None  # still fresh — no need to re-issue
-    payload = (f"{session['username']}:{session['created']}:"
-               f"{int(now)}:{session['expires']}")
+    # Preserve the sid — a refresh that dropped it would orphan the
+    # session's auth context and fail closed on the next policy check.
+    if session.get('sid'):
+        payload = (f"{session['username']}:{session['created']}:"
+                   f"{int(now)}:{session['expires']}:{session['sid']}")
+    else:
+        payload = (f"{session['username']}:{session['created']}:"
+                   f"{int(now)}:{session['expires']}")
     return sign_token(TOKEN_TYPE_SESSION, payload)
 
 

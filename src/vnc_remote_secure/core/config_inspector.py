@@ -578,8 +578,16 @@ def validate_config(
         if effective_dict.get('MFA_REQUIRED', '').lower() in truthy:
             methods_props.append({'recent_auth', 'mfa'})
         if effective_dict.get('WEBAUTHN_ENABLED', '').lower() in truthy:
-            methods_props.append({'recent_auth', 'phishing_resistant',
-                                  'user_verified'})
+            # UV 'preferred' lets the authenticator skip verification —
+            # a ceremony CAN yield user_verified=false, so the property
+            # only counts when UV is required at request time.
+            uv = effective_dict.get(
+                'WEBAUTHN_USER_VERIFICATION', 'preferred'
+            ).lower()
+            wn = {'recent_auth', 'phishing_resistant'}
+            if uv == 'required':
+                wn.add('user_verified')
+            methods_props.append(wn)
         enforce_all = profile_name in _ENFORCE_ALL
         for op, req in AUTH_POLICIES.items():
             enforced_fields = []

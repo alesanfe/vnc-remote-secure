@@ -181,6 +181,34 @@ class TestUnknownEnvKeys:
 
 
 
+class TestPolicySatisfiability:
+    """Hardened profiles must flag policies no enabled method can
+    satisfy — 'webauthn enabled' is not proof user_verified is
+    reachable when UV is only preferred."""
+
+    def test_uv_preferred_leaves_uv_policies_unsatisfiable(self):
+        f = _find({
+            'WEBAUTHN_ENABLED': 'true',
+            'WEBAUTHN_USER_VERIFICATION': 'preferred',
+        }, profile='public-hardened')
+        assert any('webauthn_delete' in x['message']
+                   for x in _critical(f))
+
+    def test_uv_required_satisfies_uv_policies(self):
+        f = _find({
+            'WEBAUTHN_ENABLED': 'true',
+            'WEBAUTHN_USER_VERIFICATION': 'required',
+            'MFA_REQUIRED': 'true',
+        }, profile='public-hardened')
+        assert not any('unsatisfiable' in x['message']
+                       for x in _critical(f))
+
+    def test_neither_method_is_critical(self):
+        f = _find({}, profile='public-hardened')
+        assert any('unsatisfiable' in x['message']
+                   for x in _critical(f))
+
+
 class TestSchemaCoverage:
     """Every schema-declared key must survive the effective-config
     filter — a parallel prefix list once dropped entire var families
