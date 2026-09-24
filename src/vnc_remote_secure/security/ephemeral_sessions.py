@@ -206,6 +206,13 @@ class EphemeralSession:
         self.allowed_ip = allowed_ip
         self.created_by = created_by
         self.created_at = time.time()
+        # Skew-immune expiry bound: expires_at alone trusts the wall
+        # clock, so a clock wound back revives dead sessions. The
+        # monotonic clock shares its epoch across processes within a
+        # boot; a rebooted or foreign value yields a negative/odd
+        # delta and the check degrades to wall-clock-only (see
+        # _session_expired).
+        self.created_monotonic = time.monotonic()
         self.used = False
         self.revoked = False
         # Strong binding fields.
@@ -229,7 +236,7 @@ class EphemeralSession:
             return False
         if self.max_uses > 0 and self.use_count >= self.max_uses:
             return False
-        if time.time() > self.expires_at:
+        if _session_expired(self):
             return False
         # IP binding is fail-closed: a missing client_ip must not
         # silently skip an operator-configured restriction.
@@ -311,6 +318,7 @@ class EphemeralSession:
             'allowed_ip': self.allowed_ip,
             'created_by': self.created_by,
             'created_at': self.created_at,
+            'created_monotonic': self.created_monotonic,
             'used': self.used,
             'revoked': self.revoked,
             'resource': self.resource,
@@ -343,10 +351,39 @@ class EphemeralSession:
             max_uses=int(data.get('max_uses', 0)),
         )
         session.created_at = float(data.get('created_at', time.time()))
+        session.created_monotonic = float(
+            data.get('created_monotonic', 0))
         session.used = bool(data.get('used', False))
         session.revoked = bool(data.get('revoked', False))
         session.use_count = int(data.get('use_count', 0))
         return session
+
+
+def _session_expired(session: EphemeralSession) -> bool:
+    """True when the session's TTL is spent.
+
+    Two independent bounds, either sufficient:
+
+    - Wall clock: ``time.time() >= expires_at`` — catches forward skew.
+    - Monotonic: ``monotonic() - created_monotonic >= original TTL`` —
+      catches backward skew (a clock wound before ``expires_at``
+      revives the session under the wall bound alone).
+
+    Sessions persisted before this field existed carry
+    ``created_monotonic == 0`` and degrade to wall-clock expiry; a
+    negative delta (reboot, foreign epoch) also degrades rather than
+    trusting a meaningless monotonic value.
+    """
+    if time.time() >= session.expires_at:
+        return True
+    mono = getattr(session, 'created_monotonic', 0)
+    if not mono:
+        return False
+    ttl = session.expires_at - session.created_at
+    if ttl <= 0:
+        return True
+    elapsed = time.monotonic() - mono
+    return elapsed >= 0 and elapsed >= ttl
 
 
 def create_ephemeral_token(session: EphemeralSession) -> str:
@@ -809,7 +846,7 @@ def is_session_expired(signed_token: str) -> bool:
     session = store.get(payload['session_token'])
     if not session:
         return True
-    return time.time() >= session.expires_at
+    return _session_expired(session)
 
 
 def _metric(event: str) -> None:
@@ -998,7 +1035,7 @@ def consume_ephemeral_session(signed_token: str) -> bool:
             return False
         if session.revoked:
             return False
-        if time.time() >= session.expires_at:
+        if _session_expired(session):
             return False
         if session.instance_id and session.instance_id != _get_instance_id():
             return False
@@ -1073,7 +1110,7 @@ def activate_ephemeral_session(signed_token: str,
 def _activation_denied(session, token: str,
                        client_ip: str | None) -> bool:
     """Every reject-before-burn rule for share-link activation."""
-    if session.revoked or time.time() >= session.expires_at:
+    if session.revoked or _session_expired(session):
         return True
     if session.single_use and session.used:
         return True
@@ -1134,7 +1171,7 @@ def check_session_permission(
         return False
     if session.revoked:
         return False
-    if time.time() >= session.expires_at:
+    if _session_expired(session):
         return False
     # IP binding is fail-closed: a missing/unknown client_ip must not
     # silently skip an operator-configured restriction.
