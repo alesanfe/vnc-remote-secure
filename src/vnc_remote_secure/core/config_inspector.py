@@ -566,6 +566,24 @@ def validate_config(
             'message': 'FLASK_SECRET_KEY not set — sessions invalidated on restart',
         })
 
+    # Auth-policy satisfiability: under profiles that enforce
+    # phishing-resistance, there must exist at least one method able
+    # to satisfy it — otherwise the first critical operation is an
+    # outage discovered mid-incident.
+    if profile_name in ('public-hardened', 'private-overlay'):
+        webauthn_on = effective_dict.get(
+            'WEBAUTHN_ENABLED', '').lower() in ('true', '1', 'yes')
+        mfa_on = effective_dict.get(
+            'MFA_REQUIRED', '').lower() in ('true', '1', 'yes')
+        if not webauthn_on and not mfa_on:
+            findings.append({
+                'severity': 'critical',
+                'message': f'profile {profile_name} enforces '
+                           'strong-auth policies but neither WebAuthn '
+                           'nor MFA is enabled — no session can '
+                           'satisfy them (unsatisfiable policy)',
+            })
+
     _check_vnc_password(env_snapshot, findings)
     _check_port_vars(env_snapshot, findings)
     _check_tigervnc_port_mismatch(env_snapshot, findings)

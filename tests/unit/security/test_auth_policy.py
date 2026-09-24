@@ -51,9 +51,9 @@ class TestTrustedLan:
         assert d.reason_code == 'MFA_REQUIRED'
 
     def test_phishing_missing_audit_only(self):
-        # secrets.rotate requires phishing_resistant — in trusted-lan
+        # webauthn_delete requires phishing_resistant — in trusted-lan
         # that's recorded but NOT enforced (no WebAuthn assumption).
-        d = evaluate('secrets.rotate', _ctx(mfa=True, phishing=False),
+        d = evaluate('webauthn_delete', _ctx(mfa=True, phishing=False),
                      profile='trusted-lan')
         assert d.allowed is True
         assert 'phishing_resistant' in d.missing
@@ -62,7 +62,7 @@ class TestTrustedLan:
 class TestHardenedProfiles:
     def test_phishing_required(self):
         for profile in ('private-overlay', 'public-hardened'):
-            d = evaluate('secrets.rotate', _ctx(mfa=True),
+            d = evaluate('webauthn_delete', _ctx(mfa=True),
                          profile=profile)
             assert d.allowed is False
             assert 'phishing_resistant' in d.missing
@@ -70,20 +70,20 @@ class TestHardenedProfiles:
     def test_webauthn_with_uv_satisfies_strongest(self):
         ctx = _ctx(method='webauthn', mfa=True, phishing=True, uv=True,
                    age=30)
-        d = evaluate('secrets.rotate', ctx, profile='public-hardened')
+        d = evaluate('webauthn_delete', ctx, profile='public-hardened')
         assert d.allowed is True
 
     def test_webauthn_without_uv_denied_when_required(self):
         ctx = _ctx(method='webauthn', mfa=True, phishing=True, uv=False,
                    age=30)
-        d = evaluate('secrets.rotate', ctx, profile='public-hardened')
+        d = evaluate('webauthn_delete', ctx, profile='public-hardened')
         assert d.allowed is False
         assert 'user_verified' in d.missing
 
     def test_stale_auth_denied(self):
         ctx = _ctx(method='webauthn', mfa=True, phishing=True, uv=True,
                    age=9999)
-        d = evaluate('secrets.rotate', ctx, profile='public-hardened')
+        d = evaluate('webauthn_delete', ctx, profile='public-hardened')
         assert d.allowed is False
         assert d.reason_code == 'AUTH_TOO_OLD'
 
@@ -118,7 +118,7 @@ class TestSessionIsolation:
             assert strong['phishing_resistant'] is True
             # The weak session evaluated against its OWN context fails
             # a phishing-required op — B's passkey never leaks into A.
-            d = evaluate('secrets.rotate', weak,
+            d = evaluate('webauthn_delete', weak,
                          profile='public-hardened')
             assert d.allowed is False
         finally:
@@ -158,3 +158,67 @@ class TestDecisionShape:
             assert isinstance(op, str)
             assert req.max_auth_age_seconds is None or \
                 req.max_auth_age_seconds > 0
+
+    def test_every_enforced_policy_has_enforcement_point(self):
+        """declared == enforced: a policy in AUTH_POLICIES with no
+        registered call site is documentation, not a control."""
+        from vnc_remote_secure.security.auth_policy import (
+            PENDING_POLICIES,
+            POLICY_ENFORCEMENT_POINTS,
+        )
+        for op in AUTH_POLICIES:
+            assert op in POLICY_ENFORCEMENT_POINTS, (
+                f'{op} declared but has no enforcement point — '
+                'move it to PENDING_POLICIES')
+            assert POLICY_ENFORCEMENT_POINTS[op], (
+                f'{op} enforcement point set is empty')
+        # And the reverse: pending ops must not appear as enforced.
+        for op in PENDING_POLICIES:
+            assert op not in AUTH_POLICIES
+
+    def test_pending_ops_evaluate_audit_only(self):
+        """A pending policy still produces a real decision — it just
+        never denies, regardless of profile."""
+        from vnc_remote_secure.security.auth_policy import PENDING_POLICIES
+        for op in PENDING_POLICIES:
+            d = evaluate(op, _ctx(mfa=False, phishing=False),
+                         profile='public-hardened')
+            assert d.allowed is True
+            assert d.enforced is False
+            assert d.missing  # the gaps are still reported
+
+
+class TestAlternatives:
+    """AnyOf: open_terminal accepts mfa OR phishing+UV."""
+
+    def test_mfa_branch_satisfies(self):
+        ctx = _ctx(method='password+totp', mfa=True)
+        d = evaluate('open_terminal', ctx, profile='public-hardened')
+        assert d.allowed is True
+
+    def test_webauthn_uv_branch_satisfies(self):
+        # A UV passkey session has no 'mfa' flag — the second branch
+        # must satisfy the requirement or strong auth gets denied.
+        ctx = _ctx(method='webauthn', mfa=False, phishing=True,
+                   uv=True)
+        d = evaluate('open_terminal', ctx, profile='public-hardened')
+        assert d.allowed is True
+
+    def test_neither_branch_denied(self):
+        ctx = _ctx(method='password', mfa=False, phishing=False)
+        d = evaluate('open_terminal', ctx, profile='public-hardened')
+        assert d.allowed is False
+        assert 'strong_method' in d.missing
+
+    def test_phishing_without_uv_insufficient(self):
+        # phishing_resistant alone isn't the passkey+UV branch.
+        ctx = _ctx(method='webauthn', phishing=True, uv=False)
+        d = evaluate('open_terminal', ctx, profile='public-hardened')
+        assert d.allowed is False
+
+    def test_strong_but_stale_denied(self):
+        ctx = _ctx(method='webauthn', phishing=True, uv=True,
+                   age=9999)
+        d = evaluate('open_terminal', ctx, profile='public-hardened')
+        assert d.allowed is False
+        assert 'recent_auth' in d.missing

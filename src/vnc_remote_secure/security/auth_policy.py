@@ -29,11 +29,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AuthRequirement:
-    """What a sensitive operation demands from the login ceremony."""
+    """What a sensitive operation demands from the login ceremony.
+
+    ``alternatives`` expresses method choice: a tuple of property
+    tuples, satisfied when the session has EVERY property in ANY one
+    tuple — e.g. ``(('mfa',), ('phishing_resistant','user_verified'))``
+    accepts either verified MFA or a UV passkey ceremony. It exists
+    because ``mfa`` alone would deny a phishing-resistant passkey
+    session that never ran a second factor.
+    """
     require_mfa: bool = False
     require_phishing_resistant: bool = False
     require_user_verified: bool = False
     max_auth_age_seconds: int | None = None
+    alternatives: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -50,7 +59,12 @@ class AuthDecision:
 
 AUTH_POLICIES: dict[str, AuthRequirement] = {
     'open_terminal': AuthRequirement(
-        require_mfa=True, max_auth_age_seconds=600),
+        # Recent auth AND (verified MFA OR a UV passkey ceremony) —
+        # a phishing-resistant session shouldn't be denied for
+        # lacking a 'mfa' flag it never needed.
+        alternatives=(('mfa',),
+                      ('phishing_resistant', 'user_verified')),
+        max_auth_age_seconds=600),
     'create_admin': AuthRequirement(
         require_mfa=True, max_auth_age_seconds=300),
     'delete_admin': AuthRequirement(
@@ -60,14 +74,36 @@ AUTH_POLICIES: dict[str, AuthRequirement] = {
     'webauthn_delete': AuthRequirement(
         require_phishing_resistant=True, require_user_verified=True,
         max_auth_age_seconds=300),
+}
+
+# Declared but NOT yet enforced anywhere — CLI ops have no session
+# context. Listing them here (not in AUTH_POLICIES) keeps the
+# registry honest: a policy that no call site evaluates is not a
+# control, it's documentation. The contract test pins that every
+# AUTH_POLICIES key appears in POLICY_ENFORCEMENT_POINTS.
+PENDING_POLICIES: dict[str, AuthRequirement] = {
     'secrets.rotate': AuthRequirement(
         require_phishing_resistant=True, require_user_verified=True,
         max_auth_age_seconds=300),
     'backup.restore': AuthRequirement(
-        require_mfa=True, max_auth_age_seconds=300),
+        alternatives=(('mfa',),
+                      ('phishing_resistant', 'user_verified')),
+        max_auth_age_seconds=300),
     'operator.grant_admin': AuthRequirement(
         require_phishing_resistant=True, require_user_verified=True,
         max_auth_age_seconds=300),
+}
+
+# Where each enforced policy is actually checked — the contract test
+# asserts declared == enforced.
+POLICY_ENFORCEMENT_POINTS: dict[str, frozenset] = {
+    'open_terminal': frozenset({'services/terminal.py:open_terminal'}),
+    'create_admin': frozenset({'web/routes/users.py:create_user'}),
+    'delete_admin': frozenset({'web/routes/users.py:delete_user'}),
+    'webauthn_register': frozenset(
+        {'web/routes/users.py:webauthn_register_begin'}),
+    'webauthn_delete': frozenset(
+        {'web/routes/users.py:webauthn_delete_credential'}),
 }
 
 # Profile -> which requirement fields actually deny (rest audit-only).
@@ -94,12 +130,13 @@ def _session_key(session_id: str) -> str:
 
 def session_id_for_cookie(cookie_value: str) -> str | None:
     """Resolve a verified ``vnc_session`` cookie to its stable
-    session id (``username:created``). None if the cookie is invalid."""
+    random session id. None if the cookie is invalid or predates the
+    v3 payload (legacy cookies carry no sid — callers fail closed)."""
     try:
         from vnc_remote_secure.security.sessions import verify_session_cookie
         parsed = verify_session_cookie(cookie_value)
-        if parsed and parsed.get('username') and parsed.get('created'):
-            return f"{parsed['username']}:{parsed['created']}"
+        if parsed:
+            return parsed.get('sid')
     except Exception:  # noqa: BLE001
         pass
     return None
@@ -118,10 +155,26 @@ def record_auth_context(session_id: str, ctx: dict) -> None:
         logger.debug('Could not record auth context', exc_info=True)
 
 
+_CTX_FIELDS = frozenset({
+    'auth_method', 'mfa', 'phishing_resistant', 'user_verified',
+    'authenticated_at', 'username',
+})
+
+
 def update_auth_context(session_id: str, **fields) -> None:
     """Merge fields into an existing session's auth context — used
     when a step-up ceremony refreshes ``authenticated_at`` without
-    re-issuing the session cookie."""
+    re-issuing the session cookie. Fields outside ``_CTX_FIELDS``
+    are rejected (arbitrary writes would let a compromised call
+    site fabricate assurance properties)."""
+    bad = [k for k in fields if k not in _CTX_FIELDS]
+    if bad:
+        logger.warning('auth_context update rejected unknown '
+                       'fields: %s', bad)
+        return
+    if 'authenticated_at' in fields and not isinstance(
+            fields['authenticated_at'], (int, float)):
+        return
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         be = get_backend()
@@ -157,6 +210,23 @@ def drop_auth_context(session_id: str) -> None:
         logger.debug('Could not drop auth context', exc_info=True)
 
 
+def drop_all_auth_contexts() -> int:
+    """Delete every recorded auth context — credential rotation
+    (operator epoch bump) invalidates all sessions, so their
+    assurance records must not outlive them."""
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        be = get_backend()
+        n = 0
+        for key in be.list_keys(_CTX_NS):
+            be.delete(_CTX_NS, key)
+            n += 1
+        return n
+    except Exception:  # noqa: BLE001
+        logger.debug('Could not drop auth contexts', exc_info=True)
+        return 0
+
+
 def _profile() -> str:
     try:
         from vnc_remote_secure.security.profiles import get_profile
@@ -175,6 +245,13 @@ def evaluate(operation: str, session_ctx: dict,
     no requirement and pass (declare one here to gate them).
     """
     req = AUTH_POLICIES.get(operation)
+    pending = False
+    if req is None:
+        # Pending ops (declared, no enforcement point yet) still get
+        # a real evaluation — the decision is audit-only regardless
+        # of profile, so a future call site inherits working logic.
+        req = PENDING_POLICIES.get(operation)
+        pending = req is not None
     method = session_ctx.get('auth_method')
     auth_at = session_ctx.get('authenticated_at')
     age = (int(time.time() - auth_at)
@@ -197,8 +274,9 @@ def evaluate(operation: str, session_ctx: dict,
                             enforced=False)
 
     profile = profile if profile is not None else _profile()
-    enforce_all = profile in _ENFORCE_ALL
-    enforce_mfa = enforce_all or profile in _ENFORCE_MFA_ONLY
+    enforce_all = (profile in _ENFORCE_ALL) and not pending
+    enforce_mfa = (enforce_all
+                   or profile in _ENFORCE_MFA_ONLY) and not pending
     missing = []
     if req.require_mfa and not session_ctx.get('mfa'):
         missing.append('mfa')
@@ -208,13 +286,19 @@ def evaluate(operation: str, session_ctx: dict,
     if req.require_user_verified \
             and session_ctx.get('user_verified') is not True:
         missing.append('user_verified')
+    # AnyOf: satisfied when EVERY property in ANY alternative holds.
+    if req.alternatives and not any(
+            all(session_ctx.get(p) for p in alt)
+            for alt in req.alternatives):
+        missing.append('strong_method')
     if (req.max_auth_age_seconds is not None
             and (age is None or age > req.max_auth_age_seconds)):
         missing.append('recent_auth')
 
     # Split missing props by whether this profile enforces them.
     enforced_missing = [m for m in missing
-                        if m in ('mfa', 'recent_auth') or enforce_all]
+                        if m in ('mfa', 'recent_auth', 'strong_method')
+                        or enforce_all]
     audited_missing = [m for m in missing
                        if m not in enforced_missing]
     enforced = enforce_mfa or enforce_all

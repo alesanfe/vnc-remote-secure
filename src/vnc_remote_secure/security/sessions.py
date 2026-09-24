@@ -61,11 +61,15 @@ def create_session_cookie(
     max_lt = max_lifetime or _get_env_int('SESSION_MAX_LIFETIME', DEFAULT_MAX_LIFETIME)
     csrf = csrf_token or secrets.token_hex(32)
     now = int(time.time())
-    # Payload v2: username:created:last_seen:expires. ``last_seen`` is
-    # refreshed by refresh_session_cookie() on each authenticated
+    # Payload v3: username:created:last_seen:expires:sid. ``last_seen``
+    # is refreshed by refresh_session_cookie() on each authenticated
     # request, making SESSION_IDLE_TIMEOUT a true sliding window while
-    # ``expires`` remains the absolute cap.
-    payload = f"{username}:{now}:{now}:{now + max_lt}"
+    # ``expires`` remains the absolute cap. ``sid`` is a random,
+    # per-login session id — ``username:created`` has only second
+    # precision, so two same-user logins in the same second would
+    # collide and share an auth-assurance context.
+    sid = secrets.token_urlsafe(16)
+    payload = f"{username}:{now}:{now}:{now + max_lt}:{sid}"
     cookie_value = sign_token(TOKEN_TYPE_SESSION, payload)
     return {
         'value': cookie_value,
@@ -85,9 +89,13 @@ def verify_session_cookie(cookie_value: str) -> dict | None:
     if payload is None:
         return None
     parts = payload.split(':')
-    # v2: username:created:last_seen:expires. Legacy v1
-    # (username:created:expires) is accepted with last_seen=created.
-    if len(parts) == 4:
+    # v3: username:created:last_seen:expires:sid. v2 drops the sid;
+    # legacy v1 (username:created:expires) gets last_seen=created.
+    sid = None
+    if len(parts) == 5:
+        (username, created_str, last_seen_str, expires_str,
+         sid) = parts
+    elif len(parts) == 4:
         username, created_str, last_seen_str, expires_str = parts
     elif len(parts) == 3:
         username, created_str, expires_str = parts
@@ -115,6 +123,7 @@ def verify_session_cookie(cookie_value: str) -> dict | None:
         'created': created,
         'last_seen': last_seen,
         'expires': expires,
+        'sid': sid,
     }
 
 
@@ -134,6 +143,10 @@ def bump_operator_epoch() -> None:
         get_backend().set_ttl(
             _NS_OPERATOR_EPOCH, 'all', time.time(),
             _get_env_int('SESSION_MAX_LIFETIME', 86400) + 86400)
+        # Every session is invalid now — their auth-assurance
+        # contexts must not outlive them.
+        from vnc_remote_secure.security.auth_policy import drop_all_auth_contexts
+        drop_all_auth_contexts()
     except Exception:  # noqa: BLE001 - best-effort; rotation already
         # Under strict policy the invalidation MUST land — a silent
         # miss leaves rotated-credential sessions alive. Re-raise so
