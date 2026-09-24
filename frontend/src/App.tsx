@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api, type Me } from './api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, ApiError, type Me } from './api';
+import LoginPage from './pages/LoginPage';
 import Overview from './pages/Overview';
 import Sessions from './pages/Sessions';
 import Users from './pages/Users';
@@ -22,7 +23,28 @@ const NAV = [
 ];
 
 export default function App() {
-  const me = useQuery({ queryKey: ['me'], queryFn: () => api.get<Me>('me') });
+  const qc = useQueryClient();
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<Me>('me'),
+    retry: false,
+  });
+
+  // No operator session → the in-app login page (password or
+  // passkey) instead of the browser's Basic-auth prompt.
+  if (me.isError && me.error instanceof ApiError &&
+      me.error.status === 401) {
+    return (
+      <LoginPage
+        onLoggedIn={() => {
+          void qc.invalidateQueries({ queryKey: ['me'] });
+        }}
+      />
+    );
+  }
+  if (me.isLoading) {
+    return <main className="main"><p className="muted">Cargando…</p></main>;
+  }
 
   return (
     <div className="layout">
@@ -53,7 +75,10 @@ export default function App() {
             <button
               type="button"
               className="logout-btn"
-              onClick={() => void api.logout()}
+              onClick={() => {
+                void api.logout().then(() =>
+                  qc.invalidateQueries({ queryKey: ['me'] }));
+              }}
             >
               Cerrar sesión
             </button>

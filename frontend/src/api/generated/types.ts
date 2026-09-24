@@ -1160,6 +1160,473 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which login ceremonies are available (public) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {password, passkey} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AuthMethodsResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Operator password login — mints vnc_op + vnc_csrf cookies and returns the CSRF token. Origin + Sec-Fetch checked; rate limited. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        username: string;
+                        password: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {operator, csrf_token, auth_method} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing/oversized credentials */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Cross-site request rejected */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/passkey/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** WebAuthn assertion options (public, rate-limited). Uniform 404 for unknown user or no credentials — no enumeration. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        username: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {options: PublicKeyCredentialRequestOptions} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Passkey authentication unavailable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/passkey/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify the WebAuthn assertion and mint the operator session. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        username: string;
+                        credential: Record<string, never>;
+                    };
+                };
+            };
+            responses: {
+                /** @description Session issued */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing fields */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Assertion rejected */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent destructive-operation jobs, newest first */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {jobs: [...]} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobPageResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operators/deleted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tombstoned operators (restore candidates). Snapshots are non-secret: role and timestamps only. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {deleted: [{username, role, deleted_at}]} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeletedOperatorsResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operators/{username}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a tombstoned operator (admin_users + step-up). The account returns disabled with a random password — an admin must set a password and re-enable it explicitly. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {operator} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No tombstone for this username */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Operator already exists */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/system-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List non-reserved OS accounts (admin_users) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {users: [{username, uid, home}]} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SystemUserPageResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create a runtime OS account (admin_users + step-up) */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        username: string;
+                        password: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {username} */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SystemUserCreatedResponse"];
+                    };
+                };
+                /** @description Invalid username/password or unknown fields */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not admin_users, reserved name, or STEP_UP_REQUIRED */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/system-users/{username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a runtime OS account (admin_users + step-up). Reserved/builtin names and the current process account are refused. */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {deleted: true} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid username or deletion failed */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Protected account (reserved/self) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/maintenance": {
         parameters: {
             query?: never;
@@ -1475,6 +1942,85 @@ export interface components {
                 drained_now?: number;
                 drain_at?: number | null;
                 info?: Record<string, never>;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        JobSummary: {
+            id: string;
+            kind: string;
+            actor: string;
+            target?: string;
+            /** @enum {string} */
+            state: "running" | "done" | "failed";
+            started_at: number;
+            finished_at?: number | null;
+            detail?: string | null;
+            error?: string | null;
+        };
+        JobPageResponse: {
+            data: {
+                jobs: components["schemas"]["JobSummary"][];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        DeletedOperatorSummary: {
+            username: string;
+            role: string;
+            created_at?: number | null;
+            deleted_at: number;
+        };
+        DeletedOperatorsResponse: {
+            data: {
+                deleted: components["schemas"]["DeletedOperatorSummary"][];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        AuthMethodsResponse: {
+            data: {
+                password: boolean;
+                passkey: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        LoginResponse: {
+            data: {
+                operator: {
+                    username?: string;
+                    role?: string | null;
+                };
+                csrf_token: string;
+                /** @enum {string} */
+                auth_method: "password" | "webauthn";
+            };
+            error: unknown;
+            request_id: string;
+        };
+        PasskeyAuthOptionsResponse: {
+            data: {
+                options: Record<string, never>;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SystemUserSummary: {
+            username: string;
+            uid?: number | null;
+            home?: string | null;
+        };
+        SystemUserPageResponse: {
+            data: {
+                users: components["schemas"]["SystemUserSummary"][];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SystemUserCreatedResponse: {
+            data: {
+                username: string;
             };
             error: unknown;
             request_id: string;

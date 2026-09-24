@@ -39,7 +39,10 @@ function decodeOptions(opts: Record<string, unknown>):
       out[k] = b64d(v);
     } else if (k === 'user' && v && typeof v === 'object') {
       out[k] = { ...(v as object), id: b64d((v as { id: string }).id) };
-    } else if (k === 'excludeCredentials' && Array.isArray(v)) {
+    } else if (
+      (k === 'excludeCredentials' || k === 'allowCredentials') &&
+      Array.isArray(v)
+    ) {
       out[k] = v.map((c) =>
         c && typeof c === 'object'
           ? { ...(c as object), id: b64d((c as { id: string }).id) }
@@ -67,6 +70,31 @@ export async function registerPasskey(
     response: {
       attestationObject: b64e(resp.attestationObject),
       clientDataJSON: b64e(resp.clientDataJSON),
+    },
+  };
+}
+
+/** Assertion ceremony (login): decode the request options, get() the
+    credential and serialize the assertion for /auth/passkey/complete.
+    allowCredentials ids arrive as base64url strings like excludeCredentials. */
+export async function assertPasskey(
+  options: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const decoded = decodeOptions(options);
+  const cred = (await navigator.credentials.get({
+    publicKey: decoded as unknown as PublicKeyCredentialRequestOptions,
+  })) as PublicKeyCredential | null;
+  if (!cred) throw new Error('La ceremonia fue cancelada');
+  const resp = cred.response as AuthenticatorAssertionResponse;
+  return {
+    id: cred.id,
+    rawId: b64e(cred.rawId),
+    type: cred.type,
+    response: {
+      authenticatorData: b64e(resp.authenticatorData),
+      clientDataJSON: b64e(resp.clientDataJSON),
+      signature: b64e(resp.signature),
+      userHandle: resp.userHandle ? b64e(resp.userHandle) : null,
     },
   };
 }

@@ -11,6 +11,7 @@ import {
 import ConfirmDialog from '../components/ConfirmDialog';
 import StepUpDialog from '../components/StepUpDialog';
 import SystemUsersSection from '../components/SystemUsers';
+import DeletedOperatorsSection from '../components/DeletedOperators';
 import { registerPasskey, webauthnSupported } from '../webauthn';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
@@ -150,6 +151,10 @@ export default function Users() {
           )}
         </tbody>
       </table>
+
+      <DeletedOperatorsSection
+        onStepUp={(op, retry) => setStepUp({ op, retry })}
+      />
 
       <h2 className="page-title">Usuarios de sistema</h2>
       <p className="muted">

@@ -14,6 +14,18 @@ interface MaintenanceState {
   info: { by?: string; reason?: string; since?: string };
 }
 
+interface JobRecord {
+  id: string;
+  kind: string;
+  actor: string;
+  target?: string;
+  state: 'running' | 'done' | 'failed';
+  started_at: number;
+  finished_at?: number | null;
+  detail?: string | null;
+  error?: string | null;
+}
+
 export default function Doctor() {
   const qc = useQueryClient();
   const doctor = useQuery({
@@ -29,6 +41,10 @@ export default function Doctor() {
   const me = useQuery({
     queryKey: ['me'],
     queryFn: () => api.get<Me>('me'),
+  });
+  const jobs = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => api.get<{ jobs: JobRecord[] }>('jobs'),
   });
   const [maintErr, setMaintErr] = useState('');
   const [stepUp, setStepUp] =
@@ -157,6 +173,49 @@ export default function Doctor() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {(jobs.data?.jobs.length ?? 0) > 0 && (
+        <div className="card section">
+          <h3>Operaciones destructivas recientes</h3>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Hora</th>
+                <th>Operación</th>
+                <th>Actor</th>
+                <th>Objetivo</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.data?.jobs.map((j) => (
+                <tr key={j.id}>
+                  <td className="muted">
+                    {new Date(j.started_at * 1000).toLocaleString()}
+                  </td>
+                  <td className="mono">{j.kind}</td>
+                  <td>{j.actor}</td>
+                  <td className="muted">{j.target || '—'}</td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        j.state === 'done'
+                          ? 'ok'
+                          : j.state === 'failed'
+                            ? 'fail'
+                            : 'warn'
+                      }`}
+                      title={j.error ?? j.detail ?? ''}
+                    >
+                      {j.state.toUpperCase()}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <StepUpDialog

@@ -2,8 +2,8 @@
 //
 // All success responses use the {data, error, request_id} envelope.
 // Errors use the canonical error_json body ({error: ...} or plain
-// message). A 401/403 means the operator session is gone — the app
-// redirects to the portal, which re-prompts Basic auth.
+// message). A 401 surfaces the in-app login page (App gates on /me);
+// the operator can authenticate with password or passkey.
 
 import type { components } from './api/generated/types';
 
@@ -62,6 +62,13 @@ export function resetCsrfToken(): void {
   csrfToken = null;
 }
 
+/** Store the token returned by POST /auth/login or /auth/passkey/
+    complete — the first mutation after login must not re-fetch /me
+    (it would still be unauthenticated in the same tick). */
+export function setCsrfToken(token: string): void {
+  csrfToken = token;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -88,12 +95,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // callers surface the step-up dialog and retry.
       throw new ApiError(res.status, 'Step-up required', code);
     }
-    if (res.status === 401 || res.status === 403) {
-      // Session gone or insufficient role — back to the portal,
-      // which re-challenges with Basic auth.
-      window.location.href = '/';
-      throw new ApiError(res.status, 'Session expired');
-    }
     throw new ApiError(
       res.status, errorMessage(body, res.statusText), code);
   }
@@ -117,13 +118,35 @@ export const api = {
     request<{ stepped_up: boolean; expires_in: number }>(
       'step-up',
       { method: 'POST', body: JSON.stringify({ password }) }),
-  /** Expire the vnc_csrf nonce server-side, then leave the SPA. */
+  /** Login ceremonies — unauthenticated, rate-limited server-side.
+      On success the server sets vnc_op + vnc_csrf cookies; the
+      returned csrf_token is cached via setCsrfToken. */
+  authMethods: () =>
+    request<{ password: boolean; passkey: boolean }>('auth/methods'),
+  login: (username: string, password: string) =>
+    request<LoginResult>('auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  passkeyBegin: (username: string) =>
+    request<{ options: Record<string, unknown> }>(
+      'auth/passkey/begin', {
+        method: 'POST',
+        body: JSON.stringify({ username }),
+      }),
+  passkeyComplete: (username: string, credential: unknown) =>
+    request<LoginResult>('auth/passkey/complete', {
+      method: 'POST',
+      body: JSON.stringify({ username, credential }),
+    }),
+  /** Expire the session server-side, then drop the cached CSRF
+      token. The caller re-renders the login gate (the /me query
+      fails 401 once the cookies are dead). */
   logout: async () => {
     try {
       await request('logout', { method: 'POST', body: '{}' });
     } finally {
       resetCsrfToken();
-      window.location.href = '/';
     }
   },
 };
@@ -141,6 +164,12 @@ export interface Me {
   operator: Operator | null;
   ephemeral: boolean;
   csrf_token: string | null;
+}
+
+export interface LoginResult {
+  operator: { username: string; role?: string | null };
+  csrf_token: string;
+  auth_method: 'password' | 'webauthn';
 }
 
 export interface StatusPayload {
