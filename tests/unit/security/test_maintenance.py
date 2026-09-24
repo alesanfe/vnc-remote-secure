@@ -108,3 +108,20 @@ class TestEnforcement:
         assert ok is False
         assert 'maintenance' in msg.lower()
         assert session is None
+
+
+class TestDrain:
+    def test_drain_revokes_active_sessions(self, monkeypatch, tmp_path):
+        import vnc_remote_secure.security.ephemeral_sessions as es
+        monkeypatch.setattr(es, '_store', None)
+        store = es.get_session_store()
+        s, _signed = store.create(
+            expires_in=3600, role='viewer',
+            created_by='admin', permissions={'view'})
+        n = maintenance.drain_sessions()
+        assert n == 1
+        store._load_if_changed()
+        assert es.check_session_permission(s.token, 'view') is False
+
+    def test_drain_empty_is_zero(self):
+        assert maintenance.drain_sessions() == 0

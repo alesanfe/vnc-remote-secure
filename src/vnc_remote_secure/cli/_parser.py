@@ -338,6 +338,9 @@ def create_parser():
         'on', help='Enable maintenance mode')
     p_mon.add_argument('--reason', default='',
                        help='Reason shown on the portal banner')
+    p_mon.add_argument('--drain', action='store_true',
+                       help='Also revoke all active ephemeral share '
+                            'sessions (default: they run out their TTL)')
     _add_common_args(p_mon, suppress_defaults=True)
     p_moff = p_maint_sub.add_parser(
         'off', help='Disable maintenance mode')

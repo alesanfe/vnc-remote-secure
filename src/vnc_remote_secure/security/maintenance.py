@@ -75,6 +75,29 @@ def set_maintenance(active: bool, by: str = 'cli',
             pass
 
 
+def drain_sessions() -> int:
+    """Revoke every active ephemeral share session.
+
+    ``vnc-remote maintenance on --drain``: maintenance mode alone
+    blocks NEW sessions but lets existing share links live out their
+    TTL — draining is the explicit kill for upgrades where "keep
+    working until expiry" is not acceptable. Revocation propagates to
+    live WebSocket connections through the shared-state backend.
+    Operator/admin accounts are unaffected: they authenticate via
+    credentials, not share links.
+
+    Returns the number of sessions revoked.
+    """
+    from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
+    store = get_session_store()
+    store._load_if_changed()
+    count = 0
+    for s in store.list_active():
+        if revoke_session(s['token_id']):
+            count += 1
+    return count
+
+
 def maintenance_login_allowed(username: str) -> bool:
     """True when *username* may start a new session in maintenance.
 

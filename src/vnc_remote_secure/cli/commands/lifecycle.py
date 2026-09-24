@@ -392,6 +392,12 @@ def cmd_maintenance(args):
                         reason=getattr(args, 'reason', '') or '')
         _audit_cli('maintenance_mode', 'success', 'enabled via CLI')
         print('Maintenance mode ENABLED - new non-admin sessions refused.')
+        if getattr(args, 'drain', False):
+            from vnc_remote_secure.security.maintenance import drain_sessions
+            n = drain_sessions()
+            _audit_cli('maintenance_drain', 'success',
+                       f'revoked {n} ephemeral sessions')
+            print(f'Drained {n} active share session(s).')
         return 0
     if action == 'off':
         if args.dry_run:
