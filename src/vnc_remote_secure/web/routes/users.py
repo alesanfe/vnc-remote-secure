@@ -72,6 +72,31 @@ def _require_permission(permission: str, actor: str):
     return json_error('Insufficient role for this action', 403)
 
 
+def _enforce_auth_policy(operation: str):
+    """Enforce the declarative auth-assurance policy for *operation*.
+
+    Evaluates the Flask session's recorded auth properties against
+    ``AUTH_POLICIES[operation]``; returns a JSON error when the
+    decision denies, else ``None``. Audit-only evaluations (dev
+    profile, non-enforced properties) never block but are logged.
+    """
+    from vnc_remote_secure.security.auth_policy import evaluate
+    ctx = {
+        'username': session.get('user'),
+        'auth_method': session.get('auth_method'),
+        'mfa': session.get('mfa'),
+        'phishing_resistant': session.get('phishing_resistant'),
+        'user_verified': session.get('user_verified'),
+        'authenticated_at': session.get('authenticated_at'),
+    }
+    decision = evaluate(operation, ctx)
+    if not decision.allowed:
+        return json_error(
+            f'Authentication strength insufficient for '
+            f'{operation} ({decision.reason_code})', 403)
+    return None
+
+
 users_bp = Blueprint('users', __name__)
 
 
@@ -207,6 +232,17 @@ def _issue_session_response(username: str, auth_method: str = 'password',
         # Ceremony-reported UV — password methods leave it unset
         # rather than implying True/False.
         session['user_verified'] = user_verified
+    # Persist the auth context so non-Flask services (terminal,
+    # websockify) can enforce auth_policy without seeing the cookie.
+    from vnc_remote_secure.security.auth_policy import record_auth_context
+    record_auth_context(username, {
+        'username': username,
+        'auth_method': auth_method,
+        'mfa': session['mfa'],
+        'phishing_resistant': session['phishing_resistant'],
+        'user_verified': session.get('user_verified'),
+        'authenticated_at': session['authenticated_at'],
+    })
     from vnc_remote_secure.security.audit import audit_event
     audit_event('session_issued', user=username, ip=_client_ip(),
                 result='success', detail=f'method={auth_method}')
@@ -396,6 +432,9 @@ def create_user():
     step_up_err = require_step_up(actor, 'create_admin')
     if step_up_err:
         return json_error(step_up_err, 403)
+    policy_err = _enforce_auth_policy('create_admin')
+    if policy_err is not None:
+        return policy_err
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
     username = sanitize_input(request.form.get('username', ''))
@@ -421,6 +460,9 @@ def delete_user(username):
     step_up_err = require_step_up(actor, 'delete_admin')
     if step_up_err:
         return json_error(step_up_err, 403)
+    policy_err = _enforce_auth_policy('delete_admin')
+    if policy_err is not None:
+        return policy_err
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
     username = sanitize_input(username)
@@ -622,6 +664,9 @@ def webauthn_register_begin():
     step_up_err = require_step_up(actor, 'webauthn_register')
     if step_up_err:
         return json_error(step_up_err, 403)
+    policy_err = _enforce_auth_policy('webauthn_register')
+    if policy_err is not None:
+        return policy_err
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
     from vnc_remote_secure.security.webauthn import begin_registration
@@ -680,6 +725,9 @@ def webauthn_delete_credential(credential_id):
     step_up_err = require_step_up(actor, 'webauthn_delete')
     if step_up_err:
         return json_error(step_up_err, 403)
+    policy_err = _enforce_auth_policy('webauthn_delete')
+    if policy_err is not None:
+        return policy_err
     if not _check_csrf():
         return json_error('Invalid or missing CSRF token', 403)
     from vnc_remote_secure.security.webauthn import delete_credential
