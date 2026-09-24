@@ -27,16 +27,10 @@ logger = logging.getLogger(__name__)
 _API_PREFIX = '/api/v1/'
 _MAX_BODY = 16384
 
-# Resources a share link may be bound to.
+# Resources a share link may be bound to (validation surface; the
+# domain rule that requires admin:* for admin-granting links lives in
+# engine.application.sessions.ADMINISH_PERMS).
 _RESOURCES = {'desktop', 'terminal', 'audio', 'gamepad'}
-
-# Share-link permissions that grant administrative power — minting a
-# link carrying any of these requires the operator to hold 'admin:*',
-# otherwise an 'admin_sessions' operator could hand out admin links.
-_ADMINISH_PERMS = {
-    'admin', 'admin_users', 'admin_config', 'admin_secrets',
-    'admin_audit',
-}
 
 # Strict input schema for POST /api/v1/sessions.
 _SESSION_CREATE_KEYS = {
@@ -276,11 +270,9 @@ def _get_services(handler, query):
 
 def _get_sessions(handler, query):
     try:
-        from vnc_remote_secure.security.ephemeral_sessions import get_session_store
-        store = get_session_store()
-        store._load_if_changed()
+        from vnc_remote_secure.engine.application.sessions import list_share_links
         _ok(handler, {'sessions': [
-            session_to_api(s) for s in store.list_active()]})
+            session_to_api(s) for s in list_share_links()]})
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /sessions')
         _err(handler, 'Failed to list sessions', 500)
@@ -490,8 +482,6 @@ def _post_session_create(handler, query):
     from vnc_remote_secure.security.ephemeral_sessions import (
         ALL_PERMISSIONS,
         ROLES,
-        expand_permissions,
-        get_session_store,
     )
 
     role = payload.get('role', 'viewer')
@@ -553,39 +543,21 @@ def _post_session_create(handler, query):
     else:
         resource = None
 
-    # Privilege delegation: a share link may only carry powers the
-    # CREATING operator holds. Operator permissions are admin_* names
-    # while share-link permissions are view/control/terminal/... — the
-    # enforceable overlap is the admin-granting set: minting a link
-    # with admin powers (administrator role or explicit admin_*)
-    # requires 'admin:*'.
-    requested = permissions if permissions is not None else ROLES[role]
-    if expand_permissions(requested) & _ADMINISH_PERMS:
-        op_perms = set(operator.get('permissions') or [])
-        if 'admin:*' not in op_perms:
-            from vnc_remote_secure.security.audit import audit_event
-            audit_event('api_permission_denied',
-                        user=operator.get('username', '?'),
-                        detail='share-link with admin permissions')
-            _err(handler,
-                 'Admin-granting share links require admin:*', 403)
-            return
-
+    # Delegation + creation are domain rules — the use case owns them.
+    from vnc_remote_secure.engine.application.sessions import create_share_link
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        session, signed = get_session_store().create(
-            expires_in=ttl,
-            role=role,
+        session, signed = create_share_link(
+            operator.get('username', 'admin'),
+            set(operator.get('permissions') or []),
+            role=role, permissions=permissions, ttl=ttl,
             single_use=payload.get('single_use', False),
             view_only=payload.get('view_only', False),
             no_terminal=payload.get('no_terminal', False),
-            allowed_ip=allowed_ip,
-            created_by=operator.get('username', 'admin'),
-            resource=resource,
-            max_uses=max_uses,
-            permissions=permissions,
-        )
-    except (OSError, ValueError, RuntimeError) as exc:
-        _err(handler, f'Session creation failed: {exc}', 500)
+            allowed_ip=allowed_ip, resource=resource,
+            max_uses=max_uses)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
 
     from vnc_remote_secure.cli.commands.session import _share_base_url
@@ -619,13 +591,9 @@ def _post_session_revoke(handler, query):
     if not token_id:
         _err(handler, 'token_id required', 400)
         return
-    from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-    revoked = revoke_session(token_id)
-    from vnc_remote_secure.security.audit import audit_event
-    audit_event('portal_session_revoke',
-                user=operator.get('username', 'unknown'),
-                result='success' if revoked else 'failure',
-                detail=f'token_id={token_id}')
+    from vnc_remote_secure.engine.application.sessions import revoke_share_link
+    revoked = revoke_share_link(
+        operator.get('username', 'unknown'), token_id)
     # Uniform 200 whether the token existed or not — the caller is
     # already authorized; distinguishing 404 would only help enumerate
     # live session ids.
@@ -635,17 +603,8 @@ def _post_session_revoke(handler, query):
 def _post_session_revoke_all(handler, query):
     """POST /api/v1/sessions/revoke-all — emergency kill-switch."""
     operator = handler._api_operator
-    from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
-    store = get_session_store()
-    store._load_if_changed()
-    count = 0
-    for s in list(store.list_active()):
-        if revoke_session(s['token_id']):
-            count += 1
-    from vnc_remote_secure.security.audit import audit_event
-    audit_event('portal_session_revoke_all',
-                user=operator.get('username', 'unknown'),
-                detail=f'count={count}')
+    from vnc_remote_secure.engine.application.sessions import revoke_all_share_links
+    count = revoke_all_share_links(operator.get('username', 'unknown'))
     _ok(handler, {'revoked': count})
 
 
