@@ -129,10 +129,10 @@ class TestCeremonies:
         monkeypatch.setattr(
             'webauthn.verify_authentication_response',
             lambda **kw: fake)
-        ok, _, _uv = wn.complete_authentication(
+        res = wn.complete_authentication(
             'alice', {'id': cred_id}, 'example.test',
             'https://example.test')
-        assert ok is True
+        assert res.ok is True
         # Sign count advanced on disk.
         assert wn._load_store()[cred_id]['sign_count'] == 4
 
@@ -142,9 +142,9 @@ class TestCeremonies:
             'username': 'bob', 'public_key': wn._b64e(b'pub'),
             'sign_count': 0}})
         wn._put_challenge('assert', 'alice', b'ch')
-        ok, _, _uv = wn.complete_authentication(
+        res = wn.complete_authentication(
             'alice', {'id': cred_id}, 'rp', 'https://o')
-        assert ok is False
+        assert res.ok is False
 
 
 class TestRpConfigPolicy:

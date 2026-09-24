@@ -167,14 +167,27 @@ def enforce_drain_deadline() -> bool:
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         be = get_backend()
-        if mid and be.get('maintenance', 'drain_done') == mid:
+        if mid and be.get('maintenance', f'drain_done:{mid}'):
             return True  # this generation already swept
-        # The lease key is generation-scoped — a stale lease from a
-        # previous window must not block THIS window's sweep.
+        # The lease AND the done-marker are generation-scoped — a
+        # sweeper from an older window can't claim or complete this
+        # one, and a stale lease never blocks a new generation.
         if be.set_if_absent('maintenance', f'drain_lease:{mid}', '1',
                             ttl_seconds=30):
+            # Re-validate right before the destructive effect: the
+            # window may have been cancelled (or a NEW window opened)
+            # between the lease claim and now — a sweeper for a dead
+            # generation must not revoke sessions.
+            if _read_flag().get('maintenance_id', '') != mid:
+                logger.info('Drain aborted: maintenance generation '
+                            'changed before the sweep')
+                return True
             n = drain_sessions()
-            be.set('maintenance', 'drain_done', mid or 'unknown')
+            # Confirm the generation once more before recording
+            # completion — a swap between the sweep and this write
+            # would otherwise stamp "done" onto a different window.
+            if _read_flag().get('maintenance_id', '') == mid:
+                be.set('maintenance', f'drain_done:{mid}', '1')
             logger.info('Maintenance drain deadline reached — '
                         'revoked %d ephemeral session(s)', n)
     except Exception:  # noqa: BLE001 - deny regardless of sweep result

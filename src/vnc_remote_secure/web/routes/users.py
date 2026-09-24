@@ -724,10 +724,10 @@ def webauthn_assert_complete():
         return json_error('Request body must contain a credential', 400)
     username = sanitize_input(str(data.get('username', '')))
     from vnc_remote_secure.security.webauthn import complete_authentication
-    ok, message, user_verified = complete_authentication(
+    result = complete_authentication(
         username, data['credential'], _webauthn_rp_id(),
         _webauthn_origin())
-    if not ok:
-        return json_error(message, 401)
+    if not result.ok:
+        return json_error(result.message, 401)
     return _issue_session_response(username, auth_method='webauthn',
-                                   user_verified=user_verified)
+                                   user_verified=result.user_verified)

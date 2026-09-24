@@ -248,6 +248,7 @@ def compute_effective_config(
         'ALERTS_', 'ALERT_',
         'TEMP_', 'DISCORD_', 'FAIL2BAN_', 'CSP_', 'TRUSTED_',
         'SHARED_STATE_', 'ULTRAVNC_',
+        'AUDIT_', 'METRICS_', 'WEBAUTHN_', 'MAINTENANCE_',
     )
     # Unprefixed variables that are still configuration.
     explicit_vars = {'EMAIL', 'SERVE_NOVNC_HOST'}

@@ -28,6 +28,13 @@ def test_startup_applies_security_profile(monkeypatch):
     monkeypatch.setenv('NGINX_ENABLED', 'true')
     # Ensure TLS is enabled.
     monkeypatch.setenv('TLS_ENABLED', 'true')
+    # startup() refuses on critical findings under hardened profiles —
+    # satisfy the profile's mandatory guarantees (scoped tokens,
+    # Flask key) so this test exercises startup, not the gate.
+    monkeypatch.setenv('AUDIT_AUTH_TOKEN', 'audit-' + 'x' * 32)
+    monkeypatch.setenv('METRICS_AUTH_TOKEN', 'metrics-' + 'y' * 32)
+    monkeypatch.setenv('HEALTH_AUTH_TOKEN', 'health-' + 'z' * 32)
+    monkeypatch.setenv('FLASK_SECRET_KEY', 'f' * 64)
 
     from vnc_remote_secure.core import lifecycle
     # Reset state so startup runs fresh.

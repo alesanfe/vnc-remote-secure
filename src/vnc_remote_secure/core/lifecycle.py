@@ -44,6 +44,32 @@ def startup(config=None):
         setup_logging()
         if config is None:
             config = get_config()
+        # Hardened profiles refuse to START on critical config
+        # findings — `config validate` exiting 1 is only a guarantee
+        # if the start path enforces it too. Non-hardened profiles
+        # keep findings as warnings.
+        from vnc_remote_secure.security.profiles import get_profile
+        profile = get_profile()
+        hardened = profile in ('public-hardened', 'private-overlay')
+        try:
+            from vnc_remote_secure.core.config_inspector import validate_config
+            findings = validate_config()
+        except Exception as exc:  # noqa: BLE001
+            if hardened:
+                raise RuntimeError(
+                    f'Profile {profile} refuses to start: config '
+                    f'validation itself failed ({exc})') from exc
+            findings = []
+        criticals = [f for f in findings
+                     if f.get('severity') == 'critical']
+        if criticals and hardened:
+            msgs = '; '.join(f['message'] for f in criticals)
+            raise RuntimeError(
+                f'Profile {profile} refuses to start with '
+                f'critical config findings: {msgs}')
+        for f in criticals:
+            _logger.warning('Critical config finding: %s',
+                            f['message'])
         ensure_dirs()
         # Verify the audit chain eagerly on startup (the docstring in
         # security.audit promises verification "on every startup", and

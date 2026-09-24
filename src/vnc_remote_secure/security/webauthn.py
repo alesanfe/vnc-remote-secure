@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from vnc_remote_secure.core.config import env_flag
@@ -343,21 +344,31 @@ def begin_authentication(username: str, rp_id: str) -> dict | None:
     return json.loads(options_to_json(options))
 
 
+@dataclass(frozen=True)
+class AssertionResult:
+    """Outcome of a WebAuthn authentication ceremony."""
+    ok: bool
+    message: str
+    user_verified: bool = False  # ceremony UV — False on failure too
+    credential_id: str | None = None
+
+
 def complete_authentication(username: str, credential: dict,
-                            rp_id: str, origin: str) -> tuple[bool, str, bool]:
+                            rp_id: str, origin: str) -> AssertionResult:
     """Verify an assertion. Clone detection via sign_count regression.
 
-    Returns (ok, message, user_verified) — the UV flag comes from the
-    ceremony, so a passkey login where the authenticator skipped user
-    verification is distinguishable from one that verified the user.
+    ``user_verified`` comes from the ceremony itself — a passkey login
+    where the authenticator skipped UV is distinguishable from one
+    that verified the user.
     """
     challenge = _pop_challenge('assert', username)
     if challenge is None:
-        return False, 'No authentication in progress or it expired.', False
+        return AssertionResult(
+            False, 'No authentication in progress or it expired.')
     cred_id = credential.get('id', '')
     rec = _load_store().get(cred_id)
     if not rec or rec.get('username') != username:
-        return False, 'Unknown credential.', False
+        return AssertionResult(False, 'Unknown credential.')
     from webauthn import verify_authentication_response
     try:
         verification = verify_authentication_response(
@@ -371,7 +382,7 @@ def complete_authentication(username: str, credential: dict,
         )
     except Exception as exc:  # noqa: BLE001 - verification failure = deny
         logger.warning('WebAuthn assertion rejected: %s', exc)
-        return False, 'Authentication verification failed.', False
+        return AssertionResult(False, 'Authentication verification failed.')
     uv = bool(getattr(verification, 'user_verified', False))
     with _store_lock():
         store = _load_store()
@@ -381,4 +392,5 @@ def complete_authentication(username: str, credential: dict,
     from vnc_remote_secure.security.audit import audit_event
     audit_event('webauthn_assert', user=username,
                 detail=f'credential={cred_id[:12]} uv={uv}')
-    return True, 'Authenticated.', uv
+    return AssertionResult(True, 'Authenticated.', user_verified=uv,
+                           credential_id=cred_id)

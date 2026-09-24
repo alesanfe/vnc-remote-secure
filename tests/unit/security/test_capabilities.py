@@ -142,3 +142,23 @@ class TestNegativeMatrix:
             for m in members:
                 assert umbrella not in expand_permissions({m}), (
                     f'cycle: {m} expands back to {umbrella}')
+
+    def test_expansion_graph_is_acyclic(self):
+        """Full DAG check — a lateral cycle (a->b->c->a) that never
+        revisits an umbrella directly would evade the member->umbrella
+        test above."""
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color = {p: WHITE for p in ALL_PERMISSIONS}
+
+        def visit(node, stack):
+            color[node] = GRAY
+            for nxt in _PERMISSION_EXPANSION.get(node, ()):
+                assert color.get(nxt, WHITE) != GRAY, (
+                    f'cycle in permission graph: {stack} -> {nxt}')
+                if color.get(nxt, WHITE) == WHITE:
+                    visit(nxt, stack + [nxt])
+            color[node] = BLACK
+
+        for p in ALL_PERMISSIONS:
+            if color[p] == WHITE:
+                visit(p, [p])
