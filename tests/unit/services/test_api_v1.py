@@ -1114,3 +1114,37 @@ def test_passkey_refs_are_opaque(pkstore, server):
         server, '/api/v1/operators/vicky/passkeys', headers=h)
     assert status == 200
     assert cid not in body.decode()
+
+def test_maintenance_toggle_requires_admin(server, monkeypatch):
+    """POST /maintenance is admin:* + step-up gated."""
+    import vnc_remote_secure.security.operator_users as ou
+    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
+    status, _, _ = _api_post(
+        server, '/api/v1/maintenance', {'active': True}, headers=h)
+    assert status == 403
+
+
+def test_maintenance_toggle_roundtrip(server, monkeypatch, tmp_path):
+    """Admin + fresh step-up toggles the flag file on and off."""
+    import vnc_remote_secure.security.maintenance as maint
+    monkeypatch.setattr(maint, '_flag_path',
+                        lambda: str(tmp_path / 'maintenance.json'))
+    h = _csrf_session(server)
+    # Fresh session mark may already satisfy step-up; if not, grant it.
+    status, _, _ = _api_post(
+        server, '/api/v1/step-up',
+        {'password': 'T3st-Landing!Pass'}, headers=h)
+    assert status == 200
+    status, _, body = _api_post(
+        server, '/api/v1/maintenance',
+        {'active': True, 'reason': 'test', 'drain_timeout': 60},
+        headers=h)
+    assert status == 200, body
+    data = json.loads(body)['data']
+    assert data['active'] is True
+    assert data['drain_at']
+    status, _, body = _api_post(
+        server, '/api/v1/maintenance', {'active': False}, headers=h)
+    assert status == 200
+    assert json.loads(body)['data']['active'] is False

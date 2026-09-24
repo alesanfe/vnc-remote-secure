@@ -57,6 +57,7 @@ _RATE_LIMITS = {
     'operators.sessions_revoke': (30, 60),
     'passkeys.register': (10, 60),
     'passkeys.manage': (30, 60),
+    'maintenance': (10, 60),
     # Step-up re-authentication — a password-verification oracle must
     # be throttled as hard as login itself.
     'stepup': (10, 60),
@@ -478,14 +479,43 @@ def _get_operators(handler, query):
 
 def _get_maintenance(handler, query):
     try:
-        from vnc_remote_secure.security.maintenance import maintenance_active, maintenance_info
-        _ok(handler, {
-            'active': maintenance_active(),
-            'info': maintenance_info() or {},
-        })
+        from vnc_remote_secure.engine.application.maintenance import maintenance_status
+        _ok(handler, maintenance_status())
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /maintenance')
         _err(handler, 'Maintenance state read failed', 500)
+
+
+def _post_maintenance(handler, query):
+    """POST /api/v1/maintenance — toggle maintenance mode
+    (admin:* + step-up). Optional immediate/scheduled drain of
+    existing share links."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    allowed = {'active', 'reason', 'drain', 'drain_timeout'}
+    unknown = set(payload) - allowed
+    if unknown:
+        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
+        return
+    active = payload.get('active')
+    if type(active) is not bool:  # noqa: E721
+        _err(handler, 'active must be a boolean', 400)
+        return
+    from vnc_remote_secure.engine.application.maintenance import set_maintenance
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        result = set_maintenance(
+            operator.get('username', 'unknown'), active,
+            reason=str(payload.get('reason', '')),
+            drain=bool(payload.get('drain', False)),
+            drain_timeout=int(payload.get('drain_timeout') or 0))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, result)
 
 
 # ---------------------------------------------------------------------------
@@ -1105,6 +1135,9 @@ _ROUTES = {
     ('GET', 'maintenance'): _Route(
         _get_maintenance, 'operator', 'default', None,
         'MaintenanceResponse'),
+    ('POST', 'maintenance'): _Route(
+        _post_maintenance, 'admin:*', 'maintenance',
+        'maintenance_toggle', 'MaintenanceSetResponse', True),
     ('POST', 'sessions'): _Route(
         _post_session_create, 'admin_sessions', 'sessions.create',
         'portal_session_create', 'SessionCreatedResponse'),
@@ -1161,6 +1194,8 @@ _ROUTES = {
 _KNOWN_PERMS = {
     'operator', 'admin_sessions', 'admin_audit', 'admin_config',
     'admin_users', 'admin_secrets',
+    # System-wide gate — only the umbrella holder may touch it.
+    'admin:*',
 }
 
 

@@ -93,6 +93,31 @@ def shared_backend():
     return get_backend()
 
 
+# --- Maintenance -------------------------------------------------------
+
+
+def maintenance_active() -> bool:
+    from vnc_remote_secure.security.maintenance import maintenance_active
+    return maintenance_active()
+
+
+def maintenance_info() -> dict | None:
+    from vnc_remote_secure.security.maintenance import maintenance_info
+    return maintenance_info()
+
+
+def maintenance_set(active: bool, by: str, reason: str = '',
+                    drain_at: float | None = None) -> None:
+    from vnc_remote_secure.security.maintenance import set_maintenance
+    return set_maintenance(active, by=by, reason=reason,
+                           drain_at=drain_at)
+
+
+def maintenance_drain() -> int:
+    from vnc_remote_secure.security.maintenance import drain_sessions
+    return drain_sessions()
+
+
 # --- Audit -------------------------------------------------------------
 
 

@@ -550,6 +550,10 @@ export interface paths {
                 query?: {
                     limit?: number;
                     event?: string;
+                    /** @description Exact actor username filter. */
+                    user?: string;
+                    /** @description Exact outcome filter (success/failure/…). */
+                    result?: string;
                     cursor?: number;
                 };
                 header?: never;
@@ -1185,7 +1189,51 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
+        /** Toggle maintenance mode (admin:* + step-up). Optional immediate drain or scheduled drain_timeout for existing share links. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        active: boolean;
+                        reason?: string;
+                        drain?: boolean;
+                        drain_timeout?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description {active, drained_now, drain_at, info} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid payload */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not admin:* or STEP_UP_REQUIRED */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1416,6 +1464,16 @@ export interface components {
         MaintenanceResponse: {
             data: {
                 active?: boolean;
+                info?: Record<string, never>;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        MaintenanceSetResponse: {
+            data: {
+                active: boolean;
+                drained_now?: number;
+                drain_at?: number | null;
                 info?: Record<string, never>;
             };
             error: unknown;

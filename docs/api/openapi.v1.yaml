@@ -336,6 +336,20 @@ components:
             info: { type: object }
         error: { nullable: true }
         request_id: { type: string }
+    MaintenanceSetResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [active]
+          properties:
+            active: { type: boolean }
+            drained_now: { type: integer }
+            drain_at: { type: number, nullable: true }
+            info: { type: object }
+        error: { nullable: true }
+        request_id: { type: string }
     DeleteResponse:
       type: object
       required: [data, error, request_id]
@@ -956,3 +970,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MaintenanceResponse'
+    post:
+      summary: >-
+        Toggle maintenance mode (admin:* + step-up). Optional
+        immediate drain or scheduled drain_timeout for existing
+        share links.
+      x-required-permission: 'admin:*'
+      x-csrf-required: true
+      x-step-up-required: true
+      x-rate-limit-scope: maintenance
+      x-response-schema: MaintenanceSetResponse
+      x-audit-event: maintenance_toggle
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [active]
+              properties:
+                active: { type: boolean }
+                reason: { type: string, maxLength: 256 }
+                drain: { type: boolean }
+                drain_timeout:
+                  { type: integer, minimum: 0, maximum: 86400 }
+      responses:
+        '200': { description: '{active, drained_now, drain_at, info}' }
+        '400': { description: Invalid payload }
+        '403': { description: 'Not admin:* or STEP_UP_REQUIRED' }
