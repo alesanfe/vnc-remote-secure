@@ -350,6 +350,37 @@ components:
             info: { type: object }
         error: { nullable: true }
         request_id: { type: string }
+    SystemUserSummary:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string }
+        uid: { type: integer, nullable: true }
+        home: { type: string, nullable: true }
+    SystemUserPageResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [users]
+          properties:
+            users:
+              type: array
+              items: { $ref: '#/components/schemas/SystemUserSummary' }
+        error: { nullable: true }
+        request_id: { type: string }
+    SystemUserCreatedResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [username]
+          properties:
+            username: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
     DeleteResponse:
       type: object
       required: [data, error, request_id]
@@ -957,6 +988,71 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionRevokeResponse'
         '404': { description: Operator not found }
+  /system-users:
+    get:
+      summary: List non-reserved OS accounts (admin_users)
+      x-required-permission: admin_users
+      x-rate-limit-scope: default
+      x-response-schema: SystemUserPageResponse
+      responses:
+        '200':
+          description: '{users: [{username, uid, home}]}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemUserPageResponse'
+    post:
+      summary: Create a runtime OS account (admin_users + step-up)
+      x-required-permission: admin_users
+      x-csrf-required: true
+      x-step-up-required: true
+      x-rate-limit-scope: system_users.manage
+      x-response-schema: SystemUserCreatedResponse
+      x-audit-event: user_create
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '201':
+          description: '{username}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemUserCreatedResponse'
+        '400': { description: Invalid username/password or unknown fields }
+        '403': { description: 'Not admin_users, reserved name, or STEP_UP_REQUIRED' }
+  /system-users/{username}:
+    delete:
+      summary: >-
+        Delete a runtime OS account (admin_users + step-up).
+        Reserved/builtin names and the current process account are
+        refused.
+      x-required-permission: admin_users
+      x-csrf-required: true
+      x-step-up-required: true
+      x-rate-limit-scope: system_users.manage
+      x-response-schema: DeleteResponse
+      x-audit-event: user_delete
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{deleted: true}' }
+        '400': { description: Invalid username or deletion failed }
+        '409': { description: Protected account (reserved/self) }
   /maintenance:
     get:
       summary: Maintenance mode state (operator)

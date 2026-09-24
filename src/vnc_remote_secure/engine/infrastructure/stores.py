@@ -204,6 +204,7 @@ def system_users_list() -> list:
     Linux reads pwd (UID >= 100, non-reserved); Windows delegates to
     the adapter's list_users()."""
     import platform as _platform
+
     from vnc_remote_secure.core.constants import (
         RESERVED_USERNAMES,
         WINDOWS_BUILTIN_USERNAMES,
@@ -241,6 +242,7 @@ def system_users_list() -> list:
 def system_user_create(username: str, password: str) -> None:
     """Create the OS account and set its password via the adapter."""
     import platform as _platform
+
     from vnc_remote_secure.platform.base import get_adapter
     if not get_adapter().create_runtime_user(username):
         raise RuntimeError('user creation failed')

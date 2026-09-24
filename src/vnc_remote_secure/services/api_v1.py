@@ -519,60 +519,6 @@ def _post_maintenance(handler, query):
     _ok(handler, result)
 
 
-def _get_system_users(handler, query):
-    """GET /api/v1/system-users — non-reserved OS accounts."""
-    try:
-        from vnc_remote_secure.engine.application.system_users import list_system_users
-        _ok(handler, {'users': list_system_users()})
-    except Exception as e:  # noqa: BLE001
-        log_exception(e, 'api /system-users')
-        _err(handler, 'System user list failed', 500)
-
-
-def _post_system_user_create(handler, query):
-    """POST /api/v1/system-users — runtime OS account (step-up)."""
-    operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=4096)
-    if error:
-        _err(handler, *error)
-        return
-    unknown = set(payload) - {'username', 'password'}
-    if unknown:
-        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
-        return
-    username = payload.get('username')
-    password = payload.get('password')
-    if not isinstance(username, str) or not username.strip():
-        _err(handler, 'username is required', 400)
-        return
-    if not isinstance(password, str) or not password:
-        _err(handler, 'password is required', 400)
-        return
-    from vnc_remote_secure.engine.application.system_users import create_system_user
-    from vnc_remote_secure.engine.domain.decision import UseCaseError
-    try:
-        result = create_system_user(
-            operator.get('username', 'unknown'), username, password)
-    except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
-        return
-    _ok(handler, result, status=201)
-
-
-def _delete_system_user(handler, query):
-    """DELETE /api/v1/system-users/{username} — step-up gated."""
-    operator = handler._api_operator
-    username = handler._api_params['username']
-    from vnc_remote_secure.engine.application.system_users import delete_system_user
-    from vnc_remote_secure.engine.domain.decision import UseCaseError
-    try:
-        delete_system_user(operator.get('username', 'unknown'), username)
-    except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
-        return
-    _ok(handler, {'deleted': True})
-
-
 # ---------------------------------------------------------------------------
 # POST endpoints
 # ---------------------------------------------------------------------------
@@ -1102,6 +1048,66 @@ def _parse_operator_patch(payload: dict):
             return None, (str(exc), 400)
         kw['password'] = password
     return kw, None
+
+
+# ---------------------------------------------------------------------------
+# System (OS) accounts
+# ---------------------------------------------------------------------------
+#   GET    /system-users
+#   POST   /system-users            {username, password}
+#   DELETE /system-users/{username}
+_SYSTEM_USER_CREATE_KEYS = {'username', 'password'}
+
+
+def _get_system_users(handler, query):
+    from vnc_remote_secure.engine.application.system_users import list_system_users
+    _ok(handler, {'users': list_system_users()})
+
+
+def _post_system_user_create(handler, query):
+    """POST /api/v1/system-users — create a runtime OS account
+    (admin_users + step-up)."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    unknown = set(payload) - _SYSTEM_USER_CREATE_KEYS
+    if unknown:
+        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
+        return
+    username = payload.get('username')
+    password = payload.get('password')
+    if not isinstance(username, str) or not username.strip():
+        _err(handler, 'username required', 400)
+        return
+    if not isinstance(password, str) or not password:
+        _err(handler, 'password required', 400)
+        return
+    from vnc_remote_secure.engine.application.system_users import create_system_user
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        create_system_user(operator.get('username', '?'),
+                           username, password)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'username': username.strip()}, status=201)
+
+
+def _delete_system_user(handler, query):
+    """DELETE /api/v1/system-users/{username} — admin_users + step-up;
+    the current process account and reserved names are protected."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application.system_users import delete_system_user
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        delete_system_user(operator.get('username', '?'),
+                           handler._api_params['username'])
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, {'deleted': True})
 
 
 def _patch_operator(handler, query):

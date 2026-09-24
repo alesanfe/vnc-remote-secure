@@ -150,6 +150,15 @@ export default function Users() {
         </tbody>
       </table>
 
+      <h2 className="page-title">Usuarios de sistema</h2>
+      <p className="muted">
+        Cuentas del sistema operativo usadas por los servicios
+        (runtime users). Crear o borrar exige re-autenticación.
+      </p>
+      <SystemUsersSection
+        onStepUp={(op, retry) => setStepUp({ op, retry })}
+      />
+
       <ConfirmDialog
         open={pending?.kind === 'revoke'}
         title="Revocar sesiones del operador"
