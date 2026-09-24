@@ -125,6 +125,25 @@ class TestSessionIsolation:
             drop_auth_context(sid_weak)
             drop_auth_context(sid_strong)
 
+    def test_stable_pair_revocation_drops_all_indexed(self):
+        """Same-second logins share username:created — revoking the
+        stable pair must drop EVERY session's context, not one."""
+        from vnc_remote_secure.security.auth_policy import (
+            auth_context_for,
+            drop_auth_context_for,
+            record_auth_context,
+        )
+        stable = 'alice:1727.0'
+        sid_a, sid_b = 'sid-A-opaque', 'sid-B-opaque'
+        try:
+            record_auth_context(sid_a, _ctx(), stable_id=stable)
+            record_auth_context(sid_b, _ctx(), stable_id=stable)
+            drop_auth_context_for(stable)
+            assert auth_context_for(sid_a) == {}
+            assert auth_context_for(sid_b) == {}
+        finally:
+            drop_auth_context_for(stable)
+
     def test_drop_removes_only_target_session(self):
         from vnc_remote_secure.security.auth_policy import (
             auth_context_for,

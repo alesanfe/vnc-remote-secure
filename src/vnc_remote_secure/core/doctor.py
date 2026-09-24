@@ -161,6 +161,16 @@ def _check_webauthn(checks):
         _skip(checks, 'webauthn', 'module unavailable')
         return
     if not os.environ.get('WEBAUTHN_ENABLED', '').strip():
+        try:
+            from vnc_remote_secure.security.profiles import get_profile
+            if get_profile() in ('public-hardened', 'private-overlay'):
+                _fail(checks, 'webauthn',
+                      'disabled — hardened profile enforces '
+                      'phishing-resistant policies no method can '
+                      'satisfy')
+                return
+        except Exception:  # noqa: BLE001
+            pass
         _skip(checks, 'webauthn', 'disabled')
         return
     if not webauthn_available():
@@ -174,6 +184,25 @@ def _check_webauthn(checks):
     else:
         _ok(checks, 'webauthn.origin',
             'origin/RP ID explicit or deployment is direct')
+
+    # State-based satisfiability: config validate proves the config
+    # COULD satisfy strong-auth policies; only doctor can check the
+    # deployment actually can (a credential must exist).
+    try:
+        from vnc_remote_secure.security.profiles import get_profile
+        from vnc_remote_secure.security.webauthn import _load_store
+        if get_profile() in ('public-hardened', 'private-overlay'):
+            if not _load_store():
+                _fail(checks, 'webauthn.credentials',
+                      'Hardened profile enforces phishing-resistant '
+                      'auth policies but no passkey is registered — '
+                      'register an admin credential before relying on '
+                      'this profile')
+            else:
+                _ok(checks, 'webauthn.credentials',
+                    f"{len(_load_store())} passkey(s) registered")
+    except Exception:  # noqa: BLE001 - best-effort diagnostic
+        _skip(checks, 'webauthn.credentials', 'store unreadable')
 
 
 def _check_shared_state(checks):

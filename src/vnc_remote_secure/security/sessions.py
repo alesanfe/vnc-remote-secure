@@ -208,6 +208,11 @@ def refresh_session_cookie(cookie_value: str,
     session = verify_session_cookie(cookie_value)
     if session is None:
         return None
+    # Legacy v1/v2 cookies carry no sid — don't extend them; the
+    # operator re-authenticates and gets a v3 session instead of a
+    # silently downgraded refresh with no auth context.
+    if not session.get('sid'):
+        return None
     now = time.time()
     if now - session.get('last_seen', session['created']) < refresh_grace:
         return None  # still fresh — no need to re-issue

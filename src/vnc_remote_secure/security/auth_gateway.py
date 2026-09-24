@@ -381,6 +381,13 @@ def check_authenticated(
             stable = f"{session['username']}:{session['created']}"
             if is_revoked_shared(stable):
                 return False, None
+            # v3 sessions also carry a random sid — sid-keyed
+            # revocation kills exactly one session, while the stable
+            # pair still sweeps same-second siblings (legacy
+            # granularity, kept for v1/v2).
+            if session.get('sid') \
+                    and is_revoked_shared(f"sid:{session['sid']}"):
+                return False, None
             # Global operator epoch: a credential rotation bumps it —
             # every session issued before the change is revoked.
             from vnc_remote_secure.security.sessions import operator_session_epoch

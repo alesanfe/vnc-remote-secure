@@ -61,7 +61,8 @@ def test_refresh_session_cookie_updates_last_seen(monkeypatch):
     stale_seen = int(real_time()) - 300
     stale = sign_token(
         TOKEN_TYPE_SESSION,
-        f"bob:{stale_seen - 100}:{stale_seen}:{stale_seen + 86400}")
+        f"bob:{stale_seen - 100}:{stale_seen}:{stale_seen + 86400}"
+        ":abcdefghijklmnop")
     new_value = refresh_session_cookie(stale, refresh_grace=1)
     assert new_value is not None
     refreshed = verify_session_cookie(new_value)
