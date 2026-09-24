@@ -1,0 +1,290 @@
+openapi: 3.0.3
+info:
+  title: VNC Remote Secure — Admin API
+  version: '1.0'
+  description: >-
+    Versioned administrative API served by the landing service under
+    /api/v1/. All responses use the {data, error, request_id} envelope.
+    Auth: operator Basic credentials or the vnc_op session cookie;
+    ephemeral share-link cookies reach only the routes marked
+    x-ephemeral-access: true.
+x-servers:
+  - url: /api/v1
+
+components:
+  securitySchemes:
+    operatorBasic:
+      type: http
+      scheme: basic
+    operatorSession:
+      type: apiKey
+      in: cookie
+      name: vnc_op
+  schemas:
+    Envelope:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data: { nullable: true }
+        error: { nullable: true }
+        request_id: { type: string }
+    ErrorBody:
+      type: object
+      properties:
+        error: { type: boolean }
+        message: { type: string }
+    SessionSummary:
+      type: object
+      properties:
+        token_id: { type: string, description: 'Fingerprint, not the token' }
+        role: { type: string, enum: [viewer, support, operator, administrator] }
+        permissions: { type: array, items: { type: string } }
+        expires_at: { type: number }
+        single_use: { type: boolean }
+        view_only: { type: boolean }
+        no_terminal: { type: boolean }
+        allowed_ip: { type: string, nullable: true }
+        created_by: { type: string }
+        created_at: { type: number }
+        used: { type: boolean }
+        revoked: { type: boolean }
+        resource: { type: string, nullable: true }
+        max_uses: { type: integer }
+        use_count: { type: integer }
+    AuditEntry:
+      type: object
+      properties:
+        seq: { type: integer }
+        timestamp: { type: string }
+        event: { type: string }
+        user: { type: string }
+        result: { type: string }
+        detail: { type: string }
+    OperatorSummary:
+      type: object
+      properties:
+        username: { type: string }
+        role: { type: string }
+        disabled: { type: boolean }
+        created_at: { type: number, nullable: true }
+        permissions: { type: array, items: { type: string } }
+    BackupSummary:
+      type: object
+      properties:
+        name: { type: string }
+        size: { type: integer }
+        modified: { type: number }
+        encrypted: { type: boolean }
+    ConfigEntry:
+      type: object
+      properties:
+        name: { type: string }
+        value: { nullable: true }
+        source: { type: string }
+    SessionCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        role: { type: string, enum: [viewer, support, operator, administrator], default: viewer }
+        permissions: { type: array, items: { type: string }, maxItems: 40 }
+        ttl_seconds: { type: integer, minimum: 60, maximum: 604800, default: 1800 }
+        single_use: { type: boolean, default: false }
+        view_only: { type: boolean, default: false }
+        no_terminal: { type: boolean, default: false }
+        max_uses: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+        allowed_ip: { type: string, maxLength: 64, description: 'IP, CIDR or first-observed' }
+        resource: { type: string, enum: [desktop, terminal, audio, gamepad], nullable: true }
+  parameters:
+    csrfHeader:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: { type: string }
+      description: >-
+        HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET
+        /api/v1/me. Required on every mutation.
+
+paths:
+  /me:
+    get:
+      summary: Caller identity + session CSRF token
+      x-required-permission: null
+      x-ephemeral-access: true
+      x-rate-limit-scope: default
+      x-response-schema: MeResponse
+      responses:
+        '200': { description: OK }
+  /status:
+    get:
+      summary: Service liveness (redacted for ephemeral sessions)
+      x-required-permission: null
+      x-ephemeral-access: true
+      x-rate-limit-scope: default
+      x-response-schema: StatusResponse
+      responses:
+        '200': { description: OK }
+  /session-context:
+    get:
+      summary: Ephemeral session's own minimal context
+      x-required-permission: null
+      x-ephemeral-access: true
+      x-rate-limit-scope: default
+      x-response-schema: SessionContextResponse
+      responses:
+        '200': { description: OK }
+  /services:
+    get:
+      summary: Service cards (operator)
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: ServicesResponse
+      responses:
+        '200': { description: OK }
+        '403': { description: Operator access required }
+  /sessions:
+    get:
+      summary: Active ephemeral sessions
+      x-required-permission: admin_sessions
+      x-rate-limit-scope: default
+      x-response-schema: SessionPageResponse
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create a share link
+      x-required-permission: admin_sessions
+      x-csrf-required: true
+      x-rate-limit-scope: sessions.create
+      x-request-schema: SessionCreateRequest
+      x-response-schema: SessionCreatedResponse
+      x-audit-event: portal_session_create
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionCreateRequest' }
+      responses:
+        '201': { description: Created }
+        '400': { description: Schema violation }
+        '403': { description: CSRF or capability failure }
+        '429': { description: Rate limited }
+  /sessions/revoke:
+    post:
+      summary: Revoke one share-link session (uniform 200)
+      x-required-permission: admin_sessions
+      x-csrf-required: true
+      x-rate-limit-scope: sessions.revoke
+      x-response-schema: SessionRevokeResponse
+      x-audit-event: portal_session_revoke
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      responses:
+        '200': { description: '{revoked: bool} — existence is never disclosed' }
+  /sessions/revoke-all:
+    post:
+      summary: Revoke every share-link session
+      x-required-permission: admin_sessions
+      x-csrf-required: true
+      x-rate-limit-scope: sessions.revoke-all
+      x-response-schema: SessionRevokeResponse
+      x-audit-event: portal_session_revoke_all
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      responses:
+        '200': { description: '{revoked: count}' }
+  /logout:
+    post:
+      summary: Revoke the operator session (vnc_op + vnc_csrf expire)
+      x-required-permission: operator
+      x-csrf-required: true
+      x-rate-limit-scope: default
+      x-response-schema: LogoutResponse
+      x-audit-event: portal_logout
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+      responses:
+        '200': { description: Idempotent logout }
+  /health:
+    get:
+      summary: Aggregated health (operator)
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: HealthResponse
+      responses:
+        '200': { description: OK }
+  /security/posture:
+    get:
+      summary: Security posture report (operator)
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: PostureResponse
+      responses:
+        '200': { description: OK }
+  /doctor:
+    get:
+      summary: Doctor checks (operator, rate limited)
+      x-required-permission: operator
+      x-rate-limit-scope: doctor
+      x-response-schema: DoctorResponse
+      responses:
+        '200': { description: OK }
+        '429': { description: Rate limited }
+  /audit:
+    get:
+      summary: Audit log page (cursor pagination)
+      x-required-permission: admin_audit
+      x-rate-limit-scope: audit
+      x-response-schema: AuditPageResponse
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: event
+          in: query
+          schema: { type: string }
+        - name: cursor
+          in: query
+          schema: { type: integer, description: 'seq of last entry of previous page' }
+      responses:
+        '200': { description: '{entries, next_cursor, has_more}' }
+  /audit/verify:
+    get:
+      summary: Verify audit chain integrity
+      x-required-permission: admin_audit
+      x-rate-limit-scope: audit.verify
+      x-response-schema: AuditVerifyResponse
+      responses:
+        '200': { description: '{intact, message}' }
+  /config:
+    get:
+      summary: Effective config, values redacted
+      x-required-permission: admin_config
+      x-rate-limit-scope: default
+      x-response-schema: ConfigPageResponse
+      responses:
+        '200': { description: '{vars: [ConfigEntry]}' }
+  /backups:
+    get:
+      summary: Backup inventory (operator)
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: BackupPageResponse
+      responses:
+        '200': { description: '{backups: [BackupSummary]}' }
+  /operators:
+    get:
+      summary: Operator accounts
+      x-required-permission: admin_users
+      x-rate-limit-scope: default
+      x-response-schema: OperatorPageResponse
+      responses:
+        '200': { description: '{operators: [OperatorSummary]}' }
+  /maintenance:
+    get:
+      summary: Maintenance mode state (operator)
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: MaintenanceResponse
+      responses:
+        '200': { description: OK }
