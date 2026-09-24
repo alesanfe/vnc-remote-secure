@@ -578,12 +578,15 @@ def verify_chain() -> tuple:
     return True, f'Chain intact ({len(lines)} entries)'
 
 
-def get_audit_entries(limit: int = 100, event: str | None = None) -> list:
+def get_audit_entries(limit: int = 100, event: str | None = None,
+                      before_seq: int | None = None) -> list:
     """Read recent audit log entries.
 
     Args:
         limit: Maximum number of entries to return.
         event: Filter by event type (optional).
+        before_seq: Cursor pagination — only entries with ``seq``
+            strictly below this value are returned.
 
     Returns:
         List of audit entry dicts (newest first).
@@ -597,6 +600,9 @@ def get_audit_entries(limit: int = 100, event: str | None = None) -> list:
     for line in reversed(lines):
         try:
             entry = json.loads(line)
+            if before_seq is not None and \
+                    int(entry.get('seq', 0)) >= before_seq:
+                continue
             if event is None or entry.get('event') == event:
                 entries.append(entry)
                 if len(entries) >= limit:

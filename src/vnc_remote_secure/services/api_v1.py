@@ -221,10 +221,15 @@ def _get_me(handler):
 
 
 def _get_status(handler):
+    # Intentionally NOT operator-gated: share-link sessions read
+    # service states for the portal cards. _status_payload redacts
+    # lan_ips/system metrics when _portal_operator is None.
     _ok(handler, handler._status_payload())
 
 
 def _get_services(handler):
+    if _operator(handler) is None:
+        return
     from vnc_remote_secure.services.landing import _build_service_list
     services = _build_service_list(_protocol(), _external_base(handler))
     for svc in services:
@@ -456,8 +461,6 @@ def _valid_allowed_ip(value: str) -> bool:
 
 def _post_session_create(handler):
     """POST /api/v1/sessions — share-link creation for the wizard."""
-    if not _rate_limit(handler, 'sessions.create'):
-        return
     operator = handler._operator_gate('admin_sessions')
     if operator is None:
         return
@@ -598,8 +601,6 @@ def _post_session_create(handler):
 
 def _post_session_revoke(handler):
     """POST /api/v1/sessions/revoke — revoke one share-link session."""
-    if not _rate_limit(handler, 'sessions.revoke'):
-        return
     operator = handler._operator_gate('admin_sessions')
     if operator is None:
         return
@@ -626,8 +627,6 @@ def _post_session_revoke(handler):
 
 def _post_session_revoke_all(handler):
     """POST /api/v1/sessions/revoke-all — emergency kill-switch."""
-    if not _rate_limit(handler, 'sessions.revoke-all'):
-        return
     operator = handler._operator_gate('admin_sessions')
     if operator is None:
         return
