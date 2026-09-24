@@ -15,6 +15,7 @@ call these use cases — never parallel implementations.
 from __future__ import annotations
 
 from vnc_remote_secure.engine.domain.decision import (
+    ERR_INVALID,
     ERR_PERMISSION,
     UseCaseError,
 )
@@ -102,9 +103,25 @@ def revoke_all_share_links(actor: str) -> int:
     return count
 
 
-def list_share_links() -> list:
-    """Active share-link records for the admin inventory."""
+# Session-center inventory filters.
+LIST_FILTERS = {'active', 'revoked', 'all'}
+
+
+def list_share_links(status: str = 'active') -> list:
+    """Share-link records for the admin inventory.
+
+    ``status`` selects the view: ``active`` (default), ``revoked``
+    (still retained), or ``all`` (history, including expired records
+    not yet reaped by cleanup).
+    """
     from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+    if status not in LIST_FILTERS:
+        raise UseCaseError(
+            ERR_INVALID, f'unknown status filter: {status}')
     store = get_session_store()
     store._load_if_changed()
+    if status == 'revoked':
+        return list(store.list_revoked())
+    if status == 'all':
+        return list(store.list_all())
     return list(store.list_active())

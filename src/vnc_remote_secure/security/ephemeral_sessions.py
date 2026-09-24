@@ -792,6 +792,19 @@ class SessionStore:
             if not s.revoked and now < s.expires_at
         ]
 
+    def list_revoked(self) -> list:
+        """Revoked sessions still retained (until expiry/cleanup)."""
+        now = time.time()
+        return [
+            s.to_dict() for s in self._sessions.values()
+            if s.revoked and now < s.expires_at
+        ]
+
+    def list_all(self) -> list:
+        """Every retained session: active, revoked, and expired records
+        not yet reaped by ``cleanup()`` — the session-center history."""
+        return [s.to_dict() for s in self._sessions.values()]
+
     def cleanup(self):
         """Remove expired sessions."""
         now = time.time()

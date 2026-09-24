@@ -270,9 +270,20 @@ def _get_services(handler, query):
 
 def _get_sessions(handler, query):
     try:
-        from vnc_remote_secure.engine.application.sessions import list_share_links
+        from vnc_remote_secure.engine.application.sessions import (
+            LIST_FILTERS,
+            list_share_links,
+        )
+        from vnc_remote_secure.engine.domain.decision import UseCaseError
+        status = (query.get('status') or ['active'])[0]
+        try:
+            sessions = list_share_links(status=status)
+        except UseCaseError:
+            _err(handler,
+                 f'status must be one of {sorted(LIST_FILTERS)}', 400)
+            return
         _ok(handler, {'sessions': [
-            session_to_api(s) for s in list_share_links()]})
+            session_to_api(s) for s in sessions]})
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /sessions')
         _err(handler, 'Failed to list sessions', 500)

@@ -434,10 +434,19 @@ paths:
         '403': { description: Operator access required }
   /sessions:
     get:
-      summary: Active ephemeral sessions
+      summary: Ephemeral sessions inventory
       x-required-permission: admin_sessions
       x-rate-limit-scope: default
       x-response-schema: SessionPageResponse
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Inventory filter — active (default), revoked, or all.
+          schema:
+            type: string
+            enum: [active, revoked, all]
+            default: active
       responses:
         '200':
           description: OK

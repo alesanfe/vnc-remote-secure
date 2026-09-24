@@ -180,19 +180,29 @@ def test_portal_denies_without_auth(portal_server, browser_ctx):
     page.close()
 
 
+def _activate_share_link(page, portal_server, signed):
+    """Legacy-link flow: GET /?session=<signed> renders the
+    interstitial (no side effects on GET — prefetch-safe); clicking
+    'Aceptar' POSTs the token to /session/activate, which issues the
+    vnc_ephemeral cookie and lands on the portal."""
+    page.goto(f"{portal_server}/?session={signed}",
+              wait_until="domcontentloaded")
+    with page.expect_navigation(wait_until="domcontentloaded"):
+        page.click("button[type=submit]")
+
+
 def test_share_link_activates_and_grants_portal(
         portal_server, browser_ctx):
-    """GET /?session=<signed> issues the vnc_ephemeral cookie and
-    lands on the portal WITHOUT Basic credentials — the link itself
-    is the credential."""
+    """The share-link interstitial + explicit activation issues the
+    vnc_ephemeral cookie and lands on the portal WITHOUT Basic
+    credentials — the link itself is the credential."""
     from vnc_remote_secure.security.ephemeral_sessions import get_session_store
     _session, signed = get_session_store().create(
         role="viewer", expires_in=600)
 
     ctx = browser_ctx.new_context()  # no http_credentials
     page = ctx.new_page()
-    page.goto(f"{portal_server}/?session={signed}",
-              wait_until="domcontentloaded")
+    _activate_share_link(page, portal_server, signed)
     # Landed on the portal (302 -> /), cookie issued.
     cookies = {c["name"]: c for c in ctx.cookies()}
     assert "vnc_ephemeral" in cookies
@@ -212,9 +222,11 @@ def test_share_link_reuse_still_works_multi_use(
     for _ in range(2):
         ctx = browser_ctx.new_context()
         page = ctx.new_page()
-        resp = page.goto(f"{portal_server}/?session={signed}",
-                         wait_until="domcontentloaded")
-        assert resp.status == 200
+        page.goto(f"{portal_server}/?session={signed}",
+                  wait_until="domcontentloaded")
+        # The interstitial renders the activation form — GET never
+        # consumes the token.
+        assert "session/activate" in page.content()
         page.close()
         ctx.close()
 
