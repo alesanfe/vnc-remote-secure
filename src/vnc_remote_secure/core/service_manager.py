@@ -61,6 +61,38 @@ def _pid_file(service: str) -> str:
     return os.path.join(_pid_dir(), f'{service}.pid')
 
 
+def _proc_start_token(pid: int) -> str | None:
+    """Boot-relative process start token for PID-reuse detection.
+
+    A PID alone is ambiguous after reuse: the cmdline needles in
+    ``_pid_is_ours`` catch *foreign* processes, but a recycled PID
+    running the SAME binary would pass them. The start token (process
+    creation time) distinguishes the process we spawned from a
+    lookalike that took its PID later.
+    """
+    try:
+        import psutil
+        return f'psutil:{psutil.Process(pid).create_time()}'
+    except ImportError:
+        pass
+    except Exception:  # noqa: BLE001 - process may have exited
+        return None
+    if not is_windows():
+        try:
+            with open(f'/proc/{pid}/stat', 'rb') as f:
+                data = f.read().decode('utf-8', errors='replace')
+            # Field 22 (starttime) — comm may contain ')' so split
+            # after the LAST ')'; post-paren index 19 == field 22.
+            return 'proc:' + data.rsplit(')', 1)[1].split()[19]
+        except (OSError, IndexError):
+            return None
+    return None
+
+
+def _pid_meta_file(service: str) -> str:
+    return _pid_file(service) + '.meta'
+
+
 def _write_pid(service: str, pid: int) -> None:
     # Atomic write: a torn pid file would make a healthy service look
     # dead and trigger a duplicate watchdog restart.
@@ -76,6 +108,27 @@ def _write_pid(service: str, pid: int) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
+    # Sidecar identity metadata — the .pid file stays a bare int for
+    # compatibility; the meta file strengthens PID-reuse detection.
+    token = _proc_start_token(pid)
+    if token:
+        import json as _json
+        try:
+            with open(_pid_meta_file(service), 'w',
+                      encoding='utf-8') as f:
+                _json.dump({'pid': pid, 'start_token': token,
+                            'service': service}, f)
+        except OSError:
+            pass
+
+
+def _read_pid_meta(service: str) -> dict | None:
+    try:
+        import json as _json
+        with open(_pid_meta_file(service), encoding='utf-8') as f:
+            return _json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def _read_pid(service: str) -> int | None:
@@ -90,12 +143,12 @@ def _read_pid(service: str) -> int | None:
 
 
 def _clear_pid(service: str) -> None:
-    path = _pid_file(service)
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-        except OSError as exc:
-            logger.debug("Could not remove PID file %s: %s", path, exc, exc_info=True)
+    for path in (_pid_file(service), _pid_meta_file(service)):
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError as exc:
+                logger.debug("Could not remove PID file %s: %s", path, exc, exc_info=True)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -189,6 +242,15 @@ def _pid_is_ours(pid: int, service: str | None = None) -> bool | None:
     """
     if not pid or pid <= 0:
         return None
+    # PID-reuse guard: when we recorded the process start token at
+    # spawn time, a live process with a DIFFERENT token is a lookalike
+    # that took the PID — confidently not ours regardless of cmdline.
+    if service:
+        meta = _read_pid_meta(service)
+        if meta and meta.get('pid') == pid and meta.get('start_token'):
+            live_token = _proc_start_token(pid)
+            if live_token and live_token != meta['start_token']:
+                return False
     needles = _SERVICE_PROC_NEEDLES.get(service or '') or (
         'vnc_remote_secure', 'websockify')
 

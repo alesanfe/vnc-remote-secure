@@ -478,3 +478,29 @@ class TestStaleTempUserSweep:
             lambda *a, **k: calls.append(1))
         sm._sweep_stale_temp_user()
         assert calls == []
+
+
+class TestPidIdentity:
+    def test_meta_start_token_rejects_recycled_pid(self, monkeypatch):
+        import vnc_remote_secure.core.service_manager as sm
+        monkeypatch.setattr(
+            sm, '_read_pid_meta',
+            lambda s: {'pid': 4321, 'start_token': 'proc:111'})
+        monkeypatch.setattr(
+            sm, '_proc_start_token', lambda pid: 'proc:999')
+        assert sm._pid_is_ours(4321, 'websockify') is False
+
+    def test_matching_token_falls_through_to_cmdline(self, monkeypatch):
+        import vnc_remote_secure.core.service_manager as sm
+        monkeypatch.setattr(
+            sm, '_read_pid_meta',
+            lambda s: {'pid': 4321, 'start_token': 'proc:111'})
+        monkeypatch.setattr(
+            sm, '_proc_start_token', lambda pid: 'proc:111')
+        import sys as _s
+        if _s.platform != 'win32':
+            monkeypatch.setattr(
+                'builtins.open',
+                lambda *a, **k: __import__('io').BytesIO(
+                    b'vnc_remote_secure'))
+            assert sm._pid_is_ours(4321, 'websockify') is True
