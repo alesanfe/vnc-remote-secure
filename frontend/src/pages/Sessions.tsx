@@ -25,11 +25,16 @@ interface CreateResult {
   permissions: string[];
 }
 
+type SessionTab = 'active' | 'revoked';
+
 export default function Sessions() {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<SessionTab>('active');
   const sessions = useQuery({
-    queryKey: ['sessions'],
-    queryFn: () => api.get<{ sessions: EphemeralSessionInfo[] }>('sessions'),
+    queryKey: ['sessions', tab],
+    queryFn: () =>
+      api.get<{ sessions: EphemeralSessionInfo[] }>(
+        tab === 'active' ? 'sessions' : `sessions?status=${tab}`),
     refetchInterval: 15_000,
   });
 
@@ -67,6 +72,7 @@ export default function Sessions() {
       setCreated(data);
       setCreateError('');
       qc.invalidateQueries({ queryKey: ['sessions'] });
+      setTab('active');
     },
     onError: (e) => {
       setCreated(null);
@@ -231,22 +237,43 @@ export default function Sessions() {
       </div>
 
       <div className="toolbar section">
-        <h2 style={{ margin: 0 }}>Sesiones activas</h2>
+        <h2 style={{ margin: 0 }} id="sessions-heading">Inventario</h2>
+        <div role="tablist" aria-label="Vistas de sesiones"
+             style={{ display: 'flex', gap: '0.5rem' }}>
+          {(['active', 'revoked'] as const).map((t) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              className={tab === t ? '' : 'ghost'}
+              onClick={() => setTab(t)}
+            >
+              {t === 'active' ? 'Activas' : 'Revocadas'}
+            </button>
+          ))}
+        </div>
         <span className="spacer" />
-        <button
-          className="danger"
-          disabled={revokeAll.isPending || !(sessions.data?.sessions.length)}
-          onClick={() => setConfirmRevokeAll(true)}
-        >
-          Cerrar todas
-        </button>
+        {tab === 'active' && (
+          <button
+            className="danger"
+            disabled={
+              revokeAll.isPending || !(sessions.data?.sessions.length)}
+            onClick={() => setConfirmRevokeAll(true)}
+          >
+            Cerrar todas
+          </button>
+        )}
       </div>
 
       <DataTable<EphemeralSessionInfo>
         loading={sessions.isLoading}
         error={sessions.isError}
         errorText="No se pudieron cargar las sesiones (¿falta el permiso admin_sessions?)."
-        emptyText="No hay sesiones efímeras activas."
+        emptyText={
+          tab === 'active'
+            ? 'No hay sesiones efímeras activas.'
+            : 'No hay sesiones revocadas retenidas.'
+        }
         rows={sessions.data?.sessions}
         rowKey={(s) => s.token_id}
         columns={[
@@ -254,6 +281,16 @@ export default function Sessions() {
             key: 'id',
             header: 'Referencia',
             render: (s) => <SessionReference id={s.token_id} />,
+          },
+          {
+            key: 'state',
+            header: 'Estado',
+            render: (s) =>
+              s.revoked ? (
+                <StatusBadge status="fail" label="revocada" />
+              ) : (
+                <StatusBadge status="ok" label="activa" />
+              ),
           },
           { key: 'role', header: 'Rol', render: (s) => s.role },
           {
@@ -277,15 +314,16 @@ export default function Sessions() {
           {
             key: 'actions',
             header: '',
-            render: (s) => (
-              <button
-                className="danger"
-                disabled={revoke.isPending}
-                onClick={() => setRevokeTarget(s)}
-              >
-                Revocar
-              </button>
-            ),
+            render: (s) =>
+              s.revoked ? null : (
+                <button
+                  className="danger"
+                  disabled={revoke.isPending}
+                  onClick={() => setRevokeTarget(s)}
+                >
+                  Revocar
+                </button>
+              ),
           },
         ]}
       />

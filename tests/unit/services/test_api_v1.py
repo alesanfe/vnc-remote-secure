@@ -224,8 +224,26 @@ class _FakeSession:
 
 
 class _FakeStore:
+    def __init__(self):
+        self.listed = None
+
     def create(self, **kw):
         return _FakeSession(), 'signed.token.here'
+
+    def _load_if_changed(self):
+        pass
+
+    def list_active(self):
+        self.listed = 'active'
+        return []
+
+    def list_revoked(self):
+        self.listed = 'revoked'
+        return []
+
+    def list_all(self):
+        self.listed = 'all'
+        return []
 
 
 def test_create_rejects_unknown_fields(server, monkeypatch):
@@ -339,6 +357,25 @@ def test_sessions_list_requires_permission(server, monkeypatch):
     status, _, _ = _req(server, '/api/v1/sessions',
                         headers=_auth_headers())
     assert status == 403
+
+
+def test_sessions_list_status_filter(server, monkeypatch):
+    """?status= selects the inventory view; unknown values 400."""
+    store = _FakeStore()
+    monkeypatch.setattr(
+        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
+        lambda: store)
+    for param, expected in (
+            ('', 'active'), ('?status=active', 'active'),
+            ('?status=revoked', 'revoked'), ('?status=all', 'all')):
+        status, _, body = _req(
+            server, f'/api/v1/sessions{param}', headers=_auth_headers())
+        assert status == 200, param
+        assert store.listed == expected, param
+        assert json.loads(body)['data']['sessions'] == []
+    status, _, _ = _req(server, '/api/v1/sessions?status=bogus',
+                        headers=_auth_headers())
+    assert status == 400
 
 
 def test_config_requires_permission(server, monkeypatch):

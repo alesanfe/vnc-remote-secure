@@ -162,10 +162,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Active ephemeral sessions */
+        /** Ephemeral sessions inventory */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Inventory filter — active (default), revoked, or all. */
+                    status?: "active" | "revoked" | "all";
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
