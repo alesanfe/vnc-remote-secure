@@ -324,6 +324,16 @@ def attempt_login(
     limiter.record_success(ip_key)
     limiter.record_success(user_key)
 
+    # Maintenance mode: valid credentials still clear the lockout,
+    # but no new session is issued unless the account administers
+    # the deployment (operators and env bootstrap admins).
+    from vnc_remote_secure.security.maintenance import maintenance_login_allowed
+    if not maintenance_login_allowed(username):
+        _audit('login', username, client_ip, 'failure',
+               'Maintenance mode active — new session refused')
+        _inc_auth_counter('maintenance')
+        return False, 'System under maintenance. Try again later.', None
+
     session = create_session_cookie(username)
     token = create_session_token(username)
     session['token'] = token

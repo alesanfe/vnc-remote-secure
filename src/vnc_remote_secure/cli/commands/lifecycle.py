@@ -374,3 +374,42 @@ def cmd_uninstall(args):
                'failure' if fail_steps else 'success',
                f'keep_data={keep_data}')
     return 0 if not fail_steps else 1
+
+
+def cmd_maintenance(args):
+    """Toggle or report maintenance mode (drains new non-admin sessions)."""
+    from vnc_remote_secure.security.maintenance import (
+        maintenance_active,
+        maintenance_info,
+        set_maintenance,
+    )
+    action = getattr(args, 'maintenance_action', 'status')
+    if action == 'on':
+        if args.dry_run:
+            print('[DRY RUN] Would enable maintenance mode')
+            return 0
+        set_maintenance(True, by='cli',
+                        reason=getattr(args, 'reason', '') or '')
+        _audit_cli('maintenance_mode', 'success', 'enabled via CLI')
+        print('Maintenance mode ENABLED - new non-admin sessions refused.')
+        return 0
+    if action == 'off':
+        if args.dry_run:
+            print('[DRY RUN] Would disable maintenance mode')
+            return 0
+        set_maintenance(False, by='cli')
+        _audit_cli('maintenance_mode', 'success', 'disabled via CLI')
+        print('Maintenance mode DISABLED.')
+        return 0
+    if maintenance_active():
+        info = maintenance_info() or {}
+        print(f"Maintenance mode: ACTIVE ({info.get('source', '?')})")
+        if info.get('since'):
+            print(f"  Since:  {info['since']}")
+        if info.get('by'):
+            print(f"  By:     {info['by']}")
+        if info.get('reason'):
+            print(f"  Reason: {info['reason']}")
+    else:
+        print('Maintenance mode: inactive')
+    return 0

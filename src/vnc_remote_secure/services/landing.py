@@ -803,7 +803,7 @@ def _build_backup_html():
             f'({html.escape(age)}){warn}{cert_html}</div>')
 
 
-def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, audio_html, gamepad_html, ssl_note, firewall_html, metrics):
+def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, features_section, lan_html, creds_html, sessions_html, backups_html, audio_html, gamepad_html, ssl_note, firewall_html, metrics, maintenance_banner=''):
     """Assemble the final landing page HTML from its section components."""
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -819,6 +819,8 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
         <h1>🔒 VNC Remote Secure</h1>
         <p>Portal de acceso a servicios - Actualización automática cada 30s</p>
     </div>
+
+    {maintenance_banner}
 
     {metrics_html}
 
@@ -848,6 +850,23 @@ def _build_landing_page_template(metrics_html, cards_html, vnc_direct_html, feat
     </div>
 </body>
 </html>"""
+
+
+def _maintenance_banner():
+    """Render the maintenance-mode notice, or '' when inactive."""
+    try:
+        from vnc_remote_secure.security.maintenance import maintenance_active, maintenance_info
+        if not maintenance_active():
+            return ''
+        info = maintenance_info() or {}
+        reason = html.escape(info.get('reason') or '')
+        detail = f' — {reason}' if reason else ''
+    except Exception:  # noqa: BLE001 - never break the portal
+        return ''
+    return ('<div class="notice" role="alert" '
+            'style="border-color:#e6a23c;color:#e6a23c">'
+            f'⚠️ Modo mantenimiento activo{detail} — '
+            'no se admiten nuevas sesiones.</div>')
 
 
 def generate_landing_page(forwarded_host=None, forwarded_proto=None,
@@ -918,7 +937,8 @@ def generate_landing_page(forwarded_host=None, forwarded_proto=None,
     return _build_landing_page_template(
         metrics_html, cards_html, vnc_direct_html, features_section,
         lan_html, creds_html, sessions_html, backups_html, audio_html,
-        gamepad_html, ssl_note, firewall_html, metrics)
+        gamepad_html, ssl_note, firewall_html, metrics,
+        maintenance_banner=_maintenance_banner())
 
 
 class LandingHandler(SecuredHandlerMixin,

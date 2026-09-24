@@ -129,6 +129,10 @@
       "type": "string",
       "description": "HTTPS endpoint that receives each persisted audit entry as JSON. Delivered via the DNS-pinned, redirect-refusing alert transport. Empty = disabled."
     },
+    "MAINTENANCE_MODE": {
+      "type": "boolean",
+      "description": "Block new non-admin sessions (share links and logins) while keeping operator/env-admin access and existing sessions. Also toggled at runtime via 'vnc-remote maintenance on|off' (flag file)."
+    },
     "AUTH_LOCKOUT_SECONDS": {
       "type": "integer",
       "minimum": 1,

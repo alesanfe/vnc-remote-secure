@@ -11,6 +11,7 @@ from vnc_remote_secure.cli._common import (
 from vnc_remote_secure.cli.commands.config import cmd_config
 from vnc_remote_secure.cli.commands.lifecycle import (
     cmd_install,
+    cmd_maintenance,
     cmd_restart,
     cmd_service,
     cmd_start,
@@ -326,6 +327,25 @@ def create_parser():
                            help='Backup file (default: newest)')
     _add_common_args(p_vbackup, suppress_defaults=True)
     p_verify.set_defaults(func=cmd_verify)
+
+    # Maintenance mode (drain new sessions during upgrades/repairs)
+    p_maint = subparsers.add_parser(
+        'maintenance',
+        help='Toggle maintenance mode (blocks new non-admin sessions)')
+    p_maint_sub = p_maint.add_subparsers(dest='maintenance_action',
+                                       required=True)
+    p_mon = p_maint_sub.add_parser(
+        'on', help='Enable maintenance mode')
+    p_mon.add_argument('--reason', default='',
+                       help='Reason shown on the portal banner')
+    _add_common_args(p_mon, suppress_defaults=True)
+    p_moff = p_maint_sub.add_parser(
+        'off', help='Disable maintenance mode')
+    _add_common_args(p_moff, suppress_defaults=True)
+    p_mst = p_maint_sub.add_parser(
+        'status', help='Show maintenance mode state')
+    _add_common_args(p_mst, suppress_defaults=True)
+    p_maint.set_defaults(func=cmd_maintenance)
 
     # Help
     p_help = subparsers.add_parser('help', help='Show this help message')

@@ -983,6 +983,9 @@ def consume_ephemeral_session(signed_token: str) -> bool:
         True if the token was valid and consumed (or multi-use),
         False if the token was invalid, already consumed, or revoked.
     """
+    from vnc_remote_secure.security.maintenance import maintenance_active
+    if maintenance_active():
+        return False
     payload = verify_ephemeral_token(signed_token)
     if not payload:
         return False
@@ -1036,6 +1039,9 @@ def activate_ephemeral_session(signed_token: str,
         ``None`` when the link is invalid, expired, revoked, or its
         use budget is exhausted.
     """
+    from vnc_remote_secure.security.maintenance import maintenance_active
+    if maintenance_active():
+        return None
     payload = verify_ephemeral_token(signed_token)
     if not payload:
         return None
