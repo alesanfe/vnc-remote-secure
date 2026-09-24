@@ -576,10 +576,14 @@ def _webauthn_rp_name() -> str:
 
 
 def _webauthn_gate():
-    """503 when the feature is off or the library is missing."""
-    from vnc_remote_secure.security.webauthn import webauthn_available
+    """503 when the feature is off, the library is missing, or the
+    RP config is unsafe for this deployment."""
+    from vnc_remote_secure.security.webauthn import rp_config_error, webauthn_available
     if not webauthn_available():
         return json_error('WebAuthn is not enabled', 503)
+    cfg_err = rp_config_error()
+    if cfg_err:
+        return json_error(cfg_err, 503)
     return None
 
 

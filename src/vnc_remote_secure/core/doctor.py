@@ -153,6 +153,29 @@ def _check_ssl(checks, config):
         _skip(checks, 'tls.certificates', 'TLS disabled')
 
 
+def _check_webauthn(checks):
+    """WebAuthn: enabled-but-unavailable, or unsafe inferred config."""
+    try:
+        from vnc_remote_secure.security.webauthn import rp_config_error, webauthn_available
+    except ImportError:
+        _skip(checks, 'webauthn', 'module unavailable')
+        return
+    if not os.environ.get('WEBAUTHN_ENABLED', '').strip():
+        _skip(checks, 'webauthn', 'disabled')
+        return
+    if not webauthn_available():
+        _warn(checks, 'webauthn',
+              'WEBAUTHN_ENABLED=true but the webauthn package is not '
+              'installed (pip install vnc-remote-secure[webauthn])')
+        return
+    err = rp_config_error()
+    if err:
+        _fail(checks, 'webauthn.origin', err)
+    else:
+        _ok(checks, 'webauthn.origin',
+            'origin/RP ID explicit or deployment is direct')
+
+
 def _check_shared_state(checks):
     """Add shared-state backend check.
 
@@ -617,6 +640,7 @@ def run_doctor(as_json: bool = False) -> dict:
     _check_directories(checks)
     _check_secrets(checks, config)
     _check_ssl(checks, config)
+    _check_webauthn(checks)
 
     # --- Dependencies ---
     for binary in ('python3' if sys.platform != 'win32' else 'python',):

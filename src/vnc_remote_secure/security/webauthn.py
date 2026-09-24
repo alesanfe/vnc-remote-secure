@@ -20,6 +20,7 @@ Design:
 
 import base64
 import binascii
+import contextlib
 import json
 import logging
 import os
@@ -46,6 +47,39 @@ def webauthn_available() -> bool:
         return False
 
 
+def _public_or_proxied() -> bool:
+    """True when the deployment sits behind a proxy or is hardened.
+
+    Inferred ``WEBAUTHN_ORIGIN``/``WEBAUTHN_RP_ID`` (from request Host
+    and url_root) are only safe when the app terminates connections
+    directly on a trusted host. Behind a reverse proxy or under a
+    hardened profile, Host/scheme are attacker-influenceable, so
+    explicit configuration is mandatory.
+    """
+    if env_flag('TRUSTED_PROXY'):
+        return True
+    try:
+        from vnc_remote_secure.security.profiles import _PROFILE_ALIASES, get_profile
+        profile = _PROFILE_ALIASES.get(get_profile(), get_profile())
+        return profile in ('public-hardened', 'private-overlay',
+                           'trusted-lan')
+    except Exception:  # noqa: BLE001 - unknown profile → don't enforce
+        return False
+
+
+def rp_config_error() -> str | None:
+    """Error string when inferred RP config is unsafe, else None."""
+    if not webauthn_available() or not _public_or_proxied():
+        return None
+    missing = [v for v in ('WEBAUTHN_ORIGIN', 'WEBAUTHN_RP_ID')
+               if not os.environ.get(v, '').strip()]
+    if not missing:
+        return None
+    return ('WebAuthn behind a reverse proxy or hardened profile '
+            f'requires explicit {"/".join(missing)} — refusing to '
+            'infer origin/RP ID from request data.')
+
+
 def _b64e(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip('=')
 
@@ -63,17 +97,47 @@ def _store_path() -> str:
     return os.path.join(get_data_dir(), 'webauthn_credentials.json')
 
 
+_STORE_FORMAT_VERSION = 1
+
+
 def _load_store() -> dict:
     try:
-        return json.loads(Path(_store_path()).read_text(encoding='utf-8'))
+        raw = json.loads(Path(_store_path()).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
+    # Versioned envelope since format v1; tolerate a bare legacy map
+    # (credential_id -> record) written before versioning existed.
+    if isinstance(raw, dict) and 'credentials' in raw:
+        creds = raw.get('credentials')
+        return creds if isinstance(creds, dict) else {}
+    return raw if isinstance(raw, dict) else {}
 
 
 def _save_store(store: dict) -> None:
+    """Atomically persist the credential store.
+
+    write_text() truncates before writing — a crash mid-write used to
+    leave a torn file that loads as empty, silently de-registering
+    every passkey. Write to a sibling temp file, fsync, then rename.
+    """
+    import tempfile
     path = Path(_store_path())
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(store, indent=2), encoding='utf-8')
+    payload = json.dumps(
+        {'format_version': _STORE_FORMAT_VERSION,
+         'credentials': store}, indent=2)
+    fd, tmp = tempfile.mkstemp(
+        dir=str(path.parent), prefix='.webauthn-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
     try:
         os.chmod(path, 0o600)
     except OSError:  # Windows ACLs handled by _restrict_key_permissions

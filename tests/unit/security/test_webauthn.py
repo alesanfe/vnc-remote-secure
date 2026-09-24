@@ -145,3 +145,38 @@ class TestCeremonies:
         ok, _ = wn.complete_authentication(
             'alice', {'id': cred_id}, 'rp', 'https://o')
         assert ok is False
+
+
+class TestRpConfigPolicy:
+    @pytest.fixture(autouse=True)
+    def _enabled(self, monkeypatch):
+        pytest.importorskip('webauthn')
+        monkeypatch.setenv('WEBAUTHN_ENABLED', 'true')
+
+    def test_direct_deployment_allows_inferred(self, monkeypatch):
+        monkeypatch.delenv('TRUSTED_PROXY', raising=False)
+        monkeypatch.delenv('SECURITY_PROFILE', raising=False)
+        assert wn.rp_config_error() is None
+
+    def test_proxied_requires_explicit(self, monkeypatch):
+        monkeypatch.setenv('TRUSTED_PROXY', 'true')
+        monkeypatch.delenv('WEBAUTHN_ORIGIN', raising=False)
+        monkeypatch.delenv('WEBAUTHN_RP_ID', raising=False)
+        assert 'WEBAUTHN_ORIGIN' in wn.rp_config_error()
+        monkeypatch.setenv('WEBAUTHN_ORIGIN', 'https://vnc.example.com')
+        monkeypatch.setenv('WEBAUTHN_RP_ID', 'vnc.example.com')
+        assert wn.rp_config_error() is None
+
+    def test_hardened_profile_requires_explicit(self, monkeypatch):
+        monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
+        assert wn.rp_config_error() is not None
+
+
+class TestStoreFormat:
+    def test_legacy_bare_map_loads(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(wn, 'get_data_dir',
+                            lambda: str(tmp_path))
+        import json as _j
+        (tmp_path / 'webauthn_credentials.json').write_text(
+            _j.dumps({'cid1': {'username': 'a'}}))
+        assert wn.list_credentials('a')[0]['credential_id'] == 'cid1'
