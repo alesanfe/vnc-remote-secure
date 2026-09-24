@@ -28,18 +28,23 @@ _NS_REVOKED = 'websocket_revoked_sessions'
 
 @dataclass(frozen=True)
 class RevocationResult:
-    """Structured outcome of a revocation — every step reports
-    independently so a partial failure is visible, not silent."""
+    """Structured outcome of a revocation — the logical mark is
+    fail-closed and reported separately from cleanup, so a partial
+    failure is visible without pretending the revoke failed."""
     target_kind: str          # 'sid' | 'legacy_pair'
+    logically_revoked: bool   # shared marker landed — the ONLY
+                            # thing that makes a revoke effective
     sessions_marked: int
     contexts_dropped: int
     connections_closed: int
+    already_revoked: int = 0  # idempotency: second call reports this
     errors: tuple = ()
 
 
-def _mark(key: str, marked_at: float | None = None) -> None:
+def _mark(key: str, marked_at: float | None = None) -> bool:
     """Write a revocation marker in shared state with a TTL that
-    outlives the session it kills."""
+    outlives the session it kills. Returns True when this call
+    created the mark, False when it was already revoked."""
     from vnc_remote_secure.security.shared_state import get_backend
     try:
         max_lifetime = int(os.environ.get(
@@ -50,10 +55,14 @@ def _mark(key: str, marked_at: float | None = None) -> None:
     if isinstance(existing, (int, float)) \
             and not isinstance(existing, bool):
         marked_at = existing  # preserve original mark timestamp
-    elif marked_at is None:
+        get_backend().set_ttl(_NS_REVOKED, key, marked_at,
+                              max(86400, max_lifetime))
+        return False  # was already revoked
+    if marked_at is None:
         marked_at = time.time()
     get_backend().set_ttl(_NS_REVOKED, key, marked_at,
                           max(86400, max_lifetime))
+    return True
 
 
 def _audit(event: str, **fields) -> None:
@@ -76,9 +85,15 @@ def revoke_sid(sid: str, reason: str = 'revoked',
     """Revoke exactly one v3 session by its random sid."""
     from vnc_remote_secure.security.websocket_registry import revoke_session_connections
     errors = []
+    # Mark FIRST — the logical revocation is fail-closed; everything
+    # after (ctx, idx, conns) is cleanup that may fail partially.
+    already = 0
     try:
-        _mark(f'sid:{sid}')
+        if not _mark(f'sid:{sid}'):
+            already = 1  # idempotent: second revoke reports it
+        marked_ok = True
     except Exception as exc:  # noqa: BLE001
+        marked_ok = False
         errors.append(f'mark: {exc}')
     dropped = 0
     try:
@@ -105,8 +120,9 @@ def revoke_sid(sid: str, reason: str = 'revoked',
         errors.append(f'ws: {exc}')
     _audit('session_revoked', revocation_scope='individual',
            session_ref=_session_ref(sid), reason=reason, actor=actor)
-    return RevocationResult('sid', 1, dropped, closed,
-                            tuple(errors))
+    return RevocationResult('sid', marked_ok, 1 - already, dropped,
+                            closed, already_revoked=already,
+                            errors=tuple(errors))
 
 
 def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
@@ -119,9 +135,13 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
     sharing the pair are cleaned up precisely."""
     from vnc_remote_secure.security.websocket_registry import revoke_session_connections
     errors = []
+    # Group mark first — a session created mid-sweep shares the pair
+    # and dies on check_authenticated even if the sweep missed it.
+    marked_ok = True
     try:
         _mark(stable_id)
     except Exception as exc:  # noqa: BLE001
+        marked_ok = False
         errors.append(f'mark: {exc}')
     dropped = 0
     closed = 0
@@ -138,13 +158,18 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
             be.delete('web_auth_context',
                       idx_key[len(prefix):])  # ctx key = sha256(sid)
             dropped += 1
-            if isinstance(sid, str) and sid:
+            # Validate the stored sid before acting on it — a
+            # corrupt value must not mark or close anything.
+            import re as _re
+            if isinstance(sid, str) and _re.fullmatch(
+                    r'[A-Za-z0-9_-]{16,64}', sid):
                 try:
                     _mark(f'sid:{sid}')
                     marked += 1
                     closed += revoke_session_connections(sid)
                 except Exception as exc:  # noqa: BLE001
-                    errors.append(f'sid {sid[:6]}…: {exc}')
+                    errors.append(f'sid mark/close failed: '
+                                  f'{type(exc).__name__}')
     except Exception as exc:  # noqa: BLE001
         errors.append(f'ctx: {exc}')
     try:
@@ -155,8 +180,8 @@ def revoke_stable_pair(stable_id: str, reason: str = 'revoked',
     _audit('session_revoked', revocation_scope='legacy_group',
            session_ref=_session_ref(stable_id), reason=reason,
            actor=actor, sessions_marked=marked)
-    return RevocationResult('legacy_pair', marked, dropped, closed,
-                            tuple(errors))
+    return RevocationResult('legacy_pair', marked_ok, marked,
+                            dropped, closed, errors=tuple(errors))
 
 
 def revoke_cookie(cookie_value: str, reason: str = 'revoked',
@@ -167,7 +192,8 @@ def revoke_cookie(cookie_value: str, reason: str = 'revoked',
     parsed = verify_session_cookie(cookie_value)
     if parsed is None:
         _audit('session_revoke_failed', reason='invalid_cookie')
-        return RevocationResult('sid', 0, 0, 0, ('invalid_cookie',))
+        return RevocationResult('sid', False, 0, 0, 0,
+                                errors=('invalid_cookie',))
     if parsed.get('sid'):
         return revoke_sid(parsed['sid'], reason=reason, actor=actor)
     return revoke_stable_pair(
