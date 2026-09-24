@@ -125,7 +125,8 @@ class TestSensitiveActionsList:
         """Every declared action must have a call site — the set must
         not drift back into a declaration-only list."""
         assert SENSITIVE_ACTIONS == {
-            'open_terminal', 'create_admin', 'delete_admin'}
+            'open_terminal', 'create_admin', 'delete_admin',
+            'webauthn_register', 'webauthn_revoke'}
 
     def test_future_auth_timestamp_needs_step_up(self):
         """A future last_auth (clock skew or tampered shared state)

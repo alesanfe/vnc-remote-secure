@@ -568,6 +568,43 @@ class SessionStore:
         if mtime != self._last_mtime:
             self._load()
 
+    def _merge_disk_flags(self, path: str) -> None:
+        """Pull terminal flags (revoked, used, use_count) from the
+        on-disk copy into our in-memory sessions, and preserve
+        sessions another process created since our last load —
+        writing our stale copy would resurrect revocations or delete
+        foreign sessions. A corrupt file is ignored: in-memory wins."""
+        import json
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, encoding='utf-8') as f:
+                disk = json.load(f)
+        except (OSError, ValueError):
+            return
+        if not isinstance(disk, dict):
+            return
+        now = time.time()
+        for token, sdata in disk.items():
+            session = self._sessions.get(token)
+            if session is None:
+                # Expired entries stay droppable for cleanup; live
+                # foreign sessions must survive our write.
+                try:
+                    other = EphemeralSession.from_dict(sdata)
+                except (KeyError, ValueError, TypeError):
+                    continue
+                if not other.revoked and other.expires_at > now:
+                    self._sessions[token] = other
+                continue
+            if sdata.get('revoked'):
+                session.revoked = True
+            if sdata.get('used'):
+                session.used = True
+            session.use_count = max(
+                session.use_count,
+                int(sdata.get('use_count', 0) or 0))
+
     def _save(self, raise_on_error: bool = False):
         """Persist sessions to disk.
 
@@ -584,38 +621,7 @@ class SessionStore:
         import json
         path = self._persist_path()
         try:
-            # Pull terminal flags (revoked, used, use_count) from the
-            # disk copy into our in-memory sessions before serialising.
-            if os.path.exists(path):
-                try:
-                    with open(path, encoding='utf-8') as f:
-                        disk = json.load(f)
-                    if isinstance(disk, dict):
-                        now = time.time()
-                        for token, sdata in disk.items():
-                            session = self._sessions.get(token)
-                            if session is None:
-                                # A session created by another process
-                                # since our last load — preserve it or
-                                # our write would delete it (expired
-                                # entries stay droppable for cleanup).
-                                try:
-                                    other = EphemeralSession.from_dict(sdata)
-                                except (KeyError, ValueError, TypeError):
-                                    continue
-                                if not other.revoked and \
-                                        other.expires_at > now:
-                                    self._sessions[token] = other
-                                continue
-                            if sdata.get('revoked'):
-                                session.revoked = True
-                            if sdata.get('used'):
-                                session.used = True
-                            session.use_count = max(
-                                session.use_count,
-                                int(sdata.get('use_count', 0) or 0))
-                except (OSError, ValueError):
-                    pass  # corrupt file — keep in-memory state
+            self._merge_disk_flags(path)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             data = {
                 token: session.to_persist_dict()

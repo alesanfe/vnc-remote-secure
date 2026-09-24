@@ -1501,15 +1501,10 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             1 for p in (cookie_header or '').split(';')
             if p.strip().startswith(name + '='))
 
-    def _verify_op_cookie(self, value: str):
-        """Verify a ``vnc_op`` cookie; returns ``(sid, operator)``.
-
-        Format: ``<sid>.<b64user>.<exp>.<hmac>``. Strict checks: exact
-        part count, bounded size, no control chars, field shapes,
-        finite future expiry within the TTL window, constant-time
-        signature, shared-state revocation (per-sid and per-user
-        marks), and account disabled state.
-        """
+    def _parse_op_cookie(self, value: str):
+        """Structural parse of ``vnc_op`` — shape, charset, sizes,
+        username decode, expiry window, signature. Returns
+        ``(sid, username, exp)`` or None. No state consulted here."""
         import base64 as _b64
         import hashlib as _hashlib
         import hmac
@@ -1546,22 +1541,29 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             _hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected):
             return None
+        return sid, username, exp
+
+    def _op_session_revoked(self, sid: str, username: str,
+                            exp: int) -> bool:
+        """Shared-state revocation: per-sid mark, or a per-user epoch
+        that postdates this cookie's issue time (exp - TTL). Any
+        backend error is a denial — fail closed."""
         try:
             from vnc_remote_secure.security.shared_state import get_backend
             backend = get_backend()
             if backend.get('op_revoked_sessions', sid):
-                return None
-            # Per-user revocation mark: password/role/disable/delete
-            # kill sessions issued before the mark (issue time is
-            # exp - TTL).
+                return True
             revoked_at = backend.get('op_revoked_users', username)
             if revoked_at and (exp - self._OP_SESSION_TTL) <= int(
                     float(revoked_at)):
-                return None
+                return True
+            return False
         except Exception:  # noqa: BLE001 - fail closed
-            return None
-        # Resolve the operator record: store users first, env
-        # bootstrap 'admin' as the fallback.
+            return True
+
+    def _resolve_op_identity(self, username: str):
+        """Store user record, or the env bootstrap 'admin' — disabled
+        accounts and unknown users resolve to None."""
         try:
             from vnc_remote_secure.security.operator_users import (
                 get_permissions,
@@ -1571,7 +1573,7 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
             if username in store:
                 if store[username].get('disabled'):
                     return None
-                return sid, {
+                return {
                     'username': username,
                     'role': store[username].get('role', 'operator'),
                     'permissions': sorted(get_permissions(username)),
@@ -1579,9 +1581,28 @@ administrador un enlace cl\xc3\xa1sico <code>/?session=\xe2\x80\xa6</code>.</p><
         except Exception:  # noqa: BLE001
             return None
         if username == 'admin':
-            return sid, {'username': 'admin', 'role': 'admin',
-                         'permissions': ['admin:*']}
+            return {'username': 'admin', 'role': 'admin',
+                    'permissions': ['admin:*']}
         return None
+
+    def _verify_op_cookie(self, value: str):
+        """Verify a ``vnc_op`` cookie; returns ``(sid, operator)``.
+
+        Format: ``<sid>.<b64user>.<exp>.<hmac>``. Stages: structural
+        parse (``_parse_op_cookie``) → revocation marks
+        (``_op_session_revoked``) → identity resolution
+        (``_resolve_op_identity``).
+        """
+        parsed = self._parse_op_cookie(value)
+        if parsed is None:
+            return None
+        sid, username, exp = parsed
+        if self._op_session_revoked(sid, username, exp):
+            return None
+        operator = self._resolve_op_identity(username)
+        if operator is None:
+            return None
+        return sid, operator
 
     def _queue_cookie(self, cookie: str) -> None:
         """Queue a Set-Cookie for this response (emitted by

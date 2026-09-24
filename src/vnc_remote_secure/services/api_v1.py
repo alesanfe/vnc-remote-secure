@@ -537,6 +537,115 @@ def _valid_allowed_ip(value: str) -> bool:
         return False
 
 
+def _parse_permissions_field(payload: dict):
+    """``permissions`` → ``(set|None, error)``."""
+    from vnc_remote_secure.security.ephemeral_sessions import ALL_PERMISSIONS
+    permissions = payload.get('permissions')
+    if permissions is None:
+        return None, None
+    if (not isinstance(permissions, list)
+            or not all(type(p) is str for p in permissions)
+            or len(permissions) > len(ALL_PERMISSIONS)):
+        return None, ('permissions must be a list of strings', 400)
+    permissions = set(permissions)
+    unknown = permissions - ALL_PERMISSIONS
+    if unknown:
+        return None, (f'Unknown permissions: {sorted(unknown)}', 400)
+    if not permissions:
+        return None, ('permissions must not be empty', 400)
+    return permissions, None
+
+
+def _bounded_int(payload: dict, key: str, default: int,
+                 lo: int, hi: int):
+    """``key`` → ``(int, error)`` — strict int (bool rejected)."""
+    value = payload.get(key, default)
+    if type(value) is not int:  # noqa: E721 - bool is an int; reject it
+        return None, (f'{key} must be an integer', 400)
+    if not lo <= value <= hi:
+        return None, (f'{key} must be {lo}..{hi}', 400)
+    return value, None
+
+
+def _bool_flags(payload: dict, keys) -> tuple | None:
+    for flag in keys:
+        if type(payload.get(flag, False)) is not bool:  # noqa: E721
+            return (f'{flag} must be a boolean', 400)
+    return None
+
+
+def _parse_allowed_ip(payload: dict):
+    """``allowed_ip`` → ``(str|None, error)``; 'first-observed' binds
+    on first use, IP/CIDR is validated here."""
+    allowed_ip = payload.get('allowed_ip')
+    if not allowed_ip:
+        return None, None
+    if not isinstance(allowed_ip, str):
+        return None, ('allowed_ip must be a string', 400)
+    allowed_ip = allowed_ip.strip()
+    if len(allowed_ip) > 64 or not _valid_allowed_ip(allowed_ip):
+        return None, ("allowed_ip is not a valid IP, CIDR, "
+                      "or 'first-observed'", 400)
+    return allowed_ip, None
+
+
+def _parse_resource_field(payload: dict):
+    """``resource`` → ``(str|None, error)``."""
+    resource = payload.get('resource')
+    if not resource:
+        return None, None
+    if not isinstance(resource, str) or resource not in _RESOURCES:
+        return None, (
+            f'resource must be one of {sorted(_RESOURCES)}', 400)
+    return resource, None
+
+
+def _parse_session_create(payload: dict):
+    """Validate the POST /sessions body; returns ``(fields, error)``.
+
+    Strict schema: unknown keys are rejected, not ignored — a
+    misspelled flag must never silently produce a wider link. The
+    returned ``fields`` dict is ready to be splatted into the use case.
+    """
+    unknown_keys = set(payload) - _SESSION_CREATE_KEYS
+    if unknown_keys:
+        return None, (f'Unknown fields: {sorted(unknown_keys)}', 400)
+
+    from vnc_remote_secure.security.ephemeral_sessions import ROLES
+
+    role = payload.get('role', 'viewer')
+    if not isinstance(role, str) or role not in ROLES:
+        return None, (f'Unknown role: {role}', 400)
+    permissions, error = _parse_permissions_field(payload)
+    if error:
+        return None, error
+    ttl, error = _bounded_int(payload, 'ttl_seconds', 1800, 60,
+                              7 * 86400)
+    if error:
+        return None, error
+    max_uses, error = _bounded_int(payload, 'max_uses', 0, 0, 1000)
+    if error:
+        return None, error
+    flag_err = _bool_flags(
+        payload, ('single_use', 'view_only', 'no_terminal'))
+    if flag_err:
+        return None, flag_err
+    allowed_ip, error = _parse_allowed_ip(payload)
+    if error:
+        return None, error
+    resource, error = _parse_resource_field(payload)
+    if error:
+        return None, error
+    return {
+        'role': role, 'permissions': permissions, 'ttl': ttl,
+        'single_use': payload.get('single_use', False),
+        'view_only': payload.get('view_only', False),
+        'no_terminal': payload.get('no_terminal', False),
+        'allowed_ip': allowed_ip, 'resource': resource,
+        'max_uses': max_uses,
+    }, None
+
+
 def _post_session_create(handler, query):
     """POST /api/v1/sessions — share-link creation for the wizard.
     Auth+CSRF+capability already ran in _dispatch; the operator is
@@ -546,77 +655,10 @@ def _post_session_create(handler, query):
     if error:
         _err(handler, *error)
         return
-
-    # Strict schema: unknown keys are rejected, not ignored — a
-    # misspelled flag must never silently produce a wider link.
-    unknown_keys = set(payload) - _SESSION_CREATE_KEYS
-    if unknown_keys:
-        _err(handler, f'Unknown fields: {sorted(unknown_keys)}', 400)
+    fields, error = _parse_session_create(payload)
+    if error:
+        _err(handler, *error)
         return
-
-    from vnc_remote_secure.security.ephemeral_sessions import (
-        ALL_PERMISSIONS,
-        ROLES,
-    )
-
-    role = payload.get('role', 'viewer')
-    if not isinstance(role, str) or role not in ROLES:
-        _err(handler, f'Unknown role: {role}', 400)
-        return
-    permissions = payload.get('permissions')
-    if permissions is not None:
-        if (not isinstance(permissions, list)
-                or not all(type(p) is str for p in permissions)
-                or len(permissions) > len(ALL_PERMISSIONS)):
-            _err(handler, 'permissions must be a list of strings', 400)
-            return
-        permissions = set(permissions)
-        unknown = permissions - ALL_PERMISSIONS
-        if unknown:
-            _err(handler,
-                 f'Unknown permissions: {sorted(unknown)}', 400)
-            return
-        if not permissions:
-            _err(handler, 'permissions must not be empty', 400)
-            return
-    ttl = payload.get('ttl_seconds', 1800)
-    if type(ttl) is not int:  # noqa: E721 - bool is an int; reject it
-        _err(handler, 'ttl_seconds must be an integer', 400)
-        return
-    if not 60 <= ttl <= 7 * 86400:
-        _err(handler, 'ttl_seconds must be 60..604800', 400)
-        return
-    max_uses = payload.get('max_uses', 0)
-    if type(max_uses) is not int:  # noqa: E721
-        _err(handler, 'max_uses must be an integer', 400)
-        return
-    if not 0 <= max_uses <= 1000:
-        _err(handler, 'max_uses must be 0..1000', 400)
-        return
-    for flag in ('single_use', 'view_only', 'no_terminal'):
-        if type(payload.get(flag, False)) is not bool:  # noqa: E721
-            _err(handler, f'{flag} must be a boolean', 400)
-            return
-    allowed_ip = payload.get('allowed_ip')
-    if allowed_ip:
-        if not isinstance(allowed_ip, str):
-            _err(handler, 'allowed_ip must be a string', 400)
-            return
-        allowed_ip = allowed_ip.strip()
-        if len(allowed_ip) > 64 or not _valid_allowed_ip(allowed_ip):
-            _err(handler, 'allowed_ip is not a valid IP, CIDR, '
-                          "or 'first-observed'", 400)
-            return
-    else:
-        allowed_ip = None
-    resource = payload.get('resource')
-    if resource:
-        if not isinstance(resource, str) or resource not in _RESOURCES:
-            _err(handler,
-                 f'resource must be one of {sorted(_RESOURCES)}', 400)
-            return
-    else:
-        resource = None
 
     # Delegation + creation are domain rules — the use case owns them.
     from vnc_remote_secure.engine.application.sessions import create_share_link
@@ -624,13 +666,7 @@ def _post_session_create(handler, query):
     try:
         session, signed = create_share_link(
             operator.get('username', 'admin'),
-            set(operator.get('permissions') or []),
-            role=role, permissions=permissions, ttl=ttl,
-            single_use=payload.get('single_use', False),
-            view_only=payload.get('view_only', False),
-            no_terminal=payload.get('no_terminal', False),
-            allowed_ip=allowed_ip, resource=resource,
-            max_uses=max_uses)
+            set(operator.get('permissions') or []), **fields)
     except UseCaseError as exc:
         _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
@@ -989,6 +1025,30 @@ def _post_operator_create(handler, query):
     }, status=201)
 
 
+def _parse_operator_patch(payload: dict):
+    """Body → use-case kwargs; ``(kw, error)``."""
+    kw: dict = {}
+    if 'role' in payload:
+        if not isinstance(payload['role'], str):
+            return None, ('role must be a string', 400)
+        kw['role'] = payload['role']
+    if 'disabled' in payload:
+        if type(payload['disabled']) is not bool:  # noqa: E721
+            return None, ('disabled must be a boolean', 400)
+        kw['disabled'] = payload['disabled']
+    if 'password' in payload:
+        password = payload['password']
+        if not isinstance(password, str) or not password:
+            return None, ('password must be a non-empty string', 400)
+        from vnc_remote_secure.core.validation import ValidationError, validate_password
+        try:
+            validate_password(password)
+        except ValidationError as exc:
+            return None, (str(exc), 400)
+        kw['password'] = password
+    return kw, None
+
+
 def _patch_operator(handler, query):
     """PATCH /api/v1/operators/{username} — role, disabled, password.
     Internal fields (hash, timestamps) are never settable."""
@@ -1010,31 +1070,10 @@ def _patch_operator(handler, query):
         return
     from vnc_remote_secure.engine.application.operators import update_operator
     from vnc_remote_secure.engine.domain.decision import UseCaseError
-    kw: dict = {}
-    if 'role' in payload:
-        role = payload['role']
-        if not isinstance(role, str):
-            _err(handler, 'role must be a string', 400)
-            return
-        kw['role'] = role
-    if 'disabled' in payload:
-        disabled = payload['disabled']
-        if type(disabled) is not bool:  # noqa: E721
-            _err(handler, 'disabled must be a boolean', 400)
-            return
-        kw['disabled'] = disabled
-    if 'password' in payload:
-        password = payload['password']
-        if not isinstance(password, str) or not password:
-            _err(handler, 'password must be a non-empty string', 400)
-            return
-        from vnc_remote_secure.core.validation import ValidationError, validate_password
-        try:
-            validate_password(password)
-        except ValidationError as exc:
-            _err(handler, str(exc), 400)
-            return
-        kw['password'] = password
+    kw, error = _parse_operator_patch(payload)
+    if error:
+        _err(handler, *error)
+        return
     try:
         result = update_operator(
             operator.get('username', '?'),
@@ -1226,6 +1265,37 @@ def _template_routes():
     return _TEMPLATE_ROUTES
 
 
+def _match_route(method: str, rel: str):
+    """Resolve ``(method, path)`` to ``(spec, params)`` — literal
+    routes first, then compiled ``{param}`` templates."""
+    spec = _ROUTES.get((method, rel))
+    if spec is not None:
+        return spec, {}
+    for rmethod, regex, rspec in _template_routes():
+        if rmethod == method:
+            m = regex.match(rel)
+            if m:
+                return rspec, m.groupdict()
+    return None, {}
+
+
+def _deny_step_up(handler, operator: dict, method: str,
+                  rel: str) -> None:
+    """403 + machine-readable code — the SPA opens the step-up
+    dialog instead of treating it as a permission failure."""
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event(
+        'step_up_required',
+        user=operator.get('username', '?'),
+        detail=f'{method} {rel}')
+    handler.send_json({
+        'error': True,
+        'message': 'Step-up authentication required',
+        'code': 'STEP_UP_REQUIRED',
+        'request_id': _request_id(),
+    }, 403)
+
+
 def _dispatch(handler, method: str, path: str, query: dict) -> bool:
     """Central dispatch: rate limit -> auth/capability -> handler.
 
@@ -1233,16 +1303,7 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
     when ``path`` matches no route.
     """
     rel = path[len(_API_PREFIX):]
-    spec = _ROUTES.get((method, rel))
-    params = {}
-    if spec is None:
-        for rmethod, regex, rspec in _template_routes():
-            if rmethod != method:
-                continue
-            m = regex.match(rel)
-            if m:
-                spec, params = rspec, m.groupdict()
-                break
+    spec, params = _match_route(method, rel)
     if spec is None:
         return False
     if not _rate_limit(handler, spec.scope):
@@ -1255,26 +1316,14 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
         if operator is None:
             return True
         handler._api_operator = operator
-        if spec.step_up:
-            # Destructive/mass operations require a recent
-            # authentication, not just a valid session (POST step-up
-            # grants 5 min). A valid session alone answers 403 with a
-            # machine-readable code so the SPA can open the dialog
-            # instead of treating it as a permission failure.
-            from vnc_remote_secure.security.step_up_auth import needs_step_up
-            if needs_step_up(operator.get('username', '')):
-                from vnc_remote_secure.security.audit import audit_event
-                audit_event(
-                    'step_up_required',
-                    user=operator.get('username', '?'),
-                    detail=f'{method} {rel}')
-                handler.send_json({
-                    'error': True,
-                    'message': 'Step-up authentication required',
-                    'code': 'STEP_UP_REQUIRED',
-                    'request_id': _request_id(),
-                }, 403)
-                return True
+        # Destructive/mass operations require a recent
+        # authentication, not just a valid session (POST step-up
+        # grants 5 min).
+        from vnc_remote_secure.security.step_up_auth import needs_step_up
+        if spec.step_up and needs_step_up(
+                operator.get('username', '')):
+            _deny_step_up(handler, operator, method, rel)
+            return True
     elif spec.perm is not None:
         cap = None if spec.perm == 'operator' else spec.perm
         operator = _operator(handler, cap)
