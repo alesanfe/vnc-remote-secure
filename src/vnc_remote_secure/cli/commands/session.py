@@ -190,20 +190,22 @@ def _session_create(store, args):
     if err:
         return 1
 
+    # The CLI operator holds a local shell — equivalent to admin:* —
+    # so delegation checks pass, but the rules still run through the
+    # shared use case (same audit trail, same invariants as the API).
+    from vnc_remote_secure.engine.application.sessions import create_share_link
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    actor = ('cli:'
+             + (os.environ.get('USERNAME') or os.environ.get('USER')
+                or 'admin'))
     try:
-        _session, signed_token = store.create(
-            expires_in=expires_in,
-            role=role,
-            single_use=args.single_use,
-            view_only=args.view_only,
-            no_terminal=args.no_terminal,
-            allowed_ip=args.allowed_ip,
-            created_by=os.environ.get('USERNAME') or os.environ.get('USER', 'admin'),
-            resource=args.resource,
-            max_uses=args.max_uses,
-            permissions=permissions,
-        )
-    except ValueError as e:
+        _session, signed_token = create_share_link(
+            actor, {'admin:*'},
+            role=role, permissions=permissions, ttl=expires_in,
+            single_use=args.single_use, view_only=args.view_only,
+            no_terminal=args.no_terminal, allowed_ip=args.allowed_ip,
+            resource=args.resource, max_uses=args.max_uses)
+    except (UseCaseError, ValueError) as e:
         # e.g. EPHEMERAL_REQUIRE_RESOURCE rejects unbound tokens.
         print(f"Error: {e}")
         return 1
@@ -216,8 +218,10 @@ def _session_create(store, args):
 
 
 def _session_list(store, args):
-    """List active ephemeral sessions."""
-    sessions = store.list_active()
+    """List active ephemeral sessions via the shared use case."""
+    del store  # the use case resolves the store itself
+    from vnc_remote_secure.engine.application.sessions import list_share_links
+    sessions = list_share_links('active')
     if args.json:
         print(json.dumps(sessions, indent=2))
     else:
@@ -245,15 +249,19 @@ def _session_revoke(args, store=None):
     # closes live WebSockets via the registry just like a single
     # revoke, so a compromised deployment can be locked down in one
     # command instead of one token at a time.
+    # All revocations go through the shared use cases — the API and
+    # the CLI must enforce the same semantics (shared-state mark,
+    # live-WebSocket close, audit trail).
+    from vnc_remote_secure.engine.application.sessions import (
+        revoke_all_share_links,
+        revoke_share_link,
+        revoke_share_links_by,
+    )
+    actor = ('cli:'
+             + (os.environ.get('USERNAME') or os.environ.get('USER')
+                or 'admin'))
     if getattr(args, 'all', False):
-        from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
-        store = store or get_session_store()
-        # list_active returns public ids (token fingerprints), not the
-        # tokens — resolve real tokens from the store for revoke.
-        revoked = 0
-        for token in list(store._sessions.keys()):
-            if revoke_session(token):
-                revoked += 1
+        revoked = revoke_all_share_links(actor)
         _audit_cli('ephemeral_session_revoke_all', 'success',
                    f'count={revoked}')
         print(f"Revoked {revoked} session(s).")
@@ -263,13 +271,7 @@ def _session_revoke(args, store=None):
     # compromised admin account).
     by_user = getattr(args, 'by_user', None)
     if by_user:
-        from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
-        store = store or get_session_store()
-        revoked = 0
-        for token, sess in list(store._sessions.items()):
-            if getattr(sess, 'created_by', '') == by_user \
-                    and revoke_session(token):
-                revoked += 1
+        revoked = revoke_share_links_by(actor, by_user)
         _audit_cli('ephemeral_session_revoke_user', 'success',
                    f'user={by_user} count={revoked}')
         print(f"Revoked {revoked} session(s) created by {by_user}.")
@@ -280,11 +282,10 @@ def _session_revoke(args, store=None):
     if not token:
         print("Error: token required for revoke")
         return 1
-    # revoke_session() (not bare store.revoke) also marks the
+    # revoke_share_link() (not bare store.revoke) also marks the
     # shared-state revocation and force-closes live WebSocket
     # connections registered for this session.
-    from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-    ok = revoke_session(token)
+    ok = revoke_share_link(actor, token)
     # Token is a credential — audit only its fingerprint.
     _audit_cli('ephemeral_session_revoke',
                'success' if ok else 'failure',

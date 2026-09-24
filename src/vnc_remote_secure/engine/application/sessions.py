@@ -85,12 +85,27 @@ def revoke_share_link(actor: str, token_id: str) -> bool:
 def revoke_all_share_links(actor: str) -> int:
     """Emergency kill-switch: revoke every live share link."""
     store = stores.session_store()
-    store._load_if_changed()
+    stores.session_refresh(store)
     count = 0
     for s in list(store.list_active()):
         if stores.revoke_ephemeral_token(s['token_id']):
             count += 1
     _audit('portal_session_revoke_all', actor, f'count={count}')
+    return count
+
+
+def revoke_share_links_by(actor: str, created_by: str) -> int:
+    """Revoke every live share link minted by *created_by* — the
+    offboarding/compromised-credential kill operation."""
+    store = stores.session_store()
+    stores.session_refresh(store)
+    count = 0
+    for token, sess in list(store._sessions.items()):
+        if getattr(sess, 'created_by', '') == created_by \
+                and stores.revoke_ephemeral_token(token):
+            count += 1
+    _audit('portal_session_revoke_user', actor,
+           f'target={created_by} count={count}')
     return count
 
 
@@ -109,7 +124,7 @@ def list_share_links(status: str = 'active') -> list:
         raise UseCaseError(
             ERR_INVALID, f'unknown status filter: {status}')
     store = stores.session_store()
-    store._load_if_changed()
+    stores.session_refresh(store)
     if status == 'revoked':
         return list(store.list_revoked())
     if status == 'all':

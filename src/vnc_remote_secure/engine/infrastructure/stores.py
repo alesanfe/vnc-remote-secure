@@ -27,6 +27,14 @@ def mint_session_token(session, ttl_seconds: int) -> str:
     return create_ephemeral_token(session, ttl_seconds)
 
 
+def session_refresh(store) -> None:
+    """Re-read persisted sessions when the backend supports it —
+    tests and future adapters may not need the hook."""
+    fn = getattr(store, '_load_if_changed', None)
+    if callable(fn):
+        fn()
+
+
 def session_roles() -> dict:
     """Role → default permission set for share links."""
     from vnc_remote_secure.security.ephemeral_sessions import ROLES
