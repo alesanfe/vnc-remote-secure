@@ -10,9 +10,12 @@ Basic credential and enforces Origin + Sec-Fetch-Site CSRF checks.
 Success responses use the ``{data, error, request_id}`` envelope;
 errors reuse the canonical ``error_json`` body via ``send_json_error``.
 """
+import hashlib
+import hmac
 import json
 import logging
 import re
+import time
 import uuid
 
 from vnc_remote_secure.core.config import env_flag
@@ -25,6 +28,84 @@ _MAX_BODY = 16384
 
 # Resources a share link may be bound to.
 _RESOURCES = {'desktop', 'terminal', 'audio', 'gamepad'}
+
+# Share-link permissions that grant administrative power — minting a
+# link carrying any of these requires the operator to hold 'admin:*',
+# otherwise an 'admin_sessions' operator could hand out admin links.
+_ADMINISH_PERMS = {
+    'admin', 'admin_users', 'admin_config', 'admin_secrets',
+    'admin_audit',
+}
+
+# Strict input schema for POST /api/v1/sessions.
+_SESSION_CREATE_KEYS = {
+    'role', 'permissions', 'ttl_seconds', 'single_use', 'view_only',
+    'no_terminal', 'max_uses', 'allowed_ip', 'resource',
+}
+
+# Per-scope rate limits: (max requests, window seconds). These sit on
+# top of the auth layer — expensive endpoints (doctor, audit verify)
+# get tight budgets so the API cannot be used to burn CPU/disk.
+_RATE_LIMITS = {
+    'sessions.create': (30, 60),
+    'sessions.revoke': (60, 60),
+    'sessions.revoke-all': (10, 60),
+    'doctor': (6, 60),
+    'audit': (60, 60),
+    'audit.verify': (10, 60),
+    'session.activate': (30, 60),
+    'session.preview': (60, 60),
+    'default': (120, 60),
+}
+_RATE_NS = 'api_rate'
+
+
+def _rate_limit(handler, scope: str) -> bool:
+    """Fixed-window per-IP-per-scope limiter over the shared backend.
+
+    Fails closed on backend errors for mutating scopes and open for
+    reads — a redis/sqlite hiccup must not blind the operator, but a
+    mutation flood must not sail through either.
+    """
+    from vnc_remote_secure.security.http_auth import client_ip_from
+    ip = client_ip_from(handler.headers, handler.peer_ip()) or 'unknown'
+    max_req, window = _RATE_LIMITS.get(scope, _RATE_LIMITS['default'])
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        bucket = int(time.time() // window)
+        count = get_backend().increment(
+            _RATE_NS, f'{scope}\x00{ip}\x00{bucket}', 1, window)
+        allowed = int(count) <= max_req
+    except Exception:  # noqa: BLE001 - degraded, not silent
+        logger.warning('API rate limiter unavailable (scope=%s)', scope)
+        allowed = scope not in ('sessions.create', 'sessions.revoke',
+                                'sessions.revoke-all')
+    if not allowed:
+        _err(handler, 'Too many requests', 429)
+    return allowed
+
+
+def _csrf_token(username: str) -> str:
+    """CSRF token bound to the operator username and the deployment
+    signing secret — a cross-site page cannot read or forge it."""
+    from vnc_remote_secure.security.authentication import _get_secret
+    return hmac.new(_get_secret(), f'csrf:{username}'.encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def _check_csrf(handler, operator) -> bool:
+    """Require ``X-CSRF-Token`` matching the operator's token.
+
+    Basic auth rides on every same-origin request automatically, so
+    Origin/Sec-Fetch-Site (checked in _operator_gate) plus this token
+    give two independent CSRF layers — neither alone is guaranteed.
+    """
+    token = handler.headers.get('X-CSRF-Token', '')
+    expected = _csrf_token(str(operator.get('username', '')))
+    if not token or not hmac.compare_digest(token, expected):
+        _err(handler, 'CSRF token missing or invalid', 403)
+        return False
+    return True
 
 
 def is_api_path(path: str) -> bool:
@@ -132,6 +213,10 @@ def _get_me(handler):
             'permissions': sorted(operator.get('permissions') or []),
         } if operator else None),
         'ephemeral': operator is None,
+        # Double-submit CSRF token for SPA mutations — bound to the
+        # operator username, required as X-CSRF-Token on POSTs.
+        'csrf_token': (_csrf_token(str(operator.get('username', '')))
+                       if operator else None),
     })
 
 
@@ -208,10 +293,28 @@ def _get_audit(handler, query):
             limit = int((query.get('limit') or ['100'])[0])
         except ValueError:
             limit = 100
-        limit = max(1, min(limit, 1000))
+        limit = max(1, min(limit, 500))
         event = (query.get('event') or [None])[0]
+        # Cursor pagination: ``cursor`` is the seq of the last entry of
+        # the previous page — opaque to the client, stable under
+        # appends, no deep offsets.
+        cursor = (query.get('cursor') or [None])[0]
+        try:
+            before_seq = int(cursor) if cursor else None
+        except (TypeError, ValueError):
+            _err(handler, 'Invalid cursor', 400)
+            return
+        entries = get_audit_entries(
+            limit=limit + 1, event=event, before_seq=before_seq)
+        has_more = len(entries) > limit
+        entries = entries[:limit]
+        next_cursor = (entries[-1].get('seq')
+                       if has_more and entries else None)
         _ok(handler, {
-            'entries': get_audit_entries(limit=limit, event=event)})
+            'entries': entries,
+            'next_cursor': next_cursor,
+            'has_more': has_more,
+        })
     except Exception as e:  # noqa: BLE001
         log_exception(e, 'api /audit')
         _err(handler, 'Audit read failed', 500)
@@ -294,6 +397,17 @@ def _get_maintenance(handler):
         _err(handler, 'Maintenance state read failed', 500)
 
 
+# Route -> rate-limit scope. Dispatch applies it centrally so no
+# handler can forget it.
+_GET_SCOPES = {
+    'doctor': 'doctor', 'audit': 'audit', 'audit/verify': 'audit.verify',
+}
+_POST_SCOPES = {
+    'sessions': 'sessions.create', 'sessions/revoke': 'sessions.revoke',
+    'sessions/revoke-all': 'sessions.revoke-all',
+}
+
+
 def handle_get(handler, path: str, query: dict) -> bool:
     """Dispatch a GET under /api/v1/. Returns True when handled."""
     routes = {
@@ -311,9 +425,12 @@ def handle_get(handler, path: str, query: dict) -> bool:
         'operators': _get_operators,
         'maintenance': _get_maintenance,
     }
-    fn = routes.get(path[len(_API_PREFIX):])
+    rel = path[len(_API_PREFIX):]
+    fn = routes.get(rel)
     if fn is None:
         return False
+    if not _rate_limit(handler, _GET_SCOPES.get(rel, 'default')):
+        return True
     fn(handler)
     return True
 
@@ -339,30 +456,44 @@ def _valid_allowed_ip(value: str) -> bool:
 
 def _post_session_create(handler):
     """POST /api/v1/sessions — share-link creation for the wizard."""
+    if not _rate_limit(handler, 'sessions.create'):
+        return
     operator = handler._operator_gate('admin_sessions')
     if operator is None:
+        return
+    if not _check_csrf(handler, operator):
         return
     payload, error = _read_json_body(handler)
     if error:
         _err(handler, *error)
         return
 
+    # Strict schema: unknown keys are rejected, not ignored — a
+    # misspelled flag must never silently produce a wider link.
+    unknown_keys = set(payload) - _SESSION_CREATE_KEYS
+    if unknown_keys:
+        _err(handler, f'Unknown fields: {sorted(unknown_keys)}', 400)
+        return
+
     from vnc_remote_secure.security.ephemeral_sessions import (
         ALL_PERMISSIONS,
         ROLES,
+        expand_permissions,
         get_session_store,
     )
 
-    role = str(payload.get('role', 'viewer'))
-    if role not in ROLES:
+    role = payload.get('role', 'viewer')
+    if not isinstance(role, str) or role not in ROLES:
         _err(handler, f'Unknown role: {role}', 400)
         return
     permissions = payload.get('permissions')
     if permissions is not None:
-        if not isinstance(permissions, list):
-            _err(handler, 'permissions must be a list', 400)
+        if (not isinstance(permissions, list)
+                or not all(type(p) is str for p in permissions)
+                or len(permissions) > len(ALL_PERMISSIONS)):
+            _err(handler, 'permissions must be a list of strings', 400)
             return
-        permissions = {str(p) for p in permissions}
+        permissions = set(permissions)
         unknown = permissions - ALL_PERMISSIONS
         if unknown:
             _err(handler,
@@ -371,25 +502,30 @@ def _post_session_create(handler):
         if not permissions:
             _err(handler, 'permissions must not be empty', 400)
             return
-    try:
-        ttl = int(payload.get('ttl_seconds', 1800))
-    except (TypeError, ValueError):
+    ttl = payload.get('ttl_seconds', 1800)
+    if type(ttl) is not int:  # noqa: E721 - bool is an int; reject it
         _err(handler, 'ttl_seconds must be an integer', 400)
         return
     if not 60 <= ttl <= 7 * 86400:
         _err(handler, 'ttl_seconds must be 60..604800', 400)
         return
-    try:
-        max_uses = int(payload.get('max_uses', 0))
-    except (TypeError, ValueError):
+    max_uses = payload.get('max_uses', 0)
+    if type(max_uses) is not int:  # noqa: E721
         _err(handler, 'max_uses must be an integer', 400)
         return
     if not 0 <= max_uses <= 1000:
         _err(handler, 'max_uses must be 0..1000', 400)
         return
+    for flag in ('single_use', 'view_only', 'no_terminal'):
+        if type(payload.get(flag, False)) is not bool:  # noqa: E721
+            _err(handler, f'{flag} must be a boolean', 400)
+            return
     allowed_ip = payload.get('allowed_ip')
     if allowed_ip:
-        allowed_ip = str(allowed_ip).strip()
+        if not isinstance(allowed_ip, str):
+            _err(handler, 'allowed_ip must be a string', 400)
+            return
+        allowed_ip = allowed_ip.strip()
         if len(allowed_ip) > 64 or not _valid_allowed_ip(allowed_ip):
             _err(handler, 'allowed_ip is not a valid IP, CIDR, '
                           "or 'first-observed'", 400)
@@ -398,21 +534,38 @@ def _post_session_create(handler):
         allowed_ip = None
     resource = payload.get('resource')
     if resource:
-        resource = str(resource)
-        if resource not in _RESOURCES:
+        if not isinstance(resource, str) or resource not in _RESOURCES:
             _err(handler,
                  f'resource must be one of {sorted(_RESOURCES)}', 400)
             return
     else:
         resource = None
 
+    # Privilege delegation: a share link may only carry powers the
+    # CREATING operator holds. Operator permissions are admin_* names
+    # while share-link permissions are view/control/terminal/... — the
+    # enforceable overlap is the admin-granting set: minting a link
+    # with admin powers (administrator role or explicit admin_*)
+    # requires 'admin:*'.
+    requested = permissions if permissions is not None else ROLES[role]
+    if expand_permissions(requested) & _ADMINISH_PERMS:
+        op_perms = set(operator.get('permissions') or [])
+        if 'admin:*' not in op_perms:
+            from vnc_remote_secure.security.audit import audit_event
+            audit_event('api_permission_denied',
+                        user=operator.get('username', '?'),
+                        detail='share-link with admin permissions')
+            _err(handler,
+                 'Admin-granting share links require admin:*', 403)
+            return
+
     try:
         session, signed = get_session_store().create(
             expires_in=ttl,
             role=role,
-            single_use=bool(payload.get('single_use', False)),
-            view_only=bool(payload.get('view_only', False)),
-            no_terminal=bool(payload.get('no_terminal', False)),
+            single_use=payload.get('single_use', False),
+            view_only=payload.get('view_only', False),
+            no_terminal=payload.get('no_terminal', False),
             allowed_ip=allowed_ip,
             created_by=operator.get('username', 'admin'),
             resource=resource,
@@ -426,7 +579,10 @@ def _post_session_create(handler):
     from vnc_remote_secure.cli.commands.session import _share_base_url
     base = _share_base_url()
     _ok(handler, {
-        'url': f'{base}/?session={signed}',
+        # Fragment-carried link: the token never reaches the server in
+        # the URL, so it cannot leak via history, Referer, or logs.
+        'url': f'{base}/share#t={signed}',
+        'legacy_url': f'{base}/?session={signed}',
         'token_id': session.to_dict()['token_id'],
         'expires_at': session.expires_at,
         'role': session.role,
@@ -442,8 +598,12 @@ def _post_session_create(handler):
 
 def _post_session_revoke(handler):
     """POST /api/v1/sessions/revoke — revoke one share-link session."""
+    if not _rate_limit(handler, 'sessions.revoke'):
+        return
     operator = handler._operator_gate('admin_sessions')
     if operator is None:
+        return
+    if not _check_csrf(handler, operator):
         return
     payload, error = _read_json_body(handler, limit=4096)
     if error:
@@ -466,8 +626,12 @@ def _post_session_revoke(handler):
 
 def _post_session_revoke_all(handler):
     """POST /api/v1/sessions/revoke-all — emergency kill-switch."""
+    if not _rate_limit(handler, 'sessions.revoke-all'):
+        return
     operator = handler._operator_gate('admin_sessions')
     if operator is None:
+        return
+    if not _check_csrf(handler, operator):
         return
     from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
     store = get_session_store()
@@ -490,8 +654,11 @@ def handle_post(handler, path: str) -> bool:
         'sessions/revoke': _post_session_revoke,
         'sessions/revoke-all': _post_session_revoke_all,
     }
-    fn = routes.get(path[len(_API_PREFIX):])
+    rel = path[len(_API_PREFIX):]
+    fn = routes.get(rel)
     if fn is None:
         return False
+    if not _rate_limit(handler, _POST_SCOPES.get(rel, 'default')):
+        return True
     fn(handler)
     return True
