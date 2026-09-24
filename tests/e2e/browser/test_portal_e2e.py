@@ -149,8 +149,11 @@ def terminal_server(monkeypatch):
     def _serve():
         # The IOLoop must be current IN THE SERVING THREAD — sockets
         # registered on the main thread's default loop never fire.
-        loop = tornado.ioloop.IOLoop()
-        loop.make_current()
+        # Tornado 6.x: an asyncio loop installed in this thread, then
+        # IOLoop.current() wraps it (IOLoop.make_current is removed).
+        import asyncio
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        loop = tornado.ioloop.IOLoop.current()
         server.add_sockets(sockets)
         holder['loop'] = loop
         ready.set()

@@ -59,19 +59,16 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     # original function — patching the module attribute alone leaves
     # them writing to the real run dir (a test run previously leaked
     # generated_credentials.env into the real %LOCALAPPDATA%).
-    # Rebind the name inside each of those modules too.
-    for mod_name in (
-        'vnc_remote_secure.core.backup',
-        'vnc_remote_secure.core.doctor',
-        'vnc_remote_secure.core.service_manager',
-        'vnc_remote_secure.core.uninstall',
-        'vnc_remote_secure.platform.linux.installer',
-        'vnc_remote_secure.platform.windows.installer',
-        'vnc_remote_secure.security.authentication',
-    ):
-        try:
-            mod = __import__(mod_name, fromlist=['x'])
-        except Exception:
+    # Rebind the name inside every loaded vnc_remote_secure module —
+    # walking sys.modules instead of a hardcoded list means NEW modules
+    # (a fresh security/webauthn.py binding get_data_dir once leaked a
+    # test credential store into the real data dir) are covered
+    # automatically. Modules imported lazily at call time resolve the
+    # patched source attribute anyway.
+    import sys as _sys
+    for mod in list(_sys.modules.values()):
+        if mod is None or not getattr(
+                mod, '__name__', '').startswith('vnc_remote_secure.'):
             continue
         for fname, target in _overrides.items():
             if getattr(mod, fname, None) is not None:
@@ -135,7 +132,7 @@ _SHARED_STATE_TEST_NAMESPACES = (
     'websocket_revoked_sessions', 'ephemeral_revoked_sessions',
     'ephemeral_consumed', 'ephemeral_uses',
     'mfa_last_step', 'mfa_used_steps', 'mfa_used_recovery_codes',
-    'step_up_auth_times',
+    'step_up_auth_times', 'webauthn_challenges',
 )
 
 
