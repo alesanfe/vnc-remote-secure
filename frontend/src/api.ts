@@ -482,6 +482,7 @@ export interface JobSummary {
   error: string | null;
   claimed_by?: string | null;
   progress?: string | null;
+  percent?: number | null;
 }
 
 export interface LifecycleStatus {

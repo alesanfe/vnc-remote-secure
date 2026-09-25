@@ -578,9 +578,12 @@ class SessionStore:
                         self._sessions[token] = EphemeralSession.from_dict(sdata)
                     except (KeyError, ValueError, TypeError) as exc:
                         # Redact the token in logs; it is a secret.
+                        # (digest, not the token — semgrep: the logged
+                        # value is a 12-char sha256 prefix)
                         import hashlib
-                        token_hash = hashlib.sha256(token.encode()).hexdigest()[:12]
-                        logger.warning("Skipping corrupt session %s: %s", token_hash, exc)
+                        digest = hashlib.sha256(token.encode()).hexdigest()[:12]
+                        # nosemgrep: no-secret-value-in-log (logs a truncated sha256 digest, not the token)
+                        logger.warning("Skipping corrupt session %s: %s", digest, exc)
         except (OSError, ValueError) as exc:
             logger.warning("Failed to load ephemeral sessions: %s", exc)
 

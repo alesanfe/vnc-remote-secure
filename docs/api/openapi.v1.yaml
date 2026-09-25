@@ -1023,6 +1023,7 @@ paths:
     post:
       summary: Create a share link
       x-required-permission: admin_sessions
+      x-operation-id: session.create
       x-csrf-required: true
       x-rate-limit-scope: sessions.create
       x-request-schema: SessionCreateRequest
@@ -1044,6 +1045,7 @@ paths:
     post:
       summary: Revoke one share-link session (uniform 200)
       x-required-permission: admin_sessions
+      x-operation-id: session.revoke
       x-csrf-required: true
       x-rate-limit-scope: sessions.revoke
       x-response-schema: SessionRevokeResponse
@@ -1061,6 +1063,7 @@ paths:
     post:
       summary: Revoke every share-link session
       x-required-permission: admin_sessions
+      x-operation-id: session.revoke_all
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: sessions.revoke-all
@@ -1099,6 +1102,7 @@ paths:
         auth for step-up-gated routes (mass revocation, operator
         lifecycle).
       x-required-permission: operator
+      x-operation-id: ui.step_up
       x-csrf-required: true
       x-rate-limit-scope: stepup
       x-request-schema: StepUpRequest
@@ -1146,6 +1150,7 @@ paths:
     get:
       summary: Doctor checks (operator, rate limited)
       x-required-permission: operator
+      x-operation-id: system.doctor
       x-rate-limit-scope: doctor
       x-response-schema: DoctorResponse
       responses:
@@ -1206,6 +1211,7 @@ paths:
     get:
       summary: Effective config, values redacted
       x-required-permission: admin_config
+      x-operation-id: config.effective
       x-rate-limit-scope: default
       x-response-schema: ConfigPageResponse
       responses:
@@ -1219,6 +1225,7 @@ paths:
     get:
       summary: Backup inventory (operator)
       x-required-permission: operator
+      x-operation-id: backup.list
       x-rate-limit-scope: default
       x-response-schema: BackupPageResponse
       responses:
@@ -1231,6 +1238,7 @@ paths:
     post:
       summary: Create a backup archive (vnc-remote backup parity).
       x-required-permission: admin:*
+      x-operation-id: backup.create
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: backups.write
@@ -1255,6 +1263,7 @@ paths:
     post:
       summary: Create an operator (strict schema)
       x-required-permission: admin_users
+      x-operation-id: operator.create
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: operators.create
@@ -1289,6 +1298,7 @@ paths:
     patch:
       summary: 'Edit operator: role, disabled, password. Sensitive changes revoke sessions.'
       x-required-permission: admin_users
+      x-operation-id: operator.update
       x-csrf-required: true
       x-rate-limit-scope: operators.update
       x-response-schema: OperatorResponse
@@ -1310,6 +1320,7 @@ paths:
     delete:
       summary: Delete an operator (last viable admin is protected)
       x-required-permission: admin_users
+      x-operation-id: operator.delete
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: operators.delete
@@ -1354,6 +1365,7 @@ paths:
     post:
       summary: 'WebAuthn registration options — self-service + step-up'
       x-required-permission: operator
+      x-operation-id: passkey.register_begin
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: passkeys.register
@@ -1372,6 +1384,7 @@ paths:
     post:
       summary: Verify attestation and persist the passkey
       x-required-permission: operator
+      x-operation-id: passkey.register_complete
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: passkeys.register
@@ -1410,6 +1423,7 @@ paths:
     delete:
       summary: 'Revoke a passkey (owner or admin_users; last-factor guarded)'
       x-required-permission: operator
+      x-operation-id: passkey.revoke
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: passkeys.manage
@@ -1433,6 +1447,7 @@ paths:
     post:
       summary: Revoke every live operator session for the user (per-user epoch)
       x-required-permission: admin_users
+      x-operation-id: operator.sessions_revoke_all
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: operators.sessions_revoke
@@ -1598,6 +1613,7 @@ paths:
         account returns disabled with a random password — an admin
         must set a password and re-enable it explicitly.
       x-required-permission: admin_users
+      x-operation-id: operator.restore
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: operators.create
@@ -1629,6 +1645,7 @@ paths:
     post:
       summary: Create a runtime OS account (admin_users + step-up)
       x-required-permission: admin_users
+      x-operation-id: system_user.create
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: system_users.manage
@@ -1663,6 +1680,7 @@ paths:
         Reserved/builtin names and the current process account are
         refused.
       x-required-permission: admin_users
+      x-operation-id: system_user.delete
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: system_users.manage
@@ -1697,6 +1715,7 @@ paths:
         immediate drain or scheduled drain_timeout for existing
         share links.
       x-required-permission: 'admin:*'
+      x-operation-id: maintenance.toggle
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: maintenance
@@ -1815,6 +1834,7 @@ paths:
     get:
       summary: Installed package version (vnc-remote version parity).
       x-required-permission: session
+      x-operation-id: system.version
       x-rate-limit-scope: default
       x-response-schema: VersionResponse
       responses:
@@ -1823,6 +1843,7 @@ paths:
     get:
       summary: Managed-service PID/running map + port health (vnc-remote status parity).
       x-required-permission: operator
+      x-operation-id: system.status
       x-rate-limit-scope: default
       x-response-schema: LifecycleStatusResponse
       responses:
@@ -1833,6 +1854,7 @@ paths:
         Queue start|stop|restart on a detached runner so the response is
         delivered before the portal service itself may die.
       x-required-permission: admin:*
+      x-operation-id: lifecycle.action
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: lifecycle
@@ -1855,6 +1877,7 @@ paths:
     post:
       summary: CRC/decrypt-verify a backup by name (vnc-remote verify backup parity).
       x-required-permission: admin:*
+      x-operation-id: backup.verify
       x-csrf-required: true
       x-rate-limit-scope: default
       x-response-schema: BackupVerifyResponse
@@ -1876,6 +1899,7 @@ paths:
     post:
       summary: Restore a backup over the live config (vnc-remote restore parity).
       x-required-permission: admin:*
+      x-operation-id: backup.restore
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: backups.write
@@ -1898,6 +1922,7 @@ paths:
     get:
       summary: Per-secret status (set/missing/weak) - never values (secrets status parity).
       x-required-permission: admin:*
+      x-operation-id: secrets.status
       x-rate-limit-scope: default
       x-response-schema: SecretsResponse
       responses:
@@ -1906,6 +1931,7 @@ paths:
     get:
       summary: Fingerprinted redaction of one secret (secrets redact parity).
       x-required-permission: admin:*
+      x-operation-id: secrets.redact
       x-rate-limit-scope: default
       x-response-schema: SecretRedactResponse
       parameters:
@@ -1917,6 +1943,7 @@ paths:
     post:
       summary: Hard-cutover rotation of an env credential (secrets rotate parity).
       x-required-permission: admin:*
+      x-operation-id: secrets.rotate
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: secrets.rotate
@@ -1931,6 +1958,7 @@ paths:
     post:
       summary: Rotate the token-signing secret with a 7-day coexistence window.
       x-required-permission: admin:*
+      x-operation-id: secrets.rotate_signing
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: secrets.rotate
@@ -1942,6 +1970,7 @@ paths:
     post:
       summary: TLS config + secret-file permission findings (secrets check parity).
       x-required-permission: admin:*
+      x-operation-id: secrets.check
       x-csrf-required: true
       x-rate-limit-scope: default
       x-response-schema: SecretsCheckResponse
@@ -1962,6 +1991,7 @@ paths:
         Generate MFA recovery codes - plaintext returned ONCE, only
         hashes persist (secrets recovery-codes parity).
       x-required-permission: admin:*
+      x-operation-id: secrets.recovery_codes
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: secrets.rotate
@@ -1983,6 +2013,7 @@ paths:
     get:
       summary: One variable's value + provenance (config explain parity).
       x-required-permission: admin_config
+      x-operation-id: config.explain
       x-rate-limit-scope: default
       x-response-schema: ConfigExplainResponse
       parameters:
@@ -1994,6 +2025,7 @@ paths:
     get:
       summary: Contradiction findings for a profile (config validate parity).
       x-required-permission: admin_config
+      x-operation-id: config.validate
       x-rate-limit-scope: default
       x-response-schema: ConfigValidateResponse
       parameters:
@@ -2004,6 +2036,7 @@ paths:
     get:
       summary: Value diff between two profiles (config diff parity).
       x-required-permission: admin_config
+      x-operation-id: config.diff
       x-rate-limit-scope: default
       x-response-schema: ConfigDiffResponse
       parameters:
@@ -2017,6 +2050,7 @@ paths:
         Legacy .env key/profile-value renames (config migrate parity);
         dry_run previews without writing.
       x-required-permission: admin_config
+      x-operation-id: config.migrate
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: config.write
@@ -2036,6 +2070,7 @@ paths:
     get:
       summary: Installed vs available version (upgrade --check parity).
       x-required-permission: operator
+      x-operation-id: upgrade.check
       x-rate-limit-scope: default
       x-response-schema: UpgradeResponse
       responses:
@@ -2043,6 +2078,7 @@ paths:
     post:
       summary: Self-upgrade with automatic rollback (vnc-remote upgrade parity).
       x-required-permission: admin:*
+      x-operation-id: upgrade.run
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: upgrade
@@ -2062,6 +2098,7 @@ paths:
     post:
       summary: Restore the pre-upgrade snapshot (upgrade --rollback parity).
       x-required-permission: admin:*
+      x-operation-id: upgrade.rollback
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: upgrade

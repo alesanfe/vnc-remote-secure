@@ -71,7 +71,7 @@ def _update(jid: str, **fields) -> None:
 
 def job_finish(jid: str, detail: str = '') -> None:
     _update(jid, state='done', finished_at=time.time(),
-            detail=detail[:256] or None)
+            detail=detail[:256] or None, percent=100)
 
 
 def job_fail(jid: str, error: str) -> None:
@@ -141,9 +141,13 @@ def job_get(jid: str) -> dict | None:
         return None
 
 
-def job_progress(jid: str, phase: str, detail: str = '') -> None:
-    _update(jid, state='running', progress=phase[:64],
-            detail=detail[:256] or None)
+def job_progress(jid: str, phase: str, detail: str = '',
+                 percent: int | None = None) -> None:
+    fields = {'state': 'running', 'progress': phase[:64],
+              'detail': detail[:256] or None}
+    if percent is not None:
+        fields['percent'] = max(0, min(100, int(percent)))
+    _update(jid, **fields)
 
 
 def job_lock(name: str, jid: str) -> bool:

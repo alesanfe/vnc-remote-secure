@@ -10,6 +10,7 @@ import Audit from './pages/Audit';
 import Doctor from './pages/Doctor';
 import Backups from './pages/Backups';
 import Config from './pages/Config';
+import Jobs from './pages/Jobs';
 
 const NAV = [
   { to: '/', label: 'Resumen', end: true },
@@ -20,6 +21,7 @@ const NAV = [
   { to: '/doctor', label: 'Operación' },
   { to: '/backups', label: 'Backups' },
   { to: '/config', label: 'Configuración' },
+  { to: '/jobs', label: 'Jobs' },
 ];
 
 /** Admin shell — mounted by main.tsx under basename="/admin". Gates
@@ -120,6 +122,7 @@ export default function App() {
           <Route path="/doctor" element={<Doctor />} />
           <Route path="/backups" element={<Backups />} />
           <Route path="/config" element={<Config />} />
+          <Route path="/jobs" element={<Jobs />} />
           <Route
             path="*"
             element={

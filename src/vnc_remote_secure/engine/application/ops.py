@@ -30,6 +30,10 @@ from vnc_remote_secure.engine.domain.decision import (
     ERR_STEP_UP,
     UseCaseError,
 )
+from vnc_remote_secure.engine.domain.results import (
+    CommandContext,
+    OperationResult,
+)
 from vnc_remote_secure.engine.infrastructure import stores
 
 # Op-class mutex: lifecycle, restore and upgrade must never overlap.
@@ -38,7 +42,7 @@ _DESTRUCTIVE_LOCK = 'destructive'
 
 def _require_bound_step_up(actor: str, operation_id: str,
                            resource: str = '',
-                           auth_ctx: dict | None = None) -> None:
+                           auth_ctx=None) -> None:
     """Consume a single-use grant bound to operation+resource+session.
 
     Only enforced for ``transport='api'`` callers — the CLI has no web
@@ -46,11 +50,11 @@ def _require_bound_step_up(actor: str, operation_id: str,
     the same use case stays callable from ``vnc-remote`` while the UI
     gets per-operation re-authentication.
     """
-    if not auth_ctx or auth_ctx.get('transport') != 'api':
+    ctx = CommandContext.from_ctx(auth_ctx, username=actor)
+    if ctx.transport != 'api':
         return
     if not stores.step_up_consume(
-            auth_ctx.get('username', actor), operation_id,
-            resource, auth_ctx.get('sid', '')):
+            ctx.username or actor, operation_id, resource, ctx.sid):
         raise UseCaseError(
             ERR_STEP_UP,
             're-authentication required for this operation')
@@ -123,8 +127,8 @@ def lifecycle_action(actor: str, action: str,
         actor, 'lifecycle', action,
         payload={'op': 'lifecycle.action', 'action': action})
     pid = _spawn_runner(actor, jid, 'lifecycle_action', action)
-    return {'action': action, 'job_id': jid, 'pid': pid,
-            'accepted': True}
+    return OperationResult(code='LIFECYCLE_ACCEPTED', job_id=jid,
+                           accepted=True, action=action, pid=pid)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +164,8 @@ def create_backup(actor: str, auth_ctx: dict | None = None) -> dict:
         size = os.path.getsize(path)
     except OSError:
         size = None
-    return {'created': True, 'name': name, 'size': size}
+    return OperationResult(code='BACKUP_CREATED', created=True,
+                           name=name, size=size)
 
 
 def verify_backup(actor: str, name: str) -> dict:
@@ -186,7 +191,8 @@ def restore_backup(actor: str, name: str,
         actor, 'restore', base,
         payload={'op': 'backup.restore', 'path': path, 'name': base})
     _spawn_runner(actor, jid, 'backup_restore', base)
-    return {'accepted': True, 'job_id': jid, 'name': base}
+    return OperationResult(code='RESTORE_ACCEPTED', job_id=jid,
+                           accepted=True, name=base)
 
 
 # ---------------------------------------------------------------------------
@@ -344,8 +350,8 @@ def upgrade_run(actor: str, source: str | None = None,
         actor, 'upgrade', source or 'latest',
         payload={'op': 'upgrade.run', 'source': source})
     _spawn_runner(actor, jid, 'upgrade_run', source or 'latest')
-    return {'accepted': True, 'job_id': jid,
-            'source': source or 'latest'}
+    return OperationResult(code='UPGRADE_ACCEPTED', job_id=jid,
+                           accepted=True, source=source or 'latest')
 
 
 def upgrade_rollback(actor: str,
@@ -356,7 +362,8 @@ def upgrade_rollback(actor: str,
         actor, 'upgrade_rollback', '',
         payload={'op': 'upgrade.rollback'})
     _spawn_runner(actor, jid, 'upgrade_rollback', '')
-    return {'accepted': True, 'job_id': jid}
+    return OperationResult(code='ROLLBACK_ACCEPTED', job_id=jid,
+                           accepted=True)
 
 
 def job_status(jid: str) -> dict:

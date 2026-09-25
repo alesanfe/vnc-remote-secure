@@ -303,3 +303,27 @@ td button { margin-right: 0.3rem; }
 /* Web terminal page (xterm.js) */
 .term-page { margin: 0; height: 100vh; background: #1e1e1e; }
 .term-host { width: 100vw; height: 100vh; }
+
+/* Jobs ledger: inline progress for queued/claimed/running jobs */
+.job-progress {
+  position: relative; min-width: 120px; height: 16px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.job-progress-fill {
+  height: 100%; background: var(--accent, #3b82f6);
+  transition: width .4s ease;
+}
+.job-progress-label {
+  position: absolute; inset: 0; font-size: .7rem; line-height: 16px;
+  text-align: center; color: var(--fg, #eee);
+}
+
+/* Restore wizard */
+.wizard-steps { display: flex; gap: 1rem; list-style: none; padding: 0; margin: .4rem 0 1rem; }
+.wizard-steps li { color: var(--muted); font-size: .85rem; }
+.wizard-steps li[aria-current='step'] { color: var(--accent-text); font-weight: 600; }
+.impact-list { margin: .4rem 0 .8rem 1.2rem; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; }

@@ -104,7 +104,7 @@ def run_action(action: str) -> int:
 
 def _exec_lifecycle(payload: dict, progress) -> tuple[bool, str]:
     action = str(payload.get('action', ''))
-    progress('service_manager', f'lifecycle {action}')
+    progress('service_manager', f'lifecycle {action}', pct=40)
     rc = run_action(action)
     return rc == 0, f'lifecycle {action} rc={rc}'
 
@@ -113,17 +113,19 @@ def _exec_restore(payload: dict, progress) -> tuple[bool, str]:
     path = str(payload.get('path', ''))
     if not path:
         return False, 'empty backup path'
-    progress('preflight', f'reading {os.path.basename(path)}')
+    progress('preflight', f'reading {os.path.basename(path)}',
+             pct=20)
     from vnc_remote_secure.core.backup import restore_backup
     ok = bool(restore_backup(path))
-    progress('restore', f'{os.path.basename(path)} restored={ok}')
+    progress('restore', f'{os.path.basename(path)} restored={ok}',
+             pct=90)
     return ok, f'restored={os.path.basename(path)}' if ok else \
         'restore failed'
 
 
 def _exec_upgrade(payload: dict, progress) -> tuple[bool, str]:
     source = payload.get('source') or None
-    progress('preflight', 'backup + download')
+    progress('preflight', 'backup + download', pct=15)
     from vnc_remote_secure.core.upgrader import perform_upgrade
     result = perform_upgrade(source)
     return bool(result.get('ok')), (
@@ -132,7 +134,8 @@ def _exec_upgrade(payload: dict, progress) -> tuple[bool, str]:
 
 
 def _exec_rollback(payload: dict, progress) -> tuple[bool, str]:
-    progress('restore', 'rolling back pre-upgrade snapshot')
+    progress('restore', 'rolling back pre-upgrade snapshot',
+             pct=30)
     from vnc_remote_secure.core.upgrader import perform_rollback
     result = perform_rollback()
     return bool(result.get('ok')), (
@@ -167,10 +170,13 @@ def run_job(jid: str) -> int:
         jobs.job_unlock(_OP_LOCK, jid)
         return 2
     actor = job.get('actor', '?')
+    jobs.job_progress(jid, 'claim', percent=5,
+                      detail=f'pid={os.getpid()}')
     try:
         ok, detail = executor(
             payload,
-            lambda phase, d='': jobs.job_progress(jid, phase, d))
+            lambda phase, d='', pct=None: jobs.job_progress(
+                jid, phase, d, percent=pct))
     except Exception as exc:  # noqa: BLE001 - record and release
         jobs.job_fail(jid, str(exc)[:256])
         jobs.job_unlock(_OP_LOCK, jid)

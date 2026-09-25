@@ -97,7 +97,7 @@ rules:
       - pattern-either:
           - patterns:
               - pattern: logger.$L($F)
-              - metavariable-pattern:
+              - metavariable-regex:
                   metavariable: $F
                   regex: '(?s)f["''].*\{(password|token|secret|cookie|credential)[^}]*\}'
           - patterns:
