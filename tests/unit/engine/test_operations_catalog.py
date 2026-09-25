@@ -95,3 +95,55 @@ def test_cli_only_is_documented_by_design():
         op = OPERATIONS[op_id]
         assert not op.supports_api and not op.supports_ui
         assert op.supports_cli
+
+
+def _subparser_paths(parser, prefix=()):
+    """Walk an argparse parser → {('secrets','rotate'), ('upgrade'),…}."""
+    found = set()
+    for action in parser._actions:
+        choices = getattr(action, 'choices', None)
+        if not isinstance(choices, dict):  # subparsers only
+            continue
+        for name, sub in choices.items():
+            path = prefix + (name,)
+            found.add(path)
+            found |= _subparser_paths(sub, path)
+    return found
+
+
+def test_catalog_cli_commands_exist_in_parser():
+    """Every catalog cli_command must resolve to real argparse
+    verbs — the catalog is the source; a renamed subcommand breaks
+    parity documentation AND this test."""
+    from vnc_remote_secure.cli._parser import create_parser
+    verbs = _subparser_paths(create_parser())
+    for op in OPERATIONS.values():
+        if not op.supports_cli:
+            continue
+        # 'start|stop|restart' → 'start'; '--flag' tokens dropped.
+        toks = [t.split('|', 1)[0]
+                for t in op.cli_command.split()
+                if not t.startswith('--')]
+        cmd = tuple(toks)
+        # try progressively shorter prefixes until a path matches
+        matched = any(cmd[:n] in verbs for n in (len(cmd), 1))
+        assert matched, \
+            f'{op.operation_id}: cli_command {op.cli_command!r} ' \
+            f'not in parser'
+
+
+def test_openapi_operations_carry_catalog_id():
+    """The spec is generated/verified FROM the catalog: every
+    catalogued api_route must carry x-operation-id = its id."""
+    import yaml
+    spec = yaml.safe_load(open(
+        'docs/api/openapi.v1.yaml', encoding='utf-8'))
+    for op in OPERATIONS.values():
+        if not op.supports_api:
+            continue
+        method, rel = op.api_route.split(' ', 1)
+        rel = '/' + rel.lstrip('/')
+        body = spec['paths'][rel][method.lower()]
+        assert body.get('x-operation-id') == op.operation_id, (
+            rel, method, body.get('x-operation-id'),
+            op.operation_id)

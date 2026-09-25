@@ -2225,8 +2225,8 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description {restored: true, name} */
-                200: {
+                /** @description {accepted, job_id, name} — claimed deferred job */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2711,8 +2711,8 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description {ok, previous, version, backup} */
-                200: {
+                /** @description {accepted, job_id, source} — claimed deferred job */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2745,8 +2745,8 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description {ok, restored} */
-                200: {
+                /** @description {accepted, job_id} */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -3071,6 +3071,7 @@ export interface components {
             state: "queued" | "claimed" | "running" | "done" | "failed";
             claimed_by?: string | null;
             progress?: string | null;
+            percent?: number | null;
             started_at: number;
             finished_at?: number | null;
             detail?: string | null;

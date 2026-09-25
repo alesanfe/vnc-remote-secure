@@ -450,6 +450,7 @@ components:
           enum: [queued, claimed, running, done, failed]
         claimed_by: { type: string, nullable: true }
         progress: { type: string, nullable: true }
+        percent: { type: integer, nullable: true, minimum: 0, maximum: 100 }
         started_at: { type: number }
         finished_at: { type: number, nullable: true }
         detail: { type: string, nullable: true }
