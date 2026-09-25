@@ -99,6 +99,8 @@ def migrate_env(env_path: str | None = None, dry_run: bool = False):
         # Atomic write: a crash mid-write of the .env in place would
         # lose every other variable — same treatment as
         # set_env_persistent().
+        from vnc_remote_secure.core.test_isolation import guard_write
+        guard_write(env_path, 'config migrate')
         fd, tmp = tempfile.mkstemp(
             dir=os.path.dirname(env_path) or '.', suffix='.tmp')
         try:

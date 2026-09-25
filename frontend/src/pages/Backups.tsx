@@ -30,7 +30,8 @@ export default function Backups() {
     },
     onError: (e) => {
       if (stepUp.gate(e, 'creación de un backup',
-                      () => create.mutate())) return;
+                      () => create.mutate(),
+                      { opId: 'backup.create' })) return;
     },
   });
 
@@ -45,14 +46,18 @@ export default function Backups() {
     mutationFn: (file: string) => api.backupRestore(file),
     onSuccess: (d) => {
       setRestoreTarget(null);
-      setFlash(`Restaurado desde ${d.name} — reinicia los servicios ` +
-               'para aplicar la configuración restaurada.');
+      setFlash(`Restauración de ${d.name} encolada (job ` +
+               `${d.job_id ?? '?'}…)` +
+               ' — sigue el progreso en la página de operación; ' +
+               'reinicia los servicios al terminar.');
+      qc.invalidateQueries({ queryKey: ['jobs'] });
     },
     onError: (e) => {
       if (restoreTarget &&
           stepUp.gate(e, `restauración del backup ${restoreTarget}`,
                       () => restore.mutate(restoreTarget),
-                      restoreTarget)) return;
+                      { opId: 'backup.restore',
+                        resource: restoreTarget })) return;
       setRestoreTarget(null);
     },
   });

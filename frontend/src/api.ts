@@ -123,10 +123,14 @@ export const api = {
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   /** Step-up grant: re-verify the operator password (~5 min of
       recent auth for gated routes). */
-  stepUp: (password: string) =>
+  stepUp: (password: string,
+           bind?: { operation?: string; resource?: string }) =>
     request<{ stepped_up: boolean; expires_in: number }>(
       'step-up',
-      { method: 'POST', body: JSON.stringify({ password }) }),
+      { method: 'POST',
+        body: JSON.stringify({ password,
+                               operation: bind?.operation ?? '',
+                               resource: bind?.resource ?? '' }) }),
   /** Login ceremonies — unauthenticated, rate-limited server-side.
       On success the server sets vnc_op + vnc_csrf cookies; the
       returned csrf_token is cached via setCsrfToken. */
@@ -189,11 +193,19 @@ export const api = {
   /** `vnc-remote status` — PID/running map + port health. */
   lifecycleStatus: () =>
     request<LifecycleStatus>('lifecycle'),
+  /** `GET /api/v1/jobs` — destructive-op ledger, newest first. */
+  jobs: (limit = 50) =>
+    request<{ jobs: JobSummary[] }>(`jobs?limit=${limit}`),
+  /** `GET /api/v1/jobs/{jid}` — one record incl. progress/payload. */
+  job: (jid: string) =>
+    request<{ job: JobSummary & { payload?: Record<string, unknown> } }>(
+      `jobs/${encodeURIComponent(jid)}`),
   /** `vnc-remote start|stop|restart` — queued on a detached runner so
       the response is delivered before the portal itself may die
       (admin:* + step-up). */
   lifecycleAction: (action: 'start' | 'stop' | 'restart') =>
-    request<{ action: string; pid: number; accepted: boolean }>(
+    request<{ action: string; job_id: string; pid: number;
+              accepted: boolean }>(
       'lifecycle', { method: 'POST', body: JSON.stringify({ action }) }),
   /** `vnc-remote backup` (admin:* + step-up). */
   backupCreate: () =>
@@ -208,7 +220,7 @@ export const api = {
   /** `vnc-remote restore <name>` — overwrites live config
       (admin:* + step-up). */
   backupRestore: (file: string) =>
-    request<{ restored: boolean; name: string }>(
+    request<{ accepted: boolean; job_id: string; name: string }>(
       'backups/restore',
       { method: 'POST', body: JSON.stringify({ file }) }),
   /** `vnc-remote secrets status` (admin:*). */
@@ -263,13 +275,13 @@ export const api = {
     request<UpgradeStatus>('upgrade'),
   /** `vnc-remote upgrade [--from X]` (admin:* + step-up). */
   upgradeRun: (source?: string) =>
-    request<UpgradeRunResult>(
+    request<{ accepted: boolean; job_id: string; source: string }>(
       'upgrade',
       { method: 'POST',
         body: JSON.stringify(source ? { source } : {}) }),
   /** `vnc-remote upgrade --rollback` (admin:* + step-up). */
   upgradeRollback: () =>
-    request<{ ok: boolean; restored?: string }>(
+    request<{ accepted: boolean; job_id: string }>(
       'upgrade/rollback', { method: 'POST', body: '{}' }),
 };
 
@@ -456,6 +468,20 @@ export interface LifecycleService {
   running?: boolean;
   enabled?: boolean;
   port?: number | null;
+}
+
+export interface JobSummary {
+  id: string;
+  kind: string;
+  actor: string;
+  target: string;
+  state: 'queued' | 'claimed' | 'running' | 'done' | 'failed';
+  started_at: number;
+  finished_at: number | null;
+  detail: string | null;
+  error: string | null;
+  claimed_by?: string | null;
+  progress?: string | null;
 }
 
 export interface LifecycleStatus {

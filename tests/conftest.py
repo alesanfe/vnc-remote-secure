@@ -6,8 +6,17 @@ read from the real system runtime directory.
 """
 
 import contextlib
+import os
 
 import pytest
+
+# Hard test-mode barrier: while this is set, any real host mutation
+# (writing a repo-root .env, creating a repo-path backup, spawning a
+# detached runner, running a package upgrade) raises
+# core.test_isolation.TestIsolationError instead of silently touching
+# the developer's machine — a code path that forgets a patch aborts
+# loudly rather than rotating a real credential.
+os.environ.setdefault('VRS_TEST_MODE', '1')
 
 # Hypothesis deadlines flake under load (CI/loaded dev machines): a
 # 200ms per-example budget is a timing assertion, not a correctness
@@ -132,9 +141,11 @@ _SHARED_STATE_TEST_NAMESPACES = (
     'websocket_revoked_sessions', 'ephemeral_revoked_sessions',
     'ephemeral_consumed', 'ephemeral_uses',
     'mfa_last_step', 'mfa_used_steps', 'mfa_used_recovery_codes',
-    'step_up_auth_times', 'webauthn_challenges', 'maintenance',
+    'step_up_auth_times', 'step_up_grants', 'step_up_consumed',
+    'webauthn_challenges', 'maintenance',
     'api_rate', 'op_revoked_sessions', 'op_revoked_users',
     'op_sessions', 'web_auth_context',
+    'ops_jobs', 'ops_job_claims', 'ops_job_locks',
 )
 
 

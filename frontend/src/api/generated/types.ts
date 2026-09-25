@@ -30,6 +30,13 @@ export interface paths {
                         "application/json": components["schemas"]["MeResponse"];
                     };
                 };
+                /** @description Not authenticated */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         put?: never;
@@ -1431,6 +1438,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{jid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One job record, incl. progress phase and payload */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    jid: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {job} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobDetailResponse"];
+                    };
+                };
+                /** @description Job not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/operators/deleted": {
         parameters: {
             query?: never;
@@ -1820,7 +1872,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description Invalid */
+                /** @description Invalid, expired or already used */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1881,7 +1933,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description Invalid */
+                /** @description Invalid, expired or already used */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -3016,7 +3068,9 @@ export interface components {
             actor: string;
             target?: string;
             /** @enum {string} */
-            state: "running" | "done" | "failed";
+            state: "queued" | "claimed" | "running" | "done" | "failed";
+            claimed_by?: string | null;
+            progress?: string | null;
             started_at: number;
             finished_at?: number | null;
             detail?: string | null;
@@ -3025,6 +3079,17 @@ export interface components {
         JobPageResponse: {
             data: {
                 jobs: components["schemas"]["JobSummary"][];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        JobDetailResponse: {
+            data: {
+                job: components["schemas"]["JobSummary"] & {
+                    payload?: {
+                        [key: string]: unknown;
+                    };
+                };
             };
             error: unknown;
             request_id: string;
@@ -3126,6 +3191,7 @@ export interface components {
         LifecycleActionResponse: {
             data: {
                 action: string;
+                job_id?: string;
                 pid?: number;
                 accepted: boolean;
             };
@@ -3153,7 +3219,8 @@ export interface components {
         };
         BackupRestoreResponse: {
             data: {
-                restored: boolean;
+                accepted: boolean;
+                job_id?: string;
                 name: string;
             };
             error: unknown;
@@ -3262,18 +3329,17 @@ export interface components {
         };
         UpgradeRunResponse: {
             data: {
-                ok?: boolean;
-                previous?: string;
-                version?: string;
-                backup?: string;
+                accepted: boolean;
+                job_id: string;
+                source?: string;
             };
             error: unknown;
             request_id: string;
         };
         UpgradeRollbackResponse: {
             data: {
-                ok?: boolean;
-                restored?: string;
+                accepted: boolean;
+                job_id: string;
             };
             error: unknown;
             request_id: string;
@@ -3282,12 +3348,22 @@ export interface components {
             data: {
                 stepped_up: boolean;
                 expires_in: number;
+                /** @description Present when the request carried operation — the grant is bound to that operation+resource, single-use, ~120s TTL. */
+                bound?: {
+                    operation?: string;
+                    resource?: string | null;
+                    expires_in?: number;
+                } | null;
             };
             error: unknown;
             request_id: string;
         };
         StepUpRequest: {
             password: string;
+            /** @description Catalog operation id (e.g. backup.restore) — binds the grant to that action; consumed once. */
+            operation?: string;
+            /** @description Concrete target the grant binds to (backup name, secret name, lifecycle action). Empty = resource-less op. */
+            resource?: string;
         };
         PasskeyOptionsResponse: {
             data: {

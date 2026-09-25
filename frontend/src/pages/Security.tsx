@@ -56,7 +56,8 @@ function SecretsPanel() {
       if (confirmRotate &&
           stepUp.gate(e, `rotación del secreto ${confirmRotate}`,
                       () => rotate.mutate(confirmRotate),
-                      confirmRotate)) return;
+                      { opId: 'secrets.rotate',
+                        resource: confirmRotate })) return;
       setConfirmRotate(null);
     },
   });
@@ -70,7 +71,8 @@ function SecretsPanel() {
     onError: (e) => {
       if (confirmSigning &&
           stepUp.gate(e, 'rotación de la clave de firma',
-                      () => signing.mutate())) return;
+                      () => signing.mutate(),
+                      { opId: 'secrets.rotate_signing' })) return;
       setConfirmSigning(false);
     },
   });
@@ -91,7 +93,8 @@ function SecretsPanel() {
       setCodes(d.codes),
     onError: (e) => {
       stepUp.gate(e, 'generación de códigos de recuperación MFA',
-                  () => recovery.mutate());
+                  () => recovery.mutate(),
+                  { opId: 'secrets.recovery_codes' });
     },
   });
 

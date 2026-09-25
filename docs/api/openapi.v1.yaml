@@ -8,6 +8,9 @@ info:
     Auth: operator Basic credentials or the vnc_op session cookie;
     ephemeral share-link cookies reach only the routes marked
     x-ephemeral-access: true.
+servers:
+  - url: /api/v1
+# x-servers kept as a deprecated alias — some tooling reads it.
 x-servers:
   - url: /api/v1
 
@@ -442,7 +445,11 @@ components:
         kind: { type: string }
         actor: { type: string }
         target: { type: string }
-        state: { type: string, enum: [running, done, failed] }
+        state:
+          type: string
+          enum: [queued, claimed, running, done, failed]
+        claimed_by: { type: string, nullable: true }
+        progress: { type: string, nullable: true }
         started_at: { type: number }
         finished_at: { type: number, nullable: true }
         detail: { type: string, nullable: true }
@@ -458,6 +465,24 @@ components:
             jobs:
               type: array
               items: { $ref: '#/components/schemas/JobSummary' }
+        error: { nullable: true }
+        request_id: { type: string }
+    JobDetailResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [job]
+          properties:
+            job:
+              allOf:
+                - $ref: '#/components/schemas/JobSummary'
+                - type: object
+                  properties:
+                    payload:
+                      type: object
+                      additionalProperties: true
         error: { nullable: true }
         request_id: { type: string }
     DeletedOperatorSummary:
@@ -610,6 +635,7 @@ components:
           required: [action, accepted]
           properties:
             action: { type: string }
+            job_id: { type: string }
             pid: { type: integer }
             accepted: { type: boolean }
         error: { nullable: true }
@@ -647,9 +673,10 @@ components:
       properties:
         data:
           type: object
-          required: [restored, name]
+          required: [accepted, name]
           properties:
-            restored: { type: boolean }
+            accepted: { type: boolean }
+            job_id: { type: string }
             name: { type: string }
         error: { nullable: true }
         request_id: { type: string }
@@ -788,11 +815,11 @@ components:
       properties:
         data:
           type: object
+          required: [accepted, job_id]
           properties:
-            ok: { type: boolean }
-            previous: { type: string }
-            version: { type: string }
-            backup: { type: string }
+            accepted: { type: boolean }
+            job_id: { type: string }
+            source: { type: string }
         error: { nullable: true }
         request_id: { type: string }
     UpgradeRollbackResponse:
@@ -801,9 +828,10 @@ components:
       properties:
         data:
           type: object
+          required: [accepted, job_id]
           properties:
-            ok: { type: boolean }
-            restored: { type: string }
+            accepted: { type: boolean }
+            job_id: { type: string }
         error: { nullable: true }
         request_id: { type: string }
     StepUpResponse:
@@ -816,6 +844,17 @@ components:
           properties:
             stepped_up: { type: boolean }
             expires_in: { type: integer }
+            bound:
+              type: object
+              nullable: true
+              description: >-
+                Present when the request carried operation —
+                the grant is bound to that operation+resource,
+                single-use, ~120s TTL.
+              properties:
+                operation: { type: string }
+                resource: { type: string, nullable: true }
+                expires_in: { type: integer }
         error: { nullable: true }
         request_id: { type: string }
     StepUpRequest:
@@ -824,6 +863,16 @@ components:
       additionalProperties: false
       properties:
         password: { type: string }
+        operation:
+          type: string
+          description: >-
+            Catalog operation id (e.g. backup.restore) — binds the
+            grant to that action; consumed once.
+        resource:
+          type: string
+          description: >-
+            Concrete target the grant binds to (backup name, secret
+            name, lifecycle action). Empty = resource-less op.
     PasskeyOptionsResponse:
       type: object
       required: [data, error, request_id]
@@ -897,6 +946,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeResponse'
+        '401': { description: Not authenticated }
   /status:
     get:
       summary: Service liveness (redacted for ephemeral sessions)
@@ -1507,6 +1557,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobPageResponse'
+  /jobs/{jid}:
+    get:
+      summary: One job record, incl. progress phase and payload
+      x-required-permission: admin_audit
+      x-rate-limit-scope: default
+      x-response-schema: JobDetailResponse
+      parameters:
+        - name: jid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: '{job}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetailResponse'
+        '404': { description: Job not found }
   /operators/deleted:
     get:
       summary: >-
@@ -1691,7 +1760,7 @@ paths:
       responses:
         '200': { description: '{role, expires_in_seconds, flags}' }
         '400': { description: Missing token }
-        '403': { description: Invalid, expired or already used }
+        '403': { description: 'Invalid, expired or already used' }
         '429': { description: Rate limited }
   /session/activate:
     post:
@@ -1716,7 +1785,7 @@ paths:
       responses:
         '200': { description: '{activated: true} + Set-Cookie' }
         '400': { description: Missing token }
-        '403': { description: Invalid, expired or already used }
+        '403': { description: 'Invalid, expired or already used' }
         '429': { description: Rate limited }
   /gamepad/stop:
     post:
@@ -1823,7 +1892,7 @@ paths:
               properties:
                 file: { type: string, description: 'basename of a listed backup' }
       responses:
-        '200': { description: '{restored: true, name}' }
+        '202': { description: '{accepted, job_id, name} — claimed deferred job' }
         '404': { description: Backup not found }
   /secrets:
     get:
@@ -1988,7 +2057,7 @@ paths:
               properties:
                 source: { type: string, description: 'wheel path or URL' }
       responses:
-        '200': { description: '{ok, previous, version, backup}' }
+        '202': { description: '{accepted, job_id, source} — claimed deferred job' }
   /upgrade/rollback:
     post:
       summary: Restore the pre-upgrade snapshot (upgrade --rollback parity).
@@ -1999,4 +2068,4 @@ paths:
       x-response-schema: UpgradeRollbackResponse
       x-audit-event: upgrade_rollback
       responses:
-        '200': { description: '{ok, restored}' }
+        '202': { description: '{accepted, job_id}' }

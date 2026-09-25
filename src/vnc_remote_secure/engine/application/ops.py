@@ -7,21 +7,81 @@ Rules owned here:
 
 * backup names resolve ONLY against ``stores.backups_paths()`` — a
   raw filename from the wire never reaches the filesystem layer;
-* lifecycle actions spawn the detached deferred runner so the portal
-  process serving the request survives to answer it;
-* every mutation writes an audit event; destructive ones also record
-  a job-ledger entry (the UI shows them in the jobs panel).
+* destructive ops (lifecycle/restore/upgrade) persist a QUEUED job
+  before answering and a detached runner claims+executes it — the
+  response is guaranteed even when the operation kills the portal;
+* the ``destructive`` job lock serializes those classes — a restore
+  can never overlap a restart;
+* ``authentication_policy: stepup-bound`` catalog entries consume a
+  single-use grant tied to operation+resource+session (``auth_ctx``);
+  CLI callers pass ``transport='cli'`` — a local shell is itself the
+  authentication surface;
+* every mutation writes an audit event; job-based ones also audit the
+  outcome when the runner finishes.
 """
 from __future__ import annotations
 
 import os
 
 from vnc_remote_secure.engine.domain.decision import (
+    ERR_CONFLICT,
     ERR_INVALID,
     ERR_NOT_FOUND,
+    ERR_STEP_UP,
     UseCaseError,
 )
 from vnc_remote_secure.engine.infrastructure import stores
+
+# Op-class mutex: lifecycle, restore and upgrade must never overlap.
+_DESTRUCTIVE_LOCK = 'destructive'
+
+
+def _require_bound_step_up(actor: str, operation_id: str,
+                           resource: str = '',
+                           auth_ctx: dict | None = None) -> None:
+    """Consume a single-use grant bound to operation+resource+session.
+
+    Only enforced for ``transport='api'`` callers — the CLI has no web
+    grant surface (the local shell IS the authentication boundary), so
+    the same use case stays callable from ``vnc-remote`` while the UI
+    gets per-operation re-authentication.
+    """
+    if not auth_ctx or auth_ctx.get('transport') != 'api':
+        return
+    if not stores.step_up_consume(
+            auth_ctx.get('username', actor), operation_id,
+            resource, auth_ctx.get('sid', '')):
+        raise UseCaseError(
+            ERR_STEP_UP,
+            're-authentication required for this operation')
+
+
+def _queue_destructive(actor: str, kind: str, target: str,
+                       payload: dict) -> str:
+    """Enqueue a job and grab the destructive-op mutex — returns jid.
+
+    The lock is released by the deferred runner when it finishes;
+    callers that fail to spawn must ``job_unlock`` themselves."""
+    jid = stores.job_enqueue(kind, actor, target, payload)
+    if not stores.job_lock(_DESTRUCTIVE_LOCK, jid):
+        stores.job_fail(jid, 'another destructive operation is running')
+        raise UseCaseError(
+            ERR_CONFLICT,
+            'another destructive operation is in progress')
+    return jid
+
+
+def _spawn_runner(actor: str, jid: str, audit_event: str,
+                  target: str) -> int:
+    try:
+        pid = stores.lifecycle_spawn(jid)
+    except (OSError, ValueError) as exc:
+        stores.job_unlock(_DESTRUCTIVE_LOCK, jid)
+        stores.job_fail(jid, str(exc))
+        raise UseCaseError(ERR_INVALID,
+                           f'could not spawn job runner: {exc}')
+    stores.audit(audit_event, actor, f'queued jid={jid} {target}')
+    return pid
 
 # ---------------------------------------------------------------------------
 # Version / status
@@ -44,28 +104,27 @@ def lifecycle_status() -> dict:
 _LIFECYCLE_ACTIONS = ('start', 'stop', 'restart')
 
 
-def lifecycle_action(actor: str, action: str) -> dict:
-    """Queue ``vnc-remote <action>`` on a detached child process.
+def lifecycle_action(actor: str, action: str,
+                     auth_ctx: dict | None = None) -> dict:
+    """Queue ``vnc-remote <action>`` as a deferred claimed job.
 
-    The runner sleeps a short delay before touching the service
-    manager, giving this request time to flush its response even when
-    ``stop``/``restart`` will kill the portal that spawned it.
+    The job is persisted BEFORE the caller answers; the detached
+    runner claims it, sleeps briefly (response flush), then runs the
+    action — so ``stop``/``restart`` can kill the portal without
+    losing either the response or the operation.
     """
     action = str(action or '').lower()
     if action not in _LIFECYCLE_ACTIONS:
         raise UseCaseError(
             ERR_INVALID,
             f'action must be one of {list(_LIFECYCLE_ACTIONS)}')
-    jid = stores.job_start('lifecycle', actor, action)
-    try:
-        pid = stores.lifecycle_spawn(action)
-    except (OSError, ValueError) as exc:
-        stores.job_fail(jid, str(exc))
-        raise UseCaseError(ERR_INVALID,
-                           f'could not spawn lifecycle runner: {exc}')
-    stores.audit('lifecycle_action', actor, f'action={action} pid={pid}')
-    stores.job_finish(jid, f'pid={pid}')
-    return {'action': action, 'pid': pid, 'accepted': True}
+    _require_bound_step_up(actor, 'lifecycle.action', action, auth_ctx)
+    jid = _queue_destructive(
+        actor, 'lifecycle', action,
+        payload={'op': 'lifecycle.action', 'action': action})
+    pid = _spawn_runner(actor, jid, 'lifecycle_action', action)
+    return {'action': action, 'job_id': jid, 'pid': pid,
+            'accepted': True}
 
 
 # ---------------------------------------------------------------------------
@@ -85,8 +144,9 @@ def _resolve_backup(name: str) -> str:
     raise UseCaseError(ERR_NOT_FOUND, 'backup not found')
 
 
-def create_backup(actor: str) -> dict:
+def create_backup(actor: str, auth_ctx: dict | None = None) -> dict:
     """``vnc-remote backup`` — archive config + secrets + audit."""
+    _require_bound_step_up(actor, 'backup.create', '', auth_ctx)
     jid = stores.job_start('backup', actor)
     try:
         path = stores.backup_create()
@@ -113,21 +173,20 @@ def verify_backup(actor: str, name: str) -> dict:
             'members': count, 'message': message}
 
 
-def restore_backup(actor: str, name: str) -> dict:
-    """``vnc-remote restore <file>`` — overwrites live config."""
+def restore_backup(actor: str, name: str,
+                   auth_ctx: dict | None = None) -> dict:
+    """``vnc-remote restore <file>`` — runs as a claimed job.
+
+    Returns ``job_id`` for progress tracking; the restore itself
+    overwrites live config in the detached executor."""
     path = _resolve_backup(name)
-    jid = stores.job_start('restore', actor, os.path.basename(path))
-    try:
-        ok = stores.backup_restore(path)
-    except (FileNotFoundError, RuntimeError) as exc:
-        stores.job_fail(jid, str(exc))
-        raise UseCaseError(ERR_INVALID, str(exc))
-    if not ok:
-        stores.job_fail(jid, 'restore failed')
-        raise UseCaseError(ERR_INVALID, 'restore failed')
-    stores.audit('backup_restore', actor, os.path.basename(path))
-    stores.job_finish(jid, os.path.basename(path))
-    return {'restored': True, 'name': os.path.basename(path)}
+    base = os.path.basename(path)
+    _require_bound_step_up(actor, 'backup.restore', base, auth_ctx)
+    jid = _queue_destructive(
+        actor, 'restore', base,
+        payload={'op': 'backup.restore', 'path': path, 'name': base})
+    _spawn_runner(actor, jid, 'backup_restore', base)
+    return {'accepted': True, 'job_id': jid, 'name': base}
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +209,17 @@ def secret_redact(name: str) -> dict:
     return {'name': name, 'redacted': stores.secret_redact(name)}
 
 
-def rotate_secret(actor: str, name: str) -> dict:
+def rotate_secret(actor: str, name: str,
+                  auth_ctx: dict | None = None) -> dict:
     """``vnc-remote secrets rotate --name X`` — hard cutover."""
-    jid = stores.job_start('secret_rotate', actor,
-                           str(name or '').upper())
+    name = str(name or '').strip().upper()
+    allowed = stores.secret_rotatable_names()
+    if name not in allowed:
+        raise UseCaseError(
+            ERR_INVALID,
+            f'unknown secret; allowed: {sorted(allowed)}')
+    _require_bound_step_up(actor, 'secrets.rotate', name, auth_ctx)
+    jid = stores.job_start('secret_rotate', actor, name)
     try:
         result = stores.secret_rotate(name)
     except (ValueError, OSError) as exc:
@@ -165,8 +231,11 @@ def rotate_secret(actor: str, name: str) -> dict:
     return result
 
 
-def rotate_signing_key(actor: str) -> dict:
+def rotate_signing_key(actor: str,
+                       auth_ctx: dict | None = None) -> dict:
     """``vnc-remote secrets rotate-signing`` — 7-day coexistence."""
+    _require_bound_step_up(actor, 'secrets.rotate_signing', '',
+                           auth_ctx)
     try:
         result = stores.secret_rotate_signing()
     except RuntimeError as exc:
@@ -189,8 +258,11 @@ def secrets_check(actor: str, fix: bool = False) -> dict:
         f.get('severity') == 'critical' for f in result)}
 
 
-def recovery_codes(actor: str) -> dict:
+def recovery_codes(actor: str,
+                   auth_ctx: dict | None = None) -> dict:
     """``vnc-remote secrets recovery-codes`` — shown once."""
+    _require_bound_step_up(actor, 'secrets.recovery_codes', '',
+                           auth_ctx)
     try:
         codes = stores.recovery_codes_generate(8)
     except OSError as exc:
@@ -230,8 +302,15 @@ def config_diff(profile_a: str, profile_b: str) -> dict:
             'diffs': stores.config_diff(profile_a, profile_b)}
 
 
-def config_migrate(actor: str, dry_run: bool = False) -> dict:
-    """``vnc-remote config migrate [--dry-run]``."""
+def config_migrate(actor: str, dry_run: bool = False,
+                   auth_ctx: dict | None = None) -> dict:
+    """``vnc-remote config migrate [--dry-run]``.
+
+    Dry-run is a read-only preview — no grant required; applying the
+    migration consumes a bound grant."""
+    if not dry_run:
+        _require_bound_step_up(actor, 'config.migrate', 'apply',
+                               auth_ctx)
     try:
         result = stores.config_migrate(dry_run=dry_run)
     except FileNotFoundError:
@@ -251,37 +330,38 @@ def upgrade_status() -> dict:
     return stores.upgrade_check()
 
 
-def upgrade_run(actor: str, source: str | None = None) -> dict:
-    """``vnc-remote upgrade`` — pip self-upgrade w/ auto-rollback.
+def upgrade_run(actor: str, source: str | None = None,
+                auth_ctx: dict | None = None) -> dict:
+    """``vnc-remote upgrade`` — runs as a claimed deferred job.
 
-    Long-running (download + install); runs under a job-ledger entry
-    so the UI shows it in the jobs panel.
-    """
-    jid = stores.job_start('upgrade', actor, source or 'latest')
-    try:
-        result = stores.upgrade_run(source=source)
-    except Exception:  # noqa: BLE001
-        stores.job_fail(jid, 'upgrade failed')
-        raise UseCaseError(ERR_INVALID, 'upgrade failed')
-    if not result.get('ok'):
-        stores.job_fail(jid, result.get('error', 'unknown'))
-        raise UseCaseError(ERR_INVALID,
-                           result.get('error', 'upgrade failed'))
-    stores.audit('upgrade_run', actor,
-                 f"{result.get('previous')}->{result.get('version')}")
-    stores.job_finish(jid, f"{result.get('version')}")
-    return result
+    Download + install take longer than a request should hold; the
+    response carries ``job_id`` and the jobs panel shows
+    backup → install → rollback status."""
+    source = str(source or '').strip() or None
+    _require_bound_step_up(actor, 'upgrade.run',
+                           source or 'latest', auth_ctx)
+    jid = _queue_destructive(
+        actor, 'upgrade', source or 'latest',
+        payload={'op': 'upgrade.run', 'source': source})
+    _spawn_runner(actor, jid, 'upgrade_run', source or 'latest')
+    return {'accepted': True, 'job_id': jid,
+            'source': source or 'latest'}
 
 
-def upgrade_rollback(actor: str) -> dict:
-    """``vnc-remote upgrade --rollback``."""
-    jid = stores.job_start('upgrade_rollback', actor)
-    result = stores.upgrade_rollback()
-    if not result.get('ok'):
-        stores.job_fail(jid, result.get('error', 'unknown'))
-        raise UseCaseError(ERR_INVALID,
-                           result.get('error', 'rollback failed'))
-    stores.audit('upgrade_rollback', actor,
-                 f"restored={result.get('restored', '')}")
-    stores.job_finish(jid)
-    return result
+def upgrade_rollback(actor: str,
+                     auth_ctx: dict | None = None) -> dict:
+    """``vnc-remote upgrade --rollback`` — claimed deferred job."""
+    _require_bound_step_up(actor, 'upgrade.rollback', '', auth_ctx)
+    jid = _queue_destructive(
+        actor, 'upgrade_rollback', '',
+        payload={'op': 'upgrade.rollback'})
+    _spawn_runner(actor, jid, 'upgrade_rollback', '')
+    return {'accepted': True, 'job_id': jid}
+
+
+def job_status(jid: str) -> dict:
+    """Read model for a queued/claimed job — jobs-panel detail."""
+    job = stores.job_get(str(jid or ''))
+    if job is None:
+        raise UseCaseError(ERR_NOT_FOUND, 'job not found')
+    return {'job': job}

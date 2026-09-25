@@ -102,43 +102,29 @@ def env_flag(name: str, default: str = 'false') -> bool:
 
 
 def _parse_env_file(path):
-    """Parse a .env-style file and yield (key, value) pairs."""
+    """Parse a .env-style file and yield (key, value) pairs.
+
+    The parsing mechanics — comments, quoting, ``export`` prefixes,
+    ``${VAR}`` interpolation — come from python-dotenv
+    (``dotenv_values`` never mutates ``os.environ``). The project layer
+    on top keeps one extra rule: values containing ``$(`` or backticks
+    are skipped, because legacy wrappers still ``source`` env files in
+    shell contexts where those bytes would execute commands.
+    """
     try:
-        with open(path, encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if '=' not in line:
-                    continue
-                key, _, val = line.partition('=')
-                key = key.strip()
-                val = val.strip()
-                # Remove surrounding quotes
-                if val and val[0] in '"\'' and val[-1] == val[0]:
-                    val = val[1:-1]
-                # Skip shell command substitutions — `$(` ANYWHERE in
-                # the value (and backticks) evaluates when a wrapper
-                # does `source .env` (duckdns_update.sh, rpi wrapper).
-                # startswith() alone missed `FOO=x$(id)`.
-                if '$(' in val or '`' in val:
-                    logger.warning(
-                        "Skipping %s: value contains shell substitution",
-                        key)
-                    continue
-                # Expand ${VAR} references from the current environment.
-                # Unknown variables expand to an empty string, mirroring
-                # the behavior of most shells when `set -u` is off.
-                if '${' in val:
-                    import re
-                    val = re.sub(
-                        r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}',
-                        lambda m: os.environ.get(m.group(1), ''),
-                        val,
-                    )
-                yield key, val
+        from dotenv import dotenv_values
+        parsed = dotenv_values(path)
     except Exception as e:
         logger.warning("Failed to load env file '%s': %s", path, e)
+        return
+    for key, val in parsed.items():
+        if val is None:
+            continue  # bare 'KEY' line — no value
+        if '$(' in val or '`' in val:
+            logger.warning(
+                "Skipping %s: value contains shell substitution", key)
+            continue
+        yield key, val
 
 
 def _load_platform_defaults(project_root):
@@ -238,6 +224,8 @@ def set_env_persistent(name: str, value: str) -> bool:
         logger.error("Refusing to persist invalid env var name %r", name)
         return False
     env_path = _env_file_for(name)
+    from vnc_remote_secure.core.test_isolation import guard_write
+    guard_write(env_path, 'env persist')
     if not _rewrite_env_key(env_path, name, value):
         return False
     os.environ[name] = value
@@ -421,10 +409,9 @@ def _load_generated_credential(name):
         from vnc_remote_secure.core.paths import get_run_dir
         cred_file = os.path.join(get_run_dir(), 'generated_credentials.env')
         if os.path.isfile(cred_file):
-            with open(cred_file, encoding='utf-8') as f:
-                for line in f:
-                    if line.startswith(name + '='):
-                        return line.split('=', 1)[1].strip()
+            for key, val in _parse_env_file(cred_file):
+                if key == name:
+                    return val
     except OSError:
         pass
     return ''
@@ -451,11 +438,7 @@ def _persist_generated_credential(name, value):
         os.makedirs(os.path.dirname(cred_file), exist_ok=True)
         lines = {}
         if os.path.isfile(cred_file):
-            with open(cred_file, encoding='utf-8') as f:
-                for line in f:
-                    if '=' in line:
-                        k, v = line.rstrip('\n').split('=', 1)
-                        lines[k] = v
+            lines = dict(_parse_env_file(cred_file))
         lines[name] = value
         # Atomic write: an in-place O_TRUNC write that crashes midway
         # loses every persisted credential and the next start would
@@ -501,12 +484,7 @@ def _remove_generated_credential(name):
         cred_file = os.path.join(get_run_dir(), 'generated_credentials.env')
         if not os.path.isfile(cred_file):
             return
-        lines = {}
-        with open(cred_file, encoding='utf-8') as f:
-            for line in f:
-                if '=' in line:
-                    k, v = line.rstrip('\n').split('=', 1)
-                    lines[k] = v
+        lines = dict(_parse_env_file(cred_file))
         if name not in lines:
             return
         del lines[name]

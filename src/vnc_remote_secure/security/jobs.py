@@ -79,6 +79,92 @@ def job_fail(jid: str, error: str) -> None:
             error=str(error)[:256])
 
 
+# ---------------------------------------------------------------------------
+# Queued-job execution (claim/lease model)
+#
+# ``job_start`` covers synchronous mutations; async operations
+# (lifecycle, restore, upgrade) need a record that outlives the
+# request *before* the response is sent — a detached executor claims
+# the queued job by id, runs the payload and reports progress. The
+# claim is an atomic ``set_if_absent`` so a double-spawn or a retried
+# API call can never run the operation twice.
+# ---------------------------------------------------------------------------
+_NS_CLAIMS = 'ops_job_claims'
+_NS_LOCKS = 'ops_job_locks'
+_CLAIM_TTL = 3600        # a claim row outlives even a stuck runner
+_LOCK_TTL = 600          # op-class mutex — released early on finish
+
+
+def job_enqueue(kind: str, actor: str, target: str = '',
+                payload: dict | None = None) -> str:
+    """Persist a QUEUED job before any work starts; returns the id.
+
+    The record is durably in the shared backend before the caller
+    answers — the 202 response can safely reference ``job_id`` even
+    when the operation will kill the serving process."""
+    jid = secrets.token_hex(8)
+    try:
+        rec = {
+            'id': jid, 'kind': kind, 'actor': actor,
+            'target': target, 'state': 'queued',
+            'started_at': time.time(), 'finished_at': None,
+            'detail': None, 'error': None,
+            'payload': payload or {},
+            'claimed_by': None, 'progress': None,
+        }
+        _be().set_ttl(_NS_JOBS, jid, json.dumps(rec), _JOB_TTL)
+    except Exception:  # noqa: BLE001
+        logger.debug('job_enqueue failed', exc_info=True)
+    return jid
+
+
+def job_claim(jid: str, worker_id: str = '') -> bool:
+    """Atomically claim a queued job. Returns False if already
+    claimed or unknown — the executor must NOT run the payload."""
+    try:
+        be = _be()
+        if not be.set_if_absent(_NS_CLAIMS, jid, worker_id or 'runner',
+                                _CLAIM_TTL):
+            return False
+        _update(jid, state='running', claimed_by=worker_id or 'runner')
+        return True
+    except Exception:  # noqa: BLE001 - fail closed: don't double-run
+        return False
+
+
+def job_get(jid: str) -> dict | None:
+    """Full job record (payload included) or None."""
+    try:
+        raw = _be().get(_NS_JOBS, jid)
+        return json.loads(raw) if raw else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def job_progress(jid: str, phase: str, detail: str = '') -> None:
+    _update(jid, state='running', progress=phase[:64],
+            detail=detail[:256] or None)
+
+
+def job_lock(name: str, jid: str) -> bool:
+    """Operation-class mutex: only one lifecycle/restore/upgrade runs
+    at a time across every process sharing the state backend."""
+    try:
+        return _be().set_if_absent(_NS_LOCKS, name, jid, _LOCK_TTL)
+    except Exception:  # noqa: BLE001 - fail closed
+        return False
+
+
+def job_unlock(name: str, jid: str) -> None:
+    """Release only our own lock — another job's row is untouched."""
+    try:
+        be = _be()
+        if be.get(_NS_LOCKS, name) == jid:
+            be.delete(_NS_LOCKS, name)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def list_jobs(limit: int = 100) -> list:
     """Newest-first job records, bounded by ``limit``."""
     try:

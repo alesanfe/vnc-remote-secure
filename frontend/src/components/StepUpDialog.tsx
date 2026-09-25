@@ -8,6 +8,10 @@ interface Props {
   operation: string;
   /** Affected resource (session, operator, passkey…). */
   resource?: string;
+  /** Catalog operation id — binds the grant to THIS action on THIS
+      resource, consumed once by the use case. Omit for legacy
+      recent-auth gates. */
+  operationId?: string;
   onVerified: () => void;
   onCancel: () => void;
 }
@@ -22,6 +26,7 @@ export default function StepUpDialog({
   open,
   operation,
   resource,
+  operationId,
   onVerified,
   onCancel,
 }: Props) {
@@ -33,7 +38,10 @@ export default function StepUpDialog({
     setBusy(true);
     setError('');
     try {
-      await api.stepUp(password);
+      await api.stepUp(
+        password,
+        operationId ? { operation: operationId,
+                        resource: resource ?? '' } : undefined);
       setPassword('');
       onVerified();
     } catch (e) {
@@ -84,7 +92,10 @@ export default function StepUpDialog({
         <div className="error-box" role="alert">{error}</div>
       )}
       <p className="muted">
-        La verificación queda vinculada a tu sesión durante ~5 minutos.
+        {operationId
+          ? 'La verificación queda vinculada a esta operación y ' +
+            'recurso, una sola vez (~2 min).'
+          : 'La verificación queda vinculada a tu sesión durante ~5 minutos.'}
       </p>
     </ConfirmDialog>
   );

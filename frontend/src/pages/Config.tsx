@@ -46,7 +46,9 @@ function ConfigOps() {
         dryRun
           ? 'vista previa de migración de configuración'
           : 'migración del .env',
-        () => migrate.mutate(dryRun));
+        () => migrate.mutate(dryRun),
+        dryRun ? undefined
+               : { opId: 'config.migrate', resource: 'apply' });
     },
   });
 

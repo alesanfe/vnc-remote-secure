@@ -18,17 +18,21 @@ import StepUpDialog from './StepUpDialog';
 export function useStepUp() {
   const [pending, setPending] = useState<{
     op: string;
+    opId?: string;
     resource?: string;
     retry: () => void;
   } | null>(null);
 
   /** Call from a mutation's onError — returns true when the error was
       consumed by the step-up gate (don't also surface it as a hard
-      failure). */
+      failure). ``bind.opId`` binds the grant to the catalog
+      operation id; the server consumes it once for that exact
+      operation+resource. */
   const gate = (e: unknown, op: string, retry: () => void,
-                resource?: string): boolean => {
+                bind?: { opId?: string; resource?: string }): boolean => {
     if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
-      setPending({ op, retry, resource });
+      setPending({ op, retry, opId: bind?.opId,
+                   resource: bind?.resource });
       return true;
     }
     return false;
@@ -38,6 +42,7 @@ export function useStepUp() {
     <StepUpDialog
       open={pending !== null}
       operation={pending?.op ?? ''}
+      operationId={pending?.opId}
       resource={pending?.resource}
       onCancel={() => setPending(null)}
       onVerified={() => {

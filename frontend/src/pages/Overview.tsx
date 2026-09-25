@@ -51,12 +51,13 @@ function LifecyclePanel() {
       setPending(null);
       setFlash(
         d.action === 'stop'
-          ? 'Parada en curso — esta interfaz dejará de responder. ' +
-            'Reinicia con `vnc-remote start`.'
+          ? `Parada en curso (job ${d.job_id}) — esta interfaz ` +
+            'dejará de responder. Reinicia con `vnc-remote start`.'
           : d.action === 'restart'
-            ? 'Reinicio en curso — la interfaz volverá cuando el ' +
-              'portal esté arriba de nuevo.'
-            : 'Arranque en curso de los servicios parados.');
+            ? `Reinicio en curso (job ${d.job_id}) — la interfaz ` +
+              'volverá cuando el portal esté arriba de nuevo.'
+            : `Arranque en curso (job ${d.job_id}) de los servicios ` +
+              'parados.');
     },
     onError: (e, action) => {
       if (stepUp.gate(
@@ -64,7 +65,8 @@ function LifecyclePanel() {
         action === 'stop' ? 'parada de todos los servicios'
           : action === 'restart' ? 'reinicio de todos los servicios'
             : 'arranque de servicios',
-        () => act.mutate(action))) return;
+        () => act.mutate(action),
+        { opId: 'lifecycle.action', resource: action })) return;
       setPending(null);
     },
   });
@@ -72,27 +74,39 @@ function LifecyclePanel() {
   const up = useMutation({
     mutationFn: (source?: string) => api.upgradeRun(source),
     onSuccess: (d) =>
-      setFlash(`Actualizado ${d.previous} → ${d.version} ` +
-               `(backup previo: ${d.backup}). Reinicia los servicios.`),
+      setFlash(`Upgrade encolado (job ${d.job_id}) — sigue el ` +
+               'progreso en Operación → Jobs; reinicia al terminar.'),
     onError: (e, source) => {
       stepUp.gate(e, 'actualización del paquete instalado',
-                  () => up.mutate(source));
+                  () => up.mutate(source),
+                  { opId: 'upgrade.run',
+                    resource: source || 'latest' });
     },
   });
   const rollback = useMutation({
     mutationFn: () => api.upgradeRollback(),
     onSuccess: (d) =>
-      setFlash(`Rollback aplicado desde ${d.restored ?? 'snapshot'}. ` +
-               'Reinicia los servicios.'),
+      setFlash(`Rollback encolado (job ${d.job_id}) — consulta su ` +
+               'progreso en Operación → Jobs.'),
     onError: (e) => {
       stepUp.gate(e, 'rollback a la versión anterior',
-                  () => rollback.mutate());
+                  () => rollback.mutate(),
+                  { opId: 'upgrade.rollback' });
     },
   });
 
   const hardError = [act.error, up.error, rollback.error]
     .find(e => e && !(e instanceof ApiError &&
                       e.code === 'STEP_UP_REQUIRED'));
+
+  // Recent destructive jobs — live progress for queued/claimed/running
+  // work survives a portal restart because the record is persisted.
+  const jobs = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => api.jobs(10),
+    refetchInterval: 15_000,
+    retry: false,
+  });
 
   return (
     <>
@@ -161,6 +175,36 @@ function LifecyclePanel() {
             Rollback
           </button>
         </p>
+      )}
+
+      {(jobs.data?.jobs?.length ?? 0) > 0 && (
+        <>
+          <h3 className="section">Jobs recientes</h3>
+          <table className="data">
+            <thead>
+              <tr><th>Job</th><th>Operación</th><th>Actor</th>
+                  <th>Estado</th><th>Detalle</th></tr>
+            </thead>
+            <tbody>
+              {jobs.data!.jobs.map((j) => (
+                <tr key={j.id}>
+                  <td className="mono">{j.id.slice(0, 8)}</td>
+                  <td>{j.kind}{j.target ? ` · ${j.target}` : ''}</td>
+                  <td>{j.actor}</td>
+                  <td>
+                    <span className={`badge ${
+                      j.state === 'done' ? 'ok'
+                      : j.state === 'failed' ? 'fail'
+                      : 'warn'}`}>
+                      {j.state}{j.progress ? ` · ${j.progress}` : ''}
+                    </span>
+                  </td>
+                  <td className="muted">{j.error ?? j.detail ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
       {flash && <div className="info-box">{flash}</div>}

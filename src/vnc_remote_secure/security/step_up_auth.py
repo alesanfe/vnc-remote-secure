@@ -28,7 +28,10 @@ Usage:
     if needs_step_up(username, max_age_seconds=300):
         return error_json('Re-authentication required', 403)
 """
+import hashlib
+import json
 import logging
+import secrets
 import threading
 import time
 
@@ -163,6 +166,112 @@ class StepUpAuthManager:
             stale = [u for u, t in self._auth_times.items() if t < cutoff]
             for u in stale:
                 del self._auth_times[u]
+
+
+# ---------------------------------------------------------------------------
+# Operation-bound step-up grants
+#
+# A bare "recently authenticated" flag is enough for read-side gates,
+# but destructive operations need more: the re-authentication must be
+# bound to THIS operation on THIS resource from THIS session, and it
+# must die after one use. A grant minted to preview a diff must not
+# be reusable to rotate a secret or restore a different backup.
+#
+# Model:
+#   POST /api/v1/step-up {password, operation, resource}
+#       -> grant_step_up(user, op, resource, sid)      (stores, TTL)
+#   handler for the op calls
+#       consume_step_up(user, op, resource, sid)        (single-use)
+# ---------------------------------------------------------------------------
+_GRANT_NS = 'step_up_grants'
+_CONSUMED_NS = 'step_up_consumed'
+GRANT_TTL_SECONDS = 120  # long enough for one wizard step — no more
+
+
+def _grant_backend():
+    try:
+        from vnc_remote_secure.security.shared_state import get_backend
+        return get_backend()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _resource_hash(resource: str) -> str:
+    """Bind a grant to a resource without storing the raw name —
+    backup filenames and secret names are enumeration-sensitive."""
+    return hashlib.sha256(resource.encode('utf-8')).hexdigest()[:16]
+
+
+def _grant_key(username: str, operation: str, resource: str) -> str:
+    return '\x00'.join((username, operation, _resource_hash(resource)))
+
+
+def grant_step_up(username: str, operation: str, resource: str = '',
+                  sid: str = '') -> str:
+    """Record a bound step-up grant; returns the grant nonce.
+
+    ``operation`` is the catalog operation id (``backup.restore``);
+    ``resource`` binds the grant to a concrete target (backup name,
+    secret name, lifecycle action) — '' means the operation is
+    resource-less. ``sid`` binds the grant to the operator session so
+    a grant minted in one session cannot satisfy another."""
+    nonce = secrets.token_hex(16)
+    payload = {
+        'nonce': nonce, 'sid': sid or None,
+        'issued_at': time.time(),
+    }
+    be = _grant_backend()
+    if be is not None:
+        be.set_ttl(_GRANT_NS, _grant_key(username, operation, resource),
+                   json.dumps(payload), GRANT_TTL_SECONDS)
+    return nonce
+
+
+def consume_step_up(username: str, operation: str, resource: str = '',
+                    sid: str = '') -> bool:
+    """Consume a bound grant — single-use, expiry enforced by the
+    backend TTL. Returns True iff a matching grant existed and was
+    unused.
+
+    Two callers racing on the same grant cannot both succeed: the
+    consumed-marker is written with ``set_if_absent`` (atomic CAS in
+    every backend) before the grant row is removed."""
+    be = _grant_backend()
+    if be is None:
+        return False
+    key = _grant_key(username, operation, resource)
+    try:
+        raw = be.get(_GRANT_NS, key)
+        if raw is None:
+            return False
+        payload = json.loads(raw)
+        grant_sid = payload.get('sid')
+        if grant_sid and sid and grant_sid != sid:
+            # Bound to a different operator session — deny.
+            return False
+        nonce = payload.get('nonce', '')
+        if not be.set_if_absent(_CONSUMED_NS, nonce, username,
+                                GRANT_TTL_SECONDS):
+            return False  # already consumed by a racing request
+        be.delete(_GRANT_NS, key)
+        return True
+    except Exception:  # noqa: BLE001 - fail closed
+        logger.debug('step-up grant consume failed', exc_info=True)
+        return False
+
+
+def pending_step_up(username: str, operation: str,
+                    resource: str = '') -> bool:
+    """True when a grant exists but has not been consumed — lets the
+    UI distinguish 'needs re-auth' from 'grant pending'."""
+    be = _grant_backend()
+    if be is None:
+        return False
+    try:
+        return be.get(_GRANT_NS,
+                      _grant_key(username, operation, resource)) is not None
+    except Exception:  # noqa: BLE001
+        return False
 
 
 # Global singleton.

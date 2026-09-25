@@ -1,15 +1,19 @@
 """Backup and restore for VNC Remote Secure.
 
-Creates and restores tar.gz backups of configuration, SSL certificates,
-and runtime state. This is the canonical Python implementation that
-replaces the legacy ``scripts/maintenance/backup.sh`` and
-``restore.sh`` Bash scripts so the CLI no longer delegates to Bash.
+Creates and restores ``.tar.zst`` (zstandard) backups of
+configuration, SSL certificates, and runtime state. This is the
+canonical Python implementation that replaces the legacy
+``scripts/maintenance/backup.sh`` and ``restore.sh`` Bash scripts so
+the CLI no longer delegates to Bash.
+
+Legacy ``.tar.gz`` archives remain restorable forever — the codec is
+detected by magic bytes, not by extension.
 
 Backups can be encrypted using AES-128-CBC (Fernet) when the
 ``BACKUP_PASSWORD`` environment variable is set. Encrypted backups
-use the ``.enc.tar.gz`` extension and contain a Fernet token blob.
-When ``BACKUP_PASSWORD`` is unset, backups remain plaintext (with a
-warning logged).
+use the ``.enc.tar.zst`` extension (``.enc.tar.gz`` for legacy) and
+contain a Fernet token blob. When ``BACKUP_PASSWORD`` is unset,
+backups remain plaintext (with a warning logged).
 """
 import base64
 import contextlib
@@ -42,6 +46,88 @@ _MAX_BACKUP_TOTAL_SIZE = 2 * 1024 * 1024 * 1024  # 2 GiB uncompressed
 # Bumped when the archive layout changes incompatibly. Restore warns
 # (but still attempts) when a backup reports a newer format.
 _BACKUP_FORMAT_VERSION = 1
+
+# Archive codec detection — magic bytes, not extensions (a renamed
+# file must still restore correctly).
+_GZIP_MAGIC = b'\x1f\x8b'
+_ZST_MAGIC = b'\x28\xb5\x2f\xfd'
+
+
+def _decompress_to_tar(src: str, work_dir: str) -> str:
+    """Decompress a backup archive into a plain ``.tar`` in work_dir.
+
+    zstd (current) and gzip (legacy) streams are detected by magic
+    bytes; anything else is treated as a plain tar and handed to
+    tarfile, which produces the real error. The decompressed stream is
+    capped at ``_MAX_BACKUP_TOTAL_SIZE`` so a compression bomb fails
+    while decompressing — before tarfile ever sees it.
+    """
+    import gzip
+
+    import zstandard
+    raw = open(src, 'rb')
+    try:
+        magic = raw.read(4)
+        raw.seek(0)
+        if magic[:2] == _GZIP_MAGIC:
+            stream = gzip.GzipFile(fileobj=raw)
+        elif magic[:4] == _ZST_MAGIC:
+            stream = zstandard.ZstdDecompressor().stream_reader(raw)
+        else:
+            stream = raw
+        out_path = os.path.join(work_dir, '_archive.tar')
+        total = 0
+        with open(out_path, 'wb') as dst:
+            while True:
+                chunk = stream.read(1 << 20)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_BACKUP_TOTAL_SIZE:
+                    raise RuntimeError(
+                        'Backup uncompressed size too large '
+                        f'({total} > {_MAX_BACKUP_TOTAL_SIZE})')
+                dst.write(chunk)
+        if stream is not raw:
+            stream.close()
+        raw.close()
+        return out_path
+    except Exception:
+        with contextlib.suppress(OSError):
+            raw.close()
+        raise
+
+
+def _write_backup_tar(tmp_tar: str, paths, manifest: dict, state: dict):
+    """Write the tar.zst archive — zstd compression streamed under
+    tarfile; ``dereference=True`` stores the CONTENT of symlinked
+    files (e.g. Let's Encrypt links) instead of link members, which
+    restore's ``filter='data'`` rejects anyway."""
+    import io
+    import json as _json
+
+    import zstandard
+    with open(tmp_tar, 'wb') as fh:
+        cctx = zstandard.ZstdCompressor(level=3)
+        with cctx.stream_writer(fh) as zst:
+            with tarfile.open(fileobj=zst, mode='w|',
+                              dereference=True) as tar:
+                man_bytes = _json.dumps(manifest, indent=2).encode('utf-8')
+                man_info = tarfile.TarInfo(name='backup-manifest.json')
+                man_info.size = len(man_bytes)
+                man_info.mtime = time.time()
+                tar.addfile(man_info, io.BytesIO(man_bytes))
+                # Include the service-manager state as a JSON file.
+                state_bytes = _json.dumps(state, indent=2).encode('utf-8')
+                state_info = tarfile.TarInfo(name='service_state.json')
+                state_info.size = len(state_bytes)
+                state_info.mtime = time.time()
+                tar.addfile(state_info, io.BytesIO(state_bytes))
+                for src, arcname in paths:
+                    if os.path.exists(src):
+                        tar.add(src, arcname=arcname, recursive=True,
+                                filter=lambda info: None
+                                if info.name.endswith('.log') else info)
 
 
 def _get_backup_key(salt: bytes | None = None, iterations: int = 600000):
@@ -243,7 +329,7 @@ def _cleanup_snapshots() -> None:
 
 
 def create_backup(output: str | None = None) -> str:
-    """Create a tar.gz backup of configuration and certificates.
+    """Create a tar.zst backup of configuration and certificates.
 
     Also saves the current service-manager state (PIDs) so it can be
     restored later.
@@ -271,8 +357,10 @@ def create_backup(output: str | None = None) -> str:
 
     if output is None:
         timestamp = time.strftime('%Y%m%d_%H%M%S')
-        ext = '.enc.tar.gz' if _get_backup_key() else '.tar.gz'
+        ext = '.enc.tar.zst' if _get_backup_key() else '.tar.zst'
         output = os.path.join(_backup_dir(), f'backup_{timestamp}{ext}')
+    from vnc_remote_secure.core.test_isolation import guard_write
+    guard_write(output, 'backup create')
 
     paths = _collect_paths()
     if not paths:
@@ -280,43 +368,21 @@ def create_backup(output: str | None = None) -> str:
         # written makes callers report "Backup created: <nonexistent>".
         raise RuntimeError("No files to back up — nothing matched")
 
-    # Create the tar.gz to a temporary path first, then encrypt if needed.
-    # dereference=True stores the CONTENT of symlinked files (e.g. the
-    # Let's Encrypt links request_letsencrypt creates into
-    # /etc/letsencrypt) instead of link members — link members are
-    # rejected by restore's filter='data' and were a traversal gap on
-    # interpreters without it.
+    # Create the tar.zst to a temporary path first, then encrypt.
+    # The manifest lets restore warn on incompatible/newer backup
+    # formats instead of guessing.
+    try:
+        from vnc_remote_secure import __version__ as _app_ver
+    except Exception:  # noqa: BLE001
+        _app_ver = 'unknown'
+    manifest = {
+        'format_version': _BACKUP_FORMAT_VERSION,
+        'created': time.time(),
+        'app_version': _app_ver,
+    }
     tmp_tar = output if not _get_backup_key() else output + '.tmp'
     try:
-        with tarfile.open(tmp_tar, 'w:gz', dereference=True) as tar:
-            import io
-            import json as _json
-            # Format manifest: restore uses it to warn on incompatible or
-            # unexpectedly new backup formats instead of guessing.
-            try:
-                from vnc_remote_secure import __version__ as _app_ver
-            except Exception:  # noqa: BLE001
-                _app_ver = 'unknown'
-            manifest = {
-                'format_version': _BACKUP_FORMAT_VERSION,
-                'created': time.time(),
-                'app_version': _app_ver,
-            }
-            man_bytes = _json.dumps(manifest, indent=2).encode('utf-8')
-            man_info = tarfile.TarInfo(name='backup-manifest.json')
-            man_info.size = len(man_bytes)
-            man_info.mtime = time.time()
-            tar.addfile(man_info, io.BytesIO(man_bytes))
-            # Include the service-manager state as a JSON file in the archive.
-            state_bytes = _json.dumps(state, indent=2).encode('utf-8')
-            state_info = tarfile.TarInfo(name='service_state.json')
-            state_info.size = len(state_bytes)
-            state_info.mtime = time.time()
-            tar.addfile(state_info, io.BytesIO(state_bytes))
-            for src, arcname in paths:
-                if os.path.exists(src):
-                    tar.add(src, arcname=arcname, recursive=True,
-                            filter=lambda info: None if info.name.endswith('.log') else info)
+        _write_backup_tar(tmp_tar, paths, manifest, state)
     finally:
         # Snapshot temp files must not linger even when tarring fails.
         _cleanup_snapshots()
@@ -374,7 +440,7 @@ def create_backup(output: str | None = None) -> str:
 
 
 def restore_backup(backup_file: str, dry_run: bool = False) -> bool:
-    """Restore a backup tar.gz to the appropriate system locations.
+    """Restore a backup archive (.tar.zst or legacy .tar.gz).
 
     Args:
         backup_file: Path to the backup tar.gz file.
@@ -453,9 +519,16 @@ def _validate_tar_member(member, member_path, temp_dir):
 
 
 def _extract_backup_tar(actual_tar, temp_dir):
-    """Open, validate and extract the backup tarball into ``temp_dir``."""
+    """Open, validate and extract the backup tarball into ``temp_dir``.
+
+    The compressed archive is first decompressed to a plain tar via
+    ``_decompress_to_tar`` (magic-byte codec detection + size cap), so
+    the member scan + ``filter='data'`` extraction below operate on a
+    seekable file regardless of the codec.
+    """
+    tar_path = _decompress_to_tar(actual_tar, temp_dir)
     try:
-        with tarfile.open(actual_tar, 'r:gz') as tar:
+        with tarfile.open(tar_path, 'r:') as tar:
             # Validate each member to prevent path traversal (absolute
             # paths, '..' components) before extracting. Also bound the
             # archive: member count, per-file size and total
@@ -513,6 +586,8 @@ def _read_backup_manifest(temp_dir):
 
 def _copy_restored_tree(temp_dir, project_root):
     """Copy the extracted backup tree into its live destinations."""
+    from vnc_remote_secure.core.test_isolation import guard_write
+    guard_write(os.path.join(project_root, '.env'), 'backup restore')
     # Restore .env
     env_src = os.path.join(temp_dir, '.env')
     if os.path.isfile(env_src):
@@ -644,15 +719,16 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
 
     Caller guarantees ``temp_dir`` exists and is removed afterwards.
     """
-    # Determine if the backup is encrypted.
+    # Determine if the backup is encrypted (.enc.tar.zst current,
+    # .enc.tar.gz legacy — the inner codec is sniffed later anyway).
     actual_tar = backup_file
-    if backup_file.endswith('.enc.tar.gz'):
+    if backup_file.endswith(('.enc.tar.zst', '.enc.tar.gz')):
         if not _get_backup_key():
             raise RuntimeError(
                 "Backup is encrypted but BACKUP_PASSWORD is not set. "
                 "Set BACKUP_PASSWORD to restore this backup."
             )
-        actual_tar = os.path.join(temp_dir, '_decrypted.tar.gz')
+        actual_tar = os.path.join(temp_dir, '_decrypted.tar')
         _decrypt_file(backup_file, actual_tar)
 
     _extract_backup_tar(actual_tar, temp_dir)
@@ -679,12 +755,15 @@ def _restore_from_temp(backup_file: str, temp_dir: str,
 def list_backups() -> list:
     """Return a list of available backup files (newest first).
 
-    Includes both plaintext (``.tar.gz``) and encrypted
-    (``.enc.tar.gz``) backups.
+    Includes plaintext and encrypted backups in both the current
+    (``.tar.zst``/``.enc.tar.zst``) and legacy (``.tar.gz``/
+    ``.enc.tar.gz``) codecs — ``.enc.*`` names already end in the
+    generic suffixes.
     """
     d = _backup_dir()
     backups = [os.path.join(d, f) for f in os.listdir(d)
-               if f.startswith('backup_') and (f.endswith('.tar.gz') or f.endswith('.enc.tar.gz'))]
+               if f.startswith('backup_')
+               and f.endswith(('.tar.zst', '.tar.gz'))]
     backups.sort(key=os.path.getmtime, reverse=True)
     return backups
 
@@ -703,9 +782,9 @@ def verify_backup(backup_file: str) -> tuple:
     tar_path = backup_file
     tmp = None
     try:
-        if backup_file.endswith('.enc.tar.gz'):
+        if backup_file.endswith(('.enc.tar.zst', '.enc.tar.gz')):
             import tempfile
-            fd, tmp = tempfile.mkstemp(suffix='.tar.gz')
+            fd, tmp = tempfile.mkstemp(suffix='.tar')
             os.close(fd)
             try:
                 _decrypt_file(backup_file, tmp)
@@ -713,17 +792,21 @@ def verify_backup(backup_file: str) -> tuple:
                 return False, f'Decryption failed: {e}', -1
             tar_path = tmp
 
-        count = 0
-        with tarfile.open(tar_path, 'r:gz') as tar:
-            for member in tar.getmembers():
-                count += 1
-                if member.isfile():
-                    f = tar.extractfile(member)
-                    if f is not None:
-                        # Read fully — forces gzip CRC validation of
-                        # this member's data blocks.
-                        while f.read(65536):
-                            pass
+        import tempfile as _tmp
+        with _tmp.TemporaryDirectory(
+                prefix='vnc-verify-') as _wdir:
+            plain_tar = _decompress_to_tar(tar_path, _wdir)
+            count = 0
+            with tarfile.open(plain_tar, 'r:') as tar:
+                for member in tar.getmembers():
+                    count += 1
+                    if member.isfile():
+                        f = tar.extractfile(member)
+                        if f is not None:
+                            # Read fully — forces CRC/decompression
+                            # errors in this member's data to surface.
+                            while f.read(65536):
+                                pass
         return True, f'Archive intact ({count} members)', count
     except (tarfile.TarError, OSError, EOFError) as e:
         return False, f'Archive corrupt: {e}', -1

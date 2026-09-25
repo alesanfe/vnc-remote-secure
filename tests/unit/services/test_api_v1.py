@@ -1402,3 +1402,63 @@ def test_auth_methods_reports_mfa_flag(server, monkeypatch):
     status, _, body = _req(server, '/api/v1/auth/methods')
     assert status == 200
     assert json.loads(body)['data']['mfa'] is True
+
+
+# ---------------------------------------------------------------------------
+# Bound step-up grants - operation+resource+session, single-use
+# ---------------------------------------------------------------------------
+
+def _mk(tmp_path):
+    p = tmp_path / 'b.tar.gz'
+    p.write_bytes(b'x')
+    return str(p)
+
+
+def test_bound_step_up_grant_flow(server, monkeypatch, tmp_path):
+    """POST /step-up {operation, resource} mints a single-use grant
+    tied to that exact operation - the mutation consumes it, a second
+    call needs a fresh grant."""
+    import vnc_remote_secure.engine.infrastructure.stores as stores
+    monkeypatch.setattr(
+        stores, 'backup_create', lambda: _mk(tmp_path))
+    h = _csrf_session(server)
+    # No grant -> STEP_UP_REQUIRED at the use-case boundary.
+    status, _, body = _api_post(server, '/api/v1/backups', {}, headers=h)
+    assert status == 403
+    assert b'STEP_UP_REQUIRED' in body
+    # Grant bound to backup.create - then the real call succeeds.
+    status, _, body = _api_post(
+        server, '/api/v1/step-up',
+        {'password': 'T3st-Landing!Pass', 'operation': 'backup.create'},
+        headers=h)
+    assert status == 200, body
+    assert json.loads(body)['data']['bound']['operation'] ==         'backup.create'
+    status, _, body = _api_post(server, '/api/v1/backups', {}, headers=h)
+    assert status == 201, body
+    assert json.loads(body)['data']['created'] is True
+    # Single-use: replaying the same call needs a fresh grant.
+    status, _, _ = _api_post(server, '/api/v1/backups', {}, headers=h)
+    assert status == 403
+
+
+def test_bound_grant_does_not_cross_operations(server):
+    """A grant for secrets.rotate must not satisfy backup.create."""
+    h = _csrf_session(server)
+    status, _, _ = _api_post(
+        server, '/api/v1/step-up',
+        {'password': 'T3st-Landing!Pass', 'operation': 'secrets.rotate',
+         'resource': 'VNC_PASSWORD'},
+        headers=h)
+    assert status == 200
+    status, _, body = _api_post(server, '/api/v1/backups', {}, headers=h)
+    assert status == 403
+    assert b'STEP_UP_REQUIRED' in body
+
+
+def test_step_up_rejects_unknown_operation(server):
+    h = _csrf_session(server)
+    status, _, _ = _api_post(
+        server, '/api/v1/step-up',
+        {'password': 'T3st-Landing!Pass', 'operation': 'rm -rf'},
+        headers=h)
+    assert status == 400

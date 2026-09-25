@@ -13,7 +13,7 @@ from vnc_remote_secure.engine.domain.decision import UseCaseError
 @pytest.fixture
 def stores(monkeypatch):
     """Capture-and-substitute for every stores.* call ops makes."""
-    calls = {'audit': [], 'jobs': []}
+    calls = {'audit': [], 'jobs': [], 'enqueued': []}
     import vnc_remote_secure.engine.infrastructure.stores as s
     monkeypatch.setattr(s, 'audit',
                         lambda ev, user, detail='':
@@ -23,7 +23,19 @@ def stores(monkeypatch):
                         lambda j, d='': calls['jobs'].append(('ok', j, d)))
     monkeypatch.setattr(s, 'job_fail',
                         lambda j, e='': calls['jobs'].append(('fail', j, e)))
+
+    def _enqueue(kind, actor, target='', payload=None):
+        calls['enqueued'].append((kind, target, payload))
+        return f'jid-{kind}'
+    monkeypatch.setattr(s, 'job_enqueue', _enqueue)
+    monkeypatch.setattr(s, 'job_lock', lambda name, jid: True)
+    monkeypatch.setattr(s, 'job_unlock', lambda name, jid: None)
+    monkeypatch.setattr(s, 'step_up_consume', lambda *a: True)
+    s.calls = calls
     return s
+
+
+API = {'transport': 'api', 'username': 'op', 'sid': 'sid-1'}
 
 
 # --- Lifecycle ---------------------------------------------------------------
@@ -34,26 +46,48 @@ def test_lifecycle_rejects_unknown_action(stores):
     assert ei.value.code == 'INVALID_REQUEST'
 
 
-def test_lifecycle_spawns_deferred_runner(stores, monkeypatch):
+def test_lifecycle_enqueues_persistent_job(stores, monkeypatch):
     spawned = []
     monkeypatch.setattr(stores, 'lifecycle_spawn',
-                        lambda action, delay=1.5: spawned.append(action) or 4242)
+                        lambda jid, delay=1.5: spawned.append(jid) or 4242)
     out = ops.lifecycle_action('op', 'restart')
-    assert out == {'action': 'restart', 'pid': 4242, 'accepted': True}
-    assert spawned == ['restart']
-    assert calls_seen(stores)
-
-
-def calls_seen(stores):
-    return True  # audit assertions below use the fixture's own record
+    assert out['accepted'] is True and out['pid'] == 4242
+    assert out['job_id'] == 'jid-lifecycle'
+    assert spawned == ['jid-lifecycle']
+    kind, target, payload = stores.calls['enqueued'][0]
+    assert kind == 'lifecycle' and payload['op'] == 'lifecycle.action'
+    assert payload['action'] == 'restart'
 
 
 def test_lifecycle_spawn_failure_is_domain_error(stores, monkeypatch):
-    def boom(action, delay=1.5):
+    def boom(jid, delay=1.5):
         raise OSError('spawn failed')
     monkeypatch.setattr(stores, 'lifecycle_spawn', boom)
     with pytest.raises(UseCaseError):
         ops.lifecycle_action('op', 'restart')
+
+
+def test_lifecycle_lock_conflict(stores, monkeypatch):
+    monkeypatch.setattr(stores, 'job_lock', lambda name, jid: False)
+    with pytest.raises(UseCaseError) as ei:
+        ops.lifecycle_action('op', 'restart')
+    assert ei.value.code == 'CONFLICT'
+
+
+def test_api_transport_requires_bound_grant(stores, monkeypatch):
+    """auth_ctx transport='api' + no matching grant -> STEP_UP_REQUIRED;
+    the grant is bound to operation AND resource (action name here)."""
+    monkeypatch.setattr(stores, 'step_up_consume', lambda *a: False)
+    with pytest.raises(UseCaseError) as ei:
+        ops.lifecycle_action('op', 'restart', API)
+    assert ei.value.code == 'STEP_UP_REQUIRED'
+
+
+def test_cli_transport_skips_web_grants(stores, monkeypatch):
+    monkeypatch.setattr(stores, 'lifecycle_spawn', lambda j, delay=1.5: 7)
+    # transport='cli' — a local shell is the auth surface, no web grant.
+    out = ops.lifecycle_action('op', 'start', {'transport': 'cli'})
+    assert out['accepted'] is True
 
 
 # --- Backups -----------------------------------------------------------------
@@ -96,16 +130,31 @@ def test_restore_rejects_traversal(stores, backups):
     assert ei.value.code == 'NOT_FOUND_OR_NOT_AUTHORIZED'
 
 
-def test_restore_success(stores, backups, monkeypatch):
-    monkeypatch.setattr(stores, 'backup_restore', lambda p: True)
+def test_restore_enqueues_claimed_job(stores, backups, monkeypatch):
+    spawned = []
+    monkeypatch.setattr(stores, 'lifecycle_spawn',
+                        lambda jid, delay=1.5: spawned.append(jid) or 9)
     out = ops.restore_backup('op', 'b.tar')
-    assert out['restored'] is True
+    assert out['accepted'] is True and out['name'] == 'b.tar'
+    kind, target, payload = stores.calls['enqueued'][0]
+    assert payload['op'] == 'backup.restore'
+    assert payload['path'].endswith('b.tar')
 
 
-def test_restore_failure_maps_to_domain_error(stores, backups, monkeypatch):
-    monkeypatch.setattr(stores, 'backup_restore', lambda p: False)
-    with pytest.raises(UseCaseError):
-        ops.restore_backup('op', 'b.tar')
+def test_restore_bound_to_file(stores, backups, monkeypatch):
+    """A grant minted for backup A must not restore backup B."""
+    grants = set()
+    monkeypatch.setattr(
+        stores, 'step_up_consume',
+        lambda u, op, res, sid: grants.add((op, res)) or True)
+    monkeypatch.setattr(stores, 'lifecycle_spawn', lambda j, delay=1.5: 9)
+    ops.restore_backup('op', 'b.tar', API)
+    assert ('backup.restore', 'b.tar') in grants
+    # wrong resource -> consume returns False -> STEP_UP_REQUIRED
+    monkeypatch.setattr(stores, 'step_up_consume', lambda *a: False)
+    with pytest.raises(UseCaseError) as ei:
+        ops.restore_backup('op', 'a.tar.gz', API)
+    assert ei.value.code == 'STEP_UP_REQUIRED'
 
 
 # --- Secrets -----------------------------------------------------------------
@@ -186,18 +235,20 @@ def test_config_migrate_dry_run_no_audit(stores, monkeypatch):
 
 # --- Upgrade -----------------------------------------------------------------
 
-def test_upgrade_run_failure_is_domain_error(stores, monkeypatch):
-    monkeypatch.setattr(stores, 'upgrade_run',
-                        lambda source=None: {'ok': False,
-                                             'error': 'pip failed'})
-    with pytest.raises(UseCaseError):
-        ops.upgrade_run('op')
+def test_upgrade_run_is_a_job(stores, monkeypatch):
+    monkeypatch.setattr(stores, 'lifecycle_spawn', lambda j, delay=1.5: 5)
+    out = ops.upgrade_run('op', source='vnc-remote-secure==2.0')
+    assert out['accepted'] is True and out['job_id'] == 'jid-upgrade'
+    kind, target, payload = stores.calls['enqueued'][0]
+    assert payload == {'op': 'upgrade.run',
+                       'source': 'vnc-remote-secure==2.0'}
 
 
-def test_upgrade_rollback_ok(stores, monkeypatch):
-    monkeypatch.setattr(stores, 'upgrade_rollback',
-                        lambda: {'ok': True, 'restored': '/x/b'})
-    assert ops.upgrade_rollback('op')['ok'] is True
+def test_upgrade_rollback_is_a_job(stores, monkeypatch):
+    monkeypatch.setattr(stores, 'lifecycle_spawn', lambda j, delay=1.5: 5)
+    out = ops.upgrade_rollback('op')
+    assert out['accepted'] is True
+    assert stores.calls['enqueued'][0][2]['op'] == 'upgrade.rollback'
 
 
 def test_version(stores, monkeypatch):

@@ -337,6 +337,36 @@ def job_fail(jid: str, error: str) -> None:
     job_fail(jid, error)
 
 
+def job_enqueue(kind: str, actor: str, target: str = '',
+                payload: dict | None = None) -> str:
+    """Persist a QUEUED job before any work starts (claim model)."""
+    from vnc_remote_secure.security.jobs import job_enqueue
+    return job_enqueue(kind, actor, target, payload)
+
+
+def job_get(jid: str) -> dict | None:
+    from vnc_remote_secure.security.jobs import job_get
+    return job_get(jid)
+
+
+def job_lock(name: str, jid: str) -> bool:
+    """Op-class mutex across processes (set_if_absent lease)."""
+    from vnc_remote_secure.security.jobs import job_lock
+    return job_lock(name, jid)
+
+
+def job_unlock(name: str, jid: str) -> None:
+    from vnc_remote_secure.security.jobs import job_unlock
+    job_unlock(name, jid)
+
+
+def step_up_consume(username: str, operation: str, resource: str = '',
+                    sid: str = '') -> bool:
+    """Consume a single-use bound step-up grant."""
+    from vnc_remote_secure.security.step_up_auth import consume_step_up
+    return consume_step_up(username, operation, resource, sid)
+
+
 def jobs_list(limit: int = 100) -> list:
     from vnc_remote_secure.security.jobs import list_jobs
     return list_jobs(limit)
@@ -557,10 +587,10 @@ def service_status() -> dict:
     return {'services': status_all(), 'port_health': port_health}
 
 
-def lifecycle_spawn(action: str, delay: float = 1.5) -> int:
-    """Spawn the detached deferred runner; returns its PID."""
-    from vnc_remote_secure.core.deferred_lifecycle import spawn_lifecycle
-    return spawn_lifecycle(action, delay=delay)
+def lifecycle_spawn(jid: str, delay: float = 1.5) -> int:
+    """Spawn the detached runner that claims/executes job ``jid``."""
+    from vnc_remote_secure.core.deferred_lifecycle import spawn_job_runner
+    return spawn_job_runner(jid, delay=delay)
 
 
 def upgrade_check() -> dict:

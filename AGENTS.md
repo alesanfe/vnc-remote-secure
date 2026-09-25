@@ -121,13 +121,34 @@ Never hardcode the version string in more than `pyproject.toml` (the
   status/start/stop/restart, upgrade check/run/rollback, version).
   The shared logic lives in `security/secret_rotation.py` and
   `core/config_migration.py` so CLI and API never diverge.
-  `POST /api/v1/lifecycle` delegates to a detached child
-  (`core/deferred_lifecycle.py`) that sleeps briefly before touching
-  the service manager — the response escapes before `stop`/`restart`
-  can kill the portal serving it. Destructive routes are `admin:*`
-  + step-up gated. Host bootstrap stays CLI-only by design:
-  `install`, `uninstall`, `service --run`, `help` cannot run from a
-  UI that only exists once services are up.
+  - `engine/domain/operations.py` is the canonical **operation
+    catalog** — every transport-checkable operation declares its
+    permission, authentication policy (`stepup` recency vs
+    `stepup-bound` single-use grant), execution mode
+    (`sync`/`job`/`deferred`), confirmation type, audit event and
+    reversibility there. `tools/parity_matrix.py` regenerates
+    `docs/api/parity-matrix.md`; the contract test in
+    `tests/unit/engine/` fails when a route drifts from the catalog.
+  - Destructive ops persist a QUEUED job on the shared-state backend
+    before answering (`security/jobs.py` `job_enqueue`/`job_claim`),
+    then `POST /api/v1/lifecycle|backups/restore|upgrade*` returns
+    202+`job_id` and a detached runner
+    (`core/deferred_lifecycle.py run <job_id>`) claims and executes
+    it — a persisted job, not the sleep, is what guarantees the
+    operation. A `destructive` op-class lock prevents overlapping
+    lifecycle/restore/upgrade.
+  - `stepup-bound` operations consume a single-use grant minted by
+    `POST /api/v1/step-up {password, operation, resource}` —
+    `security/step_up_auth.py` binds the grant to
+    operation+resource+session (120 s TTL) so a grant for one
+    operation can never unlock another.
+  - `core/test_isolation.py` (`VRS_TEST_MODE=1`, set by
+    `tests/conftest.py`) aborts writes to repo-root `.env`/backups
+    and detached spawns unless an explicit `VRS_*_DIR` override or
+    `VRS_TEST_ALLOW_SPAWN=1` applies.
+  Host bootstrap stays CLI-only by design: `install`, `uninstall`,
+  `service --run`, `help` cannot run from a UI that only exists once
+  services are up.
 - **Share-link flow**: generated links are fragment URLs —
   `GET /share#t=<token>` serves the React SPA; the token never reaches
   the server — the SPA wipes it from the URL, calls
@@ -274,12 +295,81 @@ removed. All business logic lives in the Python package under
 Dependencies are managed in `pyproject.toml` (single source of truth).
 
 ```bash
-# Install in development mode
+# Install in development mode (runtime + dev/security toolchain)
 pip install -e ".[dev]"
+
+# Optional extras
+pip install -e ".[otel]"            # OTLP trace export (OTEL_ENABLED)
+pip install -e ".[windows-gamepad]" # ViGEmBus-backed XInput on Windows
 
 # Build the package
 python -m build
 ```
+
+### Library policy
+
+Use the declared dependency for its responsibility instead of
+reimplementing it:
+
+| Responsibility | Library | Where |
+|---|---|---|
+| API request/response validation | `pydantic` (strict, `extra='forbid'`) | `backend/schemas.py` |
+| Typed env/settings | `pydantic-settings` | `monitoring/settings.py` (complements `config.schema.json`, which stays the declarative contract) |
+| Outbound HTTP | `httpx` via `security/http_client.py` (SSRF policy + DNS pinning, no redirects, tenacity retry on transport errors) | alerts, audit-export webhooks, upgrade check |
+| Metrics exposition | `prometheus-client` wire format over the shared-state backend | `monitoring/prometheus.py` |
+| JSON logging | `structlog` `ProcessorFormatter` (`ts`/`level`/`logger`/`msg`) | `core/logging.py` |
+| Password hashing | `argon2-cffi` Argon2id (legacy `pbkdf2:`/`scrypt:` still verify; rehash-on-login) | `security/credentials.py`, `security/operator_users.py` |
+| TOTP primitives | `pyotp` (RFC 4226/6238) — replay protection + recovery codes stay project-owned | `security/mfa.py` |
+| Retries | `tenacity` (bounded, transport-errors only — never on HTTP status) | `security/http_client.py` |
+| Architecture contracts | `import-linter` (`lint-imports`; tests wrap it) | `tests/unit/architecture/` |
+| OpenAPI contract | `openapi-spec-validator` + `openapi-core` | `tests/unit/api/test_openapi_contract.py` |
+| Property tests | `hypothesis` | `tests/unit/security/test_properties.py` |
+| Mock HTTP in tests | `httpx.MockTransport` injection via `secure_client(transport=)` — respx does NOT intercept the custom PinnedTransport, it only patches httpx's built-in transports | `tests/unit/security/test_http_client.py` |
+| Frozen time in tests | `time-machine` | `tests/unit/monitoring/test_otel_settings.py` |
+| Secrets scanning | `detect-secrets` + `.secrets.baseline` | pre-commit hook |
+| SAST | `bandit`, `semgrep` (project rules in `.semgrep.yml`) | `make lint-bandit`, `make lint-semgrep` |
+| Config schema validation | `jsonschema` (Draft 2020-12) — the schema document + shipped defaults are contract-tested | `tests/unit/core/test_config_schema.py` |
+| Dependency audit / SBOM | `pip-audit`, `cyclonedx-bom` | `make check-deps`, `make sbom` |
+| File hygiene | upstream `pre-commit-hooks` (json/yaml/toml, large files, private keys, EOL) | `.pre-commit-config.yaml` |
+
+Do NOT introduce parallel systems: no Django/Flask-Security, no JWT
+web sessions (HMAC cookies are canonical), no second rate-limit or
+logging system, no mandatory Redis/SQLAlchemy inside the Engine.
+
+Deliberately NOT adopted after evaluation: `platformdirs` —
+`core/paths.py` implements elevation-aware semantics it cannot
+reproduce (ProgramData for elevated/SYSTEM runs, LocalLow under
+MSIX packaging, FHS vs XDG keyed on root). `respx` — it only patches
+httpx's built-in transports, so it cannot intercept the custom
+`PinnedTransport`; tests inject `httpx.MockTransport` instead.
+`freezegun` — `time-machine` covers the same surface.
+
+Audited and intentionally kept manual: `core/config.py`'s
+`_parse_env_file` (python-dotenv cannot reproduce the `$(`-skip +
+`_DEFAULT_INJECTED` precedence tracking), `core/service_manager.py`
+locking (msvcrt/flock semantics `filelock`/`portalocker` don't
+guarantee), `core/backup.py` `tarfile w:gz` (zstandard would change
+the artifact format — restore compatibility outweighs the gain for
+config-sized backups), `security/token_signing.py` (type-tagged
+HMAC + revocation/SID semantics — itsdangerous evaluated and
+rejected), `monitoring/alerts.py` email (stdlib `smtplib` is the
+right call for a synchronous alert path).
+
+### Security & quality tooling
+
+```bash
+make lint-arch       # import-linter: engine layering contracts
+make lint-semgrep    # project rules (.semgrep.yml)
+make lint-bandit     # SAST on src/
+make check-secrets   # detect-secrets vs .secrets.baseline
+make check-deps      # pip-audit
+make sbom            # CycloneDX sbom.cdx.json
+```
+
+pre-commit hooks (`pre-commit install`) run: CRLF/whitespace checks,
+shellcheck/shfmt, ruff, black, yamllint, bandit, pydocstyle, codespell,
+detect-secrets, import-linter and semgrep (the last two skip cleanly
+when the tool is not installed).
 
 ## Known limitations
 

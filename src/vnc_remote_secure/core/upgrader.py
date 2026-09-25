@@ -71,15 +71,21 @@ def installed_version() -> str:
 
 
 def _fetch_available_version() -> str | None:
-    """Query PyPI for the newest published version (short timeout)."""
+    """Query PyPI for the newest published version (short timeout).
+
+    Goes through the pinned secure client — a version check must not
+    become an SSRF proxy even though the URL is a constant.
+    """
     try:
-        import urllib.request
-        req = urllib.request.Request(
-            f'https://pypi.org/pypi/{_PACKAGE}/json',
+        from vnc_remote_secure.security.http_client import secure_request
+        resp = secure_request(
+            'GET', f'https://pypi.org/pypi/{_PACKAGE}/json',
             headers={'Accept': 'application/json',
-                     'User-Agent': f'{_PACKAGE}-upgrade-check'})
-        with urllib.request.urlopen(req, timeout=_CHECK_TIMEOUT_S) as r:
-            data = json.loads(r.read().decode('utf-8'))
+                     'User-Agent': f'{_PACKAGE}-upgrade-check'},
+            timeout=_CHECK_TIMEOUT_S)
+        if not 200 <= resp.status_code < 300:
+            return None
+        data = resp.json()
         return data.get('info', {}).get('version')
     except Exception:  # noqa: BLE001 - offline/not published/any net issue
         return None
@@ -190,6 +196,8 @@ def perform_upgrade(source: str | None = None) -> dict:
     Returns:
         ``{'ok', 'previous', 'version'|'error', 'backup', 'rolled_back'}``.
     """
+    from vnc_remote_secure.core.test_isolation import guard_spawn
+    guard_spawn('package upgrade')
     from vnc_remote_secure.core.backup import create_backup
 
     previous = installed_version()
@@ -295,6 +303,8 @@ def perform_rollback() -> dict:
     it. Returns ``{'ok', 'restored', 'error'}``.
     """
     from vnc_remote_secure.core.backup import restore_backup
+    from vnc_remote_secure.core.test_isolation import guard_spawn
+    guard_spawn('package rollback')
 
     state = _read_state()
     if not state:
