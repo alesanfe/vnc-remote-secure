@@ -331,6 +331,9 @@ reimplementing it:
 | Config schema validation | `jsonschema` (Draft 2020-12) — the schema document + shipped defaults are contract-tested | `tests/unit/core/test_config_schema.py` |
 | Dependency audit / SBOM | `pip-audit`, `cyclonedx-bom` | `make check-deps`, `make sbom` |
 | File hygiene | upstream `pre-commit-hooks` (json/yaml/toml, large files, private keys, EOL) | `.pre-commit-config.yaml` |
+| .env parsing | `python-dotenv` (`dotenv_values`) — the project layer adds the `$(…)`/backtick skip (shell `source` safety) and `_DEFAULT_INJECTED` precedence tracking | `core/config.py::_parse_env_file` (canonical; also used by `config_inspector` and the generated-credentials readers) |
+| Cross-process lock | `filelock` (flock/msvcrt byte-0, non-blocking acquire) | `core/service_manager.py::_GlobalLock` |
+| Backup compression | `zstandard` — writes `.tar.zst`; restore sniffs magic bytes so legacy `.tar.gz` still restores | `core/backup.py::_write_backup_tar`/`_decompress_to_tar` |
 
 Do NOT introduce parallel systems: no Django/Flask-Security, no JWT
 web sessions (HMAC cookies are canonical), no second rate-limit or
@@ -344,16 +347,21 @@ httpx's built-in transports, so it cannot intercept the custom
 `PinnedTransport`; tests inject `httpx.MockTransport` instead.
 `freezegun` — `time-machine` covers the same surface.
 
-Audited and intentionally kept manual: `core/config.py`'s
-`_parse_env_file` (python-dotenv cannot reproduce the `$(`-skip +
-`_DEFAULT_INJECTED` precedence tracking), `core/service_manager.py`
-locking (msvcrt/flock semantics `filelock`/`portalocker` don't
-guarantee), `core/backup.py` `tarfile w:gz` (zstandard would change
-the artifact format — restore compatibility outweighs the gain for
-config-sized backups), `security/token_signing.py` (type-tagged
-HMAC + revocation/SID semantics — itsdangerous evaluated and
-rejected), `monitoring/alerts.py` email (stdlib `smtplib` is the
-right call for a synchronous alert path).
+Audited and intentionally kept manual (no library absorbs the
+project-specific semantics): `security/token_signing.py` —
+itsdangerous changes the wire format (invalidating live sessions/
+share links) and has no multi-secret rotation window; the current
+type-tagged HMAC is ~60 lines and tested. `core/test_isolation.py`
+— the VRS_TEST_MODE safety guard is bespoke by definition.
+`platform/windows/sandbox.py` — ctypes/Win32 job objects and token
+elevation; `pywin32` would not simplify the security boundary.
+`monitoring/alerts.py` email — stdlib `smtplib` is the right call
+for a synchronous alert path. `.env` *writers*
+(`set_env_persistent`, generated-credentials store) — need atomic
+tmp+`os.replace` + `0o600`, which `dotenv.set_key` doesn't
+guarantee. `services/rfb_filter.py` — RFB protocol knowledge, no
+library equivalent. `vendor/d3des.py` — pinned vendored crypto
+(pycryptodome-backed) for VNC DES compatibility.
 
 ### Security & quality tooling
 

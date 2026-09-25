@@ -32,20 +32,71 @@ dependencies = [
   "cryptography>=50.0,<52.0",
   "websockets>=12.0,<17.0",
   "websockify>=0.10,<1.0",
-  "pycryptodome>=3.19.0,<4.0"
+  "pycryptodome>=3.19.0,<4.0",
+  # API request/response contracts (strict mode, extra=forbid) and the
+  # effective-config typed view on top of config.schema.json.
+  "pydantic>=2.7,<3.0",
+  "pydantic-settings>=2.4,<3.0",
+  # Structured logging — opt-in JSON rendering on top of stdlib logging.
+  "structlog>=24.4,<27.0",
+  # Prometheus text exposition (cross-process values still come from
+  # security.shared_state — the client only owns HELP/TYPE escaping).
+  "prometheus-client>=0.21,<1.0",
+  # Declarative retries for outbound integrations (webhooks, DuckDNS).
+  "tenacity>=9.0,<10.0",
+  # Outbound HTTP — always through security.http_client (SSRF policy +
+  # DNS pinning), never raw urllib/requests.
+  "httpx>=0.27,<1.0",
+  # Argon2id operator password hashing (pbkdf2 legacy verify + rehash).
+  "argon2-cffi>=23.1,<26.0",
+  # RFC 4226/6238 primitives — the project layer keeps replay
+  # protection (shared-state step claiming) on top.
+  "pyotp>=2.9,<3.0",
+  # Cross-process file locking (flock/msvcrt inside filelock) for the
+  # service-manager global lock.
+  "filelock>=3.16,<4.0",
+  # .env parsing — quoting/comments/${VAR} interpolation handled by
+  # the library; the project keeps the $(…)-skip and injected-default
+  # precedence tracking on top.
+  "python-dotenv>=1.0,<2.0",
+  # Backup compression — .tar.zst written; .tar.gz still restored by
+  # magic-byte detection.
+  "zstandard>=0.23,<1.0"
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=7.0,<9.0",
-  "pytest-cov>=4.0,<6.0",
+  "pytest>=7.0,<10.0",
+  "pytest-cov>=4.0,<8.0",
+  "pytest-xdist>=3.6,<4.0",
+  "pytest-randomly>=3.15,<4.0",
+  "pytest-timeout>=2.3,<3.0",
+  "pytest-repeat>=0.9,<1.0",
   "ruff>=0.7.0,<1.0",
-  "black>=24.0,<25.0",
+  "black>=24.0,<26.0",
   "pre-commit>=3.5,<5.0",
   "yamllint>=1.35,<2.0",
   "hypothesis>=6.100,<7.0",
   "bandit>=1.7,<2.0",
-  "build>=1.0,<2.0"
+  "build>=1.0,<2.0",
+  # API contract gates: the OpenAPI YAML is schema-validated and a
+  # sample of live responses is validated against it.
+  "openapi-spec-validator>=0.8,<1.0",
+  "openapi-core>=0.19,<1.0",
+  # Formal validation of config.schema.json + shipped defaults.
+  "jsonschema>=4.21,<5.0",
+  # Import-boundary enforcement (engine/application cannot reach
+  # security/*, domain depends on stdlib only).
+  "import-linter>=2.0,<3.0",
+  # Mutation testing (config in [tool.mutmut]; WSL on Windows).
+  "mutmut>=3.0,<4.0",
+  # Fake filesystem + deterministic clocks for config/session tests.
+  "pyfakefs>=5.6,<7.0",
+  "time-machine>=2.16,<4.0",
+  # Supply chain: secrets scanning baseline + dependency CVE audit.
+  "detect-secrets>=1.5,<2.0",
+  "pip-audit>=2.7,<3.0",
+  "cyclonedx-bom>=4.6,<8.0",
 ]
 linux = [
   "evdev>=1.0,<2.0"
@@ -70,6 +121,14 @@ e2e = [
 # service falls back to SendInput key/mouse injection.
 windows-gamepad = [
   "vgamepad>=0.1.0,<2.0"
+]
+# Optional: OTLP trace export (OTEL_ENABLED). monitoring/otel.py
+# imports lazily and no-ops without this extra.
+otel = [
+  "opentelemetry-api>=1.30,<2.0",
+  "opentelemetry-sdk>=1.30,<2.0",
+  "opentelemetry-exporter-otlp>=1.30,<2.0",
+  "opentelemetry-instrumentation-fastapi>=0.50b0,<1.0",
 ]
 
 [tool.mutmut]
@@ -102,6 +161,12 @@ target-version = ["py311"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# pytest-timeout: no test may hang a CI worker forever — subprocess,
+# WebSocket and shared-state tests occasionally block on platform
+# locks. 300s is generous; genuinely slow tests use a longer
+# @pytest.mark.timeout. "thread" works on Windows (no SIGALRM).
+timeout = 300
+timeout_method = "thread"
 markers = [
   "security: security-focused tests (fuzz, adversarial)",
   "soak: long-running stability tests (deselected by default)",
@@ -231,6 +296,79 @@ exclude = [
     "node_modules", "novnc", "docs/reports", ".idea",
 ]
 
+[tool.bandit]
+# Standalone bandit is the canonical Python SAST pass (flake8's S rules
+# are disabled so findings are not double-reported).
+# Skips: B104 hardcoded bind-all (the config layer binds 0.0.0.0
+# intentionally behind profiles; BIND_HOST validation lives in
+# core/config.py), B311 random (secrets module is used for tokens),
+# B310 urllib open (all outbound HTTP goes through the pinned
+# security.http_client wrapper), B101 assert (pytest-style asserts in
+# service code are intentional contract checks), B110
+# try/except/pass (alerts/metrics export paths deliberately never
+# raise), B404 subprocess import (the platform adapters' job),
+# B105/B107 credential-name heuristics (variable names, not values),
+# B603/B607 subprocess-without-shell/partial-path (the real risk is
+# B602 shell=True, which stays enabled).
+skips = ["B104", "B311", "B310", "B101", "B110", "B404",
+         "B105", "B107", "B603", "B607"]
+exclude_dirs = ["tests", "frontend", "docs", "tools", "scripts",
+                "third_party", "vendor", "novnc"]
+
+[tool.importlinter]
+root_package = "vnc_remote_secure"
+include_external_packages = true
+# Layering contracts — these replace the hand-rolled AST scan in
+# tests/unit/architecture/test_import_boundaries.py:
+#   domain ← application ← infrastructure  (engine internals)
+#   engine/application+domain cannot import security/monitoring/platform
+#   no engine module can import transport (services/web/cli/frameworks)
+
+[[tool.importlinter.contracts]]
+name = "engine: no transport imports"
+type = "forbidden"
+# The rule is about DIRECT imports — transitive reach through
+# infrastructure stores (which legitimately touches security/*) is
+# not a boundary violation.
+allow_indirect_imports = true
+source_modules = ["vnc_remote_secure.engine"]
+forbidden_modules = [
+    "vnc_remote_secure.services",
+    "vnc_remote_secure.web",
+    "vnc_remote_secure.cli",
+    "vnc_remote_secure.backend",
+    "flask", "django", "tornado", "aiohttp", "fastapi",
+    "requests", "httpx", "starlette",
+    "http",
+]
+
+[[tool.importlinter.contracts]]
+name = "engine/application+domain: infrastructure goes through stores"
+type = "forbidden"
+# Direct-import rule: application modules must reach security/monitoring/
+# platform only through engine.infrastructure.stores. Transitive reach
+# via stores itself is the intended path, not a violation.
+allow_indirect_imports = true
+source_modules = [
+    "vnc_remote_secure.engine.application",
+    "vnc_remote_secure.engine.domain",
+]
+forbidden_modules = [
+    "vnc_remote_secure.security",
+    "vnc_remote_secure.monitoring",
+    "vnc_remote_secure.platform",
+]
+
+[[tool.importlinter.contracts]]
+name = "engine layering: application -> infrastructure -> domain"
+type = "layers"
+allow_indirect_imports = true
+layers = [
+    "vnc_remote_secure.engine.application",
+    "vnc_remote_secure.engine.infrastructure",
+    "vnc_remote_secure.engine.domain",
+]
+
 [tool.basedpyright]
 # mypy is the canonical type checker; basedpyright runs in basic mode as
 # a secondary signal (strict mode is not adopted — the codebase is not
@@ -242,8 +380,12 @@ typeCheckingMode = "basic"
 # spawned as a subprocess rather than imported.
 [tool.deptry.per_rule_ignores]
 DEP002 = [
-    "websockify", "pytest", "pytest-cov", "ruff", "black", "pre-commit",
-    "yamllint", "hypothesis", "bandit", "build",
+    "websockify", "pytest", "pytest-cov", "pytest-xdist",
+    "pytest-randomly", "pytest-timeout", "pytest-repeat",
+    "ruff", "black", "pre-commit", "yamllint", "hypothesis", "bandit",
+    "build", "openapi-spec-validator", "openapi-core", "import-linter",
+    "respx", "mutmut", "pyfakefs", "time-machine", "detect-secrets",
+    "pip-audit", "cyclonedx-bom",
 ]
 
 # darglint config lives in .darglint (it does not read pyproject.toml);

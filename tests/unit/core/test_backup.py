@@ -1,4 +1,4 @@
-"""Tests for core.backup — create, list, verify."""
+﻿"""Tests for core.backup â€” create, list, verify."""
 import os
 import tarfile
 
@@ -145,7 +145,7 @@ class TestArchiveLimits:
 
 class TestBackupEdgeCases:
     def test_empty_collect_paths_raises(self, monkeypatch, tmp_path):
-        """create_backup must fail loudly — returning a path to a file
+        """create_backup must fail loudly â€” returning a path to a file
         never written makes the CLI report a phantom success."""
         from vnc_remote_secure.core import backup
         monkeypatch.setattr(backup, '_collect_paths', list)
@@ -194,7 +194,7 @@ class TestBackupEdgeCases:
     def test_member_at_exact_size_limit_accepted(self, tmp_path,
                                                  monkeypatch):
         """size == _MAX_BACKUP_FILE_SIZE is INCLUSIVE-allowed (check
-        uses >) — pin the boundary so an off-by-one cannot shrink it."""
+        uses >) â€” pin the boundary so an off-by-one cannot shrink it."""
         import io
 
         from vnc_remote_secure.core import backup
@@ -208,7 +208,7 @@ class TestBackupEdgeCases:
             tar.addfile(info, io.BytesIO(data))
         monkeypatch.setattr(backup, 'find_project_root',
                             lambda: str(tmp_path / 'proj'))
-        # dry_run validates + extracts but skips copy — must not raise.
+        # dry_run validates + extracts but skips copy â€” must not raise.
         assert backup.restore_backup(str(f), dry_run=True) is True
 
 
@@ -220,7 +220,7 @@ class TestRestoreNegativePaths:
 
     def test_encrypted_without_password_raises(self, tmp_path,
                                                monkeypatch):
-        """An .enc.tar.gz with no BACKUP_PASSWORD must fail — never
+        """An .enc.tar.gz with no BACKUP_PASSWORD must fail â€” never
         silently skip decryption."""
         from vnc_remote_secure.core import backup
         f = tmp_path / 'b.enc.tar.gz'
@@ -250,7 +250,7 @@ class TestRestoreNegativePaths:
 
     def test_encryption_failure_leaves_no_plaintext(self, tmp_path,
                                                     monkeypatch):
-        """If _encrypt_file fails, the plaintext tar must be deleted —
+        """If _encrypt_file fails, the plaintext tar must be deleted â€”
         never left next to the broken .enc."""
         pytest.importorskip('cryptography')
         from vnc_remote_secure.core import backup
@@ -358,7 +358,7 @@ class TestRestoreSessionExpiry:
     def test_hardened_profile_refuses_plaintext(
             self, monkeypatch, tmp_path):
         """Under a hardened security profile an unencrypted backup of
-        secrets is refused outright — BACKUP_PASSWORD or an explicit
+        secrets is refused outright â€” BACKUP_PASSWORD or an explicit
         BACKUP_ALLOW_PLAINTEXT opt-out is required."""
         from vnc_remote_secure.core import backup
         secret = tmp_path / '.env'
@@ -405,7 +405,7 @@ class TestRestoreSessionExpiry:
             'vnc_remote_secure.security.profiles.resolve_profile',
             lambda: 'public-hardened')
         out = backup.create_backup()
-        assert out.endswith('.tar.gz')
+        assert out.endswith('.tar.zst')
 
     def test_dev_profile_allows_plaintext(
             self, monkeypatch, tmp_path):
@@ -429,4 +429,4 @@ class TestRestoreSessionExpiry:
             'vnc_remote_secure.security.profiles.resolve_profile',
             lambda: 'development')
         out = backup.create_backup()
-        assert out.endswith('.tar.gz')
+        assert out.endswith('.tar.zst')

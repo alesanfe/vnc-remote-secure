@@ -13,14 +13,14 @@ third_party/
 │   ├── novnc.json
 │   ├── ttyd.json
 │   ├── tightvnc.json
-│   ├── ultravnc.json
-│   └── xterm.json
+│   └── ultravnc.json
 ├── licenses/           # License texts for each dependency
 │   ├── novnc.txt
 │   ├── ttyd.txt
 │   ├── tightvnc.txt
 │   ├── ultravnc.txt
-│   └── xterm.txt
+│   └── xterm.txt       # xterm.js is bundled by the frontend (npm), not
+│                       # downloaded — the license text stays for compliance
 └── checksums/          # SHA-256 checksums for verified downloads
     └── SHA256SUMS
 ```

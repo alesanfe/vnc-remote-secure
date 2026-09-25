@@ -200,6 +200,9 @@ def create_health_app():
         intact, message = verify_chain()
         return {'intact': intact, 'message': message}
 
+    from vnc_remote_secure.monitoring.otel import instrument_app
+    instrument_app(app, service_name='vnc-remote-secure-health')
+
     return app
 
 

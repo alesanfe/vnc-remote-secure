@@ -112,15 +112,6 @@ def _set_audio_indicator(active: bool) -> None:
         pass
 
 
-def audio_capture_active() -> bool:
-    """Return True when the mic indicator is set in shared state."""
-    try:
-        from vnc_remote_secure.security.shared_state import get_backend
-        return bool(get_backend().get('audio_indicator', 'capture'))
-    except Exception:  # noqa: BLE001
-        return False
-
-
 def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
     """Build ffmpeg command to capture system audio as MP3 stream."""
     ffmpeg = find_ffmpeg()

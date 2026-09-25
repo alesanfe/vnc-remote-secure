@@ -111,12 +111,6 @@ def describe(name: str) -> dict | None:
     }
 
 
-def registry_table() -> list[dict]:
-    """Every capability as a row — the generated permission matrix."""
-    return [row for name in sorted(CAPABILITIES)
-            if (row := describe(name)) is not None]
-
-
 def unregistered() -> set[str]:
     """Enforced permissions missing from the catalog (must be empty)."""
     return ALL_PERMISSIONS - set(CAPABILITIES)

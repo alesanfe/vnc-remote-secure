@@ -100,14 +100,22 @@ def _export_webhook(entry: dict) -> bool:
     url = os.environ.get('AUDIT_EXPORT_WEBHOOK', '').strip()
     if not url:
         return True
-    from vnc_remote_secure.monitoring.alerts import _post_pinned, _validate_webhook_url
-    err = _validate_webhook_url(url)
+    from vnc_remote_secure.security.http_client import (
+        secure_post,
+        validate_url,
+    )
+    err = validate_url(url)
     if err:
         logger.warning('AUDIT_EXPORT_WEBHOOK rejected: %s', err)
         return False
     body = json.dumps({'audit': entry}).encode('utf-8')
-    return _post_pinned(
-        url, body, {'Content-Type': 'application/json'})
+    try:
+        status = secure_post(
+            url, body, {'Content-Type': 'application/json'})
+    except Exception:  # noqa: BLE001 - export must not break requests
+        logger.warning('Audit webhook POST failed')
+        return False
+    return 200 <= status < 300
 
 
 def _note_failure() -> None:
@@ -153,9 +161,3 @@ def export_entry(entry: dict, line: str) -> None:
     else:
         _note_failure()
 
-
-def export_enabled() -> bool:
-    """True when at least one network sink is configured."""
-    return bool(
-        os.environ.get('AUDIT_SYSLOG_HOST', '').strip()
-        or os.environ.get('AUDIT_EXPORT_WEBHOOK', '').strip())

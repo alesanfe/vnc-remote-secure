@@ -50,10 +50,16 @@ class TestEscaping:
     exposition format or inject lines."""
 
     def test_quote_and_newline_in_label_escaped(self):
+        """prometheus_client owns label quoting now — assert the
+        property end-to-end through render_metrics: a hostile label
+        value must not inject lines into the exposition."""
         from vnc_remote_secure.monitoring import prometheus
-        # A label value containing " or a newline must not inject
-        # lines into the exposition format.
-        assert prometheus._format_labels('k="a\nb"') == \
-            '{k=\\"a\\nb\\"}'
-        assert prometheus._format_labels('a=b\\c') == '{a=b\\\\c}'
-        assert prometheus._format_labels('') == ''
+        prometheus.set_gauge('vnc_remote_test_injection',
+                             1, 'k="a\nb"')
+        output = prometheus.render_metrics()
+        # The raw quote+newline must never appear verbatim in the
+        # exposition (it would inject a fake metric line).
+        assert '"a\nb"' not in output
+        # prometheus_client escapes " and \n inside label values —
+        # k="a\nb" is emitted as k="\"a\nb\"".
+        assert 'k="\\"a\\nb\\""' in output, output

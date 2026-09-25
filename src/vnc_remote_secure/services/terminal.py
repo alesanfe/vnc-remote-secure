@@ -649,7 +649,7 @@ class TerminalWebSocket:
     running loop, so they are callable from any thread).
     """
 
-    main_ioloop = None
+    main_loop = None
     # Terminal commands are short JSON envelopes — a multi-MB frame is
     # only a memory-exhaustion attempt.
     max_message_size = 64 * 1024
@@ -1212,7 +1212,7 @@ class TerminalWebSocket:
             proc = self.current_process
             if proc is None:
                 return
-            ioloop = TerminalWebSocket.main_ioloop
+            ioloop = TerminalWebSocket.main_loop
 
             try:
                 # Drain stdout/stderr incrementally on helper threads so
@@ -1362,7 +1362,7 @@ def make_app():
             return
         await websocket.accept()
         loop = asyncio.get_running_loop()
-        TerminalWebSocket.main_ioloop = _LoopAdapter(loop)
+        TerminalWebSocket.main_loop = _LoopAdapter(loop)
         session._loop = loop
         session.open()
         try:

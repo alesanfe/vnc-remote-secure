@@ -43,7 +43,7 @@ Test-VncRemoteConfiguration
 ## What Windows Support Includes
 
 - UltraVNC for VNC server (not TigerVNC)
-- Python/Tornado web terminal (not ttyd)
+- Python/FastAPI web terminal (not ttyd)
 - websockify for noVNC proxy
 - Self-signed SSL certificates (no Let's Encrypt)
 - Windows Firewall rules (only the landing portal port — default 8000 — public)

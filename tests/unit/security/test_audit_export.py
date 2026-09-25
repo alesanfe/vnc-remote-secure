@@ -110,12 +110,13 @@ class TestExportEntry:
     def test_webhook_uses_pinned_post(self, monkeypatch):
         monkeypatch.setenv('AUDIT_EXPORT_WEBHOOK', 'https://siem.example/hook')
         calls = []
-        import vnc_remote_secure.monitoring.alerts as alerts
-        monkeypatch.setattr(alerts, '_validate_webhook_url',
+        import vnc_remote_secure.security.http_client as http_client
+        monkeypatch.setattr(http_client, 'validate_url',
                             lambda url: None)
         monkeypatch.setattr(
-            alerts, '_post_pinned',
-            lambda url, body, headers: calls.append((url, body)) or True)
+            http_client, 'secure_post',
+            lambda url, body, headers, **kw: calls.append(
+                (url, body)) or 200)
         audit_export.export_entry(ENTRY, LINE)
         assert len(calls) == 1
         payload = json.loads(calls[0][1])

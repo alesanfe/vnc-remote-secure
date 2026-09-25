@@ -24,8 +24,13 @@ import os
 import socket
 import sys
 import time
-import urllib.error
-import urllib.request
+try:
+    import httpx
+    import tenacity
+except ImportError:
+    print("Error: httpx/tenacity not installed. "
+          "Run: pip install -e .")
+    sys.exit(1)
 from datetime import datetime
 from pathlib import Path
 
@@ -93,11 +98,20 @@ def update_ip(domain, token):
            f"&token={urllib.parse.quote(token, safe='')}&ip=")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    @tenacity.retry(
+        stop=tenacity.stop_after_attempt(3),
+        wait=tenacity.wait_exponential(min=2, max=15),
+        retry=tenacity.retry_if_exception_type(httpx.TransportError),
+        reraise=True)
+    def _send():
+        with httpx.Client(timeout=30,
+                          follow_redirects=False) as client:
+            return client.get(url)
+
     try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read().decode("utf-8", errors="replace").strip()
-    except urllib.error.URLError as e:
+        resp = _send()
+        body = resp.text.strip()
+    except httpx.TransportError as e:
         print(f"\033[0;31m[{timestamp}] Duck DNS error: {e}\033[0m")
         return False
     except Exception as e:
@@ -118,8 +132,8 @@ def update_ip(domain, token):
 def get_public_ip():
     """Get current public IP address."""
     try:
-        with urllib.request.urlopen("https://api.ipify.org", timeout=10) as resp:
-            return resp.read().decode().strip()
+        with httpx.Client(timeout=10, follow_redirects=False) as client:
+            return client.get("https://api.ipify.org").text.strip()
     except Exception:
         return None
 

@@ -33,7 +33,8 @@ class TestTOTPSecret:
         uri = generate_totp_uri(secret, 'admin')
         assert uri.startswith('otpauth://totp/')
         assert 'secret=' + secret in uri
-        assert 'issuer=VNC+Remote+Secure' in uri
+        assert ('issuer=VNC+Remote+Secure' in uri
+                or 'issuer=VNC%20Remote%20Secure' in uri)
 
 
 class TestTOTPVerification:
@@ -42,7 +43,7 @@ class TestTOTPVerification:
         # Generate a valid TOTP code
         from vnc_remote_secure.security.mfa import TOTP_INTERVAL, _hotp
         step = int(time.time()) // TOTP_INTERVAL
-        code = f"{_hotp(secret.encode() if isinstance(secret, bytes) else __import__('base64').b32decode(secret + '=' * ((8 - len(secret) % 8) % 8)), step):06d}"
+        code = f"{_hotp(secret, step):06d}"
         assert verify_totp(secret, code)
 
     def test_invalid_code_rejected(self):
@@ -76,18 +77,16 @@ class TestTOTPVerification:
         secret = generate_totp_secret()
         from vnc_remote_secure.security.mfa import (
             TOTP_INTERVAL,
-            _base32_decode,
             _hotp,
             _record_step,
         )
-        key = _base32_decode(secret)
         now = int(time.time())
         step = now // TOTP_INTERVAL
         # Reset anti-replay state so earlier tests' consumed counters
         # (same process, shared backend) do not mask the drift check.
         _record_step(step - 3)
         # Previous step should be accepted (within window)
-        code = f"{_hotp(key, step - 1):06d}"
+        code = f"{_hotp(secret, step - 1):06d}"
         assert verify_totp(secret, code, timestamp=now)
 
     def test_totp_replay_rejected(self):
@@ -96,21 +95,19 @@ class TestTOTPVerification:
         secret = generate_totp_secret()
         from vnc_remote_secure.security.mfa import (
             TOTP_INTERVAL,
-            _base32_decode,
             _hotp,
             _record_step,
         )
-        key = _base32_decode(secret)
         now = int(time.time())
         step = now // TOTP_INTERVAL
         _record_step(step - 3)  # clean slate
-        code = f"{_hotp(key, step):06d}"
+        code = f"{_hotp(secret, step):06d}"
         assert verify_totp(secret, code, timestamp=now)
         # Same code, same step: replay must fail.
         assert not verify_totp(secret, code, timestamp=now)
         # An older (drift-window) code after the newer one was consumed
         # also fails — counters may only move forward.
-        old = f"{_hotp(key, step - 1):06d}"
+        old = f"{_hotp(secret, step - 1):06d}"
         assert not verify_totp(secret, old, timestamp=now)
 
 
@@ -208,23 +205,23 @@ class TestTotpWindowBoundaries:
     """TOTP_WINDOW=1: steps -1/0/+1 accepted, ±2 rejected."""
 
     def test_code_at_window_edge_accepted(self):
-        from vnc_remote_secure.security.mfa import TOTP_DIGITS, _base32_decode, _hotp
+        from vnc_remote_secure.security.mfa import TOTP_DIGITS, _hotp
         secret = generate_totp_secret()
         now = int(time.time())
         # Ascending order matters: each accepted code is consumed, and
         # counters <= last consumed are rejected as replays.
         for delta in (-1, 0, 1):
             step = now // 30 + delta
-            code = f'{_hotp(_base32_decode(secret), step):0{TOTP_DIGITS}d}'
+            code = f'{_hotp(secret, step):0{TOTP_DIGITS}d}'
             assert verify_totp(secret, code, timestamp=now) is True, delta
 
     def test_code_beyond_window_rejected(self):
-        from vnc_remote_secure.security.mfa import TOTP_DIGITS, _base32_decode, _hotp
+        from vnc_remote_secure.security.mfa import TOTP_DIGITS, _hotp
         secret = generate_totp_secret()
         now = int(time.time())
         for delta in (-2, 2):
             step = now // 30 + delta
-            code = f'{_hotp(_base32_decode(secret), step):0{TOTP_DIGITS}d}'
+            code = f'{_hotp(secret, step):0{TOTP_DIGITS}d}'
             assert verify_totp(secret, code, timestamp=now) is False, delta
 
     def test_invalid_base32_secret_fails_closed(self):

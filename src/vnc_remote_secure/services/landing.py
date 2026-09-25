@@ -39,15 +39,6 @@ def get_system_metrics():
     return _gm()
 
 
-def _audio_capture_active() -> bool:
-    """Return True while the audio service is capturing the mic."""
-    try:
-        from vnc_remote_secure.services.audio import audio_capture_active
-        return audio_capture_active()
-    except Exception:  # noqa: BLE001 - optional service absent
-        return False
-
-
 def main():
     """Start the landing portal server (FastAPI/uvicorn)."""
     from vnc_remote_secure.backend.app import main as _main

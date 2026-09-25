@@ -2,11 +2,47 @@
 
 Password verification for the werkzeug-compatible hash formats this
 project historically produced/consumed — ``pbkdf2:method:iters$salt$hex``
-and ``scrypt:N:r:p$salt$hex`` — implemented on stdlib ``hashlib`` +
-``hmac`` so the module has no external dependency.
+and ``scrypt:N:r:p$salt$hex`` — plus the current format,
+``$argon2id$`` PHC strings via argon2-cffi. New hashes are Argon2id;
+legacy formats verify but get rehashed on the next successful login.
 """
 import hashlib
 import hmac
+import re
+
+# argon2 PHC strings embed their memory/time/parallelism params —
+# a forged stored hash with m=4GB would turn verify into self-DoS.
+# Cap the declared parameters before handing them to argon2-cffi.
+_ARGON2_PARAM_RE = re.compile(
+    r'^\$argon2id\$v=\d+\$m=(\d+),t=(\d+),p=(\d+)\$')
+_ARGON2_MAX_MIB = 512
+_ARGON2_MAX_TIME = 16
+_ARGON2_MAX_PAR = 8
+
+
+def _verify_argon2(password, stored_hash):
+    """Verify an ``$argon2id$`` PHC string with bounded params."""
+    m = _ARGON2_PARAM_RE.match(stored_hash)
+    if not m:
+        return False
+    mem_kib, time_cost, par = (int(g) for g in m.groups())
+    if (mem_kib > _ARGON2_MAX_MIB * 1024
+            or not 1 <= time_cost <= _ARGON2_MAX_TIME
+            or not 1 <= par <= _ARGON2_MAX_PAR):
+        return False
+    try:
+        from argon2 import PasswordHasher
+        from argon2.exceptions import (
+            InvalidHashError,
+            VerificationError,
+            VerifyMismatchError,
+        )
+    except ImportError:
+        return False
+    try:
+        return bool(PasswordHasher().verify(stored_hash, password))
+    except (VerifyMismatchError, InvalidHashError, VerificationError):
+        return False
 
 
 def _verify_pbkdf2(password, stored_hash):
@@ -63,13 +99,15 @@ def _verify_scrypt(password, stored_hash):
 def verify_password(password, stored_hash):
     """Verify ``password`` against a ``stored_hash`` in constant time.
 
-    Supports ``pbkdf2:`` and ``scrypt:`` werkzeug-format hashes —
-    the formats ``operator_users`` writes and legacy deployments may
-    still carry.
+    Supports ``$argon2id$`` PHC strings (the current format) and the
+    legacy ``pbkdf2:``/``scrypt:`` werkzeug formats stored deployments
+    may still carry.
     """
     if not stored_hash:
         return False
     try:
+        if stored_hash.startswith('$argon2'):
+            return _verify_argon2(password, stored_hash)
         if stored_hash.startswith('pbkdf2:'):
             return _verify_pbkdf2(password, stored_hash)
         if stored_hash.startswith('scrypt:'):

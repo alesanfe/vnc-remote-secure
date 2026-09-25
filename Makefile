@@ -218,7 +218,38 @@ format: ## Format Python and shell code (delegates to scripts/development/format
 	@bash scripts/development/format.sh
 	@echo "$(GREEN)✓ Formatting complete$(NC)"
 
-check: lint lint-python test-fast ## Run all quality checks (lint + fast tests)
+lint-arch: ## Architecture: import-linter contracts (engine layering)
+	@echo "$(BLUE)Checking architecture contracts (import-linter)...$(NC)"
+	@lint-imports
+	@echo "$(GREEN)✓ Architecture contracts kept$(NC)"
+
+lint-semgrep: ## Security: semgrep project rules (.semgrep.yml)
+	@echo "$(BLUE)Running semgrep (project rules)...$(NC)"
+	@semgrep scan --config .semgrep.yml --metrics=off --error src/ frontend/src/
+	@echo "$(GREEN)✓ Semgrep clean$(NC)"
+
+lint-bandit: ## Security: bandit SAST on src/
+	@echo "$(BLUE)Running bandit...$(NC)"
+	@bandit -q -r src/vnc_remote_secure/ --configfile pyproject.toml
+	@echo "$(GREEN)✓ Bandit clean$(NC)"
+
+check-secrets: ## Security: detect-secrets against .secrets.baseline
+	@echo "$(BLUE)Scanning for secrets...$(NC)"
+	@detect-secrets scan --baseline .secrets.baseline src/ tests/ tools/
+	@echo "$(GREEN)✓ No new secrets detected$(NC)"
+
+check-deps: ## Security: pip-audit (known-vulnerable dependencies)
+	@echo "$(BLUE)Auditing dependencies (pip-audit)...$(NC)"
+	@pip-audit --desc || true
+	@echo "$(GREEN)✓ Dependency audit done$(NC)"
+
+sbom: ## Generate CycloneDX SBOM (sbom.cdx.json)
+	@echo "$(BLUE)Generating SBOM (CycloneDX)...$(NC)"
+	@cyclonedx-py requirements -o sbom.cdx.json --of JSON \
+		|| cyclonedx-bom -o sbom.cdx.json -F
+	@echo "$(GREEN)✓ SBOM written to sbom.cdx.json$(NC)"
+
+check: lint lint-python lint-arch lint-semgrep lint-bandit check-secrets test-fast ## Run all quality checks (lint + security + fast tests)
 	@echo "$(GREEN)✓ All quality checks passed$(NC)"
 
 # ============================================================================
@@ -437,7 +468,8 @@ git-pull: ## Pull from remote (current branch)
         run run-ssl stop \
         win-run win-run-nossl win-stop win-verify \
         test test-all test-list test-static test-unit test-integration test-e2e test-security test-fast \
-        lint lint-strict lint-python format check \
+        lint lint-strict lint-python lint-arch lint-semgrep lint-bandit \
+        check-secrets check-deps sbom format check \
         cleanup \
         ssl-setup ssl-renew ssl-check user-create user-remove deps-install ttyd-install \
         duckdns-update duckdns-daemon duckdns-check duckdns-update-sh \

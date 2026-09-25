@@ -80,7 +80,8 @@ class TestStore:
         ops.add_user('persist', 'Pass 1!', 'operator')
         data = json.loads(store.read_text())
         assert 'persist' in data
-        assert data['persist']['password_hash'].startswith('pbkdf2:')
+        # New hashes are Argon2id PHC strings.
+        assert data['persist']['password_hash'].startswith('$argon2id$')
         assert not store.read_text().count('Pass 1!')  # no plaintext
 
 
@@ -170,8 +171,9 @@ class TestRehashOnLogin:
         assert rec is not None
         reloaded = json.loads(store.read_text())
         new_hash = reloaded['alice']['password_hash']
-        assert new_hash.startswith(
-            f'pbkdf2:sha256:{ops._PBKDF2_ITERATIONS}$')
+        # Legacy pbkdf2 hashes are upgraded to the current Argon2id
+        # format on the next successful login (rehash-on-login).
+        assert new_hash.startswith('$argon2id$')
         # And the rehashed password still verifies.
         assert ops.verify('alice', 'Correct Horse 1!') is not None
 

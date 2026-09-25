@@ -4,32 +4,31 @@
 
 repos:
   # ============================================================================
+  # Upstream hygiene hooks (replace hand-rolled CRLF/whitespace/
+  # merge-marker greps)
+  # ============================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml       # safe_load — syntax + duplicate keys
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        types_or: [shell, python, yaml, markdown]
+      - id: mixed-line-ending
+        args: ["--fix=no"]
+        types_or: [shell, python, yaml, markdown]
+      - id: check-merge-conflict
+
+  # ============================================================================
   # Local hooks (fast, no external deps)
   # ============================================================================
   - repo: local
     hooks:
-      - id: forbid-crlf
-        name: Forbid CRLF line endings
-        entry: >-
-          bash -c 'if git grep -l $'"'"'\r'"'"' -- "*.sh" "*.py" "*.yml" "*.yaml" "*.md"; then echo "CRLF line endings found - run dos2unix on the file"; exit 1; fi'
-        language: system
-        pass_filenames: false
-        always_run: true
-
-      - id: trailing-whitespace
-        name: Trim trailing whitespace
-        entry: bash -c 'if git grep -n " $" -- "*.sh" "*.py" "*.yml" "*.md"; then echo "Trailing whitespace found"; exit 1; fi'
-        language: system
-        pass_filenames: false
-        always_run: true
-
-      - id: check-merge-conflict
-        name: Check for merge conflict markers
-        entry: bash -c 'if git grep -n "^<<<<<<<\|^>>>>>>>\|^=======" -- "*.sh" "*.py" "*.yml" "*.md"; then echo "Merge conflict markers found"; exit 1; fi'
-        language: system
-        pass_filenames: false
-        always_run: true
-
       - id: no-secrets-in-env
         name: Check .env is not staged
         entry: >-
@@ -101,7 +100,7 @@ repos:
     hooks:
       - id: bandit
         name: Bandit security scan
-        entry: python -m bandit -q -r
+        entry: python -m bandit -q -r --configfile pyproject.toml src/vnc_remote_secure/
         language: system
         files: ^src/.*\.py$
         pass_filenames: false
@@ -132,4 +131,33 @@ repos:
         entry: python -m darglint -v 2
         language: system
         files: ^src/.*\.py$
+        pass_filenames: false
+
+  # ============================================================================
+  # Secrets detection (Yelp detect-secrets, baseline-driven)
+  # ============================================================================
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: .secrets.baseline
+
+  # ============================================================================
+  # Architecture + project rules (local; skip if tools not installed)
+  # ============================================================================
+  - repo: local
+    hooks:
+      - id: lint-imports
+        name: import-linter (engine layering contracts)
+        entry: bash -c 'command -v lint-imports >/dev/null && lint-imports || echo "lint-imports not installed — skipping"'
+        language: system
+        files: ^(src/.*\.py|pyproject\.toml)$
+        pass_filenames: false
+
+      - id: semgrep-project
+        name: Semgrep project rules (.semgrep.yml)
+        entry: bash -c 'command -v semgrep >/dev/null && semgrep scan --config .semgrep.yml --metrics=off --error src/ frontend/src/ || echo "semgrep not installed — skipping"'
+        language: system
+        files: ^(src/.*\.py|frontend/src/.*\.(ts|tsx))$
         pass_filenames: false

@@ -16,7 +16,6 @@ Store: ``<data_dir>/operator_users.json`` — ``0o600``, atomic
 tmp+rename writes, survives restarts (unlike run-dir session state).
 """
 import hashlib
-import hmac
 import json
 import logging
 import os
@@ -78,20 +77,45 @@ def _save(data: dict) -> None:
             'Could not restrict %s to 0o600: %s', path, exc)
 
 
-# Current password-hash policy. Hashes stored with fewer iterations
-# are transparently upgraded on the next successful login
-# (rehash-on-login), so raising this constant migrates existing
-# accounts without a password reset.
+# Current password-hash policy. New hashes are Argon2id
+# (argon2-cffi PHC format); legacy ``pbkdf2:`` hashes verify and are
+# transparently rehashed on the next successful login
+# (rehash-on-login), so the migration needs no password reset.
 _PBKDF2_ITERATIONS = 600_000
 
 
 def hash_password(password: str) -> str:
-    """Hash ``password`` as ``pbkdf2:sha256:N$salt$hash``."""
-    salt = os.urandom(16).hex()
-    dk = hashlib.pbkdf2_hmac(
-        'sha256', password.encode('utf-8'), salt.encode('utf-8'),
-        _PBKDF2_ITERATIONS)
-    return f'pbkdf2:sha256:{_PBKDF2_ITERATIONS}${salt}${dk.hex()}'
+    """Hash ``password`` as an ``$argon2id$`` PHC string.
+
+    Falls back to the legacy pbkdf2 format only when argon2-cffi is
+    unavailable — argon2-cffi is a declared dependency, so the
+    fallback exists to keep minimal/test environments importable.
+    """
+    try:
+        from argon2 import PasswordHasher
+        return PasswordHasher().hash(password)
+    except ImportError:  # pragma: no cover - dependency missing
+        salt = os.urandom(16).hex()
+        dk = hashlib.pbkdf2_hmac(
+            'sha256', password.encode('utf-8'), salt.encode('utf-8'),
+            _PBKDF2_ITERATIONS)
+        return f'pbkdf2:sha256:{_PBKDF2_ITERATIONS}${salt}${dk.hex()}'
+
+
+_DUMMY_ARGON2 = None
+
+
+def _dummy_hash() -> str:
+    """A constant-cost hash for unknown-user verification.
+
+    Verifying a real argon2id hash (not skipping the KDF) keeps the
+    timing envelope identical for existent and nonexistent accounts.
+    """
+    global _DUMMY_ARGON2
+    if _DUMMY_ARGON2 is None:
+        import secrets as _secrets
+        _DUMMY_ARGON2 = hash_password(_secrets.token_urlsafe(16))
+    return _DUMMY_ARGON2
 
 
 def _stored_iterations(stored: str) -> int:
@@ -229,24 +253,30 @@ def verify(username: str, password: str):
     through timing.
     """
     rec = load_store().get(username)
-    stored = (rec or {}).get(
-        'password_hash',
-        'pbkdf2:sha256:600000$' + '0' * 16 + '$' + '0' * 64)
+    stored = (rec or {}).get('password_hash') or _dummy_hash()
     from vnc_remote_secure.security.credentials import verify_password
     ok = verify_password(password, stored)
     if not ok or rec is None or rec.get('disabled'):
         return None
-    # Rehash-on-login: a hash minted under a weaker iteration policy
-    # is upgraded silently while the plaintext is still in hand.
-    if _stored_iterations(stored) < _PBKDF2_ITERATIONS:
+    # Rehash-on-login: a legacy pbkdf2/scrypt hash (or a pbkdf2 hash
+    # minted under a weaker iteration policy) is upgraded to the
+    # current Argon2id format while the plaintext is still in hand.
+    needs_rehash = not stored.startswith('$argon2')
+    if not needs_rehash:
+        try:
+            from argon2 import PasswordHasher
+            needs_rehash = PasswordHasher().check_needs_rehash(stored)
+        except Exception:  # noqa: BLE001 - unknown params → keep hash
+            needs_rehash = False
+    if needs_rehash:
         try:
             data = load_store()
             if username in data:
                 data[username]['password_hash'] = hash_password(password)
                 _save(data)
                 logger.info(
-                    'Upgraded password hash for %r to %d iterations',
-                    username, _PBKDF2_ITERATIONS)
+                    'Upgraded password hash for %r to argon2id',
+                    username)
         except OSError:
             # Rehash is best-effort — the login already succeeded; a
             # read-only store must not lock the operator out.
@@ -277,7 +307,3 @@ def has_permission(username: str, permission: str) -> bool:
     """Return True when ``username`` holds ``permission`` (or ``admin:*``)."""
     return permission in get_permissions(username)
 
-
-def passwords_equal(a: str, b: str) -> bool:
-    """Constant-time helper kept for test symmetry."""
-    return hmac.compare_digest(a, b)

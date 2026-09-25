@@ -152,7 +152,7 @@ def _ws_stub(tmp_path):
     ws._set_busy = MagicMock()
     loop = MagicMock()
     loop.add_callback = lambda fn, *a, **k: fn(*a, **k)
-    term.TerminalWebSocket.main_ioloop = loop
+    term.TerminalWebSocket.main_loop = loop
     return ws
 
 

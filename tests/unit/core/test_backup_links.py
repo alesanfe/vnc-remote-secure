@@ -61,14 +61,19 @@ class TestBackupDereferencesLinks:
         monkeypatch.setattr(
             backup_mod, '_collect_paths',
             lambda: [(str(link_parent), 'ssl')])
-        out = tmp_path / 'out.tar.gz'
+        out = tmp_path / 'out.tar.zst'
         result = backup_mod.create_backup(str(out))
         assert os.path.isfile(result)
-        with tarfile.open(str(out), 'r:gz') as tar:
-            member = tar.getmember('ssl/fullchain.pem')
-            assert not member.issym(), 'link stored as link, not content'
-            content = tar.extractfile(member).read().decode()
-            assert content == 'CERTDATA'
+        # codec-agnostic open via the same magic-sniffing helper.
+        import tempfile
+        with tempfile.TemporaryDirectory() as wdir:
+            plain = backup_mod._decompress_to_tar(str(out), wdir)
+            with tarfile.open(plain, 'r:') as tar:
+                member = tar.getmember('ssl/fullchain.pem')
+                assert not member.issym(), (
+                    'link stored as link, not content')
+                content = tar.extractfile(member).read().decode()
+                assert content == 'CERTDATA'
 
 
 class TestRestoreRejectsEscapingLinks:

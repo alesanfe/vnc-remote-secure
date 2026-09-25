@@ -5,7 +5,6 @@ ranges, reserved usernames, path traversal prevention, etc.) for the
 Python-canonical runtime.
 """
 import html
-import os
 import re
 
 from vnc_remote_secure.core.constants import (
@@ -26,7 +25,6 @@ _DOMAIN_RE = re.compile(  # noqa: DUO138 - input length-capped at caller
 _EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 _USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
 _PORT_RE = re.compile(r'^[0-9]+$')
-_TRAVERSAL_RE = re.compile(r'\.\./|\.\.')
 
 # Well-known ports that may conflict with system services.
 _WELL_KNOWN_PORTS = {22, 80, 443, 3389, 5900, 5901}
@@ -186,23 +184,6 @@ def sanitize_input(value):
     if value is None:
         return ''
     return html.escape(str(value), quote=True)
-
-
-def validate_path(path, field_name='path'):
-    """Validate a filesystem path, rejecting traversal components."""
-    if not path:
-        raise ValidationError(f"{field_name}: Path cannot be empty")
-    if not isinstance(path, str):
-        raise ValidationError(f"{field_name}: Path cannot be empty")
-    if _TRAVERSAL_RE.search(path):
-        raise ValidationError(
-            f"{field_name}: Path contains potentially dangerous components"
-        )
-    if len(path) > 4096:
-        raise ValidationError(f"{field_name}: Path too long")
-    if os.path.isabs(path) and not os.path.exists(path):
-        _warn(f"Path '{path}' does not exist")
-    return True
 
 
 def _warn(message):

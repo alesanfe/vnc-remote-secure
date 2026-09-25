@@ -27,10 +27,10 @@
 
 | Platform | Status | VNC Server | Web Terminal | TLS | Notes |
 |----------|--------|------------|----------|-----|-------|
-| Debian 12+ / Ubuntu 22.04+ | Production | TigerVNC | Tornado | Let's Encrypt | Full stack |
-| Raspberry Pi OS 64-bit | Production | TigerVNC | Tornado | Let's Encrypt | Full stack |
-| Windows 10 / 11 | Supported | UltraVNC | Tornado | Self-signed | No fail2ban (uses Windows Firewall); restricted runtime user |
-| Windows Server 2022+ | Experimental | UltraVNC | Tornado | Self-signed | Less tested |
+| Debian 12+ / Ubuntu 22.04+ | Production | TigerVNC | FastAPI | Let's Encrypt | Full stack |
+| Raspberry Pi OS 64-bit | Production | TigerVNC | FastAPI | Let's Encrypt | Full stack |
+| Windows 10 / 11 | Supported | UltraVNC | FastAPI | Self-signed | No fail2ban (uses Windows Firewall); restricted runtime user |
+| Windows Server 2022+ | Experimental | UltraVNC | FastAPI | Self-signed | Less tested |
 | Any browser (client) | Supported | — | — | — | No install needed |
 
 ## Feature Maturity
@@ -38,7 +38,7 @@
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Desktop (noVNC + websockify) | Stable | Primary use case |
-| Web terminal (Tornado + xterm.js) | Stable | `env` sanitized for child processes |
+| Web terminal (FastAPI + xterm.js) | Stable | `env` sanitized for child processes |
 | Auth gateway (sessions, MFA, RBAC) | Stable | Step-up for sensitive actions |
 | Ephemeral share sessions | Stable | Revocation closes live WebSockets |
 | Health dashboard + `/metrics` | Stable | Loopback-only by default |
@@ -48,7 +48,7 @@
 | Audio streaming | Beta | Optional; `AUDIO_STREAM_ENABLED` |
 | Gamepad forwarding | Experimental | Optional; `GAMEPAD_ENABLED`; view-only sessions block it |
 | DuckDNS updater | Stable | |
-| `http.server` fallback (no Flask) | Development only | Refused under hardened profiles |
+| React admin SPA + `/api/v1` | Stable | RBAC, CSRF, step-up on mutations |
 
 ## Architecture
 

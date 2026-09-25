@@ -11,15 +11,22 @@ without affecting the caller or the other channels. Nothing is sent
 unless ``ALERTS_ENABLED=true`` (force=True bypasses this gate, e.g. for
 explicit ``vnc-remote`` invocations).
 """
-import http.client
 import json
 import logging
 import os
 import smtplib
-import urllib.request
 from email.message import EmailMessage
 
 from vnc_remote_secure.core.config import env_flag
+from vnc_remote_secure.security.http_client import (
+    redact_url as _redact_url,
+)
+from vnc_remote_secure.security.http_client import (
+    secure_post,
+)
+from vnc_remote_secure.security.http_client import (
+    validate_url as _validate_webhook_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,167 +67,26 @@ def send_webhook_alert(title, message, severity='info', alert_id=''):
                             'id': alert_id})
 
 
-def _redact_url(url):
-    """Return a log-safe form of a webhook URL (scheme + host only).
-
-    Webhook URLs embed their credential in the path (e.g. Discord's
-    ``/api/webhooks/<id>/<token>``) or in the query string. A generic
-    webhook may carry the token as the FIRST path segment, so showing
-    even one segment can leak the secret — redact the whole path.
-    """
-    from urllib.parse import urlparse
-    try:
-        p = urlparse(url)
-        return f'{p.scheme}://{p.netloc}/…'
-    except ValueError:
-        return '<invalid-url>'
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse redirects: a webhook must go where the operator pointed it.
-
-    Redirect following would let a compromised/typosquatted endpoint
-    bounce the POST (HMAC-signed body included) to an internal address,
-    reopening SSRF even after destination validation.
-
-    Retained for any urllib-based callers; ``_post_json`` uses the
-    DNS-pinned ``http.client`` path, which issues exactly one request
-    and cannot follow redirects at all.
-    """
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
-
-
-def _resolve_addrs(hostname):
-    """Resolve ``hostname`` to address strings ([] on failure)."""
-    import socket
-    try:
-        return [
-            sockaddr[0]
-            for _fam, _typ, _proto, _canon, sockaddr
-            in socket.getaddrinfo(hostname, None)
-        ]
-    except OSError:
-        return []
-
-
-def _resolved_addrs_public(hostname):
-    """Return True only if EVERY resolved address is a public IP.
-
-    A single private/loopback/link-local/CGNAT/reserved address in the
-    answer is enough to reject — the pinned connect may pick any of
-    them.
-    """
-    import ipaddress
-    addrs = _resolve_addrs(hostname)
-    if not addrs:
-        return False
-    for addr in addrs:
-        try:
-            if not ipaddress.ip_address(addr).is_global:
-                return False
-        except ValueError:
-            return False
-    return True
-
-
-def _validate_webhook_url(url):
-    """Return an error string, or None when the URL is safe to POST to.
-
-    Default policy: HTTPS only, public unicast destinations only.
-    ``ALERT_WEBHOOK_ALLOW_HTTP=true`` and
-    ``ALERT_WEBHOOK_ALLOW_PRIVATE=true`` are explicit opt-outs for
-    operators running a receiver on the LAN.
-    """
-    from urllib.parse import urlparse
-    try:
-        p = urlparse(url)
-    except ValueError:
-        return 'unparseable URL'
-    if p.scheme == 'http' and not env_flag('ALERT_WEBHOOK_ALLOW_HTTP'):
-        return 'http:// requires ALERT_WEBHOOK_ALLOW_HTTP=true'
-    if p.scheme not in ('https', 'http'):
-        return f'disallowed scheme {p.scheme!r}'
-    if not p.hostname:
-        return 'no hostname'
-    if not env_flag('ALERT_WEBHOOK_ALLOW_PRIVATE'):
-        if not _resolved_addrs_public(p.hostname):
-            return 'resolves to a non-public address'
-    return None
-
-
-class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    """HTTPS connection that dials a validated IP but TLS-verifies the
-    real hostname — DNS pinning without breaking SNI/cert checks.
-
-    Connecting to the IP that passed the public-address check closes
-    the DNS-rebinding window between validation and connect: a hostile
-    resolver cannot re-answer with a private address after we vetted
-    the first answer.
-    """
-
-    def __init__(self, ip, hostname, port, context, timeout):
-        super().__init__(ip, port=port, timeout=timeout,
-                         context=context)
-        self._sni_host = hostname
-
-    def connect(self):
-        import socket as _socket
-        sock = _socket.create_connection(
-            (self.host, self.port), self.timeout)
-        self.sock = self._context.wrap_socket(
-            sock, server_hostname=self._sni_host)
-
-
 def _post_pinned(url, body, headers) -> bool:
     """POST via a DNS-pinned connection. Returns True on HTTP 2xx.
 
     The request dials the exact IP that passed the public-address
     check — validation and connect cannot see different answers.
     Redirects are never followed (we issue exactly one request).
+    Retried once on transport errors by ``secure_post``; a transport
+    failure (no public address, refused, timeout) returns False —
+    alerting must never crash callers.
     """
-    import ipaddress
-    import ssl
-    from urllib.parse import urlparse
-    p = urlparse(url)
-    host = p.hostname
-    port = p.port or (443 if p.scheme == 'https' else 80)
-    path = p.path or '/'
-    if p.query:
-        path += '?' + p.query
-    if env_flag('ALERT_WEBHOOK_ALLOW_PRIVATE'):
-        dial = host  # operator opted out of pinning — connect by name
-    else:
-        dial = next(
-            (a for a in _resolve_addrs(host)
-             if ipaddress.ip_address(a).is_global), None)
-        if dial is None:
-            return False
-    conn: http.client.HTTPConnection
-    if p.scheme == 'https':
-        conn = _PinnedHTTPSConnection(
-            dial, host, port, ssl.create_default_context(),
-            _HTTP_TIMEOUT)
-    else:
-        conn = http.client.HTTPConnection(dial, port,
-                                          timeout=_HTTP_TIMEOUT)
-    hdrs = dict(headers)
-    hdrs['Host'] = host if p.port is None else f'{host}:{p.port}'
+    import httpx
     try:
-        conn.request('POST', path, body=body, headers=hdrs)
-        resp = conn.getresponse()
-        ok = 200 <= resp.status < 300
-        if not ok:
-            logger.warning("Webhook %s returned HTTP %s",
-                           _redact_url(url), resp.status)
-        resp.read()
-        return ok
-    finally:
-        conn.close()
+        status = secure_post(url, body, headers)
+    except (httpx.TransportError, OSError):
+        return False
+    ok = 200 <= status < 300
+    if not ok:
+        logger.warning("Webhook %s returned HTTP %s",
+                       _redact_url(url), status)
+    return ok
 
 
 def _post_json(url, payload):

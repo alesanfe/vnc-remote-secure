@@ -202,10 +202,10 @@ def validate_secret_files(project_root: str | None = None) -> list[dict]:
         except (ImportError, OSError):
             pass
     # Backup archives hold .env, SSL keys and the signing secret —
-    # even the encrypted form must stay owner-only. (*.enc.tar.gz
-    # matches the *.tar.gz glob.)
+    # even the encrypted form must stay owner-only. (*.enc.tar.* names
+    # match the *.tar.* glob; both zst and legacy gz are covered.)
     import glob as _glob
-    for bp in _glob.glob(os.path.join(project_root, 'backups', '*.tar.gz')):
+    for bp in _glob.glob(os.path.join(project_root, 'backups', '*.tar.*')):
         extra_files.append(bp)
     for path in extra_files:
         if os.path.isfile(path):

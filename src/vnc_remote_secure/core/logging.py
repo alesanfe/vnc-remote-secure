@@ -46,6 +46,44 @@ class _SecretScrubFilter(logging.Filter):
         return True
 
 
+def _json_formatter():
+    """JSON-lines formatter built on structlog's ProcessorFormatter.
+
+    Renders stdlib records as ``ts``/``level``/``logger``/``msg`` (the
+    historical field names this project already emits) plus
+    ``exception`` when ``exc_info`` is set. Using structlog instead of
+    a hand-rolled json.dumps keeps the format consistent if call
+    sites later bind contextvars (request_id, operator_ref, …) — the
+    extra fields pass through automatically.
+    """
+    import structlog
+
+    def _rename_fields(_logger, _name, event_dict):
+        exc = event_dict.pop('exception', None)
+        renamed = {
+            'ts': event_dict.pop('timestamp', ''),
+            'level': str(event_dict.pop('level', '')).upper(),
+            'logger': event_dict.pop('logger', _name),
+            'msg': event_dict.pop('event', ''),
+        }
+        if exc:
+            renamed['exception'] = exc
+        renamed.update(event_dict)
+        return renamed
+
+    return structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            structlog.processors.TimeStamper(fmt='iso'),
+            structlog.processors.format_exc_info,
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            _rename_fields,
+            structlog.processors.JSONRenderer(ensure_ascii=False),
+        ],
+    )
+
+
 def setup_logging(verbose=False, json_output=False):
     """Configure logging for the application.
 
@@ -71,18 +109,7 @@ def setup_logging(verbose=False, json_output=False):
         level = logging.INFO
     handler = logging.StreamHandler(sys.stderr)
     if json_output:
-        import json as _json
-
-        class _JsonFormatter(logging.Formatter):
-            def format(self, record):
-                return _json.dumps({
-                    'ts': self.formatTime(record),
-                    'level': record.levelname,
-                    'logger': record.name,
-                    'msg': record.getMessage(),
-                }, ensure_ascii=False)
-
-        formatter = _JsonFormatter()
+        formatter = _json_formatter()
     else:
         formatter = logging.Formatter(
             '%(asctime)s [%(levelname)s] %(name)s: %(message)s'

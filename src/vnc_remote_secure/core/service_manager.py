@@ -16,9 +16,9 @@ that:
 - Cleans up all resources on stop/restart, including the temporary
   user unless ``KEEP_TEMP_USER=true``.
 
-The manager is platform-aware: on Linux it uses ``flock`` for the
-global lock and ``kill`` by PID; on Windows it uses a ``msvcrt.locking``
-lock and ``taskkill /PID``.
+The manager is platform-aware: the global lock goes through
+``filelock`` (flock on POSIX, msvcrt on Windows); process termination
+uses ``kill`` by PID on Linux and ``taskkill /PID`` on Windows.
 """
 import contextlib
 import logging
@@ -393,58 +393,40 @@ def _clear_pid_by_value(pid: int) -> None:
 
 
 class _GlobalLock:
-    """Cross-process lock using flock (Linux) or msvcrt (Windows)."""
+    """Cross-process lock — filelock (flock on POSIX, msvcrt on
+    Windows) under a non-blocking ``acquire(timeout=0)``.
+
+    filelock owns the platform mechanics (it locks byte 0 via
+    ``msvcrt.locking`` / ``fcntl.flock`` — the same primitives the
+    hand-rolled version used); this class only keeps the "did we
+    get it" contract the callers use.
+    """
 
     def __init__(self):
-        self._fh = None
+        self._lock = None
         self._locked = False
 
     def __enter__(self):
+        import filelock
         path = _lock_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self._fh = open(path, 'a+', encoding='utf-8')
-        if is_windows():
-            import msvcrt
-            try:
-                # 'a+' opens positioned at EOF — msvcrt locks the byte
-                # at the CURRENT position, so a file that ever grew
-                # would let two processes lock different bytes and
-                # both "win". Seek to 0 so every process locks byte 0.
-                self._fh.seek(0)
-                msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
-                self._locked = True
-            except OSError:
-                # Could not acquire — another instance holds it.
-                self._fh.close()
-                self._fh = None
-                self._locked = False
-        else:
-            import fcntl  # pylint: disable=import-error
-            try:
-                fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                self._locked = True
-            except OSError:
-                self._fh.close()
-                self._fh = None
-                self._locked = False
+        self._lock = filelock.FileLock(path)
+        try:
+            # timeout=0 → a single non-blocking attempt; Timeout means
+            # another instance holds the lock.
+            self._lock.acquire(timeout=0)
+            self._locked = True
+        except filelock.Timeout:
+            self._lock = None
+            self._locked = False
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        if self._fh is not None:
+        if self._lock is not None:
             if self._locked:
-                if is_windows():
-                    import msvcrt
-                    try:
-                        self._fh.seek(0)
-                        msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
-                    except OSError:
-                        pass
-                else:
-                    import fcntl  # pylint: disable=import-error
-                    with contextlib.suppress(OSError):
-                        fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
-            self._fh.close()
-            self._fh = None
+                with contextlib.suppress(OSError):
+                    self._lock.release()
+            self._lock = None
             self._locked = False
 
     @property

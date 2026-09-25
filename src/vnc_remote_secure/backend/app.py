@@ -194,6 +194,11 @@ def create_app():
         ctx.send_json_error('Not found', 404)
         return _ctx_response(request, ctx)
 
+    # Opt-in OTLP tracing (OTEL_ENABLED) — off by default, and the
+    # instrumentor excludes /health + /metrics to keep spans sparse.
+    from vnc_remote_secure.monitoring.otel import instrument_app
+    instrument_app(app, service_name='vnc-remote-secure-portal')
+
     return app
 
 

@@ -145,28 +145,22 @@ def _redact_value(name: str, value: str) -> str:
 
 
 def _load_env_file_values() -> dict[str, str]:
-    """Parse the project ``.env`` into a dict (no env mutation)."""
-    env_file_values: dict[str, str] = {}
+    """Parse the project ``.env`` into a dict (no env mutation).
+
+    Reuses the canonical ``core.config._parse_env_file`` (python-dotenv
+    + the project's ``$(``-skip rule) so quoting/interpolation edge
+    cases are handled in one place.
+    """
+    from vnc_remote_secure.core.config import _parse_env_file
     from vnc_remote_secure.core.paths import find_project_root
     env_path = os.path.join(find_project_root(), '.env')
-    if os.path.exists(env_path):
-        try:
-            with open(env_path, encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#') or '=' not in line:
-                        continue
-                    key, _, val = line.partition('=')
-                    key = key.strip()
-                    val = val.strip()
-                    if val and val[0] in '"\'' and val[-1] == val[0]:
-                        val = val[1:-1]
-                    if val.startswith('$('):
-                        continue
-                    env_file_values[key] = val
-        except (OSError, ValueError):
-            logger.debug("Failed to read .env file", exc_info=True)
-    return env_file_values
+    if not os.path.exists(env_path):
+        return {}
+    try:
+        return dict(_parse_env_file(env_path))
+    except Exception:  # noqa: BLE001 - inspector must never crash
+        logger.debug("Failed to read .env file", exc_info=True)
+        return {}
 
 
 def _schema_known_vars() -> set:

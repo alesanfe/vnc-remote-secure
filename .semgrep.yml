@@ -1,0 +1,112 @@
+# Semgrep rules for VNC Remote Secure — project-specific invariants
+# that generic rulesets do not cover. Run:
+#   semgrep scan --config .semgrep.yml src/ frontend/src/
+rules:
+  - id: engine-no-transport
+    message: >-
+      engine/* must not import HTTP/WS frameworks or transport
+      services — keep the domain/application layers transport-free
+      (enforced also by import-linter contracts).
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - "src/vnc_remote_secure/engine/**"
+    patterns:
+      - pattern-either:
+          - pattern: import fastapi
+          - pattern: import starlette
+          - pattern: import flask
+          - pattern: import tornado
+          - pattern: import aiohttp
+          - pattern: import httpx
+          - pattern: import requests
+          - pattern: from fastapi import ...
+          - pattern: from starlette.$X import ...
+          - pattern: from vnc_remote_secure.services import ...
+          - pattern: from vnc_remote_secure.web import ...
+
+  - id: engine-application-no-infra
+    message: >-
+      engine/application + engine/domain must reach security/*,
+      monitoring/* and platform/* ONLY through
+      engine.infrastructure.stores.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - "src/vnc_remote_secure/engine/application/**"
+        - "src/vnc_remote_secure/engine/domain/**"
+    patterns:
+      - pattern-either:
+          - pattern: from vnc_remote_secure.security import ...
+          - pattern: from vnc_remote_secure.monitoring import ...
+          - pattern: from vnc_remote_secure.platform import ...
+          - pattern: import vnc_remote_secure.security
+          - pattern: import vnc_remote_secure.monitoring
+          - pattern: import vnc_remote_secure.platform
+
+  - id: no-raw-outbound-http
+    message: >-
+      Outbound HTTP goes through security.http_client (URL vetting +
+      DNS pinning). urllib/requests/http.client direct calls bypass
+      the SSRF policy.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - "src/**"
+      exclude:
+        - "src/vnc_remote_secure/security/http_client.py"
+        - "src/vnc_remote_secure/platform/**"
+        - "src/vnc_remote_secure/vendor/**"
+        - "src/vnc_remote_secure/third_party/**"
+        - "tools/**"
+        - "scripts/**"
+        - "tests/**"
+    patterns:
+      - pattern-either:
+          - pattern: urllib.request.urlopen(...)
+          - pattern: requests.get(...)
+          - pattern: requests.post(...)
+          - pattern: requests.put(...)
+
+  - id: no-innerhtml
+    message: >-
+      dangerouslySetInnerHTML is forbidden in the SPA — render text,
+      not markup. Audit/detail fields come from the API and must not
+      become HTML.
+    severity: ERROR
+    languages: [typescript, javascript]
+    paths:
+      include:
+        - "frontend/src/**"
+    pattern: dangerouslySetInnerHTML
+
+  - id: no-secret-value-in-log
+    message: >-
+      Do not interpolate secret-like VALUES (passwords, tokens,
+      cookies) into log records — the scrub filter is defense in
+      depth, not the contract.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - "src/**"
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: logger.$L($F)
+              - metavariable-pattern:
+                  metavariable: $F
+                  regex: '(?s)f["''].*\{(password|token|secret|cookie|credential)[^}]*\}'
+          - patterns:
+              - pattern: logger.$L($M, $V)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: '(?i).*(password|token|secret|cookie|credential).*'
+          - patterns:
+              - pattern: logger.$L($M, $V, ...)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: '(?i).*(password|token|secret|cookie|credential).*'

@@ -2,6 +2,7 @@
 import pytest
 
 from vnc_remote_secure.monitoring import alerts
+from vnc_remote_secure.security import http_client
 
 
 @pytest.fixture(autouse=True)
@@ -100,7 +101,7 @@ class TestWebhookSchemeGuard:
         from vnc_remote_secure.monitoring import alerts
         # https:// always permitted (public host); http:// requires
         # the explicit ALERT_WEBHOOK_ALLOW_HTTP opt-in.
-        monkeypatch.setattr(alerts, '_resolved_addrs_public',
+        monkeypatch.setattr(http_client, '_resolved_addrs_public',
                             lambda host: True)
         monkeypatch.setattr(alerts, '_post_pinned',
                             lambda *a, **k: True)
@@ -112,7 +113,7 @@ class TestWebhookSchemeGuard:
 
     def test_transport_exception_returns_false(self, monkeypatch):
         from vnc_remote_secure.monitoring import alerts
-        monkeypatch.setattr(alerts, '_resolved_addrs_public',
+        monkeypatch.setattr(http_client, '_resolved_addrs_public',
                             lambda host: True)
         monkeypatch.setattr(
             alerts, '_post_pinned',
@@ -145,7 +146,7 @@ class TestWebhookHmac:
             alerts, '_post_pinned',
             lambda url, body, headers: captured.update(
                 url=url, body=body, headers=headers) or True)
-        monkeypatch.setattr(alerts, '_resolved_addrs_public',
+        monkeypatch.setattr(http_client, '_resolved_addrs_public',
                             lambda host: True)
         monkeypatch.setenv('ALERT_WEBHOOK_URL', 'https://hook.local/x')
         if secret:
@@ -291,7 +292,10 @@ class TestWebhookUrlValidation:
             status = 302
             headers = {'Location': 'https://evil.internal/'}
 
-            def read(self):
+            def getheaders(self):
+                return [('Location', 'https://evil.internal/')]
+
+            def read(self, amt=None):
                 return b''
 
         class _FakeConn:
@@ -308,7 +312,7 @@ class TestWebhookUrlValidation:
                 pass
 
         monkeypatch.setattr(
-            alerts, '_PinnedHTTPSConnection', _FakeConn)
+            http_client, '_PinnedHTTPSConnection', _FakeConn)
         assert alerts._post_json(
             'https://example.com/hook', {'a': 1}) is False
         # Exactly one request — no redirect chase.
@@ -332,7 +336,10 @@ class TestWebhookUrlValidation:
                 class R:
                     status = 200
 
-                    def read(self):
+                    def getheaders(self):
+                        return []
+
+                    def read(self, amt=None):
                         return b''
                 return R()
 
@@ -340,7 +347,7 @@ class TestWebhookUrlValidation:
                 pass
 
         monkeypatch.setattr(
-            alerts, '_PinnedHTTPSConnection', _FakeConn)
+            http_client, '_PinnedHTTPSConnection', _FakeConn)
         assert alerts._post_pinned(
             'https://example.com/hook', b'{}', {}) is True
         assert dialed['ip'] == '93.184.216.34'

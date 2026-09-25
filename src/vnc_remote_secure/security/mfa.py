@@ -1,15 +1,17 @@
 """Multi-factor authentication using TOTP (RFC 6238).
 
-Provides TOTP secret generation, verification, and recovery codes.
-Integrates with the existing session model in authentication.py.
+The HOTP/TOTP primitives come from ``pyotp`` — the code here is the
+project-specific layer on top: replay protection via shared state,
+recovery codes, and env-based enablement.
 """
 import hashlib
 import hmac
 import logging
 import os
 import secrets
-import struct
 import time
+
+import pyotp
 
 from vnc_remote_secure.core.config import env_flag, load_env_file
 
@@ -34,32 +36,29 @@ def _base32_decode(data: str) -> bytes:
     return base64.b32decode(data + '=' * padding)
 
 
+def _canonical_secret(secret: str) -> str:
+    """Normalise a base32 secret for pyotp — decode+re-encode keeps
+    the historical padding tolerance while handing pyotp a form it
+    always accepts."""
+    return _base32_encode(_base32_decode(secret.strip()))
+
+
 def generate_totp_secret() -> str:
     """Generate a new TOTP secret (Base32-encoded, 20 bytes = 160 bits)."""
-    return _base32_encode(secrets.token_bytes(20))
+    return pyotp.random_base32()
 
 
 def generate_totp_uri(secret: str, account: str, issuer: str = 'VNC Remote Secure') -> str:
     """Generate an otpauth:// URI for QR code generation."""
-    from urllib.parse import quote, urlencode
-    label = f"{issuer}:{account}"
-    params = urlencode({
-        'secret': secret,
-        'issuer': issuer,
-        'algorithm': 'SHA1',
-        'digits': str(TOTP_DIGITS),
-        'period': str(TOTP_INTERVAL),
-    })
-    return f"otpauth://totp/{quote(label)}?{params}"
+    return pyotp.TOTP(
+        secret, digits=TOTP_DIGITS, interval=TOTP_INTERVAL
+    ).provisioning_uri(name=account, issuer_name=issuer)
 
 
-def _hotp(secret: bytes, counter: int) -> int:
-    """Compute HOTP value (RFC 4226)."""
-    msg = struct.pack('>Q', counter)
-    h = hmac.new(secret, msg, hashlib.sha1).digest()
-    offset = h[-1] & 0x0F
-    code = struct.unpack('>I', h[offset:offset + 4])[0] & 0x7FFFFFFF
-    return code % (10 ** TOTP_DIGITS)
+def _hotp(secret_b32: str, counter: int) -> int:
+    """RFC 4226 HOTP via pyotp — the library owns the dynamic-
+    truncation primitive; callers pass the base32 secret."""
+    return int(pyotp.HOTP(secret_b32, digits=TOTP_DIGITS).at(counter))
 
 
 _NS_TOTP = 'mfa_last_step'
@@ -147,7 +146,7 @@ def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
             or not code.isdigit() or len(code) != TOTP_DIGITS):
         return False
     try:
-        key = _base32_decode(secret)
+        canonical = _canonical_secret(secret)
     except (ValueError, KeyError) as exc:
         # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs decode error, not the secret)
         logger.debug("TOTP secret decode failed: %s", exc)
@@ -156,7 +155,7 @@ def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
     step = ts // TOTP_INTERVAL
     last = _last_step(secret)
     for delta in range(-TOTP_WINDOW, TOTP_WINDOW + 1):
-        candidate = _hotp(key, step + delta)
+        candidate = _hotp(canonical, step + delta)
         if hmac.compare_digest(f"{candidate:0{TOTP_DIGITS}d}", code):
             matched = step + delta
             if matched <= last:

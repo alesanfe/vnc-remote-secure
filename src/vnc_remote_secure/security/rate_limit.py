@@ -201,11 +201,6 @@ DEFAULT_GENERAL_WINDOW_SECONDS = 300  # 5 minutes
 _GENERAL_SEP = '\x00'
 
 
-def _general_attempt_keys(ip):
-    """Return the unexpired attempt-record keys for ``ip``."""
-    return get_backend().list_keys(_NS_GENERAL, prefix=ip + _GENERAL_SEP)
-
-
 def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
                      window_seconds=DEFAULT_GENERAL_WINDOW_SECONDS):
     r"""Check whether ``ip`` is within the allowed request rate.
@@ -229,25 +224,3 @@ def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
         # A corrupt/None counter must not fail open — deny.
         return False
 
-
-def reset_rate_limit(ip):
-    """Clear the rate-limit history for ``ip``."""
-    backend = get_backend()
-    for k in _general_attempt_keys(ip):
-        backend.delete(_NS_GENERAL, k)
-    return True
-
-
-def get_rate_limit_info(ip, window_seconds=DEFAULT_GENERAL_WINDOW_SECONDS):
-    """Return a dict with current attempt count and remaining allowance."""
-    bucket = int(time.time() // window_seconds)
-    try:
-        attempts = int(get_backend().get(
-            _NS_GENERAL, f'{ip}{_GENERAL_SEP}{bucket}') or 0)
-    except (TypeError, ValueError):
-        attempts = 0
-    return {
-        'ip': ip,
-        'attempts': attempts,
-        'window_seconds': window_seconds,
-    }

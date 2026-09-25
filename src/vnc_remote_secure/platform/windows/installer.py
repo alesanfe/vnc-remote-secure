@@ -11,8 +11,9 @@ import os
 import shutil
 import subprocess
 import tempfile
-import urllib.error
-import urllib.request
+
+import httpx
+import tenacity
 
 from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.constants import (
@@ -146,6 +147,27 @@ def _verify_winvnc_hash(winvnc_path):
     return True
 
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(2),
+    wait=tenacity.wait_exponential(min=2, max=10),
+    retry=tenacity.retry_if_exception_type(httpx.TransportError),
+    reraise=True)
+def _download(url: str, zip_path: str) -> None:
+    """Stream the UltraVNC zip to ``zip_path`` (httpx + one retry).
+
+    A non-2xx response is a terminal failure, not a retry — mirroring
+    the security.http_client rule that status answers are never
+    re-sent.
+    """
+    with httpx.stream(
+            'GET', url, follow_redirects=True,
+            timeout=httpx.Timeout(60.0, read=120.0)) as resp:
+        resp.raise_for_status()
+        with open(zip_path, 'wb') as out:
+            for chunk in resp.iter_bytes(chunk_size=1 << 16):
+                out.write(chunk)
+
+
 def _ensure_ultravnc():
     r"""Ensure UltraVNC is available; download and install if missing.
 
@@ -170,12 +192,12 @@ def _ensure_ultravnc():
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             zip_path = os.path.join(tmp_dir, 'ultravnc.zip')
-            # urlretrieve() has no timeout — a stalled mirror would
-            # hang install forever. Stream via urlopen instead.
-            # justification: HTTPS enforced by _validate_download_url
-            with (urllib.request.urlopen(url, timeout=60) as resp,  # nosec B310
-                    open(zip_path, 'wb') as out):
-                shutil.copyfileobj(resp, out)
+            # httpx streaming download: explicit timeouts (a stalled
+            # mirror can't hang install forever) and one retry on
+            # transport failures. Redirects are followed (GitHub
+            # release → CDN); integrity is enforced by the manifest
+            # SHA-256 check on winvnc.exe below, not by pinning.
+            _download(url, zip_path)
             logger.info("Downloaded UltraVNC archive: %s", zip_path)
 
             os.makedirs(_ULTRAVNC_INSTALL_DIR, exist_ok=True)
@@ -238,7 +260,7 @@ def _ensure_ultravnc():
                 "The archive layout may have changed; install UltraVNC manually.",
                 winvnc,
             )
-    except (OSError, urllib.error.URLError) as exc:
+    except (OSError, httpx.HTTPError) as exc:
         logger.warning(
             "Failed to download UltraVNC automatically: %s. "
             "Please install UltraVNC manually from https://uvnc.eu/downloads/ "

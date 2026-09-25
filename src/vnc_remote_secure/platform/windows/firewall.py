@@ -44,19 +44,4 @@ def list_firewall_rules():
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def verify_firewall_rules(ports):
-    """Verify that firewall rules exist for each port in ``ports``.
 
-    Args:
-        ports: Iterable of ``(port, protocol)`` tuples.
-
-    Returns:
-        A dict mapping ``(port, protocol)`` to a boolean indicating
-        whether the rule exists.
-    """
-    existing = set(list_firewall_rules())
-    result = {}
-    for port, protocol in ports:
-        rule_name = f'VncRemoteSecure-{port}-{protocol}'
-        result[(port, protocol)] = rule_name in existing
-    return result

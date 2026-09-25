@@ -210,7 +210,7 @@
     },
     "BACKUP_PASSWORD": {
       "type": "string",
-      "description": "When set, backups are Fernet-encrypted (.enc.tar.gz) and restore decrypts automatically. Required under hardened profiles unless BACKUP_ALLOW_PLAINTEXT is set."
+      "description": "When set, backups are Fernet-encrypted (.enc.tar.zst) and restore decrypts automatically. Required under hardened profiles unless BACKUP_ALLOW_PLAINTEXT is set."
     },
     "RFB_MAX_CLIPBOARD": {
       "type": "integer",

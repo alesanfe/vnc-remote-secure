@@ -46,6 +46,8 @@ bandit-report.json
 semgrep-report.json
 trivy-report.json
 gitleaks-report.json
+# CycloneDX SBOM — generated on demand via `make sbom`.
+sbom.cdx.json
 .coverage
 htmlcov/
 *.egg-info/

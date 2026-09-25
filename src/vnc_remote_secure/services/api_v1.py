@@ -27,17 +27,6 @@ logger = logging.getLogger(__name__)
 _API_PREFIX = '/api/v1/'
 _MAX_BODY = 16384
 
-# Resources a share link may be bound to (validation surface; the
-# domain rule that requires admin:* for admin-granting links lives in
-# engine.application.sessions.ADMINISH_PERMS).
-_RESOURCES = {'desktop', 'terminal', 'audio', 'gamepad'}
-
-# Strict input schema for POST /api/v1/sessions.
-_SESSION_CREATE_KEYS = {
-    'role', 'permissions', 'ttl_seconds', 'single_use', 'view_only',
-    'no_terminal', 'max_uses', 'allowed_ip', 'resource',
-}
-
 # Per-scope rate limits: (max requests, window seconds). These sit on
 # top of the auth layer — expensive endpoints (doctor, audit verify)
 # get tight budgets so the API cannot be used to burn CPU/disk.
@@ -134,6 +123,28 @@ def _err(handler, message: str, status: int) -> None:
     handler.send_json_error(message, status)
 
 
+def _uc_err(handler, exc) -> None:
+    """Send a UseCaseError — STEP_UP_REQUIRED carries its code so the
+    SPA opens the step-up dialog instead of a generic 403."""
+    from vnc_remote_secure.engine.domain.decision import ERR_STEP_UP
+    if exc.code == ERR_STEP_UP:
+        handler.send_json_error(
+            'Step-up authentication required', 403,
+            code='STEP_UP_REQUIRED')
+        return
+    _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _auth_ctx(handler) -> dict:
+    """Transport context for bound step-up grants — binds the grant
+    consumption to the operator session that minted it."""
+    operator = getattr(handler, '_api_operator', None) or {}
+    sid = cookie_value(handler.headers.get('Cookie', ''), 'vnc_op')
+    return {'transport': 'api',
+            'username': operator.get('username', '?'),
+            'sid': sid}
+
+
 def _operator(handler, permission: str | None = None):
     """Return the operator record or write the error and return None.
 
@@ -173,6 +184,39 @@ def _read_json_body(handler, limit: int = _MAX_BODY):
     return payload, None
 
 
+def _read_typed_body(handler, model, limit: int = _MAX_BODY):
+    """Read + validate the body against a pydantic schema.
+
+    Returns ``(model_instance, None)`` or ``(None, error_tuple)``.
+    Field-level detail goes to the response only in the generic
+    message — enough to correct a request, not to enumerate fields.
+    """
+    payload, error = _read_json_body(handler, limit=limit)
+    if error:
+        return None, error
+    try:
+        return model.model_validate(payload), None
+    except Exception as exc:  # noqa: BLE001 - pydantic ValidationError
+        try:
+            from pydantic import ValidationError
+            if isinstance(exc, ValidationError):
+                errors = exc.errors()
+                extra = [str(e.get('loc', ('?',))[0])
+                         for e in errors
+                         if e.get('type') == 'extra_forbidden']
+                if extra:
+                    return None, (
+                        f'Unknown fields: {sorted(extra)}', 400)
+                first = errors[0]
+                loc = '.'.join(str(p) for p in first.get('loc', ()))
+                msg = first.get('msg', 'invalid')
+                detail = f'{loc}: {msg}' if loc else msg
+                return None, (detail, 400)
+        except Exception:  # noqa: BLE001
+            pass
+        return None, ('Invalid request body', 400)
+
+
 # ---------------------------------------------------------------------------
 # Public serializers — whitelist field selection. Never serialize an
 # internal object wholesale; the allowed keys ARE the response schema.
@@ -199,7 +243,7 @@ def backup_to_api(path: str, st) -> dict:
         'name': os.path.basename(path),
         'size': st.st_size,
         'modified': st.st_mtime,
-        'encrypted': path.endswith('.enc.tar.gz'),
+        'encrypted': path.endswith(('.enc.tar.zst', '.enc.tar.gz')),
     }
 
 
@@ -494,27 +538,20 @@ def _post_maintenance(handler, query):
     (admin:* + step-up). Optional immediate/scheduled drain of
     existing share links."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import MaintenanceRequest
+    body, error = _read_typed_body(
+        handler, MaintenanceRequest, limit=4096)
     if error:
         _err(handler, *error)
-        return
-    allowed = {'active', 'reason', 'drain', 'drain_timeout'}
-    unknown = set(payload) - allowed
-    if unknown:
-        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
-        return
-    active = payload.get('active')
-    if type(active) is not bool:  # noqa: E721
-        _err(handler, 'active must be a boolean', 400)
         return
     from vnc_remote_secure.engine.application.maintenance import set_maintenance
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
         result = set_maintenance(
-            operator.get('username', 'unknown'), active,
-            reason=str(payload.get('reason', '')),
-            drain=bool(payload.get('drain', False)),
-            drain_timeout=int(payload.get('drain_timeout') or 0))
+            operator.get('username', 'unknown'), body.active,
+            reason=body.reason,
+            drain=body.drain,
+            drain_timeout=body.drain_timeout)
     except UseCaseError as exc:
         _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
@@ -525,143 +562,29 @@ def _post_maintenance(handler, query):
 # POST endpoints
 # ---------------------------------------------------------------------------
 
-def _valid_allowed_ip(value: str) -> bool:
-    """Validate an IP, CIDR or the 'first-observed' marker."""
-    if value == 'first-observed':
-        return True
-    import ipaddress
-    try:
-        if '/' in value:
-            ipaddress.ip_network(value, strict=False)
-        else:
-            ipaddress.ip_address(value)
-        return True
-    except ValueError:
-        return False
-
-
-def _parse_permissions_field(payload: dict):
-    """``permissions`` → ``(set|None, error)``."""
-    from vnc_remote_secure.security.ephemeral_sessions import ALL_PERMISSIONS
-    permissions = payload.get('permissions')
-    if permissions is None:
-        return None, None
-    if (not isinstance(permissions, list)
-            or not all(type(p) is str for p in permissions)
-            or len(permissions) > len(ALL_PERMISSIONS)):
-        return None, ('permissions must be a list of strings', 400)
-    permissions = set(permissions)
-    unknown = permissions - ALL_PERMISSIONS
-    if unknown:
-        return None, (f'Unknown permissions: {sorted(unknown)}', 400)
-    if not permissions:
-        return None, ('permissions must not be empty', 400)
-    return permissions, None
-
-
-def _bounded_int(payload: dict, key: str, default: int,
-                 lo: int, hi: int):
-    """``key`` → ``(int, error)`` — strict int (bool rejected)."""
-    value = payload.get(key, default)
-    if type(value) is not int:  # noqa: E721 - bool is an int; reject it
-        return None, (f'{key} must be an integer', 400)
-    if not lo <= value <= hi:
-        return None, (f'{key} must be {lo}..{hi}', 400)
-    return value, None
-
-
-def _bool_flags(payload: dict, keys) -> tuple | None:
-    for flag in keys:
-        if type(payload.get(flag, False)) is not bool:  # noqa: E721
-            return (f'{flag} must be a boolean', 400)
-    return None
-
-
-def _parse_allowed_ip(payload: dict):
-    """``allowed_ip`` → ``(str|None, error)``; 'first-observed' binds
-    on first use, IP/CIDR is validated here."""
-    allowed_ip = payload.get('allowed_ip')
-    if not allowed_ip:
-        return None, None
-    if not isinstance(allowed_ip, str):
-        return None, ('allowed_ip must be a string', 400)
-    allowed_ip = allowed_ip.strip()
-    if len(allowed_ip) > 64 or not _valid_allowed_ip(allowed_ip):
-        return None, ("allowed_ip is not a valid IP, CIDR, "
-                      "or 'first-observed'", 400)
-    return allowed_ip, None
-
-
-def _parse_resource_field(payload: dict):
-    """``resource`` → ``(str|None, error)``."""
-    resource = payload.get('resource')
-    if not resource:
-        return None, None
-    if not isinstance(resource, str) or resource not in _RESOURCES:
-        return None, (
-            f'resource must be one of {sorted(_RESOURCES)}', 400)
-    return resource, None
-
-
-def _parse_session_create(payload: dict):
-    """Validate the POST /sessions body; returns ``(fields, error)``.
-
-    Strict schema: unknown keys are rejected, not ignored — a
-    misspelled flag must never silently produce a wider link. The
-    returned ``fields`` dict is ready to be splatted into the use case.
-    """
-    unknown_keys = set(payload) - _SESSION_CREATE_KEYS
-    if unknown_keys:
-        return None, (f'Unknown fields: {sorted(unknown_keys)}', 400)
-
-    from vnc_remote_secure.security.ephemeral_sessions import ROLES
-
-    role = payload.get('role', 'viewer')
-    if not isinstance(role, str) or role not in ROLES:
-        return None, (f'Unknown role: {role}', 400)
-    permissions, error = _parse_permissions_field(payload)
-    if error:
-        return None, error
-    ttl, error = _bounded_int(payload, 'ttl_seconds', 1800, 60,
-                              7 * 86400)
-    if error:
-        return None, error
-    max_uses, error = _bounded_int(payload, 'max_uses', 0, 0, 1000)
-    if error:
-        return None, error
-    flag_err = _bool_flags(
-        payload, ('single_use', 'view_only', 'no_terminal'))
-    if flag_err:
-        return None, flag_err
-    allowed_ip, error = _parse_allowed_ip(payload)
-    if error:
-        return None, error
-    resource, error = _parse_resource_field(payload)
-    if error:
-        return None, error
-    return {
-        'role': role, 'permissions': permissions, 'ttl': ttl,
-        'single_use': payload.get('single_use', False),
-        'view_only': payload.get('view_only', False),
-        'no_terminal': payload.get('no_terminal', False),
-        'allowed_ip': allowed_ip, 'resource': resource,
-        'max_uses': max_uses,
-    }, None
-
-
 def _post_session_create(handler, query):
     """POST /api/v1/sessions — share-link creation for the wizard.
     Auth+CSRF+capability already ran in _dispatch; the operator is
     stashed on ``handler._api_operator``."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler)
+    from vnc_remote_secure.backend.schemas import SessionCreateRequest
+    body, error = _read_typed_body(handler, SessionCreateRequest)
     if error:
         _err(handler, *error)
         return
-    fields, error = _parse_session_create(payload)
-    if error:
-        _err(handler, *error)
-        return
+    fields = {
+        'role': body.role,
+        'permissions': (
+            set(body.permissions)
+            if body.permissions is not None else None),
+        'ttl': body.ttl_seconds,
+        'single_use': body.single_use,
+        'view_only': body.view_only,
+        'no_terminal': body.no_terminal,
+        'allowed_ip': body.allowed_ip,
+        'resource': body.resource,
+        'max_uses': body.max_uses,
+    }
 
     # Delegation + creation are domain rules — the use case owns them.
     from vnc_remote_secure.engine.application.sessions import create_share_link
@@ -696,11 +619,13 @@ def _post_session_create(handler, query):
 def _post_session_revoke(handler, query):
     """POST /api/v1/sessions/revoke — revoke one share-link session."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import SessionRevokeRequest
+    body, error = _read_typed_body(
+        handler, SessionRevokeRequest, limit=4096)
     if error:
         _err(handler, *error)
         return
-    token_id = str(payload.get('token_id', '')).strip()
+    token_id = body.token_id.strip()
     if not token_id:
         _err(handler, 'token_id required', 400)
         return
@@ -729,14 +654,12 @@ def _post_step_up(handler, query):
     ``step_up=True`` in ``_ROUTES`` check it via ``needs_step_up``.
     """
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import StepUpRequest
+    body, error = _read_typed_body(handler, StepUpRequest, limit=4096)
     if error:
         _err(handler, *error)
         return
-    password = payload.get('password')
-    if not isinstance(password, str) or not password:
-        _err(handler, 'password required', 400)
-        return
+    password = body.password
     username = operator.get('username', '')
     from vnc_remote_secure.security.audit import audit_event
     verified = None
@@ -781,8 +704,34 @@ def _post_step_up(handler, query):
             update_auth_context(sid, authenticated_at=int(time.time()))
     except Exception:  # noqa: BLE001 - advisory record
         pass
-    audit_event('step_up_granted', user=username)
-    _ok(handler, {'stepped_up': True, 'expires_in': 300})
+    # Operation-bound grant: the wizard sends the catalog operation id
+    # (+resource) so the grant is tied to THAT action on THAT target
+    # and consumed once — not a blank 5-minute cheque.
+    bound = None
+    operation = getattr(body, 'operation', '') or ''
+    if operation:
+        from vnc_remote_secure.engine.domain.operations import (
+            OPERATIONS,
+            step_up_bound_operations,
+        )
+        if operation not in step_up_bound_operations() \
+                and operation not in OPERATIONS:
+            _err(handler, f'Unknown operation: {operation}', 400)
+            return
+        resource = getattr(body, 'resource', '') or ''
+        op_sid = cookie_value(
+            handler.headers.get('Cookie', ''), 'vnc_op')
+        from vnc_remote_secure.security.step_up_auth import (
+            GRANT_TTL_SECONDS,
+            grant_step_up,
+        )
+        grant_step_up(username, operation, resource, sid=op_sid)
+        bound = {'operation': operation, 'resource': resource or None,
+                 'expires_in': GRANT_TTL_SECONDS}
+    audit_event('step_up_granted', user=username,
+                detail=f'op={operation}' if operation else '')
+    _ok(handler, {'stepped_up': True, 'expires_in': 300,
+                  'bound': bound})
 
 
 def _post_logout(handler, query):
@@ -857,7 +806,6 @@ def _post_logout(handler, query):
 #   PATCH  /operators/{username} {role?, disabled?, password?}
 #   DELETE /operators/{username}
 #   POST   /operators/{username}/sessions/revoke-all  {}
-_OPERATOR_CREATE_KEYS = {'username', 'password', 'role', 'enabled'}
 _OPERATOR_PATCH_KEYS = {'role', 'disabled', 'password'}
 
 
@@ -929,12 +877,11 @@ def _post_passkey_register_begin(handler, query):
 def _post_passkey_register_complete(handler, query):
     """POST …/passkeys/register/complete — verify + persist."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=_MAX_BODY)
+    from vnc_remote_secure.backend.schemas import PasskeyRegisterRequest
+    body, error = _read_typed_body(
+        handler, PasskeyRegisterRequest, limit=_MAX_BODY)
     if error:
         _err(handler, *error)
-        return
-    if not isinstance(payload.get('credential'), dict):
-        _err(handler, 'credential object required', 400)
         return
     from vnc_remote_secure.engine.application.passkeys import complete_registration
     from vnc_remote_secure.engine.domain.decision import UseCaseError
@@ -942,7 +889,7 @@ def _post_passkey_register_complete(handler, query):
         complete_registration(
             operator.get('username', '?'),
             handler._api_params['username'],
-            payload['credential'], str(payload.get('name', '')))
+            body.credential, body.name)
     except UseCaseError as exc:
         _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
@@ -952,14 +899,13 @@ def _post_passkey_register_complete(handler, query):
 def _patch_passkey(handler, query):
     """PATCH …/passkeys/{ref} — rename (owner or admin_users)."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import PasskeyRenameRequest
+    body, error = _read_typed_body(
+        handler, PasskeyRenameRequest, limit=4096)
     if error:
         _err(handler, *error)
         return
-    name = payload.get('name')
-    if not isinstance(name, str):
-        _err(handler, 'name must be a string', 400)
-        return
+    name = body.name
     from vnc_remote_secure.engine.application.passkeys import rename_passkey
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
@@ -995,34 +941,16 @@ def _post_operator_create(handler, query):
     """POST /api/v1/operators — strict schema; a misspelled flag must
     never silently produce a wider account."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler)
+    from vnc_remote_secure.backend.schemas import OperatorCreateRequest
+    body, error = _read_typed_body(handler, OperatorCreateRequest)
     if error:
         _err(handler, *error)
         return
-    unknown = set(payload) - _OPERATOR_CREATE_KEYS
-    if unknown:
-        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
-        return
-    username = payload.get('username')
-    password = payload.get('password')
-    role = payload.get('role', 'viewer')
-    enabled = payload.get('enabled', True)
-    if not isinstance(username, str):
-        _err(handler, 'username must be a string', 400)
-        return
-    username = username.strip()
-    if not isinstance(password, str) or not password:
-        _err(handler, 'password required', 400)
-        return
-    if type(enabled) is not bool:  # noqa: E721
-        _err(handler, 'enabled must be a boolean', 400)
-        return
+    username = body.username
+    password = body.password
+    role = body.role
+    enabled = body.enabled
     from vnc_remote_secure.core.validation import ValidationError, validate_password
-    from vnc_remote_secure.security.operator_users import _valid_username
-    if not _valid_username(username):
-        _err(handler,
-             'username must be 1-64 chars of [a-zA-Z0-9._-@]', 400)
-        return
     try:
         validate_password(password)
     except ValidationError as exc:
@@ -1043,37 +971,12 @@ def _post_operator_create(handler, query):
     }, status=201)
 
 
-def _parse_operator_patch(payload: dict):
-    """Body → use-case kwargs; ``(kw, error)``."""
-    kw: dict = {}
-    if 'role' in payload:
-        if not isinstance(payload['role'], str):
-            return None, ('role must be a string', 400)
-        kw['role'] = payload['role']
-    if 'disabled' in payload:
-        if type(payload['disabled']) is not bool:  # noqa: E721
-            return None, ('disabled must be a boolean', 400)
-        kw['disabled'] = payload['disabled']
-    if 'password' in payload:
-        password = payload['password']
-        if not isinstance(password, str) or not password:
-            return None, ('password must be a non-empty string', 400)
-        from vnc_remote_secure.core.validation import ValidationError, validate_password
-        try:
-            validate_password(password)
-        except ValidationError as exc:
-            return None, (str(exc), 400)
-        kw['password'] = password
-    return kw, None
-
-
 # ---------------------------------------------------------------------------
 # System (OS) accounts
 # ---------------------------------------------------------------------------
 #   GET    /system-users
 #   POST   /system-users            {username, password}
 #   DELETE /system-users/{username}
-_SYSTEM_USER_CREATE_KEYS = {'username', 'password'}
 
 
 def _public_gate(handler) -> bool:
@@ -1202,19 +1105,13 @@ def _post_auth_login(handler, query):
     audit), then mints the vnc_op cookie."""
     if not _public_gate(handler):
         return
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import LoginRequest
+    body, error = _read_typed_body(handler, LoginRequest, limit=4096)
     if error:
         _err(handler, *error)
         return
-    username = payload.get('username')
-    password = payload.get('password')
-    if not isinstance(username, str) or not isinstance(password, str) \
-            or not username or not password:
-        _err(handler, 'username and password are required', 400)
-        return
-    if len(username) > 128 or len(password) > 512:
-        _err(handler, 'credentials too long', 400)
-        return
+    username = body.username
+    password = body.password
     import base64
     cred = base64.b64encode(
         f'{username}:{password}'.encode()).decode()
@@ -1236,8 +1133,8 @@ def _post_auth_login(handler, query):
     from vnc_remote_secure.security.mfa import mfa_required_for_login
     mfa_method = None
     if mfa_required_for_login():
-        totp = payload.get('totp')
-        if not isinstance(totp, str) or not totp.strip():
+        totp = body.totp
+        if not totp or not totp.strip():
             audit_event('operator_login', user=username,
                         detail='mfa required', result='failure')
             handler.send_json_error(
@@ -1279,12 +1176,14 @@ def _post_auth_passkey_begin(handler, query):
     if gate:
         _err(handler, gate, 503)
         return
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import PasskeyAuthBeginRequest
+    body, error = _read_typed_body(
+        handler, PasskeyAuthBeginRequest, limit=4096)
     if error:
         _err(handler, *error)
         return
-    username = payload.get('username')
-    if not isinstance(username, str) or not username.strip():
+    username = body.username
+    if not username.strip():
         _err(handler, 'username is required', 400)
         return
     from vnc_remote_secure.engine.application.passkeys import rp_id
@@ -1311,15 +1210,16 @@ def _post_auth_passkey_complete(handler, query):
     if gate:
         _err(handler, gate, 503)
         return
-    payload, error = _read_json_body(handler, limit=_MAX_BODY)
+    from vnc_remote_secure.backend.schemas import (
+        PasskeyAuthCompleteRequest,
+    )
+    body, error = _read_typed_body(
+        handler, PasskeyAuthCompleteRequest, limit=_MAX_BODY)
     if error:
         _err(handler, *error)
         return
-    username = payload.get('username')
-    credential = payload.get('credential')
-    if not isinstance(username, str) or not isinstance(credential, dict):
-        _err(handler, 'username and credential are required', 400)
-        return
+    username = body.username
+    credential = body.credential
     from vnc_remote_secure.engine.application.passkeys import (
         rp_id,
         webauthn_origin,
@@ -1385,16 +1285,17 @@ def _post_session_preview(handler, query):
     """
     if not _public_gate(handler):
         return
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import TokenBody
+    body, error = _read_typed_body(handler, TokenBody, limit=4096)
     if error:
         _err(handler, *error)
         return
-    token = payload.get('token')
-    if not isinstance(token, str) or not token.strip():
+    token = body.token.strip()
+    if not token:
         _err(handler, 'token required', 400)
         return
     from vnc_remote_secure.engine.application import read_models
-    preview = read_models.session_grant_preview(token.strip())
+    preview = read_models.session_grant_preview(token)
     if preview is None:
         _err(handler,
              'Session link is invalid, expired, or already used', 403)
@@ -1415,18 +1316,19 @@ def _post_session_activate(handler, query):
     """
     if not _public_gate(handler):
         return
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import TokenBody
+    body, error = _read_typed_body(handler, TokenBody, limit=4096)
     if error:
         _err(handler, *error)
         return
-    token = payload.get('token')
-    if not isinstance(token, str) or not token.strip():
+    token = body.token.strip()
+    if not token:
         _err(handler, 'token required', 400)
         return
     from vnc_remote_secure.engine.application import read_models
     from vnc_remote_secure.security.http_auth import client_ip_from
     internal = read_models.activate_share_link(
-        token.strip(),
+        token,
         client_ip=client_ip_from(handler.headers, handler.peer_ip()))
     if not internal:
         _err(handler,
@@ -1491,6 +1393,16 @@ def _get_jobs(handler, query):
         _err(handler, 'Job listing failed', 500)
 
 
+def _get_job_detail(handler, query):
+    """GET /api/v1/jobs/{jid} — one job record incl. progress phase."""
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.job_status(handler._api_params['jid']))
+    except UseCaseError as exc:
+        _uc_err(handler, exc)
+
+
 def _get_operators_deleted(handler, query):
     """GET /api/v1/operators/deleted — tombstone restore candidates."""
     try:
@@ -1528,21 +1440,15 @@ def _post_system_user_create(handler, query):
     """POST /api/v1/system-users — create a runtime OS account
     (admin_users + step-up)."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler)
+    from vnc_remote_secure.backend.schemas import SystemUserCreateRequest
+    body, error = _read_typed_body(handler, SystemUserCreateRequest)
     if error:
         _err(handler, *error)
         return
-    unknown = set(payload) - _SYSTEM_USER_CREATE_KEYS
-    if unknown:
-        _err(handler, f'Unknown fields: {sorted(unknown)}', 400)
-        return
-    username = payload.get('username')
-    password = payload.get('password')
-    if not isinstance(username, str) or not username.strip():
+    username = body.username
+    password = body.password
+    if not username.strip():
         _err(handler, 'username required', 400)
-        return
-    if not isinstance(password, str) or not password:
-        _err(handler, 'password required', 400)
         return
     from vnc_remote_secure.engine.application.system_users import create_system_user
     from vnc_remote_secure.engine.domain.decision import UseCaseError
@@ -1575,26 +1481,36 @@ def _patch_operator(handler, query):
     Internal fields (hash, timestamps) are never settable."""
     operator = handler._api_operator
     username = handler._api_params['username']
-    payload, error = _read_json_body(handler)
+    from vnc_remote_secure.backend.schemas import OperatorUpdateRequest
+    body, error = _read_typed_body(handler, OperatorUpdateRequest)
     if error:
         _err(handler, *error)
         return
-    unknown = set(payload) - _OPERATOR_PATCH_KEYS
-    if unknown or not payload:
+    if not body.model_fields_set:
         _err(handler,
-             f'Allowed fields: {sorted(_OPERATOR_PATCH_KEYS)}'
-             + (f' (unknown: {sorted(unknown)})' if unknown else ''),
-             400)
+             f'Allowed fields: {sorted(_OPERATOR_PATCH_KEYS)}', 400)
         return
     if _operator_record(username) is None:
         _err(handler, 'Operator not found', 404)
         return
     from vnc_remote_secure.engine.application.operators import update_operator
     from vnc_remote_secure.engine.domain.decision import UseCaseError
-    kw, error = _parse_operator_patch(payload)
-    if error:
-        _err(handler, *error)
-        return
+    kw = {}
+    if body.role is not None:
+        kw['role'] = body.role
+    if body.disabled is not None:
+        kw['disabled'] = body.disabled
+    if body.password is not None:
+        from vnc_remote_secure.core.validation import (
+            ValidationError,
+            validate_password,
+        )
+        try:
+            validate_password(body.password)
+        except ValidationError as exc:
+            _err(handler, str(exc), 400)
+            return
+        kw['password'] = body.password
     try:
         result = update_operator(
             operator.get('username', '?'),
@@ -1673,20 +1589,19 @@ def _post_lifecycle(handler, query):
     can kill the portal service itself without losing the response.
     """
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=1024)
+    from vnc_remote_secure.backend.schemas import LifecycleRequest
+    body, error = _read_typed_body(handler, LifecycleRequest, limit=1024)
     if error:
         _err(handler, *error)
-        return
-    if set(payload) - {'action'}:
-        _err(handler, 'Allowed fields: action', 400)
         return
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
         result = ops.lifecycle_action(
-            operator.get('username', '?'), payload.get('action'))
+            operator.get('username', '?'), body.action,
+            _auth_ctx(handler))
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
         return
     _ok(handler, result, status=202)
 
@@ -1698,26 +1613,25 @@ def _post_backup_create(handler, query):
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
         _ok(handler, ops.create_backup(
-            operator.get('username', '?')), status=201)
+            operator.get('username', '?'), _auth_ctx(handler)),
+            status=201)
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 def _post_backup_verify(handler, query):
     """POST /api/v1/backups/verify — {file} CRC/decrypt check."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import BackupFileRequest
+    body, error = _read_typed_body(handler, BackupFileRequest, limit=4096)
     if error:
         _err(handler, *error)
-        return
-    if set(payload) - {'file'}:
-        _err(handler, 'Allowed fields: file', 400)
         return
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
         _ok(handler, ops.verify_backup(
-            operator.get('username', '?'), payload.get('file')))
+            operator.get('username', '?'), body.file))
     except UseCaseError as exc:
         _err(handler, exc.detail or exc.code, _uc_error_status(exc))
 
@@ -1725,20 +1639,19 @@ def _post_backup_verify(handler, query):
 def _post_backup_restore(handler, query):
     """POST /api/v1/backups/restore — {file} overwrites live config."""
     operator = handler._api_operator
-    payload, error = _read_json_body(handler, limit=4096)
+    from vnc_remote_secure.backend.schemas import BackupFileRequest
+    body, error = _read_typed_body(handler, BackupFileRequest, limit=4096)
     if error:
         _err(handler, *error)
-        return
-    if set(payload) - {'file'}:
-        _err(handler, 'Allowed fields: file', 400)
         return
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
         _ok(handler, ops.restore_backup(
-            operator.get('username', '?'), payload.get('file')))
+            operator.get('username', '?'), body.file,
+            _auth_ctx(handler)), status=202)
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 def _get_secrets(handler, query):
@@ -1769,9 +1682,9 @@ def _post_secret_rotate(handler, query):
     try:
         _ok(handler, ops.rotate_secret(
             operator.get('username', '?'),
-            handler._api_params['name']))
+            handler._api_params['name'], _auth_ctx(handler)))
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 def _post_secrets_rotate_signing(handler, query):
@@ -1780,26 +1693,29 @@ def _post_secrets_rotate_signing(handler, query):
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        _ok(handler, ops.rotate_signing_key(operator.get('username', '?')))
+        _ok(handler, ops.rotate_signing_key(
+            operator.get('username', '?'), _auth_ctx(handler)))
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 def _post_secrets_check(handler, query):
     """POST /api/v1/secrets/check — {fix?} TLS + permission findings.
     An empty body means check-only."""
     operator = handler._api_operator
+    from vnc_remote_secure.backend.schemas import SecretsCheckRequest
+    fix = False
     try:
         length = int(handler.headers.get('Content-Length', 0) or 0)
     except (TypeError, ValueError):
         length = 0
-    payload = {}
     if length:
-        payload, error = _read_json_body(handler, limit=1024)
+        body, error = _read_typed_body(
+            handler, SecretsCheckRequest, limit=1024)
         if error:
             _err(handler, *error)
             return
-    fix = bool(payload.get('fix'))
+        fix = body.fix
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
@@ -1816,9 +1732,10 @@ def _post_recovery_codes(handler, query):
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        _ok(handler, ops.recovery_codes(operator.get('username', '?')))
+        _ok(handler, ops.recovery_codes(
+            operator.get('username', '?'), _auth_ctx(handler)))
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 def _get_config_effective(handler, query):
@@ -1872,24 +1789,27 @@ def _post_config_migrate(handler, query):
     """POST /api/v1/config/migrate — {dry_run?} legacy .env renames.
     An empty body defaults to a real (non-dry-run) apply."""
     operator = handler._api_operator
+    from vnc_remote_secure.backend.schemas import ConfigMigrateRequest
+    dry_run = False
     try:
         length = int(handler.headers.get('Content-Length', 0) or 0)
     except (TypeError, ValueError):
         length = 0
-    payload = {}
     if length:
-        payload, error = _read_json_body(handler, limit=1024)
+        body, error = _read_typed_body(
+            handler, ConfigMigrateRequest, limit=1024)
         if error:
             _err(handler, *error)
             return
+        dry_run = body.dry_run
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
         _ok(handler, ops.config_migrate(
-            operator.get('username', '?'),
-            dry_run=bool(payload.get('dry_run'))))
+            operator.get('username', '?'), dry_run=dry_run,
+            auth_ctx=_auth_ctx(handler)))
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 def _get_upgrade(handler, query):
@@ -1905,30 +1825,27 @@ def _get_upgrade(handler, query):
 def _post_upgrade(handler, query):
     """POST /api/v1/upgrade — {source?} self-upgrade w/ rollback."""
     operator = handler._api_operator
+    from vnc_remote_secure.backend.schemas import UpgradeRequest
+    source = None
     try:
         length = int(handler.headers.get('Content-Length', 0) or 0)
     except (TypeError, ValueError):
         length = 0
-    payload = {}
     if length:
-        payload, error = _read_json_body(handler, limit=4096)
+        body, error = _read_typed_body(
+            handler, UpgradeRequest, limit=4096)
         if error:
             _err(handler, *error)
             return
-    if set(payload) - {'source'}:
-        _err(handler, 'Allowed fields: source', 400)
-        return
-    source = payload.get('source')
-    if source is not None and not isinstance(source, str):
-        _err(handler, 'source must be a string', 400)
-        return
+        source = body.source
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
         _ok(handler, ops.upgrade_run(
-            operator.get('username', '?'), source=source))
+            operator.get('username', '?'), source=source,
+            auth_ctx=_auth_ctx(handler)), status=202)
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 def _post_upgrade_rollback(handler, query):
@@ -1937,9 +1854,11 @@ def _post_upgrade_rollback(handler, query):
     from vnc_remote_secure.engine.application import ops
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        _ok(handler, ops.upgrade_rollback(operator.get('username', '?')))
+        _ok(handler, ops.upgrade_rollback(
+            operator.get('username', '?'), _auth_ctx(handler)),
+            status=202)
     except UseCaseError as exc:
-        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        _uc_err(handler, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -2086,6 +2005,9 @@ _ROUTES = {
     ('GET', 'jobs'): _Route(
         _get_jobs, 'admin_audit', 'default', None,
         'JobPageResponse'),
+    ('GET', 'jobs/{jid}'): _Route(
+        _get_job_detail, 'admin_audit', 'default', None,
+        'JobDetailResponse'),
     ('GET', 'operators/deleted'): _Route(
         _get_operators_deleted, 'admin_users', 'default', None,
         'DeletedOperatorsResponse'),

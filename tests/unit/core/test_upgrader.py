@@ -2,7 +2,17 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+
+
+@pytest.fixture(autouse=True)
+def _allow_spawn(monkeypatch):
+    """perform_upgrade/perform_rollback call guard_spawn() — these
+    tests mock every real side effect (_pip_install, create_backup,
+    restore_backup), so opt into spawn under VRS_TEST_MODE."""
+    monkeypatch.setenv('VRS_TEST_ALLOW_SPAWN', '1')
 
 
 def test_upgrade_aborts_when_backup_fails(monkeypatch, tmp_path):

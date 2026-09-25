@@ -133,8 +133,12 @@ vnc-remote config diff --profile-a development --profile-b public-hardened
 3. Add or update tests under `tests/`.
 4. Run the full test suite: `pytest tests/unit tests/security && bash tests/run_tests.sh`
 5. Run lint: `ruff check src/vnc_remote_secure`
-6. Commit using Conventional Commits (see `CONTRIBUTING.md`).
-7. Push and open a pull request.
+6. Run the architecture + security gates: `make lint-arch lint-semgrep lint-bandit check-secrets`
+   (import-linter contracts, project semgrep rules, bandit SAST,
+   detect-secrets baseline). With `pre-commit install` the same hooks
+   run on every commit.
+7. Commit using Conventional Commits (see `CONTRIBUTING.md`).
+8. Push and open a pull request.
 
 ## Debugging
 
@@ -157,12 +161,35 @@ vnc-remote start --verbose
 Dependencies are managed in `pyproject.toml` (single source of truth).
 
 ```bash
-# Install development dependencies
+# Install development dependencies (test + lint + security toolchain)
 pip install -e ".[dev]"
 
 # Install Linux-specific dependencies
 pip install -e ".[linux]"
 
+# Optional extras
+pip install -e ".[otel]"            # OTLP trace export (OTEL_ENABLED)
+pip install -e ".[windows-gamepad]" # ViGEmBus-backed XInput
+pip install -e ".[webauthn]"        # passkey ceremonies
+pip install -e ".[ops]"             # psutil orphan reaping
+pip install -e ".[e2e]"             # Playwright browser tests
+
 # Build the package
 python -m build
 ```
+
+## Supply-chain and security tooling
+
+```bash
+make lint-arch       # import-linter engine-layering contracts
+make lint-semgrep    # project rules (.semgrep.yml)
+make lint-bandit     # SAST on src/
+make check-secrets   # detect-secrets vs .secrets.baseline
+make check-deps      # pip-audit (known-vulnerable deps)
+make sbom            # CycloneDX SBOM → sbom.cdx.json (gitignored)
+```
+
+`detect-secrets` runs in pre-commit against `.secrets.baseline` —
+commit any NEW legitimate baseline entry by regenerating with
+`detect-secrets scan src/ tests/ tools/ > .secrets.baseline` and
+reviewing the diff.
