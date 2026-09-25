@@ -1,0 +1,23 @@
+title = "vnc-remote-secure gitleaks config"
+
+# Reuse the upstream default rules; the project layer only adds
+# path-based allowlists below.
+[extend]
+useDefault = true
+
+# Tests and docs carry intentional FAKE secrets (fixture passwords
+# like 'MySecretPass123', placeholder tokens in examples). They are
+# also scanned by detect-secrets (.secrets.baseline) + the pre-commit
+# private-key hook, so this allowlist only suppresses the generic
+# entropy rules on paths where every credential is a stub by design.
+# .secrets.baseline itself contains only HASHES of secrets;
+# minified/vendor JS bundles trip the entropy rule mechanically.
+[allowlist]
+description = "Test fixtures, doc placeholders, secret-hash baseline and bundled JS"
+paths = [
+  '''tests/''',
+  '''docs/''',
+  '''\.env\.example''',
+  '''\.secrets\.baseline''',
+  '''src/vnc_remote_secure/(web/)?static/''',
+]
