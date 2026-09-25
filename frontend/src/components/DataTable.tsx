@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n';
+
 interface Column<T> {
   key: string;
   header: string;
@@ -22,14 +24,17 @@ export default function DataTable<T>({
   rowKey,
   loading = false,
   error = false,
-  errorText = 'No se pudieron cargar los datos.',
-  emptyText = 'Sin resultados.',
+  errorText,
+  emptyText,
 }: Props<T>) {
+  const { t } = useI18n();
+  const errorLabel = errorText ?? t('table.errorText');
+  const emptyLabel = emptyText ?? t('table.emptyText');
   if (error) {
-    return <div className="error-box" role="alert">{errorText}</div>;
+    return <div className="error-box" role="alert">{errorLabel}</div>;
   }
   if (loading && !rows) {
-    return <div className="muted" role="status">Cargando…</div>;
+    return <div className="muted" role="status">{t('common.loading')}</div>;
   }
   return (
     <>
@@ -54,7 +59,7 @@ export default function DataTable<T>({
           {rows && rows.length === 0 && (
             <tr>
               <td colSpan={columns.length} className="muted">
-                {emptyText}
+                {emptyLabel}
               </td>
             </tr>
           )}

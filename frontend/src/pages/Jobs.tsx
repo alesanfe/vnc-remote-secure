@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, type JobSummary } from '../api';
+import { useI18n } from '../i18n';
 import { useState } from 'react';
 
 function fmtWhen(ts: number): string {
@@ -29,6 +30,7 @@ function ProgressBar({ job }: { job: JobSummary }) {
     this is where an operator watches them finish (or sees exactly
     where a runner died). */
 export default function Jobs() {
+  const { t } = useI18n();
   const [detail, setDetail] = useState<string | null>(null);
   const jobs = useQuery({
     queryKey: ['jobs'],
@@ -53,30 +55,29 @@ export default function Jobs() {
 
   return (
     <>
-      <h1 className="page-title">Jobs</h1>
-      <p className="muted">
-        Registro persistente de operaciones: lifecycle, restores y
-        upgrades ejecutados por el runner — sobreviven al reinicio del
-        portal.
-      </p>
+      <h1 className="page-title">{t('jobs.title')}</h1>
+      <p className="muted">{t('jobs.subtitle')}</p>
 
       {jobs.isError && (
         <div className="error-box" role="alert">
-          No se pudo cargar el registro de jobs.
+          {t('jobs.loadError')}
         </div>
       )}
-      {jobs.isLoading && <p className="muted">Cargando…</p>}
+      {jobs.isLoading && <p className="muted">{t('jobs.loading')}</p>}
       {jobs.data && jobs.data.jobs.length === 0 && (
-        <p className="muted">
-          Sin operaciones registradas todavía.
-        </p>
+        <p className="muted">{t('jobs.empty')}</p>
       )}
       {(jobs.data?.jobs?.length ?? 0) > 0 && (
         <table className="data">
           <thead>
             <tr>
-              <th>Job</th><th>Operación</th><th>Recurso</th>
-              <th>Actor</th><th>Inicio</th><th>Estado</th><th></th>
+              <th>{t('jobs.col.job')}</th>
+              <th>{t('jobs.col.op')}</th>
+              <th>{t('jobs.col.resource')}</th>
+              <th>{t('jobs.col.actor')}</th>
+              <th>{t('jobs.col.start')}</th>
+              <th>{t('jobs.col.state')}</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -91,7 +92,7 @@ export default function Jobs() {
                 <td>
                   <button type="button" className="ghost"
                           onClick={() => setDetail(j.id)}>
-                    Detalle
+                    {t('common.detail')}
                   </button>
                 </td>
               </tr>
@@ -102,19 +103,23 @@ export default function Jobs() {
 
       {detail && jobDetail.data && (
         <section className="card">
-          <h2>Job <code>{jobDetail.data.job.id.slice(0, 8)}</code></h2>
+          <h2>{t('jobs.col.job')} <code>{jobDetail.data.job.id.slice(0, 8)}</code></h2>
           <dl className="kv">
-            <dt>Operación</dt><dd>{jobDetail.data.job.kind}</dd>
-            <dt>Estado</dt><dd>{jobDetail.data.job.state}</dd>
-            <dt>Actor</dt><dd>{jobDetail.data.job.actor}</dd>
-            <dt>Recurso</dt><dd>{jobDetail.data.job.target || '—'}</dd>
-            <dt>Progreso</dt><dd>{jobDetail.data.job.progress ?? '—'}</dd>
-            <dt>Detalle</dt><dd>{jobDetail.data.job.detail ?? '—'}</dd>
-            <dt>Error</dt><dd>{jobDetail.data.job.error ?? '—'}</dd>
+            <dt>{t('jobs.col.op')}</dt><dd>{jobDetail.data.job.kind}</dd>
+            <dt>{t('jobs.state')}</dt><dd>{jobDetail.data.job.state}</dd>
+            <dt>{t('jobs.col.actor')}</dt><dd>{jobDetail.data.job.actor}</dd>
+            <dt>{t('jobs.col.resource')}</dt>
+            <dd>{jobDetail.data.job.target || '—'}</dd>
+            <dt>{t('jobs.progress')}</dt>
+            <dd>{jobDetail.data.job.progress ?? '—'}</dd>
+            <dt>{t('jobs.detailLabel')}</dt>
+            <dd>{jobDetail.data.job.detail ?? '—'}</dd>
+            <dt>{t('jobs.error')}</dt>
+            <dd>{jobDetail.data.job.error ?? '—'}</dd>
           </dl>
           <button type="button" className="ghost"
                   onClick={() => setDetail(null)}>
-            Cerrar
+            {t('common.close')}
           </button>
         </section>
       )}

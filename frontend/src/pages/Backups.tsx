@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type BackupItem } from '../api';
 import { useStepUp } from '../components/useStepUp';
+import { useI18n } from '../i18n';
 
 function fmtSize(bytes: number): string {
   if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
@@ -10,12 +11,9 @@ function fmtSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-const RESTORE_IMPACT = [
-  '.env — credenciales y flags de configuración',
-  'ssl/ — certificados TLS en servicio',
-  'config/ — perfiles y valores efectivos',
-  'data/ — estado de aplicación',
-  'run/ — secretos firmados, sesiones efímeras y shared_state.db',
+const IMPACT_KEYS = [
+  'wizard.impact.env', 'wizard.impact.ssl', 'wizard.impact.config',
+  'wizard.impact.data', 'wizard.impact.run',
 ];
 
 type WizardStep = 'verify' | 'impact' | 'confirm' | 'queued';
@@ -37,6 +35,7 @@ function RestoreWizard({
   onConfirm: () => void;
   error: string;
 }) {
+  const { t } = useI18n();
   const [step, setStep] = useState<WizardStep>('verify');
   const [typed, setTyped] = useState('');
   const verify = useQuery({
@@ -55,30 +54,32 @@ function RestoreWizard({
     <div className="dialog-overlay" role="presentation">
       <div className="dialog" role="dialog" aria-modal="true"
            aria-labelledby="restore-wizard-title">
-        <h2 id="restore-wizard-title">Restaurar backup</h2>
-        <ol className="wizard-steps" aria-label="Pasos">
+        <h2 id="restore-wizard-title">{t('wizard.title')}</h2>
+        <ol className="wizard-steps" aria-label={t('wizard.steps')}>
           <li aria-current={step === 'verify' ? 'step' : undefined}>
-            1. Verificación</li>
+            {t('wizard.verify')}</li>
           <li aria-current={step === 'impact' ? 'step' : undefined}>
-            2. Impacto</li>
+            {t('wizard.impact')}</li>
           <li aria-current={step === 'confirm' ? 'step' : undefined}>
-            3. Confirmación</li>
+            {t('wizard.confirm')}</li>
         </ol>
 
         {step === 'verify' && (
           verify.isLoading
-            ? <p className="muted">Verificando integridad de
-                {' '}<code>{target}</code>…</p>
+            ? <p className="muted">
+                {t('wizard.verifying', { name: target })}
+              </p>
             : verify.isError
               ? <div className="error-box" role="alert">
-                  No se pudo verificar el archivo.
+                  {t('wizard.verifyFailed')}
                 </div>
               : verify.data && !verify.data.ok
                 ? <div className="error-box" role="alert">
-                    El backup <code>{target}</code> está CORRUPTO
-                    {verify.data.message
-                      ? `: ${verify.data.message}` : ''} — no se puede
-                    restaurar.
+                    {t('wizard.corrupt', {
+                      name: target,
+                      msg: verify.data.message
+                        ? `: ${verify.data.message}` : '',
+                    })}
                   </div>
                 : null
         )}
@@ -86,24 +87,21 @@ function RestoreWizard({
         {step === 'impact' && verify.data && (
           <>
             <p>
-              <code>{target}</code> íntegro
-              {' '}({verify.data.members} entradas).
-              La restauración sobrescribirá:
+              {t('wizard.integrity', {
+                name: target,
+                members: verify.data.members,
+              })}
             </p>
             <ul className="impact-list">
-              {RESTORE_IMPACT.map((i) => <li key={i}>{i}</li>)}
+              {IMPACT_KEYS.map((k) => <li key={k}>{t(k)}</li>)}
             </ul>
-            <p className="muted">
-              La restauración corre como job persistente — sobrevive a
-              un reinicio del portal. Las contraseñas restauradas
-              invalidan las sesiones activas.
-            </p>
+            <p className="muted">{t('wizard.note')}</p>
             <div className="row">
               <button type="button" onClick={() => setStep('confirm')}>
-                Continuar
+                {t('wizard.continue')}
               </button>
               <button type="button" className="ghost" onClick={onCancel}>
-                Cancelar
+                {t('common.cancel')}
               </button>
             </div>
           </>
@@ -112,13 +110,11 @@ function RestoreWizard({
         {step === 'confirm' && (
           <>
             <p>
-              Escribe <code>{target}</code> para lanzar la
-              restauración. El servidor pedirá step-up ligado a este
-              archivo concreto.
+              {t('wizard.typeName', { name: target })}
             </p>
             <div className="row">
               <input
-                aria-label="Escribe el nombre del backup"
+                aria-label={t('wizard.typeLabel')}
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 placeholder={target}
@@ -130,10 +126,10 @@ function RestoreWizard({
               <button type="button" className="danger"
                       disabled={typed !== target || busy}
                       onClick={onConfirm}>
-                {busy ? 'Encolando…' : 'Restaurar'}
+                {busy ? t('wizard.launching') : t('wizard.launch')}
               </button>
               <button type="button" className="ghost" onClick={onCancel}>
-                Cancelar
+                {t('common.cancel')}
               </button>
             </div>
           </>
@@ -142,7 +138,7 @@ function RestoreWizard({
         {step === 'verify' && !verify.isLoading && (
           <div className="row">
             <button type="button" className="ghost" onClick={onCancel}>
-              Cancelar
+              {t('common.cancel')}
             </button>
           </div>
         )}
@@ -154,6 +150,7 @@ function RestoreWizard({
 export default function Backups() {
   const qc = useQueryClient();
   const stepUp = useStepUp();
+  const { t } = useI18n();
   const [flash, setFlash] = useState('');
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
   const [wizardError, setWizardError] = useState('');
@@ -168,10 +165,10 @@ export default function Backups() {
     mutationFn: () => api.backupCreate(),
     onSuccess: (d) => {
       invalidate();
-      setFlash(`Backup creado: ${d.name}`);
+      setFlash(t('backups.created', { name: d.name }));
     },
     onError: (e) => {
-      if (stepUp.gate(e, 'creación de un backup',
+      if (stepUp.gate(e, t('backups.stepup.create'),
                       () => create.mutate(),
                       { opId: 'backup.create' })) return;
     },
@@ -182,19 +179,20 @@ export default function Backups() {
     onSuccess: (d) => {
       setRestoreTarget(null);
       setWizardError('');
-      setFlash('');
       qc.invalidateQueries({ queryKey: ['jobs'] });
-      setFlash(`Restauración de ${d.name} encolada — ` +
-               `job ${d.job_id ?? '?'}. `);
+      setFlash(t('backups.restoreQueued',
+                 { name: d.name, job: d.job_id ?? '?' }));
     },
     onError: (e) => {
       if (restoreTarget &&
-          stepUp.gate(e, `restauración del backup ${restoreTarget}`,
-                      () => restore.mutate(restoreTarget),
-                      { opId: 'backup.restore',
-                        resource: restoreTarget })) return;
+          stepUp.gate(
+            e,
+            t('backups.stepup.restore', { name: restoreTarget }),
+            () => restore.mutate(restoreTarget),
+            { opId: 'backup.restore',
+              resource: restoreTarget })) return;
       setWizardError(e instanceof ApiError
-        ? e.message : 'No se pudo encolar la restauración');
+        ? e.message : t('backups.verify.error'));
     },
   });
 
@@ -206,50 +204,48 @@ export default function Backups() {
 
   return (
     <>
-      <h1 className="page-title">Backups</h1>
-      <p className="muted">
-        Paridad total con el CLI (<code>vnc-remote backup | restore |
-        verify backup</code>). Crear y restaurar requieren step-up;
-        restaurar lanza un job persistente.
-      </p>
+      <h1 className="page-title">{t('backups.title')}</h1>
+      <p className="muted">{t('backups.subtitle')}</p>
 
       {flash && (
         <div className="info-box">
           {flash}
           {restore.data?.job_id && (
-            <Link to="/jobs">ver progreso en Jobs →</Link>
+            <Link to="/jobs">{t('backups.jobLink')}</Link>
           )}
         </div>
       )}
       {backups.isError && (
-        <div className="error-box" role="alert">No se pudo listar los backups.</div>
+        <div className="error-box" role="alert">
+          {t('backups.listError')}
+        </div>
       )}
       {hardError && (
         <div className="error-box" role="alert">
           {hardError instanceof ApiError
             ? `${hardError.status}: ${hardError.message}`
-            : 'Operación fallida'}
+            : t('common.error')}
         </div>
       )}
 
       <p>
         <button type="button" disabled={create.isPending}
                 onClick={() => create.mutate()}>
-          {create.isPending ? 'Creando…' : 'Nuevo backup'}
+          {create.isPending ? t('backups.creating') : t('backups.create')}
         </button>
       </p>
 
       {backups.isLoading && (
-        <p className="muted" role="status">Cargando…</p>
+        <p className="muted" role="status">{t('backups.loading')}</p>
       )}
       <table className="data">
         <thead>
           <tr>
-            <th>Archivo</th>
-            <th>Tamaño</th>
-            <th>Cifrado</th>
-            <th>Fecha</th>
-            <th>Acciones</th>
+            <th>{t('backups.col.file')}</th>
+            <th>{t('backups.col.size')}</th>
+            <th>{t('backups.col.encrypted')}</th>
+            <th>{t('backups.col.date')}</th>
+            <th>{t('backups.col.actions')}</th>
           </tr>
         </thead>
         <tbody>
@@ -259,7 +255,7 @@ export default function Backups() {
               <td>{fmtSize(b.size)}</td>
               <td>
                 <span className={`badge ${b.encrypted ? 'ok' : 'warn'}`}>
-                  {b.encrypted ? 'CIFRADO' : 'PLANO'}
+                  {b.encrypted ? t('backups.encrypted') : t('backups.plain')}
                 </span>
               </td>
               <td>{new Date(b.modified * 1000).toLocaleString()}</td>
@@ -270,7 +266,7 @@ export default function Backups() {
                           setWizardError('');
                           setRestoreTarget(b.name);
                         }}>
-                  Restaurar…
+                  {t('backups.restore')}
                 </button>
               </td>
             </tr>
@@ -278,7 +274,7 @@ export default function Backups() {
           {backups.data && backups.data.backups.length === 0 && (
             <tr>
               <td colSpan={5} className="muted">
-                No hay backups. Usa «Nuevo backup» o{' '}
+                {t('backups.empty')}{' '}
                 <code>vnc-remote backup</code>.
               </td>
             </tr>

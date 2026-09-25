@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
 
 interface Props {
   open: boolean;
@@ -25,14 +26,17 @@ export default function ConfirmDialog({
   open,
   title,
   children,
-  confirmLabel = 'Confirmar',
-  cancelLabel = 'Cancelar',
+  confirmLabel,
+  cancelLabel,
   danger = false,
   busy = false,
   confirmText,
   onConfirm,
   onCancel,
 }: Props) {
+  const { t } = useI18n();
+  confirmLabel ??= t('common.confirm');
+  cancelLabel ??= t('common.cancel');
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const opener = useRef<Element | null>(null);
@@ -97,7 +101,8 @@ export default function ConfirmDialog({
         {needsTyping && (
           <input
             ref={inputRef}
-            aria-label={`Escribe ${confirmText} para confirmar`}
+            aria-label={t('confirm.typeToConfirm',
+                          { name: confirmText ?? '' })}
             placeholder={confirmText}
             onChange={(e) =>
               setTypedOk(e.target.value === confirmText)}

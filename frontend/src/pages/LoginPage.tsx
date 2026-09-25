@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError, setCsrfToken } from '../api';
 import { assertPasskey, webauthnSupported } from '../webauthn';
+import { useI18n } from '../i18n';
 
 /**
  * In-app operator login — replaces the browser's Basic-auth prompt
@@ -15,6 +16,7 @@ export default function LoginPage({
 }: {
   onLoggedIn: () => void;
 }) {
+  const { t } = useI18n();
   const methods = useQuery({
     queryKey: ['auth-methods'],
     queryFn: () => api.authMethods(),
@@ -47,9 +49,9 @@ export default function LoginPage({
     } catch (e) {
       if (e instanceof ApiError && e.code === 'MFA_REQUIRED') {
         setMfaNeeded(true);
-        setError('Introduce el código de autenticación (TOTP o recuperación).');
+        setError(t('login.mfaRequired'));
       } else {
-        setError(e instanceof ApiError ? e.message : 'Error de red');
+        setError(e instanceof ApiError ? e.message : t('login.networkError'));
       }
     } finally {
       setBusy(null);
@@ -68,7 +70,7 @@ export default function LoginPage({
       setError(
         e instanceof ApiError
           ? e.message
-          : 'La ceremonia fue cancelada o el dispositivo falló');
+          : t('login.passkeyFailed'));
     } finally {
       setBusy(null);
     }
@@ -77,7 +79,7 @@ export default function LoginPage({
   return (
     <main className="main" style={{ margin: '10vh auto', maxWidth: 420 }}>
       <div className="card">
-        <h1 className="page-title">Acceso de operador</h1>
+        <h1 className="page-title">{t('login.title')}</h1>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -85,7 +87,7 @@ export default function LoginPage({
                 (!mfaNeeded || totp)) void loginPassword();
           }}
         >
-          <label htmlFor="login-user">Usuario</label>
+          <label htmlFor="login-user">{t('login.username')}</label>
           <input
             id="login-user"
             autoComplete="username"
@@ -93,7 +95,7 @@ export default function LoginPage({
             value={username}
             onChange={(e) => setUsername(e.target.value)}
           />
-          <label htmlFor="login-pass">Contraseña</label>
+          <label htmlFor="login-pass">{t('login.password')}</label>
           <input
             id="login-pass"
             type="password"
@@ -104,7 +106,7 @@ export default function LoginPage({
           {(mfaNeeded || methods.data?.mfa) && (
             <>
               <label htmlFor="login-mfa">
-                Código MFA / recuperación
+                {t('login.totp')}
               </label>
               <input
                 id="login-mfa"
@@ -126,7 +128,7 @@ export default function LoginPage({
                 (mfaNeeded && !totp)
               }
             >
-              {busy === 'password' ? 'Verificando…' : 'Entrar'}
+              {busy === 'password' ? t('login.submitting') : t('login.submit')}
             </button>
             {passkeyAvailable && (
               <button
@@ -136,14 +138,14 @@ export default function LoginPage({
                 onClick={() => void loginPasskey()}
               >
                 {busy === 'passkey'
-                  ? 'Esperando passkey…'
-                  : 'Entrar con passkey'}
+                  ? t('login.passkeyWaiting')
+                  : t('login.passkey')}
               </button>
             )}
           </div>
         </form>
         <p className="muted" style={{ marginTop: '1rem' }}>
-          El acceso queda registrado en el log de auditoría.
+          {t('login.auditNote')}
         </p>
       </div>
     </main>

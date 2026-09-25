@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api';
 import ConfirmDialog from './ConfirmDialog';
+import { useI18n } from '../i18n';
 
 interface SystemUser {
   username: string;
@@ -19,6 +20,7 @@ export default function SystemUsersSection({
 }: {
   onStepUp: (op: string, retry: () => void) => void;
 }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const users = useQuery({
     queryKey: ['system-users'],
@@ -35,7 +37,7 @@ export default function SystemUsersSection({
         onStepUp(op, () => void run(op, fn));
         return;
       }
-      setError(e instanceof ApiError ? e.message : 'Operación fallida');
+      setError(e instanceof ApiError ? e.message : t('common.error'));
     });
 
   const invalidate = () =>
@@ -46,14 +48,14 @@ export default function SystemUsersSection({
       {error && <div className="error-box" role="alert">{error}</div>}
       {users.isError && (
         <div className="error-box" role="alert">
-          No se pudieron cargar los usuarios de sistema.
+          {t('systemUsers.loadError')}
         </div>
       )}
       <form
         className="card"
         onSubmit={(e) => {
           e.preventDefault();
-          void run('crear usuario de sistema', async () => {
+          void run(t('systemUsers.opCreate'), async () => {
             await api.post('system-users',
                            { username: uname, password: upass });
             setUname('');
@@ -65,31 +67,31 @@ export default function SystemUsersSection({
       >
         <div className="row">
           <input
-            aria-label="Nombre de usuario de sistema"
-            placeholder="usuario"
+            aria-label={t('systemUsers.usernameAria')}
+            placeholder={t('systemUsers.usernamePlaceholder')}
             value={uname}
             onChange={(e) => setUname(e.target.value)}
           />
           <input
-            aria-label="Contraseña del usuario"
+            aria-label={t('systemUsers.passwordAria')}
             type="password"
             autoComplete="new-password"
-            placeholder="contraseña"
+            placeholder={t('systemUsers.passwordPlaceholder')}
             value={upass}
             onChange={(e) => setUpass(e.target.value)}
           />
           <button type="submit" disabled={!uname || !upass}>
-            Crear usuario
+            {t('systemUsers.create')}
           </button>
         </div>
       </form>
       <table className="data">
         <thead>
           <tr>
-            <th>Usuario</th>
+            <th>{t('systemUsers.username')}</th>
             <th>UID</th>
-            <th>Home</th>
-            <th>Acciones</th>
+            <th>{t('systemUsers.home')}</th>
+            <th>{t('systemUsers.actions')}</th>
           </tr>
         </thead>
         <tbody>
@@ -104,7 +106,7 @@ export default function SystemUsersSection({
                   className="danger"
                   onClick={() => setDelTarget(u.username)}
                 >
-                  Eliminar
+                  {t('common.delete')}
                 </button>
               </td>
             </tr>
@@ -112,7 +114,7 @@ export default function SystemUsersSection({
           {users.data && users.data.users.length === 0 && (
             <tr>
               <td colSpan={4} className="muted">
-                Sin cuentas de sistema gestionables.
+                {t('systemUsers.empty')}
               </td>
             </tr>
           )}
@@ -120,28 +122,26 @@ export default function SystemUsersSection({
       </table>
       <ConfirmDialog
         open={delTarget !== null}
-        title="Eliminar usuario de sistema"
+        title={t('systemUsers.deleteTitle')}
         danger
-        confirmLabel="Eliminar"
+        confirmLabel={t('common.delete')}
         confirmText="ELIMINAR"
         onCancel={() => setDelTarget(null)}
         onConfirm={() => {
           const target = delTarget;
           setDelTarget(null);
           if (target)
-            void run('eliminar usuario de sistema', async () => {
+            void run(t('systemUsers.opDelete'), async () => {
               await api.del(`system-users/${target}`);
               invalidate();
             });
         }}
       >
         <p>
-          Se eliminará la cuenta del sistema <code>{delTarget}</code>.
-          Las cuentas reservadas y la cuenta que ejecuta este servicio
-          están protegidas por el backend.
+          {t('systemUsers.deleteBody', { name: delTarget ?? '' })}
         </p>
         <p className="muted">
-          Escribe <code>ELIMINAR</code> para confirmar.
+          {t('confirm.typeToConfirm', { name: 'ELIMINAR' })}
         </p>
       </ConfirmDialog>
     </>

@@ -4,8 +4,10 @@ import {
   useQuery,
 } from '@tanstack/react-query';
 import { api, type AuditEntry, type AuditPage } from '../api';
+import { useI18n } from '../i18n';
 
 export default function Audit() {
+  const { t } = useI18n();
   const [eventFilter, setEventFilter] = useState('');
   const [userFilter, setUserFilter] = useState('');
   const [resultFilter, setResultFilter] = useState('');
@@ -42,69 +44,73 @@ export default function Audit() {
 
   return (
     <>
-      <h1 className="page-title">Auditoría</h1>
+      <h1 className="page-title">{t('audit.title')}</h1>
 
       {chain.data && (
         <div className={chain.data.intact ? 'notice' : 'error-box'}
           style={chain.data.intact ? { borderColor: 'var(--ok)' } : {}}>
-          Cadena de integridad:{' '}
-          <strong>{chain.data.intact ? 'ÍNTEGRA' : 'ROTA'}</strong> —{' '}
-          {chain.data.message}
+          {t('audit.chain')}{' '}
+          <strong>
+            {chain.data.intact
+              ? t('audit.chain.intact')
+              : t('audit.chain.broken')}
+          </strong>{' '}
+          — {chain.data.message}
         </div>
       )}
 
       <div className="toolbar">
         <input
           style={{ maxWidth: 220 }}
-          aria-label="Filtrar por tipo de evento"
-          placeholder="Filtrar por tipo de evento"
+          aria-label={t('audit.filter.event')}
+          placeholder={t('audit.filter.event')}
           value={eventFilter}
           onChange={(e) => setEventFilter(e.target.value)}
         />
         <input
           style={{ maxWidth: 160 }}
-          aria-label="Filtrar por usuario"
-          placeholder="Usuario"
+          aria-label={t('audit.filter.user')}
+          placeholder={t('audit.user')}
           value={userFilter}
           onChange={(e) => setUserFilter(e.target.value)}
         />
         <select
           style={{ maxWidth: 140 }}
-          aria-label="Filtrar por resultado"
+          aria-label={t('audit.filter.result')}
           value={resultFilter}
           onChange={(e) => setResultFilter(e.target.value)}
         >
-          <option value="">resultado: todos</option>
+          <option value="">{t('audit.result.all')}</option>
           <option value="success">success</option>
           <option value="failure">failure</option>
           <option value="denied">denied</option>
         </select>
         <select
           style={{ maxWidth: 120 }}
-          aria-label="Filas por página"
+          aria-label={t('audit.filter.rows')}
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
         >
           {[50, 100, 250, 500].map((n) => (
             <option key={n} value={n}>
-              {n} filas
+              {t('audit.rows', { n })}
             </option>
           ))}
         </select>
         <button className="ghost" onClick={() => entries.refetch()}>
-          Actualizar
+          {t('audit.refresh')}
         </button>
       </div>
 
       {entries.isError && (
         <div className="error-box" role="alert">
-          No se pudo leer la auditoría (¿falta el permiso admin_audit?).
+          {t('audit.loadError')}
         </div>
       )}
       <div style={{ overflowX: 'auto' }}>
         <table className="data">
           <caption className="muted" style={{ textAlign: 'left', padding: 4 }}>
-            Registro encadenado de eventos de seguridad (más recientes primero)
+            {t('audit.caption')}
           </caption>
           <thead>
             <tr>
@@ -126,7 +132,7 @@ export default function Audit() {
             {entries.data && rows.length === 0 && (
               <tr>
                 <td colSpan={Math.max(cols.length, 1)} className="muted">
-                  Sin eventos.
+                  {t('audit.empty')}
                 </td>
               </tr>
             )}
@@ -140,7 +146,9 @@ export default function Audit() {
             disabled={entries.isFetchingNextPage}
             onClick={() => entries.fetchNextPage()}
           >
-            {entries.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+            {entries.isFetchingNextPage
+              ? t('common.loading')
+              : t('audit.loadMore')}
           </button>
         </div>
       )}

@@ -327,3 +327,10 @@ td button { margin-right: 0.3rem; }
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
 dl.kv dt { color: var(--muted); }
 dl.kv dd { margin: 0; }
+
+/* Language switcher */
+.lang-switch select {
+  background: var(--surface-2); color: var(--fg, #eee);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: .2rem .4rem; font-size: .8rem;
+}

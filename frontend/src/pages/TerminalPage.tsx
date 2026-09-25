@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { api, type PortalData } from '../api';
+import { useI18n } from '../i18n';
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -15,6 +16,7 @@ type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error';
  * complete JSON messages, history buffer, busy gating.
  */
 export default function TerminalPage() {
+  const { t } = useI18n();
   const termRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<ConnState>('connecting');
   const [wsUrl, setWsUrl] = useState<string | null>(null);
@@ -209,12 +211,12 @@ export default function TerminalPage() {
 
   const label =
     state === 'connected'
-      ? 'Connected'
+      ? t('terminal.state.connected')
       : state === 'connecting'
-        ? 'Connecting...'
+        ? t('terminal.state.connecting')
         : state === 'error'
-          ? 'Error'
-          : 'Disconnected';
+          ? t('terminal.state.error')
+          : t('terminal.state.disconnected');
 
   return (
     <main className="term-page">
@@ -225,7 +227,7 @@ export default function TerminalPage() {
         style={{ position: 'fixed', top: 5, right: 10, zIndex: 100 }}
       >
         {authError
-          ? 'No autorizado — inicia sesión o abre un enlace válido.'
+          ? t('terminal.unauthorized')
           : label}
       </div>
       <div ref={termRef} className="term-host" />

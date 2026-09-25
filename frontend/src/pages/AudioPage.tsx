@@ -1,5 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import { api, type PortalData } from '../api';
+import { useI18n } from '../i18n';
 
 type ConnState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -10,10 +11,9 @@ type ConnState = 'disconnected' | 'connecting' | 'connected' | 'error';
  * host:port otherwise, wss when the page is TLS).
  */
 export default function AudioPage() {
+  const { t } = useI18n();
   const [state, setState] = useState<ConnState>('disconnected');
-  const [info, setInfo] = useState(
-    'Connect to start receiving audio from the remote server.',
-  );
+  const [info, setInfo] = useState(() => t('audio.info.initial'));
   const [volume, setVolume] = useState(80);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -24,9 +24,7 @@ export default function AudioPage() {
     api
       .get<PortalData>('portal')
       .then((p) => setWsUrl(p.audio_ws ?? null))
-      .catch(() =>
-        setInfo('No autorizado — inicia sesión o abre un enlace válido.'),
-      );
+      .catch(() => setInfo(t('audio.unauthorized')));
     return () => {
       wsRef.current?.close();
       wsRef.current = null;
@@ -40,7 +38,7 @@ export default function AudioPage() {
   const connect = async () => {
     if (!wsUrl) return;
     setState('connecting');
-    setInfo(`Connecting to ${wsUrl}`);
+    setInfo(t('audio.connectingTo', { url: wsUrl }));
     try {
       if (!ctxRef.current) {
         const AC =
@@ -58,7 +56,7 @@ export default function AudioPage() {
 
       ws.onopen = () => {
         setState('connected');
-        setInfo('Receiving audio stream...');
+        setInfo(t('audio.receiving'));
       };
       ws.onmessage = async (event) => {
         if (typeof event.data === 'string') {
@@ -66,7 +64,11 @@ export default function AudioPage() {
             const msg = JSON.parse(event.data);
             if (msg.type === 'status') {
               setInfo(
-                `Clients: ${msg.clients} | Device: ${msg.device} | ${msg.bitrate}`,
+                t('audio.status', {
+                  clients: msg.clients,
+                  device: msg.device,
+                  bitrate: msg.bitrate,
+                }),
               );
             }
           } catch {
@@ -86,16 +88,18 @@ export default function AudioPage() {
       };
       ws.onerror = () => {
         setState('error');
-        setInfo('Connection error. Is the server running?');
+        setInfo(t('audio.error.conn'));
       };
       ws.onclose = () => {
         setState('disconnected');
-        setInfo('Connection closed.');
+        setInfo(t('audio.closed'));
         wsRef.current = null;
       };
     } catch (e) {
       setState('error');
-      setInfo(`Error: ${e instanceof Error ? e.message : e}`);
+      setInfo(t('audio.error', {
+        msg: e instanceof Error ? e.message : String(e),
+      }));
     }
   };
 
@@ -107,17 +111,17 @@ export default function AudioPage() {
 
   const label =
     state === 'connected'
-      ? 'Connected - Streaming'
+      ? t('audio.state.streaming')
       : state === 'connecting'
-        ? 'Connecting...'
+        ? t('audio.state.connecting')
         : state === 'error'
-          ? 'Error'
-          : 'Disconnected';
+          ? t('audio.state.error')
+          : t('audio.state.disconnected');
 
   return (
     <main className="share-wrap">
       <div className="card share-card">
-        <h1>🔊 Audio Receiver</h1>
+        <h1>🔊 {t('audio.title')}</h1>
         <div
           className={`status status-${state}`}
           role="status"
@@ -133,7 +137,7 @@ export default function AudioPage() {
             }
             onClick={() => void connect()}
           >
-            Connect
+            {t('audio.connect')}
           </button>
           <button
             type="button"
@@ -141,11 +145,11 @@ export default function AudioPage() {
             disabled={state !== 'connected'}
             onClick={disconnect}
           >
-            Disconnect
+            {t('audio.disconnect')}
           </button>
         </div>
         <div className="row">
-          <label htmlFor="audio-vol">Volume:</label>
+          <label htmlFor="audio-vol">{t('audio.volume')}</label>
           <input
             id="audio-vol"
             type="range"
@@ -157,11 +161,9 @@ export default function AudioPage() {
           <span>{volume}%</span>
         </div>
         <div className="info-box">
-          <h3>Bluetooth Audio</h3>
+          <h3>{t('audio.bt.title')}</h3>
           <p>
-            If you have Bluetooth headphones/speakers connected to this
-            device, the audio will play through them automatically. No
-            extra configuration needed.
+            {t('audio.bt.desc')}
           </p>
         </div>
         <p className="muted">{info}</p>

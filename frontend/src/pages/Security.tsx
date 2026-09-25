@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type Posture } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useStepUp } from '../components/useStepUp';
+import { useI18n } from '../i18n';
 
 function StatusBadge({ status }: { status: string }) {
   const cls =
@@ -17,6 +18,7 @@ function StatusBadge({ status }: { status: string }) {
 /** Secrets section — parity with `vnc-remote secrets *` (admin:* +
     step-up on rotations). Values are never shown; only fingerprints. */
 function SecretsPanel() {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const stepUp = useStepUp();
   const [flash, setFlash] = useState('');
@@ -47,14 +49,18 @@ function SecretsPanel() {
       setConfirmRotate(null);
       invalidate();
       setFlash(
-        `Rotado ${d.name} (fp ${d.fingerprint}) — reinicia los ` +
-        'servicios para aplicarlo' +
-        (d.sessions_revoked ? '; sesiones de operador revocadas' : '') +
-        '.');
+        t('security.secrets.rotated', {
+          name: d.name,
+          fingerprint: d.fingerprint,
+          extra: d.sessions_revoked
+            ? t('security.secrets.rotatedRevoked')
+            : '',
+        }));
     },
     onError: (e) => {
       if (confirmRotate &&
-          stepUp.gate(e, `rotación del secreto ${confirmRotate}`,
+          stepUp.gate(e, t('security.stepup.rotate',
+                           { name: confirmRotate }),
                       () => rotate.mutate(confirmRotate),
                       { opId: 'secrets.rotate',
                         resource: confirmRotate })) return;
@@ -66,11 +72,11 @@ function SecretsPanel() {
     mutationFn: () => api.secretRotateSigning(),
     onSuccess: () => {
       setConfirmSigning(false);
-      setFlash('Clave de firma rotada — la anterior sigue válida 7 días.');
+      setFlash(t('security.secrets.signingRotated'));
     },
     onError: (e) => {
       if (confirmSigning &&
-          stepUp.gate(e, 'rotación de la clave de firma',
+          stepUp.gate(e, t('security.stepup.signing'),
                       () => signing.mutate(),
                       { opId: 'secrets.rotate_signing' })) return;
       setConfirmSigning(false);
@@ -82,8 +88,9 @@ function SecretsPanel() {
     onSuccess: (d) => {
       invalidate();
       setFlash(d.fixed?.length
-        ? `Permisos corregidos en ${d.fixed.filter(f => f.fixed).length} archivo(s).`
-        : 'Sin permisos que corregir.');
+        ? t('security.secrets.permsFixed', {
+            count: d.fixed.filter(f => f.fixed).length })
+        : t('security.secrets.permsNone'));
     },
   });
 
@@ -92,7 +99,7 @@ function SecretsPanel() {
     onSuccess: (d) =>
       setCodes(d.codes),
     onError: (e) => {
-      stepUp.gate(e, 'generación de códigos de recuperación MFA',
+      stepUp.gate(e, t('security.stepup.recovery'),
                   () => recovery.mutate(),
                   { opId: 'secrets.recovery_codes' });
     },
@@ -104,11 +111,10 @@ function SecretsPanel() {
 
   return (
     <>
-      <h2 className="section">Secretos</h2>
+      <h2 className="section">{t('security.secrets.title')}</h2>
       {secrets.isError && (
         <p className="muted">
-          Gestión de secretos no disponible con este rol (requiere
-          admin:*).
+          {t('security.secrets.forbidden')}
         </p>
       )}
       {secrets.data && (
@@ -116,9 +122,9 @@ function SecretsPanel() {
           <table className="data">
             <thead>
               <tr>
-                <th>Secreto</th>
-                <th>Estado</th>
-                <th>Acciones</th>
+                <th>{t('security.secrets.col.secret')}</th>
+                <th>{t('security.secrets.col.status')}</th>
+                <th>{t('security.secrets.col.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -129,7 +135,7 @@ function SecretsPanel() {
                   <td>
                     <button type="button" disabled={rotate.isPending}
                             onClick={() => setConfirmRotate(name)}>
-                      Rotar
+                      {t('security.secrets.rotate')}
                     </button>
                   </td>
                 </tr>
@@ -139,15 +145,15 @@ function SecretsPanel() {
           <p>
             <button type="button" disabled={signing.isPending}
                     onClick={() => setConfirmSigning(true)}>
-              Rotar clave de firma (ventana 7d)
+              {t('security.secrets.rotateSigning')}
             </button>{' '}
             <button type="button" disabled={recovery.isPending}
                     onClick={() => recovery.mutate()}>
-              Generar códigos de recuperación MFA
+              {t('security.secrets.recovery')}
             </button>{' '}
             <button type="button" disabled={fix.isPending}
                     onClick={() => fix.mutate()}>
-              Corregir permisos de ficheros
+              {t('security.secrets.fixPerms')}
             </button>
           </p>
         </>
@@ -155,7 +161,7 @@ function SecretsPanel() {
 
       {check.data && check.data.findings.length > 0 && (
         <>
-          <h3 className="section">Comprobación TLS/permisos</h3>
+          <h3 className="section">{t('security.secrets.checkTitle')}</h3>
           <table className="data">
             <tbody>
               {check.data.findings.map((f, i) => (
@@ -171,7 +177,7 @@ function SecretsPanel() {
 
       {codes && (
         <div className="info-box section">
-          <strong>Códigos de recuperación — se muestran UNA sola vez:</strong>
+          <strong>{t('security.secrets.codesOnce')}</strong>
           <ul>
             {codes.map(c => <li key={c} className="mono">{c}</li>)}
           </ul>
@@ -182,15 +188,15 @@ function SecretsPanel() {
         <div className="error-box" role="alert">
           {hardError instanceof ApiError
             ? `${hardError.status}: ${hardError.message}`
-            : 'Operación fallida'}
+            : t('common.error')}
         </div>
       )}
 
       <ConfirmDialog
         open={confirmRotate !== null}
-        title="Rotar secreto"
+        title={t('security.secrets.rotateTitle')}
         danger
-        confirmLabel="Rotar"
+        confirmLabel={t('security.secrets.rotate')}
         busy={rotate.isPending}
         onCancel={() => setConfirmRotate(null)}
         onConfirm={() => {
@@ -198,24 +204,22 @@ function SecretsPanel() {
         }}
       >
         <p>
-          Se generará un valor nuevo para <code>{confirmRotate}</code> y
-          se persistirá en .env. Los servicios lo cargarán al reiniciar.
-          Si es una credencial de operador, sus sesiones se revocan.
+          {t('security.secrets.rotateBody',
+             { name: confirmRotate ?? '' })}
         </p>
       </ConfirmDialog>
 
       <ConfirmDialog
         open={confirmSigning}
-        title="Rotar clave de firma"
+        title={t('security.secrets.signingTitle')}
         danger
-        confirmLabel="Rotar"
+        confirmLabel={t('security.secrets.rotate')}
         busy={signing.isPending}
         onCancel={() => setConfirmSigning(false)}
         onConfirm={() => signing.mutate()}
       >
         <p>
-          Los tokens nuevos se firmarán con la clave nueva; la anterior
-          sigue verificando durante 7 días (ventana de coexistencia).
+          {t('security.secrets.signingBody')}
         </p>
       </ConfirmDialog>
 
@@ -225,6 +229,7 @@ function SecretsPanel() {
 }
 
 export default function Security() {
+  const { t } = useI18n();
   const posture = useQuery({
     queryKey: ['posture'],
     queryFn: () => api.get<Posture>('security/posture'),
@@ -235,19 +240,21 @@ export default function Security() {
 
   return (
     <>
-      <h1 className="page-title">Seguridad</h1>
+      <h1 className="page-title">{t('security.title')}</h1>
 
       {posture.isError && (
-        <div className="error-box" role="alert">No se pudo calcular la postura.</div>
+        <div className="error-box" role="alert">
+          {t('security.posture.error')}
+        </div>
       )}
       {posture.isLoading && (
-        <p className="muted" role="status">Cargando…</p>
+        <p className="muted" role="status">{t('common.loading')}</p>
       )}
       {p && (
         <>
           <div className="cards">
             <div className="card">
-              <h3>Puntuación</h3>
+              <h3>{t('security.score')}</h3>
               <div
                 className="metric-value"
                 style={{
@@ -264,7 +271,7 @@ export default function Security() {
               <div className="muted">{p.summary}</div>
             </div>
             <div className="card">
-              <h3>Despliegue</h3>
+              <h3>{t('security.deployment')}</h3>
               <div className="metric-value">
                 <span
                   className={`badge ${
@@ -272,8 +279,8 @@ export default function Security() {
                   }`}
                 >
                   {p.deployment_decision === 'allowed'
-                    ? 'PERMITIDO'
-                    : 'BLOQUEADO'}
+                    ? t('security.deployment.allowed')
+                    : t('security.deployment.blocked')}
                 </span>
               </div>
             </div>
@@ -281,7 +288,7 @@ export default function Security() {
 
           {p.blocking_findings.length > 0 && (
             <div className="error-box section">
-              <strong>Findings bloqueantes:</strong>
+              <strong>{t('security.blockingFindings')}</strong>
               <ul>
                 {p.blocking_findings.map((f) => (
                   <li key={f}>{f}</li>
@@ -290,13 +297,13 @@ export default function Security() {
             </div>
           )}
 
-          <h2 className="section">Findings</h2>
+          <h2 className="section">{t('security.findings')}</h2>
           <table className="data">
             <thead>
               <tr>
-                <th>Check</th>
-                <th>Estado</th>
-                <th>Detalle</th>
+                <th>{t('security.col.check')}</th>
+                <th>{t('security.col.status')}</th>
+                <th>{t('common.detail')}</th>
               </tr>
             </thead>
             <tbody>

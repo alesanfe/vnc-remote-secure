@@ -8,6 +8,7 @@ import PortalPage from './pages/PortalPage';
 import AudioPage from './pages/AudioPage';
 import GamepadPage from './pages/GamepadPage';
 import TerminalPage from './pages/TerminalPage';
+import { I18nProvider } from './i18n';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -58,6 +59,8 @@ const surface = isAdmin ? (
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>{surface}</QueryClientProvider>
+    <I18nProvider>
+      <QueryClientProvider client={queryClient}>{surface}</QueryClientProvider>
+    </I18nProvider>
   </React.StrictMode>,
 );

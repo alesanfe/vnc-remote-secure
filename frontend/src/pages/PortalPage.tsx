@@ -4,26 +4,28 @@ import { useSearchParams } from 'react-router-dom';
 import { api, ApiError, type PortalData, type SessionContext } from '../api';
 import { RelativeTime } from '../components/bits';
 import { ShareAccept } from './SharePage';
+import { useI18n } from '../i18n';
 
 const METRICS: Array<[string, string, string]> = [
-  ['💻', 'Host', 'hostname'],
-  ['🖥️', 'OS', 'os'],
-  ['⏱️', 'Uptime', 'uptime'],
-  ['📊', 'CPU', 'cpu'],
-  ['💾', 'RAM', 'memory'],
-  ['💿', 'Disco', 'disk'],
+  ['💻', 'portal.metrics.host', 'hostname'],
+  ['🖥️', 'portal.metrics.os', 'os'],
+  ['⏱️', 'portal.metrics.uptime', 'uptime'],
+  ['📊', 'portal.metrics.cpu', 'cpu'],
+  ['💾', 'portal.metrics.ram', 'memory'],
+  ['💿', 'portal.metrics.disk', 'disk'],
 ];
 
 function LanLinks({ p }: { p: PortalData }) {
+  const { t } = useI18n();
   const ips = p.lan_ips ?? [];
   const ports = p.ports ?? {};
   const httpsPort = p.nginx_https_port ?? 443;
   if (!ips.length) return null;
   return (
     <section className="section">
-      <h2>🌐 Acceso Remoto (LAN)</h2>
+      <h2>🌐 {t('portal.lan.title')}</h2>
       <p className="muted">
-        Conecta desde otro dispositivo en la misma red:
+        {t('portal.lan.desc')}
       </p>
       {ips.map((ip) => (
         <div className="card" key={ip}>
@@ -77,9 +79,10 @@ function LanLinks({ p }: { p: PortalData }) {
 }
 
 function ServiceCards({ p }: { p: PortalData }) {
+  const { t } = useI18n();
   return (
     <section className="section">
-      <h2>📡 Servicios Disponibles</h2>
+      <h2>📡 {t('portal.services.title')}</h2>
       <div className="cards">
         {p.services.map((svc) => (
           <div
@@ -100,17 +103,21 @@ function ServiceCards({ p }: { p: PortalData }) {
             </div>
             <div className="row">
               <span className={`badge ${svc.running ? 'ok' : 'fail'}`}>
-                {svc.running ? 'ONLINE' : 'OFFLINE'}
+                {svc.running
+                  ? t('portal.status.online')
+                  : t('portal.status.offline')}
               </span>
-              <span className="muted">Puerto {svc.port}</span>
+              <span className="muted">
+                {t('portal.services.port')} {svc.port}
+              </span>
               {svc.url && svc.running && (
                 <a href={svc.url} target="_blank" rel="noreferrer">
-                  Abrir
+                  {t('common.open')}
                 </a>
               )}
               {svc.url2 && svc.running && (
                 <a href={svc.url2} target="_blank" rel="noreferrer">
-                  {svc.url2_label ?? 'Link'}
+                  {svc.url2_label ?? t('portal.services.link')}
                 </a>
               )}
             </div>
@@ -121,22 +128,23 @@ function ServiceCards({ p }: { p: PortalData }) {
             className="card"
             style={{ opacity: p.vnc_direct.running ? 1 : 0.55 }}
           >
-            <h3>📡 VNC Directo (RFB)</h3>
+            <h3>📡 {t('portal.vncDirect.title')}</h3>
             <p className="muted">
-              Conexión directa con apps VNC nativas (TightVNC, RealVNC,
-              TigerVNC, etc.)
+              {t('portal.vncDirect.desc')}
             </p>
             <div className="row">
               <span
                 className={`badge ${p.vnc_direct.running ? 'ok' : 'fail'}`}
               >
-                {p.vnc_direct.running ? 'ONLINE' : 'OFFLINE'}
+                {p.vnc_direct.running
+                  ? t('portal.status.online')
+                  : t('portal.status.offline')}
               </span>
               <code>{p.vnc_direct.addr}</code>
             </div>
             {p.vnc_direct.loopback_only && (
               <p className="muted">
-                Solo loopback — accede por túnel SSH o noVNC
+                {t('portal.vncDirect.loopback')}
               </p>
             )}
           </div>
@@ -148,17 +156,19 @@ function ServiceCards({ p }: { p: PortalData }) {
 
 /** Banner describing the share-link grant the recipient holds. */
 function EphemeralBanner({ ctx }: { ctx: SessionContext }) {
+  const { t } = useI18n();
   const flags: string[] = [];
-  if (ctx.view_only) flags.push('solo visualización');
-  if (ctx.no_terminal) flags.push('sin terminal');
-  if (ctx.single_use) flags.push('uso único');
+  if (ctx.view_only) flags.push(t('portal.banner.viewOnly'));
+  if (ctx.no_terminal) flags.push(t('portal.banner.noTerminal'));
+  if (ctx.single_use) flags.push(t('portal.banner.singleUse'));
   return (
     <div className="notice">
-      🔗 <strong>Sesión compartida</strong> — rol{' '}
+      🔗 <strong>{t('portal.banner.title')}</strong> —{' '}
+      {t('portal.banner.role')}{' '}
       <code>{ctx.role}</code>
       {ctx.expires_at ? (
         <>
-          {' '}· expira en{' '}
+          {' '}· {t('portal.banner.expiresIn')}{' '}
           <RelativeTime epoch={ctx.expires_at} />
         </>
       ) : null}
@@ -168,6 +178,7 @@ function EphemeralBanner({ ctx }: { ctx: SessionContext }) {
 }
 
 function OperatorSessions({ p }: { p: PortalData }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [err, setErr] = useState('');
   const revoke = useMutation({
@@ -175,27 +186,28 @@ function OperatorSessions({ p }: { p: PortalData }) {
       api.post('sessions/revoke', { token_id: tokenId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
     onError: (e) =>
-      setErr(e instanceof ApiError ? e.message : 'Error al revocar'),
+      setErr(e instanceof ApiError ? e.message
+                                   : t('portal.sessions.revokeError')),
   });
   const sessions = p.sessions ?? [];
   return (
     <section className="section">
-      <h2>🔗 Sesiones compartidas activas</h2>
+      <h2>🔗 {t('portal.sessions.title')}</h2>
       {err && (
         <div className="error-box" role="alert">
           {err}
         </div>
       )}
       {sessions.length === 0 ? (
-        <p className="muted">No hay sesiones compartidas activas.</p>
+        <p className="muted">{t('portal.sessions.empty')}</p>
       ) : (
         <table className="data">
           <thead>
             <tr>
               <th>Token</th>
-              <th>Rol</th>
-              <th>Expira en</th>
-              <th>Usos</th>
+              <th>{t('portal.sessions.role')}</th>
+              <th>{t('portal.sessions.expires')}</th>
+              <th>{t('portal.sessions.uses')}</th>
               <th></th>
             </tr>
           </thead>
@@ -224,7 +236,7 @@ function OperatorSessions({ p }: { p: PortalData }) {
                     disabled={revoke.isPending}
                     onClick={() => revoke.mutate(String(s.token_id))}
                   >
-                    Revocar
+                    {t('portal.sessions.revoke')}
                   </button>
                 </td>
               </tr>
@@ -237,6 +249,7 @@ function OperatorSessions({ p }: { p: PortalData }) {
 }
 
 function GamepadSwitch({ p }: { p: PortalData }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const enabled = p.services.some((s) => s.name === 'Gamepad Forwarding');
   const [err, setErr] = useState('');
@@ -244,7 +257,7 @@ function GamepadSwitch({ p }: { p: PortalData }) {
     mutationFn: (stop: boolean) => api.gamepadControl(stop),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
     onError: (e) =>
-      setErr(e instanceof ApiError ? e.message : 'Error'),
+      setErr(e instanceof ApiError ? e.message : t('common.error')),
   });
   if (!enabled) return null;
   return (
@@ -256,7 +269,7 @@ function GamepadSwitch({ p }: { p: PortalData }) {
         </div>
       )}
       <p className="muted">
-        Corta o reanuda la inyección de entrada del gamepad remoto.
+        {t('portal.gamepad.desc')}
       </p>
       {p.gamepad_stopped ? (
         <button
@@ -264,7 +277,7 @@ function GamepadSwitch({ p }: { p: PortalData }) {
           disabled={toggle.isPending}
           onClick={() => toggle.mutate(false)}
         >
-          Reanudar gamepad
+          {t('portal.gamepad.resume')}
         </button>
       ) : (
         <button
@@ -273,7 +286,7 @@ function GamepadSwitch({ p }: { p: PortalData }) {
           disabled={toggle.isPending}
           onClick={() => toggle.mutate(true)}
         >
-          Detener gamepad
+          {t('portal.gamepad.stop')}
         </button>
       )}
     </section>
@@ -284,6 +297,7 @@ function GamepadSwitch({ p }: { p: PortalData }) {
     Legacy `?session=<token>` links render the share consent flow
     (the token is wiped from the URL immediately). */
 export default function PortalPage() {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const shareToken = searchParams.get('session');
   useEffect(() => {
@@ -321,11 +335,11 @@ export default function PortalPage() {
           <h1>🔒 VNC Remote Secure</h1>
           <p className="muted">
             {status === 401 || status === 403
-              ? 'Acceso restringido. Inicia sesión como operador o abre un enlace compartido válido.'
-              : 'No se pudo cargar el portal.'}
+              ? t('portal.error.restricted')
+              : t('portal.error.load')}
           </p>
           <p>
-            <a href="/admin">Ir al panel de administración</a>
+            <a href="/admin">{t('portal.error.adminLink')}</a>
           </p>
         </div>
       </main>
@@ -334,27 +348,27 @@ export default function PortalPage() {
   if (portal.isLoading || !portal.data) {
     return (
       <main className="share-wrap">
-        <p className="muted">Cargando…</p>
+        <p className="muted">{t('common.loading')}</p>
       </main>
     );
   }
 
   const p = portal.data;
   const isWindows = p.platform === 'windows';
-  const shell = isWindows ? 'cmd.exe' : 'el shell del sistema';
+  const shell = isWindows ? 'cmd.exe' : t('portal.shell.system');
   const osLabel = isWindows ? 'Windows' : 'Linux';
 
   return (
     <main className="portal">
       <a className="skip-link" href="#main">
-        Saltar al contenido
+        {t('portal.skipLink')}
       </a>
       <div className="header" role="banner">
         <h1>🔒 VNC Remote Secure</h1>
-        <p className="muted">Portal de acceso a servicios</p>
+        <p className="muted">{t('portal.tagline')}</p>
         {p.is_operator && (
           <p>
-            <a href="/admin">🛠️ Panel de administración</a>
+            <a href="/admin">🛠️ {t('portal.adminLink')}</a>
           </p>
         )}
       </div>
@@ -365,8 +379,8 @@ export default function PortalPage() {
         )}
         {p.maintenance && (
           <div className="notice" role="alert">
-            ⚠️ <strong>Modo mantenimiento activo</strong> — los enlaces
-            compartidos nuevos están deshabilitados
+            ⚠️ <strong>{t('portal.maintenance.title')}</strong> —{' '}
+            {t('portal.maintenance.desc')}
             {typeof p.maintenance.reason === 'string' &&
             p.maintenance.reason
               ? `: ${p.maintenance.reason}`
@@ -379,7 +393,7 @@ export default function PortalPage() {
           {METRICS.map(([icon, label, key]) => (
             <div className="card" key={key}>
               <span className="muted">
-                {icon} {label}
+                {icon} {t(label)}
               </span>
               <div className="metric-value" style={{ fontSize: '1rem' }}>
                 {p.metrics?.[key] ?? 'N/A'}
@@ -391,51 +405,48 @@ export default function PortalPage() {
         <ServiceCards p={p} />
 
         <section className="section">
-          <h2>✨ ¿Qué puedes hacer?</h2>
+          <h2>✨ {t('portal.features.title')}</h2>
           <div className="cards">
             <div className="card">
-              <h3>🖥️ Control remoto del escritorio</h3>
+              <h3>🖥️ {t('portal.features.desktop.title')}</h3>
               <p className="muted">
-                Accede al escritorio {osLabel} completo desde cualquier
-                navegador. Mueve el ratón, escribe con el teclado, abre
-                aplicaciones.
+                {t('portal.features.desktop.desc', { os: osLabel })}
               </p>
             </div>
             <div className="card">
-              <h3>⌨️ Terminal remoto</h3>
+              <h3>⌨️ {t('portal.features.terminal.title')}</h3>
               <p className="muted">
-                Ejecuta comandos de {osLabel} ({shell}) desde el
-                navegador. Historial, tab completion y colores ANSI.
+                {t('portal.features.terminal.desc',
+                   { os: osLabel, shell })}
               </p>
             </div>
             <div className="card">
-              <h3>📊 Monitorización</h3>
+              <h3>📊 {t('portal.features.monitoring.title')}</h3>
               <p className="muted">
-                Consulta el estado de todos los servicios, CPU, memoria,
-                disco y uptime en tiempo real.
+                {t('portal.features.monitoring.desc')}
               </p>
             </div>
             <div className="card">
-              <h3>📡 VNC nativo</h3>
+              <h3>📡 {t('portal.features.vnc.title')}</h3>
               <p className="muted">
-                Conecta con apps VNC externas (TigerVNC, RealVNC)
-                directamente al puerto {p.vnc_direct?.port} sin
-                navegador.
+                {t('portal.features.vnc.desc',
+                   { port: p.vnc_direct?.port ?? '' })}
               </p>
             </div>
             <div className="card">
-              <h3>{p.use_ssl ? '🔒' : '⚠️'} Conexión cifrada</h3>
+              <h3>
+                {p.use_ssl ? '🔒' : '⚠️'} {t('portal.features.tls.title')}
+              </h3>
               <p className="muted">
                 {p.use_ssl
-                  ? 'Todos los servicios web usan HTTPS con certificado SSL (self-signed). Acepta la advertencia del navegador.'
-                  : 'Los servicios se ejecutan sin SSL (modo local). No expongas los puertos a Internet sin HTTPS.'}
+                  ? t('portal.features.tls.secure')
+                  : t('portal.features.tls.insecure')}
               </p>
             </div>
             <div className="card">
-              <h3>🌐 Acceso LAN</h3>
+              <h3>🌐 {t('portal.features.lan.title')}</h3>
               <p className="muted">
-                Conecta desde cualquier dispositivo en tu red local:
-                móvil, tablet, otro PC, etc.
+                {t('portal.features.lan.desc')}
               </p>
             </div>
           </div>
@@ -444,13 +455,12 @@ export default function PortalPage() {
         <LanLinks p={p} />
 
         <section className="section">
-          <h2>🔐 Credenciales de Acceso</h2>
+          <h2>🔐 {t('portal.creds.title')}</h2>
           <p className="muted">
-            Por seguridad, las credenciales no se muestran en esta
-            página. Revisa el archivo <code>.env</code>, o{' '}
-            <code>generated_credentials.env</code> en el directorio de
-            ejecución si fueron autogeneradas. VNC usa los primeros 8
-            caracteres del password.
+            {t('portal.creds.desc1')} <code>.env</code>
+            {t('portal.creds.desc2')}{' '}
+            <code>generated_credentials.env</code>{' '}
+            {t('portal.creds.desc3')}
           </p>
         </section>
 
@@ -459,10 +469,9 @@ export default function PortalPage() {
 
         <div className="notice">
           <strong>
-            ⚠️ Firewall de {isWindows ? 'Windows' : 'Linux'}:
+            ⚠️ {t('portal.firewall.title', { os: osLabel })}
           </strong>{' '}
-          Solo el portal necesita acceso externo (los backends van por
-          loopback):{' '}
+          {t('portal.firewall.desc')}{' '}
           <code>
             {isWindows
               ? `New-NetFirewallRule -DisplayName "VncRemoteSecure-Portal" -Direction Inbound -LocalPort ${p.ports?.landing} -Protocol TCP -Action Allow`
@@ -471,16 +480,14 @@ export default function PortalPage() {
         </div>
         {p.use_ssl && (
           <div className="notice">
-            <strong>🔒 SSL Self-signed:</strong> El navegador mostrará
-            una advertencia de seguridad. Click en «Advanced» →
-            «Proceed» para aceptar el certificado en cada servicio
-            HTTPS.
+            <strong>🔒 {t('portal.ssl.title')}</strong>{' '}
+            {t('portal.ssl.desc')}
           </div>
         )}
 
         <footer className="muted portal-footer">
           VNC Remote Secure | {p.metrics?.hostname} | {p.metrics?.os} |
-          Uptime: {p.metrics?.uptime}
+          {' '}{t('portal.metrics.uptime')}: {p.metrics?.uptime}
         </footer>
       </div>
     </main>

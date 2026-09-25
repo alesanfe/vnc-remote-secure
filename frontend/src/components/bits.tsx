@@ -1,4 +1,5 @@
 /** Small shared presentational components. */
+import { useI18n } from '../i18n';
 
 export function StatusBadge({
   status,
@@ -16,9 +17,10 @@ export function StatusBadge({
 
 /** Seconds-remaining → "12m30s" / "expired". */
 export function RelativeTime({ epoch }: { epoch: number }) {
+  const { t } = useI18n();
   const remaining = Math.floor(epoch - Date.now() / 1000);
   if (remaining <= 0) {
-    return <span className="badge fail">expirada</span>;
+    return <span className="badge fail">{t('bits.expired')}</span>;
   }
   const m = Math.floor(remaining / 60);
   const s = remaining % 60;
@@ -30,12 +32,13 @@ export function RelativeTime({ epoch }: { epoch: number }) {
 
 /** Short, copyable session reference (token fingerprint). */
 export function SessionReference({ id }: { id: string }) {
+  const { t } = useI18n();
   return (
     <button
       className="link-btn mono"
       title={id}
       onClick={() => navigator.clipboard.writeText(id)}
-      aria-label={`Copiar referencia ${id}`}
+      aria-label={t('bits.copyRef', { id })}
     >
       {id.slice(0, 12)}…
     </button>

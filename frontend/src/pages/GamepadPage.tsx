@@ -1,5 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import { api, type PortalData } from '../api';
+import { useI18n } from '../i18n';
 
 type ConnState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -9,13 +10,10 @@ type ConnState = 'disconnected' | 'connecting' | 'connected' | 'error';
  * button-state changes, always sends axis updates.
  */
 export default function GamepadPage() {
+  const { t } = useI18n();
   const [state, setState] = useState<ConnState>('disconnected');
-  const [info, setInfo] = useState(
-    'Connect to start forwarding gamepad input to the server.',
-  );
-  const [padStatus, setPadStatus] = useState(
-    'No gamepad detected. Press a button on your gamepad.',
-  );
+  const [info, setInfo] = useState(() => t('gamepad.info.initial'));
+  const [padStatus, setPadStatus] = useState(() => t('gamepad.pad.none'));
   const [padName, setPadName] = useState<string | null>(null);
   const [buttons, setButtons] = useState<boolean[]>([]);
   const [sticks, setSticks] = useState<{
@@ -32,20 +30,18 @@ export default function GamepadPage() {
     api
       .get<PortalData>('portal')
       .then((p) => setWsUrl(p.gamepad_ws ?? null))
-      .catch(() =>
-        setInfo('No autorizado — inicia sesión o abre un enlace válido.'),
-      );
+      .catch(() => setInfo(t('gamepad.unauthorized')));
     const onConnect = (e: GamepadEvent) => {
       padIndexRef.current = e.gamepad.index;
       setPadName(e.gamepad.id);
-      setPadStatus(`Gamepad connected: ${e.gamepad.id}`);
+      setPadStatus(t('gamepad.pad.connected', { id: e.gamepad.id }));
       setButtons(new Array(e.gamepad.buttons.length).fill(false));
     };
     const onDisconnect = () => {
       padIndexRef.current = null;
       setPadName(null);
       setButtons([]);
-      setPadStatus('Gamepad disconnected');
+      setPadStatus(t('gamepad.pad.disconnected'));
     };
     window.addEventListener('gamepadconnected', onConnect);
     window.addEventListener('gamepaddisconnected', onDisconnect);
@@ -117,33 +113,37 @@ export default function GamepadPage() {
       wsRef.current = ws;
       ws.onopen = () => {
         setState('connected');
-        setInfo('Connected. Scan for gamepad to start.');
+        setInfo(t('gamepad.info.connected'));
       };
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'connected') setInfo(msg.message);
-          else if (msg.type === 'error') setInfo(`Error: ${msg.message}`);
+          else if (msg.type === 'error') {
+            setInfo(t('gamepad.error', { msg: msg.message }));
+          }
         } catch {
           /* control message parse — best effort */
         }
       };
       ws.onerror = () => {
         setState('error');
-        setInfo('Connection error — the session may have been revoked.');
+        setInfo(t('gamepad.error.conn'));
       };
       ws.onclose = (ev) => {
         setState('disconnected');
         wsRef.current = null;
         if (ev.code === 1008) {
-          setInfo('Session revoked or expired — reopen the share link.');
+          setInfo(t('gamepad.revoked'));
         } else {
-          setInfo('Connection closed.');
+          setInfo(t('gamepad.closed'));
         }
       };
     } catch (e) {
       setState('error');
-      setInfo(`Error: ${e instanceof Error ? e.message : e}`);
+      setInfo(t('gamepad.error', {
+        msg: e instanceof Error ? e.message : String(e),
+      }));
     }
   };
 
@@ -159,27 +159,27 @@ export default function GamepadPage() {
       if (pads[i]) {
         padIndexRef.current = i;
         setPadName(pads[i]!.id);
-        setPadStatus(`Gamepad found: ${pads[i]!.id}`);
+        setPadStatus(t('gamepad.pad.found', { id: pads[i]!.id }));
         setButtons(new Array(pads[i]!.buttons.length).fill(false));
         return;
       }
     }
-    setPadStatus('No gamepad found. Press a button and try again.');
+    setPadStatus(t('gamepad.pad.notFound'));
   };
 
   const label =
     state === 'connected'
-      ? 'Connected'
+      ? t('gamepad.state.connected')
       : state === 'connecting'
-        ? 'Connecting...'
+        ? t('gamepad.state.connecting')
         : state === 'error'
-          ? 'Error'
-          : 'Disconnected';
+          ? t('gamepad.state.error')
+          : t('gamepad.state.disconnected');
 
   return (
     <main className="share-wrap">
       <div className="card share-card" style={{ maxWidth: 700 }}>
-        <h1>🎮 Gamepad Forwarding</h1>
+        <h1>🎮 {t('gamepad.title')}</h1>
         <div
           className={`status status-${state}`}
           role="status"
@@ -195,7 +195,7 @@ export default function GamepadPage() {
             }
             onClick={connect}
           >
-            Connect
+            {t('gamepad.connect')}
           </button>
           <button
             type="button"
@@ -203,18 +203,16 @@ export default function GamepadPage() {
             disabled={state !== 'connected'}
             onClick={disconnect}
           >
-            Disconnect
+            {t('gamepad.disconnect')}
           </button>
           <button type="button" className="ghost" onClick={scan}>
-            Scan for Gamepads
+            {t('gamepad.scan')}
           </button>
         </div>
         <div className="info-box">
-          <h3>Bluetooth Gamepad</h3>
+          <h3>{t('gamepad.bt.title')}</h3>
           <p>
-            Pair your Bluetooth gamepad with this device (client), then
-            click «Scan». The gamepad input will be forwarded to the
-            remote server.
+            {t('gamepad.bt.desc')}
           </p>
         </div>
         <p className="muted">{padStatus}</p>
@@ -227,7 +225,9 @@ export default function GamepadPage() {
               {(['l', 'r'] as const).map((side) => (
                 <div key={side} style={{ textAlign: 'center' }}>
                   <span className="muted">
-                    {side === 'l' ? 'Left' : 'Right'} Stick
+                    {side === 'l'
+                      ? t('gamepad.stick.left')
+                      : t('gamepad.stick.right')}
                   </span>
                   <div className="stick">
                     <div

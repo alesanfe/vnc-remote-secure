@@ -1,14 +1,16 @@
 ﻿import { useEffect, useState } from 'react';
 import { api, ApiError, type SessionPreview } from '../api';
+import { useI18n } from '../i18n';
 
 /** Map the API failure to a user-facing reason — a 403 means the
     link itself was rejected (expired/used/forged); anything else is
-    a connectivity problem worth retrying. */
+    a connectivity problem worth retrying. Returns an i18n key; the
+    caller wraps it in t(). */
 function linkError(e: unknown): string {
   if (e instanceof ApiError && e.status !== 403 && e.status !== 404) {
-    return 'No se pudo contactar con el servidor. Reintenta en unos segundos.';
+    return 'share.error.network';
   }
-  return 'El enlace ha caducado o ya ha sido utilizado.';
+  return 'share.error.expired';
 }
 
 /**
@@ -20,6 +22,7 @@ function linkError(e: unknown): string {
  * it from the address bar before handing it in).
  */
 export function ShareAccept({ token }: { token: string }) {
+  const { t } = useI18n();
   const [preview, setPreview] = useState<SessionPreview | null>(null);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
@@ -27,13 +30,13 @@ export function ShareAccept({ token }: { token: string }) {
 
   useEffect(() => {
     if (!token) {
-      setError('Enlace incompleto: falta el token.');
+      setError(t('share.error.noToken'));
       return;
     }
     api
       .sessionPreview(token)
       .then(setPreview)
-      .catch((e) => setError(linkError(e)));
+      .catch((e) => setError(t(linkError(e))));
   }, [token]);
 
   const cancel = () => setDone(true);
@@ -47,56 +50,60 @@ export function ShareAccept({ token }: { token: string }) {
       })
       .catch((e) => {
         setBusy(false);
-        setError(linkError(e));
+        setError(t(linkError(e)));
       });
   };
 
   const mins = preview ? Math.floor(preview.expires_in_seconds / 60) : 0;
   const secs = preview ? preview.expires_in_seconds % 60 : 0;
   const flags: string[] = [];
-  if (preview?.view_only) flags.push('solo visualización');
-  if (preview?.single_use) flags.push('uso único');
-  if (preview?.no_terminal) flags.push('sin terminal');
-  if (preview?.max_uses) flags.push(`máx. ${preview.max_uses} usos`);
+  if (preview?.view_only) flags.push(t('share.flag.viewOnly'));
+  if (preview?.single_use) flags.push(t('share.flag.singleUse'));
+  if (preview?.no_terminal) flags.push(t('share.flag.noTerminal'));
+  if (preview?.max_uses) {
+    flags.push(t('share.flag.maxUses', { n: preview.max_uses }));
+  }
 
   return (
     <main className="share-wrap">
       <div className="card share-card">
-        <h1>Sesión compartida</h1>
+        <h1>{t('share.title')}</h1>
         <div id="info" aria-live="polite">
         {error && <div className="error-box" role="alert">{error}</div>}
         {done && (
           <p className="muted">
-            Enlace descartado. Puedes cerrar esta pestaña.
+            {t('share.discarded')}
           </p>
         )}
         {!error && !done && !preview && (
-          <p className="muted">Comprobando enlace…</p>
+          <p className="muted">{t('share.checking')}</p>
         )}
         {preview && !done && (
           <>
             <p>
-              Este enlace permitirá{' '}
+              {t('share.grantPre')}{' '}
               <strong>
-                ver{preview.view_only ? '' : ' y controlar'}
+                {preview.view_only
+                  ? t('share.action.view')
+                  : t('share.action.viewControl')}
               </strong>{' '}
-              este equipo de forma remota.
+              {t('share.grantPost')}
             </p>
             <table className="data">
               <tbody>
                 <tr>
-                  <td>Rol</td>
+                  <td>{t('share.role')}</td>
                   <td className="mono">{preview.role}</td>
                 </tr>
                 <tr>
-                  <td>Expira en</td>
+                  <td>{t('share.expiresIn')}</td>
                   <td>
                     {mins}m{String(secs).padStart(2, '0')}s
                   </td>
                 </tr>
                 {flags.length > 0 && (
                   <tr>
-                    <td>Restricciones</td>
+                    <td>{t('share.restrictions')}</td>
                     <td>{flags.join(', ')}</td>
                   </tr>
                 )}
@@ -104,10 +111,10 @@ export function ShareAccept({ token }: { token: string }) {
             </table>
             <div className="row">
               <button disabled={busy} onClick={activate}>
-                {busy ? 'Activando…' : 'Aceptar y abrir sesión'}
+                {busy ? t('share.activating') : t('share.accept')}
               </button>
               <button className="ghost" onClick={cancel}>
-                Cancelar
+                {t('common.cancel')}
               </button>
             </div>
           </>

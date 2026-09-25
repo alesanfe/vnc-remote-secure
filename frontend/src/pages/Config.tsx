@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, ApiError, type ConfigVar } from '../api';
 import { useStepUp } from '../components/useStepUp';
+import { useI18n } from '../i18n';
 
 const SOURCE_BADGE: Record<string, string> = {
   env: 'ok',
@@ -20,6 +21,7 @@ const PROFILES = [
 /** Config operations — `vnc-remote config validate|diff|migrate`
     parity; migrate is step-up gated (it rewrites .env). */
 function ConfigOps() {
+  const { t } = useI18n();
   const stepUp = useStepUp();
   const [a, setA] = useState(PROFILES[0]);
   const [b, setB] = useState(PROFILES[1]);
@@ -43,9 +45,7 @@ function ConfigOps() {
     onError: (e, dryRun) => {
       stepUp.gate(
         e,
-        dryRun
-          ? 'vista previa de migración de configuración'
-          : 'migración del .env',
+        dryRun ? t('config.migrate.dry') : t('config.migrate.apply'),
         () => migrate.mutate(dryRun),
         dryRun ? undefined
                : { opId: 'config.migrate', resource: 'apply' });
@@ -54,13 +54,14 @@ function ConfigOps() {
 
   return (
     <>
-      <h2 className="section">Operaciones</h2>
+      <h2 className="section">{t('config.ops.title')}</h2>
 
       {validate.data && (
         <div className={validate.data.ok ? 'info-box' : 'error-box'}>
           {validate.data.ok
-            ? 'Configuración válida — sin findings críticos.'
-            : `${validate.data.findings.length} finding(s):`}
+            ? t('config.ops.valid')
+            : t('config.ops.findings',
+                { count: validate.data.findings.length })}
           {validate.data.findings.length > 0 && (
             <ul>
               {validate.data.findings.map((f, i) => (
@@ -75,7 +76,7 @@ function ConfigOps() {
       )}
 
       <div className="toolbar">
-        <label>Diff:
+        <label>{t('config.ops.diff')}
           <select value={a} onChange={(e) => setA(e.target.value)}>
             {PROFILES.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
@@ -85,18 +86,20 @@ function ConfigOps() {
         </label>
         <button type="button" disabled={migrate.isPending}
                 onClick={() => migrate.mutate(true)}>
-          Previsualizar migración
+          {t('config.ops.preview')}
         </button>
         <button type="button" className="danger" disabled={migrate.isPending}
                 onClick={() => migrate.mutate(false)}>
-          Aplicar migración .env
+          {t('config.ops.apply')}
         </button>
       </div>
 
       {diff.data && a !== b && (
         <table className="data">
           <thead>
-            <tr><th>Variable</th><th>{a}</th><th>{b}</th></tr>
+            <tr>
+              <th>{t('config.col.var')}</th><th>{a}</th><th>{b}</th>
+            </tr>
           </thead>
           <tbody>
             {diff.data.diffs.map(d => (
@@ -107,7 +110,11 @@ function ConfigOps() {
               </tr>
             ))}
             {diff.data.diffs.length === 0 && (
-              <tr><td colSpan={3} className="muted">Sin diferencias.</td></tr>
+              <tr>
+                <td colSpan={3} className="muted">
+                  {t('config.ops.noDiffs')}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -116,8 +123,11 @@ function ConfigOps() {
       {migrated && (
         <div className="info-box">
           {migrated.changes.length === 0
-            ? 'Sin migraciones pendientes — la config está al día.'
-            : `${migrated.applied ? 'Aplicadas' : 'Se aplicarían'} ${migrated.changes.length} migración(es):`}
+            ? t('config.ops.noMigrations')
+            : t(migrated.applied
+                  ? 'config.ops.migrationsApplied'
+                  : 'config.ops.migrationsWould',
+                { count: migrated.changes.length })}
           {migrated.changes.length > 0 && (
             <ul>
               {migrated.changes.map(c => (
@@ -134,7 +144,7 @@ function ConfigOps() {
         <div className="error-box" role="alert">
           {migrate.error instanceof ApiError
             ? `${migrate.error.status}: ${migrate.error.message}`
-            : 'Migración fallida'}
+            : t('config.ops.migrateFailed')}
         </div>
       )}
       {stepUp.dialog}
@@ -143,6 +153,7 @@ function ConfigOps() {
 }
 
 export default function Config() {
+  const { t } = useI18n();
   const [filter, setFilter] = useState('');
   const cfg = useQuery({
     queryKey: ['config'],
@@ -159,37 +170,38 @@ export default function Config() {
 
   return (
     <>
-      <h1 className="page-title">Configuración efectiva</h1>
+      <h1 className="page-title">{t('config.page.title')}</h1>
       <p className="muted">
-        Solo lectura. Los secretos se muestran redactados; la fuente indica
-        de dónde proviene cada valor.
+        {t('config.page.subtitle')}
       </p>
 
       <div className="toolbar">
         <input
           style={{ maxWidth: 320 }}
-          aria-label="Buscar variable u origen"
-          placeholder="Buscar variable u origen…"
+          aria-label={t('config.filter')}
+          placeholder={t('config.filter')}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
-        <span className="muted">{vars.length} variables</span>
+        <span className="muted">
+          {t('config.vars', { count: vars.length })}
+        </span>
       </div>
 
       {cfg.isError && (
         <div className="error-box" role="alert">
-          No se pudo cargar la configuración (¿falta el permiso admin_config?).
+          {t('config.loadError')}
         </div>
       )}
       {cfg.isLoading && (
-        <p className="muted" role="status">Cargando…</p>
+        <p className="muted" role="status">{t('common.loading')}</p>
       )}
       <table className="data">
         <thead>
           <tr>
-            <th>Variable</th>
-            <th>Valor</th>
-            <th>Origen</th>
+            <th>{t('config.col.var')}</th>
+            <th>{t('config.col.value')}</th>
+            <th>{t('config.col.source')}</th>
           </tr>
         </thead>
         <tbody>

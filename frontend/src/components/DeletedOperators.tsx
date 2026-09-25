@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiError } from '../api';
 import ConfirmDialog from './ConfirmDialog';
+import { useI18n } from '../i18n';
 
 interface Tombstone {
   username: string;
@@ -20,6 +21,7 @@ export default function DeletedOperatorsSection({
 }: {
   onStepUp: (op: string, retry: () => void) => void;
 }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const deleted = useQuery({
     queryKey: ['operators-deleted'],
@@ -39,11 +41,12 @@ export default function DeletedOperatorsSection({
     },
     onError: (e, username) => {
       if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
-        onStepUp('restaurar operador eliminado',
+        onStepUp(t('deletedOps.stepup.restore'),
                  () => restore.mutate(username));
         return;
       }
-      setError(e instanceof ApiError ? e.message : 'Restauración fallida');
+      setError(
+        e instanceof ApiError ? e.message : t('deletedOps.restoreFailed'));
     },
   });
 
@@ -53,35 +56,34 @@ export default function DeletedOperatorsSection({
 
   return (
     <>
-      <h2 className="page-title">Cuentas eliminadas</h2>
+      <h2 className="page-title">{t('deletedOps.title')}</h2>
       <p className="muted">
-        Restaurables durante ~30 días. La cuenta vuelve deshabilitada
-        y sin contraseña — habilítala y asígnale una nueva.
+        {t('deletedOps.subtitle')}
       </p>
       {error && <div className="error-box" role="alert">{error}</div>}
       <table className="data">
         <thead>
           <tr>
-            <th>Usuario</th>
-            <th>Rol</th>
-            <th>Eliminada</th>
-            <th>Acciones</th>
+            <th>{t('deletedOps.username')}</th>
+            <th>{t('deletedOps.role')}</th>
+            <th>{t('deletedOps.deletedAt')}</th>
+            <th>{t('deletedOps.actions')}</th>
           </tr>
         </thead>
         <tbody>
-          {(deleted.data?.deleted ?? []).map((t) => (
-            <tr key={t.username}>
-              <td><code>{t.username}</code></td>
-              <td>{t.role}</td>
+          {(deleted.data?.deleted ?? []).map((tomb) => (
+            <tr key={tomb.username}>
+              <td><code>{tomb.username}</code></td>
+              <td>{tomb.role}</td>
               <td className="muted">
-                {new Date(t.deleted_at * 1000).toLocaleString()}
+                {new Date(tomb.deleted_at * 1000).toLocaleString()}
               </td>
               <td>
                 <button
                   type="button"
-                  onClick={() => setTarget(t.username)}
+                  onClick={() => setTarget(tomb.username)}
                 >
-                  Restaurar
+                  {t('deletedOps.restore')}
                 </button>
               </td>
             </tr>
@@ -90,8 +92,8 @@ export default function DeletedOperatorsSection({
       </table>
       <ConfirmDialog
         open={target !== null}
-        title="Restaurar operador"
-        confirmLabel="Restaurar"
+        title={t('deletedOps.restoreTitle')}
+        confirmLabel={t('deletedOps.restore')}
         busy={restore.isPending}
         onCancel={() => setTarget(null)}
         onConfirm={() => {
@@ -101,9 +103,7 @@ export default function DeletedOperatorsSection({
         }}
       >
         <p>
-          La cuenta <code>{target}</code> se recreará con su rol
-          anterior, <strong>deshabilitada</strong> y con una
-          contraseña aleatoria. Las passkeys no se restauran.
+          {t('deletedOps.restoreBody', { name: target ?? '' })}
         </p>
       </ConfirmDialog>
     </>

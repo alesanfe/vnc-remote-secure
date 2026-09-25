@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 import { api, ApiError } from '../api';
+import { useI18n } from '../i18n';
 
 interface Props {
   open: boolean;
@@ -30,6 +31,7 @@ export default function StepUpDialog({
   onVerified,
   onCancel,
 }: Props) {
+  const { t } = useI18n();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -48,7 +50,7 @@ export default function StepUpDialog({
       setError(
         e instanceof ApiError
           ? e.message
-          : 'No se pudo verificar la contraseña',
+          : t('stepup.failed'),
       );
     } finally {
       setBusy(false);
@@ -58,25 +60,25 @@ export default function StepUpDialog({
   return (
     <ConfirmDialog
       open={open}
-      title="Confirmación reforzada"
+      title={t('stepup.title')}
       danger
       busy={busy}
-      confirmLabel="Verificar y continuar"
+      confirmLabel={t('stepup.verify')}
       onCancel={onCancel}
       onConfirm={() => void submit()}
     >
       <p>
-        Esta operación requiere re-autenticación:
+        {t('stepup.reason')}
         <strong> {operation}</strong>
         {resource ? (
           <>
-            {' '}sobre <code>{resource}</code>
+            {' '}{t('stepup.onResource')} <code>{resource}</code>
           </>
         ) : null}
         .
       </p>
       <div className="row">
-        <label htmlFor="stepup-pass">Contraseña</label>
+        <label htmlFor="stepup-pass">{t('stepup.password')}</label>
         <input
           id="stepup-pass"
           type="password"
@@ -92,10 +94,7 @@ export default function StepUpDialog({
         <div className="error-box" role="alert">{error}</div>
       )}
       <p className="muted">
-        {operationId
-          ? 'La verificación queda vinculada a esta operación y ' +
-            'recurso, una sola vez (~2 min).'
-          : 'La verificación queda vinculada a tu sesión durante ~5 minutos.'}
+        {operationId ? t('stepup.boundNote') : t('stepup.genericNote')}
       </p>
     </ConfirmDialog>
   );

@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-query';
 import { api, ApiError, type DoctorResult, type Me } from '../api';
 import StepUpDialog from '../components/StepUpDialog';
+import { useI18n } from '../i18n';
 
 const ORDER = { fail: 0, warn: 1, ok: 2, skip: 3 } as const;
 
@@ -27,6 +28,7 @@ interface JobRecord {
 }
 
 export default function Doctor() {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const doctor = useQuery({
     queryKey: ['doctor'],
@@ -57,7 +59,7 @@ export default function Doctor() {
     mutationFn: (active: boolean) =>
       api.post<MaintenanceState>('maintenance', {
         active,
-        reason: 'desde el panel de operación',
+        reason: t('doctor.maintenance.reason'),
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['maintenance'] }),
@@ -67,7 +69,7 @@ export default function Doctor() {
         return;
       }
       setMaintErr(
-        e instanceof ApiError ? e.message : 'Operación fallida');
+        e instanceof ApiError ? e.message : t('common.error'));
     },
   });
 
@@ -79,14 +81,14 @@ export default function Doctor() {
 
   return (
     <>
-      <h1 className="page-title">Operación — Doctor</h1>
+      <h1 className="page-title">{t('doctor.title')}</h1>
       <div className="toolbar">
         <button onClick={() => doctor.refetch()} disabled={doctor.isFetching}>
-          {doctor.isFetching ? 'Ejecutando…' : 'Ejecutar diagnóstico'}
+          {doctor.isFetching ? t('doctor.running') : t('doctor.run')}
         </button>
         {d && (
           <span className={`badge ${d.healthy ? 'ok' : 'fail'}`}>
-            {d.healthy ? 'SISTEMA SANO' : 'HAY FALLOS'}
+            {d.healthy ? t('doctor.healthy') : t('doctor.unhealthy')}
           </span>
         )}
         {d && (
@@ -100,15 +102,19 @@ export default function Doctor() {
       {maint && (
         <div className="card section">
           <h3>
-            Mantenimiento{' '}
+            {t('doctor.maintenance')}{' '}
             <span className={`badge ${maint.active ? 'warn' : 'ok'}`}>
-              {maint.active ? 'ACTIVO' : 'inactivo'}
+              {maint.active
+                ? t('common.enabled')
+                : t('common.disabled')}
             </span>
           </h3>
           {maint.active && maint.info?.reason && (
             <p className="muted">
               {maint.info.reason}
-              {maint.info.by ? ` — por ${maint.info.by}` : ''}
+              {maint.info.by
+                ? t('doctor.maintenance.by', { by: maint.info.by })
+                : ''}
             </p>
           )}
           {isAdmin && (
@@ -122,13 +128,13 @@ export default function Doctor() {
               }}
             >
               {maint.active
-                ? 'Desactivar mantenimiento'
-                : 'Activar mantenimiento'}
+                ? t('doctor.maintenance.deactivate')
+                : t('doctor.maintenance.activate')}
             </button>
           )}
           {!isAdmin && (
             <p className="muted">
-              Cambiar el modo requiere el permiso admin:*.
+              {t('doctor.maintenance.forbidden')}
             </p>
           )}
           {maintErr && (
@@ -140,17 +146,17 @@ export default function Doctor() {
       {doctor.isError && (
         <div className="error-box" role="alert">
           {doctor.error instanceof ApiError
-            ? `El diagnóstico falló: ${doctor.error.message}`
-            : 'El diagnóstico falló.'}
+            ? t('doctor.failedDetail', { msg: doctor.error.message })
+            : t('doctor.failed')}
         </div>
       )}
       {d && (
         <table className="data">
           <thead>
             <tr>
-              <th>Check</th>
-              <th>Estado</th>
-              <th>Mensaje</th>
+              <th>{t('doctor.col.check')}</th>
+              <th>{t('doctor.col.status')}</th>
+              <th>{t('doctor.col.message')}</th>
             </tr>
           </thead>
           <tbody>
@@ -181,15 +187,15 @@ export default function Doctor() {
 
       {(jobs.data?.jobs.length ?? 0) > 0 && (
         <div className="card section">
-          <h3>Operaciones destructivas recientes</h3>
+          <h3>{t('doctor.jobs.title')}</h3>
           <table className="data">
             <thead>
               <tr>
-                <th>Hora</th>
-                <th>Operación</th>
-                <th>Actor</th>
-                <th>Objetivo</th>
-                <th>Estado</th>
+                <th>{t('doctor.jobs.col.time')}</th>
+                <th>{t('doctor.jobs.col.op')}</th>
+                <th>{t('doctor.jobs.col.actor')}</th>
+                <th>{t('doctor.jobs.col.target')}</th>
+                <th>{t('doctor.jobs.col.state')}</th>
               </tr>
             </thead>
             <tbody>
@@ -224,7 +230,7 @@ export default function Doctor() {
 
       <StepUpDialog
         open={stepUp !== null}
-        operation="cambiar el modo de mantenimiento"
+        operation={t('doctor.stepup.maintenance')}
         onCancel={() => setStepUp(null)}
         onVerified={() => {
           const retry = stepUp;

@@ -13,10 +13,12 @@ import StepUpDialog from '../components/StepUpDialog';
 import SystemUsersSection from '../components/SystemUsers';
 import DeletedOperatorsSection from '../components/DeletedOperators';
 import { registerPasskey, webauthnSupported } from '../webauthn';
+import { useI18n } from '../i18n';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
 
 export default function Users() {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const ops = useQuery({
     queryKey: ['operators'],
@@ -57,7 +59,7 @@ export default function Users() {
       invalidate();
       if (a.kind === 'patch' && 'sessions_revoked' in data &&
           data.sessions_revoked)
-        setFlash(`${a.username}: sesiones revocadas por el cambio.`);
+        setFlash(t('users.sessionsRevoked', { name: a.username }));
       else setFlash('');
     },
     onError: (e, a) => {
@@ -66,8 +68,8 @@ export default function Users() {
       if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
         const desc =
           a.kind === 'delete'
-            ? `eliminación del operador ${a.username}`
-            : `revocación de sesiones de ${a.username}`;
+            ? t('users.stepup.delete', { name: a.username })
+            : t('users.stepup.revoke', { name: a.username });
         setStepUp({ op: desc, retry: () => act.mutate(a) });
       }
     },
@@ -75,17 +77,15 @@ export default function Users() {
 
   return (
     <>
-      <h1 className="page-title">Usuarios</h1>
+      <h1 className="page-title">{t('users.title')}</h1>
       <p className="muted">
-        Cuentas de operador del portal. Cambios de rol, contraseña o estado
-        revocan las sesiones vivas del operador.
+        {t('users.subtitle')}
       </p>
 
       {flash && <div className="info-box">{flash}</div>}
       {ops.isError && (
         <div className="error-box" role="alert">
-          No se pudieron cargar los operadores (¿falta el permiso
-          admin_users?).
+          {t('users.loadError')}
         </div>
       )}
       {act.isError &&
@@ -94,13 +94,13 @@ export default function Users() {
         <div className="error-box" role="alert">
           {act.error instanceof ApiError
             ? `${act.error.status}: ${act.error.message}`
-            : 'Operación fallida'}
+            : t('common.error')}
         </div>
       )}
 
       <p>
         <button type="button" onClick={() => setShowCreate(!showCreate)}>
-          {showCreate ? 'Cancelar' : 'Nuevo operador'}
+          {showCreate ? t('common.cancel') : t('users.newOperator')}
         </button>
       </p>
       {showCreate && (
@@ -115,12 +115,12 @@ export default function Users() {
       <table className="data">
         <thead>
           <tr>
-            <th>Usuario</th>
-            <th>Rol</th>
-            <th>Estado</th>
-            <th>Permisos</th>
-            <th>Creado</th>
-            <th>Acciones</th>
+            <th>{t('users.username')}</th>
+            <th>{t('users.role')}</th>
+            <th>{t('users.state')}</th>
+            <th>{t('users.perms')}</th>
+            <th>{t('users.created')}</th>
+            <th>{t('users.actions')}</th>
           </tr>
         </thead>
         <tbody>
@@ -144,8 +144,7 @@ export default function Users() {
           {ops.data && ops.data.operators.length === 0 && (
             <tr>
               <td colSpan={6} className="muted">
-                Sin cuentas almacenadas — el operador env (bootstrap admin)
-                está en uso.
+                {t('users.empty')}
               </td>
             </tr>
           )}
@@ -156,10 +155,9 @@ export default function Users() {
         onStepUp={(op, retry) => setStepUp({ op, retry })}
       />
 
-      <h2 className="page-title">Usuarios de sistema</h2>
+      <h2 className="page-title">{t('users.systemTitle')}</h2>
       <p className="muted">
-        Cuentas del sistema operativo usadas por los servicios
-        (runtime users). Crear o borrar exige re-autenticación.
+        {t('users.systemSubtitle')}
       </p>
       <SystemUsersSection
         onStepUp={(op, retry) => setStepUp({ op, retry })}
@@ -167,10 +165,10 @@ export default function Users() {
 
       <ConfirmDialog
         open={pending?.kind === 'revoke'}
-        title="Revocar sesiones del operador"
+        title={t('users.revokeTitle')}
         danger
         busy={act.isPending}
-        confirmLabel="Revocar todas"
+        confirmLabel={t('users.revokeAll')}
         onCancel={() => setPending(null)}
         onConfirm={() => {
           if (pending) {
@@ -180,18 +178,16 @@ export default function Users() {
         }}
       >
         <p>
-          Todas las sesiones activas de{' '}
-          <code>{pending?.username}</code> quedarán invalidadas de
-          inmediato — tendrá que volver a autenticarse.
+          {t('users.revokeBody', { name: pending?.username ?? '' })}
         </p>
       </ConfirmDialog>
 
       <ConfirmDialog
         open={pending?.kind === 'delete'}
-        title="Eliminar operador"
+        title={t('users.deleteTitle')}
         danger
         busy={act.isPending}
-        confirmLabel="Eliminar"
+        confirmLabel={t('common.delete')}
         confirmText="ELIMINAR"
         onCancel={() => setPending(null)}
         onConfirm={() => {
@@ -202,12 +198,10 @@ export default function Users() {
         }}
       >
         <p>
-          Se eliminará la cuenta <code>{pending?.username}</code> y se
-          revocarán sus sesiones. El último administrador viable está
-          protegido por el backend.
+          {t('users.deleteBody', { name: pending?.username ?? '' })}
         </p>
         <p className="muted">
-          Escribe <code>ELIMINAR</code> para confirmar.
+          {t('confirm.typeToConfirm', { name: 'ELIMINAR' })}
         </p>
       </ConfirmDialog>
 
@@ -226,6 +220,7 @@ export default function Users() {
 }
 
 function CreateOperatorForm({ onDone }: { onDone: () => void }) {
+  const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<string>('viewer');
@@ -243,9 +238,9 @@ function CreateOperatorForm({ onDone }: { onDone: () => void }) {
         create.mutate();
       }}
     >
-      <h2>Nuevo operador</h2>
+      <h2>{t('users.newOperator')}</h2>
       <div className="row">
-        <label htmlFor="new-user">Usuario</label>
+        <label htmlFor="new-user">{t('users.username')}</label>
         <input
           id="new-user"
           value={username}
@@ -255,7 +250,7 @@ function CreateOperatorForm({ onDone }: { onDone: () => void }) {
         />
       </div>
       <div className="row">
-        <label htmlFor="new-pass">Contraseña temporal</label>
+        <label htmlFor="new-pass">{t('users.tempPassword')}</label>
         <input
           id="new-pass"
           type="password"
@@ -266,7 +261,7 @@ function CreateOperatorForm({ onDone }: { onDone: () => void }) {
         />
       </div>
       <div className="row">
-        <label htmlFor="new-role">Rol</label>
+        <label htmlFor="new-role">{t('users.role')}</label>
         <select
           id="new-role"
           value={role}
@@ -281,11 +276,11 @@ function CreateOperatorForm({ onDone }: { onDone: () => void }) {
         <div className="error-box" role="alert">
           {create.error instanceof ApiError
             ? create.error.message
-            : 'No se pudo crear'}
+            : t('users.createFailed')}
         </div>
       )}
       <button type="submit" disabled={create.isPending}>
-        {create.isPending ? 'Creando…' : 'Crear'}
+        {create.isPending ? t('users.creating') : t('common.create')}
       </button>
     </form>
   );
@@ -302,6 +297,7 @@ function OperatorRow({
   onRevokeSessions: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <>
       <tr>
@@ -313,10 +309,12 @@ function OperatorRow({
         <td>{u.role}</td>
         <td>
           <span className={`badge ${u.disabled ? 'fail' : 'ok'}`}>
-            {u.disabled ? 'Deshabilitado' : 'Activo'}
+            {u.disabled ? t('users.statusDisabled') : t('users.statusActive')}
           </span>
         </td>
-        <td title={u.permissions.join(', ')}>{u.permissions.length} perm</td>
+        <td title={u.permissions.join(', ')}>
+          {t('users.permCount', { count: u.permissions.length })}
+        </td>
         <td>
           {u.created_at
             ? new Date(u.created_at * 1000).toLocaleString()
@@ -328,14 +326,14 @@ function OperatorRow({
             disabled={busy}
             onClick={() => onPatch({ disabled: !u.disabled })}
           >
-            {u.disabled ? 'Habilitar' : 'Deshabilitar'}
+            {u.disabled ? t('users.enable') : t('users.disable')}
           </button>{' '}
           <button type="button" disabled={busy}
                   onClick={onRevokeSessions}>
-            Revocar sesiones
+            {t('users.revokeSessions')}
           </button>{' '}
           <button type="button" disabled={busy} onClick={onDelete}>
-            Eliminar
+            {t('common.delete')}
           </button>
         </td>
       </tr>
@@ -351,6 +349,7 @@ function OperatorRow({
 }
 
 function OperatorDetailPanel({ username }: { username: string }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const me = useQuery({
     queryKey: ['me'],
@@ -393,7 +392,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
           void withStepUp(fn).then(invalidateKeys));
         return;
       }
-      setRegErr(e instanceof ApiError ? e.message : 'Operación fallida');
+      setRegErr(e instanceof ApiError ? e.message : t('common.error'));
     }
   };
 
@@ -413,7 +412,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
     } catch (e) {
       if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED')
         throw e;
-      setRegErr(e instanceof Error ? e.message : 'Registro fallido');
+      setRegErr(e instanceof Error ? e.message : t('users.registerFailed'));
     } finally {
       setRegBusy(false);
     }
@@ -427,30 +426,34 @@ function OperatorDetailPanel({ username }: { username: string }) {
       invalidateKeys();
     });
 
-  if (detail.isLoading) return <p className="muted">Cargando…</p>;
+  if (detail.isLoading) return <p className="muted">{t('common.loading')}</p>;
   if (detail.isError || !detail.data)
-    return <p className="error-box" role="alert">No se pudo cargar la ficha.</p>;
+    return <p className="error-box" role="alert">{t('users.detailError')}</p>;
   const op = detail.data.operator;
   return (
     <div className="card">
       <h2>{op.username}</h2>
       <p>
-        Rol <strong>{op.role}</strong> · {op.passkey_count ?? 0} passkey(s)
+        {t('users.role')} <strong>{op.role}</strong> ·{' '}
+        {op.passkey_count ?? 0} {t('users.passkeyCount')}
       </p>
       {op.deletion_allowed === false && (
         <p className="notice">
-          Protegido: {(op.blocking_reasons ?? []).join(', ')}.
+          {t('users.protected')}: {(op.blocking_reasons ?? []).join(', ')}.
         </p>
       )}
-      <p className="muted">Permisos: {op.permissions.join(', ') || '—'}</p>
-      <h3>Passkeys</h3>
+      <p className="muted">
+        {t('users.perms')}: {op.permissions.join(', ') || '—'}
+      </p>
+      <h3>{t('users.passkeys')}</h3>
       {keys.data && keys.data.passkeys.length === 0 && (
-        <p className="muted">Sin passkeys registradas.</p>
+        <p className="muted">{t('users.noPasskeys')}</p>
       )}
       {keys.data && keys.data.passkeys.length > 0 && (
         <table className="data">
           <thead>
-            <tr><th>Ref</th><th>Nombre</th><th>Registro</th>
+            <tr><th>Ref</th><th>{t('users.passkeyName')}</th>
+                <th>{t('users.passkeyRegistered')}</th>
                 <th>Sign count</th><th /></tr>
           </thead>
           <tbody>
@@ -460,7 +463,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
                 <td>
                   {renaming === k.ref ? (
                     <input
-                      aria-label="Nuevo nombre de la passkey"
+                      aria-label={t('users.passkeyRenameAria')}
                       defaultValue={k.name}
                       autoFocus
                       maxLength={64}
@@ -483,14 +486,14 @@ function OperatorDetailPanel({ username }: { username: string }) {
                     className="ghost"
                     onClick={() => setRenaming(k.ref)}
                   >
-                    Renombrar
+                    {t('users.rename')}
                   </button>{' '}
                   <button
                     type="button"
                     className="danger"
                     onClick={() => setDelRef(k.ref)}
                   >
-                    Revocar
+                    {t('users.revoke')}
                   </button>
                 </td>
               </tr>
@@ -501,29 +504,28 @@ function OperatorDetailPanel({ username }: { username: string }) {
       {isSelf && webauthnSupported() && (
         <p className="row">
           <input
-            aria-label="Nombre de la nueva passkey"
-            placeholder="Nombre (opcional)"
+            aria-label={t('users.passkeyNameAria')}
+            placeholder={t('users.passkeyNamePlaceholder')}
             maxLength={64}
             value={keyName}
             onChange={(e) => setKeyName(e.target.value)}
             style={{ maxWidth: 220 }}
           />
           <button type="button" disabled={regBusy} onClick={register}>
-            {regBusy ? 'Registrando…' : 'Registrar passkey'}
+            {regBusy ? t('users.registering') : t('users.registerPasskey')}
           </button>
         </p>
       )}
       {regErr && <div className="error-box" role="alert">{regErr}</div>}
       {isSelf && !webauthnSupported() && (
         <p className="muted">
-          Este navegador no soporta WebAuthn (requiere HTTPS o
-          localhost).
+          {t('users.webauthnUnsupported')}
         </p>
       )}
 
       <StepUpDialog
         open={stepUpFor !== null}
-        operation="registrar/revocar una passkey"
+        operation={t('users.stepup.passkey')}
         resource={username}
         onCancel={() => setStepUpFor(null)}
         onVerified={() => {
@@ -534,9 +536,9 @@ function OperatorDetailPanel({ username }: { username: string }) {
       />
       <ConfirmDialog
         open={delRef !== null}
-        title="Revocar passkey"
+        title={t('users.passkeyRevokeTitle')}
         danger
-        confirmLabel="Revocar"
+        confirmLabel={t('users.revoke')}
         onCancel={() => setDelRef(null)}
         onConfirm={() => {
           const ref = delRef;
@@ -547,8 +549,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
         }}
       >
         <p>
-          La passkey <code>{delRef}</code> dejará de autenticar. Si es
-          la última y la política exige MFA, el backend la protegerá.
+          {t('users.passkeyRevokeBody', { ref: delRef ?? '' })}
         </p>
       </ConfirmDialog>
     </div>

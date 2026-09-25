@@ -18,6 +18,7 @@ import {
   SessionReference,
   StatusBadge,
 } from '../components/bits';
+import { useI18n } from '../i18n';
 
 const ROLES = ['viewer', 'support', 'operator', 'administrator'];
 const RESOURCES = ['', 'desktop', 'terminal', 'audio', 'gamepad'];
@@ -39,6 +40,7 @@ interface SessionPage {
 }
 
 export default function Sessions() {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [tab, setTab] = useState<SessionTab>('active');
   const sessions = useInfiniteQuery({
@@ -97,7 +99,8 @@ export default function Sessions() {
     },
     onError: (e) => {
       setCreated(null);
-      setCreateError(e instanceof ApiError ? e.message : 'Error creando sesión');
+      setCreateError(
+        e instanceof ApiError ? e.message : t('sessions.createError'));
     },
   });
 
@@ -110,7 +113,7 @@ export default function Sessions() {
     },
     onError: (e) =>
       setMutError(
-        e instanceof ApiError ? e.message : 'Error al revocar'),
+        e instanceof ApiError ? e.message : t('sessions.revokeError')),
     onSettled: () => setRevokeTarget(null),
   });
 
@@ -128,7 +131,7 @@ export default function Sessions() {
         return;
       }
       setMutError(
-        e instanceof ApiError ? e.message : 'Error al revocar todo');
+        e instanceof ApiError ? e.message : t('sessions.revokeAllError'));
     },
     onSettled: () => setConfirmRevokeAll(false),
   });
@@ -147,10 +150,10 @@ export default function Sessions() {
 
   return (
     <>
-      <h1 className="page-title">Sesiones</h1>
+      <h1 className="page-title">{t('sessions.title')}</h1>
 
       <div className="card">
-        <h3>Crear enlace temporal</h3>
+        <h3>{t('sessions.createTitle')}</h3>
         <form
           className="inline-grid"
           onSubmit={(e) => {
@@ -159,7 +162,7 @@ export default function Sessions() {
           }}
         >
           <div>
-            <label htmlFor="role">Rol</label>
+            <label htmlFor="role">{t('sessions.role')}</label>
             <select
               id="role"
               value={form.role}
@@ -176,7 +179,7 @@ export default function Sessions() {
             </select>
           </div>
           <div>
-            <label htmlFor="ttl">Duración (segundos)</label>
+            <label htmlFor="ttl">{t('sessions.ttl')}</label>
             <input
               id="ttl"
               type="number"
@@ -188,7 +191,7 @@ export default function Sessions() {
             />
           </div>
           <div>
-            <label htmlFor="maxuses">Usos máximos (0 = ilimitado)</label>
+            <label htmlFor="maxuses">{t('sessions.maxUses')}</label>
             <input
               id="maxuses"
               type="number"
@@ -200,22 +203,24 @@ export default function Sessions() {
             />
           </div>
           <div>
-            <label htmlFor="resource">Recurso</label>
+            <label htmlFor="resource">{t('sessions.resource')}</label>
             <select
               id="resource"
               value={form.resource ?? ''}
               onChange={(e) => setForm({ ...form, resource: e.target.value })}
             >
               {RESOURCES.map((r) => (
-                <option key={r} value={r}>{r || 'todos'}</option>
+                <option key={r} value={r}>
+                  {r || t('sessions.allResources')}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label htmlFor="allowedip">Restricción IP / CIDR</label>
+            <label htmlFor="allowedip">{t('sessions.ipRestriction')}</label>
             <input
               id="allowedip"
-              placeholder="first-observed o 10.0.0.0/24"
+              placeholder={t('sessions.ipPlaceholder')}
               value={form.allowed_ip ?? ''}
               onChange={(e) =>
                 setForm({ ...form, allowed_ip: e.target.value })}
@@ -229,7 +234,7 @@ export default function Sessions() {
                 onChange={(e) =>
                   setForm({ ...form, view_only: e.target.checked })}
               />
-              Solo visualización
+              {t('sessions.viewOnly')}
             </label>
             <label className="check">
               <input
@@ -238,7 +243,7 @@ export default function Sessions() {
                 onChange={(e) =>
                   setForm({ ...form, no_terminal: e.target.checked })}
               />
-              Sin terminal
+              {t('sessions.noTerminal')}
             </label>
             <label className="check">
               <input
@@ -247,12 +252,12 @@ export default function Sessions() {
                 onChange={(e) =>
                   setForm({ ...form, single_use: e.target.checked })}
               />
-              Uso único
+              {t('sessions.singleUse')}
             </label>
           </div>
           <div>
             <button type="submit" disabled={create.isPending}>
-              Crear enlace
+              {t('sessions.createLink')}
             </button>
           </div>
         </form>
@@ -261,7 +266,8 @@ export default function Sessions() {
         )}
         {created && (
           <div className="notice">
-            <strong>Enlace creado</strong> (se muestra una sola vez):
+            <strong>{t('sessions.createdTitle')}</strong>{' '}
+            {t('sessions.createdOnce')}
             <div className="mono" style={{ wordBreak: 'break-all', marginTop: 8 }}>
               {created.url}
             </div>
@@ -270,7 +276,7 @@ export default function Sessions() {
               style={{ marginTop: 8 }}
               onClick={() => navigator.clipboard.writeText(created.url)}
             >
-              Copiar
+              {t('sessions.copy')}
             </button>
           </div>
         )}
@@ -281,19 +287,23 @@ export default function Sessions() {
       )}
 
       <div className="toolbar section">
-        <h2 style={{ margin: 0 }} id="sessions-heading">Inventario</h2>
-        <div role="tablist" aria-label="Vistas de sesiones"
+        <h2 style={{ margin: 0 }} id="sessions-heading">
+          {t('sessions.inventory')}
+        </h2>
+        <div role="tablist" aria-label={t('sessions.viewsAria')}
              style={{ display: 'flex', gap: '0.5rem' }}>
-          {(['active', 'revoked'] as const).map((t) => (
+          {(['active', 'revoked'] as const).map((tabKey) => (
             <button
-              key={t}
+              key={tabKey}
               type="button"
               role="tab"
-              aria-selected={tab === t}
-              className={tab === t ? '' : 'ghost'}
-              onClick={() => setTab(t)}
+              aria-selected={tab === tabKey}
+              className={tab === tabKey ? '' : 'ghost'}
+              onClick={() => setTab(tabKey)}
             >
-              {t === 'active' ? 'Activas' : 'Revocadas'}
+              {tabKey === 'active'
+                ? t('sessions.tabActive')
+                : t('sessions.tabRevoked')}
             </button>
           ))}
         </div>
@@ -305,7 +315,7 @@ export default function Sessions() {
               revokeAll.isPending || !rows.length}
             onClick={() => setConfirmRevokeAll(true)}
           >
-            Cerrar todas
+            {t('sessions.revokeAll')}
           </button>
         )}
       </div>
@@ -313,49 +323,49 @@ export default function Sessions() {
       <DataTable<EphemeralSessionInfo>
         loading={sessions.isLoading}
         error={sessions.isError}
-        errorText="No se pudieron cargar las sesiones (¿falta el permiso admin_sessions?)."
+        errorText={t('sessions.loadError')}
         emptyText={
           tab === 'active'
-            ? 'No hay sesiones efímeras activas.'
-            : 'No hay sesiones revocadas retenidas.'
+            ? t('sessions.emptyActive')
+            : t('sessions.emptyRevoked')
         }
         rows={rows}
         rowKey={(s) => s.token_id}
         columns={[
           {
             key: 'id',
-            header: 'Referencia',
+            header: t('sessions.col.ref'),
             render: (s) => <SessionReference id={s.token_id} />,
           },
           {
             key: 'state',
-            header: 'Estado',
+            header: t('sessions.col.state'),
             render: (s) =>
               s.revoked ? (
-                <StatusBadge status="fail" label="revocada" />
+                <StatusBadge status="fail" label={t('sessions.stateRevoked')} />
               ) : (
-                <StatusBadge status="ok" label="activa" />
+                <StatusBadge status="ok" label={t('sessions.stateActive')} />
               ),
           },
-          { key: 'role', header: 'Rol', render: (s) => s.role },
+          { key: 'role', header: t('sessions.col.role'), render: (s) => s.role },
           {
             key: 'perms',
-            header: 'Permisos',
-            render: (s) => `${s.permissions.length} perm`,
+            header: t('sessions.col.perms'),
+            render: (s) => t('sessions.permCount', { count: s.permissions.length }),
             title: (s) => s.permissions.join(', '),
           },
           {
             key: 'resource',
-            header: 'Recurso',
+            header: t('sessions.col.resource'),
             render: (s) => s.resource ?? '—',
           },
           {
             key: 'exp',
-            header: 'Expira en',
+            header: t('sessions.col.expires'),
             render: (s) => <RelativeTime epoch={s.expires_at} />,
           },
-          { key: 'flags', header: 'Flags', render: flagBadges },
-          { key: 'by', header: 'Creador', render: (s) => s.created_by },
+          { key: 'flags', header: t('sessions.col.flags'), render: flagBadges },
+          { key: 'by', header: t('sessions.col.creator'), render: (s) => s.created_by },
           {
             key: 'actions',
             header: '',
@@ -366,7 +376,7 @@ export default function Sessions() {
                   disabled={revoke.isPending}
                   onClick={() => setRevokeTarget(s)}
                 >
-                  Revocar
+                  {t('sessions.revoke')}
                 </button>
               ),
           },
@@ -379,56 +389,59 @@ export default function Sessions() {
             disabled={sessions.isFetchingNextPage}
             onClick={() => sessions.fetchNextPage()}
           >
-            {sessions.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+            {sessions.isFetchingNextPage
+              ? t('common.loading')
+              : t('sessions.loadMore')}
           </button>
         </div>
       )}
 
       <ConfirmDialog
         open={revokeTarget !== null}
-        title="Revocar sesión"
+        title={t('sessions.revokeTitle')}
         danger
         busy={revoke.isPending}
-        confirmLabel="Revocar"
+        confirmLabel={t('sessions.revoke')}
         onCancel={() => setRevokeTarget(null)}
         onConfirm={() =>
           revokeTarget && revoke.mutate(revokeTarget.token_id)}
       >
         {revokeTarget && (
           <p>
-            Se cerrará la sesión <code>{revokeTarget.token_id}</code>
-            {' '}(rol {revokeTarget.role}
-            {revokeTarget.resource
-              ? `, recurso ${revokeTarget.resource}`
-              : ''}
-            ). La conexión se corta de inmediato.
+            {t('sessions.revokeBody', {
+              id: revokeTarget.token_id,
+              role: revokeTarget.role,
+              resource: revokeTarget.resource
+                ? t('sessions.revokeBodyResource', {
+                    resource: revokeTarget.resource,
+                  })
+                : '',
+            })}
           </p>
         )}
       </ConfirmDialog>
 
       <ConfirmDialog
         open={confirmRevokeAll}
-        title="Cerrar todas las sesiones"
+        title={t('sessions.revokeAllTitle')}
         danger
         busy={revokeAll.isPending}
-        confirmLabel="Cerrar todas"
+        confirmLabel={t('sessions.revokeAll')}
         confirmText="CERRAR TODO"
         onCancel={() => setConfirmRevokeAll(false)}
         onConfirm={() => revokeAll.mutate()}
       >
         <p>
-          Se revocarán{' '}
-          <strong>{rows.length} sesiones</strong>{' '}
-          activas. Todas las conexiones en curso se cortarán ahora.
+          {t('sessions.revokeAllBody', { count: rows.length })}
         </p>
         <p className="muted">
-          Escribe <code>CERRAR TODO</code> para confirmar.
+          {t('confirm.typeToConfirm', { name: 'CERRAR TODO' })}
         </p>
       </ConfirmDialog>
 
       <StepUpDialog
         open={stepUp !== null}
-        operation="revocación masiva de sesiones"
+        operation={t('sessions.stepup.revokeAll')}
         onCancel={() => setStepUp(null)}
         onVerified={() => {
           const retry = stepUp;

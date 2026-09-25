@@ -9,6 +9,7 @@ import {
 } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useStepUp } from '../components/useStepUp';
+import { useI18n } from '../i18n';
 
 function StatusBadge({ running }: { running: boolean }) {
   return (
@@ -23,6 +24,7 @@ function StatusBadge({ running }: { running: boolean }) {
     the response leaves before the portal itself may die. */
 function LifecyclePanel() {
   const stepUp = useStepUp();
+  const { t } = useI18n();
   const [pending, setPending] = useState<'stop' | 'restart' | null>(null);
   const [flash, setFlash] = useState('');
   const [upgradeSource, setUpgradeSource] = useState('');
@@ -51,20 +53,18 @@ function LifecyclePanel() {
       setPending(null);
       setFlash(
         d.action === 'stop'
-          ? `Parada en curso (job ${d.job_id}) — esta interfaz ` +
-            'dejará de responder. Reinicia con `vnc-remote start`.'
+          ? t('overview.lifecycle.stopping', { job: d.job_id })
           : d.action === 'restart'
-            ? `Reinicio en curso (job ${d.job_id}) — la interfaz ` +
-              'volverá cuando el portal esté arriba de nuevo.'
-            : `Arranque en curso (job ${d.job_id}) de los servicios ` +
-              'parados.');
+            ? t('overview.lifecycle.restarting', { job: d.job_id })
+            : t('overview.lifecycle.starting', { job: d.job_id }));
     },
     onError: (e, action) => {
       if (stepUp.gate(
         e,
-        action === 'stop' ? 'parada de todos los servicios'
-          : action === 'restart' ? 'reinicio de todos los servicios'
-            : 'arranque de servicios',
+        action === 'stop' ? t('overview.lifecycle.confirm.stop')
+          : action === 'restart'
+            ? t('overview.lifecycle.confirm.restart')
+            : t('overview.lifecycle.confirm.start'),
         () => act.mutate(action),
         { opId: 'lifecycle.action', resource: action })) return;
       setPending(null);
@@ -74,10 +74,9 @@ function LifecyclePanel() {
   const up = useMutation({
     mutationFn: (source?: string) => api.upgradeRun(source),
     onSuccess: (d) =>
-      setFlash(`Upgrade encolado (job ${d.job_id}) — sigue el ` +
-               'progreso en Operación → Jobs; reinicia al terminar.'),
+      setFlash(t('overview.upgrade.queued', { job: d.job_id })),
     onError: (e, source) => {
-      stepUp.gate(e, 'actualización del paquete instalado',
+      stepUp.gate(e, t('overview.upgrade.confirm'),
                   () => up.mutate(source),
                   { opId: 'upgrade.run',
                     resource: source || 'latest' });
@@ -86,10 +85,9 @@ function LifecyclePanel() {
   const rollback = useMutation({
     mutationFn: () => api.upgradeRollback(),
     onSuccess: (d) =>
-      setFlash(`Rollback encolado (job ${d.job_id}) — consulta su ` +
-               'progreso en Operación → Jobs.'),
+      setFlash(t('overview.upgrade.rollbackQueued', { job: d.job_id })),
     onError: (e) => {
-      stepUp.gate(e, 'rollback a la versión anterior',
+      stepUp.gate(e, t('overview.upgrade.confirmRollback'),
                   () => rollback.mutate(),
                   { opId: 'upgrade.rollback' });
     },
@@ -110,10 +108,10 @@ function LifecyclePanel() {
 
   return (
     <>
-      <h2 className="section">Ciclo de vida</h2>
+      <h2 className="section">{t('overview.lifecycle.title')}</h2>
       {lifecycle.isError ? (
         <p className="muted">
-          Control de servicios no disponible con este rol.
+          {t('overview.lifecycle.unavailable')}
         </p>
       ) : (
         <div className="cards">
@@ -127,7 +125,7 @@ function LifecyclePanel() {
                   {s.pid ? <span className="badge dim">pid {s.pid}</span> : null}
                   {s.port ? <span className="badge dim">:{s.port}</span> : null}
                   {s.enabled === false && (
-                    <span className="badge dim">desactivado</span>
+                    <span className="badge dim">{t('common.disabled')}</span>
                   )}
                 </div>
               </div>
@@ -138,37 +136,39 @@ function LifecyclePanel() {
         <p>
           <button type="button" disabled={act.isPending}
                   onClick={() => act.mutate('start')}>
-            Arrancar parados
+            {t('overview.lifecycle.start')}
           </button>{' '}
           <button type="button" className="danger" disabled={act.isPending}
                   onClick={() => setPending('restart')}>
-            Reiniciar todo
+            {t('overview.lifecycle.restart')}
           </button>{' '}
           <button type="button" className="danger" disabled={act.isPending}
                   onClick={() => setPending('stop')}>
-            Parar todo
+            {t('overview.lifecycle.stop')}
           </button>
         </p>
       )}
 
       {version.data && (
         <p className="muted">
-          Versión instalada: <code>{version.data.version}</code>
+          {t('overview.version.installed')}: <code>{version.data.version}</code>
           {upgrade.data?.update &&
-            ` — disponible ${upgrade.data.update} (${upgrade.data.source})`}
+            ` — ${t('overview.version.available')} ` +
+              `${upgrade.data.update} (${upgrade.data.source})`}
         </p>
       )}
       {upgrade.data?.update && (
         <p>
           <input
             style={{ maxWidth: 280 }}
-            placeholder="Fuente (wheel/URL; vacío = PyPI latest)"
+            placeholder={t('overview.upgrade.placeholder')}
             value={upgradeSource}
             onChange={(e) => setUpgradeSource(e.target.value)}
           />{' '}
           <button type="button" disabled={up.isPending}
                   onClick={() => up.mutate(upgradeSource || undefined)}>
-            {up.isPending ? 'Actualizando…' : 'Actualizar'}
+            {up.isPending ? t('overview.upgrade.running')
+                          : t('overview.upgrade.run')}
           </button>{' '}
           <button type="button" disabled={rollback.isPending}
                   onClick={() => rollback.mutate()}>
@@ -179,11 +179,14 @@ function LifecyclePanel() {
 
       {(jobs.data?.jobs?.length ?? 0) > 0 && (
         <>
-          <h3 className="section">Jobs recientes</h3>
+          <h3 className="section">{t('overview.recentJobs')}</h3>
           <table className="data">
             <thead>
-              <tr><th>Job</th><th>Operación</th><th>Actor</th>
-                  <th>Estado</th><th>Detalle</th></tr>
+              <tr><th>{t('overview.col.job')}</th>
+                  <th>{t('overview.col.op')}</th>
+                  <th>{t('overview.col.actor')}</th>
+                  <th>{t('overview.col.state')}</th>
+                  <th>{t('overview.col.detail')}</th></tr>
             </thead>
             <tbody>
               {jobs.data!.jobs.map((j) => (
@@ -212,18 +215,20 @@ function LifecyclePanel() {
         <div className="error-box" role="alert">
           {hardError instanceof ApiError
             ? `${hardError.status}: ${hardError.message}`
-            : 'Operación fallida'}
+            : t('common.error')}
         </div>
       )}
 
       <ConfirmDialog
         open={pending !== null}
         title={pending === 'stop'
-          ? 'Parar todos los servicios'
-          : 'Reiniciar todos los servicios'}
+          ? t('overview.dialog.stopTitle')
+          : t('overview.dialog.restartTitle')}
         danger
         confirmText={pending === 'stop' ? 'STOP' : 'RESTART'}
-        confirmLabel={pending === 'stop' ? 'Parar' : 'Reiniciar'}
+        confirmLabel={pending === 'stop'
+          ? t('overview.dialog.stop')
+          : t('overview.dialog.restart')}
         busy={act.isPending}
         onCancel={() => setPending(null)}
         onConfirm={() => {
@@ -232,11 +237,8 @@ function LifecyclePanel() {
       >
         <p>
           {pending === 'stop'
-            ? 'Todos los servicios se pararán — incluido este portal. ' +
-              'La interfaz dejará de responder hasta que se arranquen ' +
-              'desde CLI o el gestor de servicios.'
-            : 'Los servicios se reiniciarán — incluido este portal. ' +
-              'La interfaz volverá en unos segundos.'}
+            ? t('overview.dialog.stopBody')
+            : t('overview.dialog.restartBody')}
         </p>
       </ConfirmDialog>
 
@@ -246,6 +248,7 @@ function LifecyclePanel() {
 }
 
 export default function Overview() {
+  const { t } = useI18n();
   const status = useQuery({
     queryKey: ['status'],
     queryFn: () => api.get<StatusPayload>('status'),
@@ -266,14 +269,14 @@ export default function Overview() {
 
   return (
     <>
-      <h1 className="page-title">Resumen</h1>
+      <h1 className="page-title">{t('overview.title')}</h1>
 
       {posture.data && (
         <div className="toolbar">
           <span className={`badge ${
             posture.data.score >= 75 ? 'ok'
             : posture.data.score >= 50 ? 'warn' : 'fail'}`}>
-            Seguridad: {posture.data.score}/100
+            {t('overview.security.score', { score: posture.data.score })}
           </span>
           <span className="muted">{posture.data.summary}</span>
         </div>
@@ -298,12 +301,12 @@ export default function Overview() {
         </div>
       </div>
 
-      <h2 className="section">Servicios</h2>
+      <h2 className="section">{t('overview.services')}</h2>
       {services.isError && (
-        <div className="error-box" role="alert">No se pudo cargar la lista de servicios.</div>
+        <div className="error-box" role="alert">{t('overview.services.error')}</div>
       )}
       {services.isLoading && (
-        <p className="muted" role="status">Cargando…</p>
+        <p className="muted" role="status">{t('common.loading')}</p>
       )}
       <div className="cards">
         {(services.data?.services ?? []).map((s) => (
@@ -318,7 +321,7 @@ export default function Overview() {
               <span className="spacer" />
               {s.url && s.running && (
                 <a className="btn" href={s.url} target="_blank" rel="noreferrer">
-                  Abrir
+                  {t('common.open')}
                 </a>
               )}
               {s.url2 && s.running && (
@@ -333,7 +336,7 @@ export default function Overview() {
 
       {status.data?.lan_ips && status.data.lan_ips.length > 0 && (
         <>
-          <h2 className="section">Acceso LAN</h2>
+          <h2 className="section">{t('overview.lanAccess')}</h2>
           <div className="cards">
             {status.data.lan_ips.map((ip) => (
               <div className="card" key={ip}>
