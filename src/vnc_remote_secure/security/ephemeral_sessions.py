@@ -119,7 +119,6 @@ PERM_GAMEPAD = 'gamepad'
 PERM_ADMIN = 'admin'              # umbrella: admin_* below
 PERM_ADMIN_USERS = 'admin_users'
 PERM_ADMIN_CONFIG = 'admin_config'
-PERM_ADMIN_SECRETS = 'admin_secrets'
 PERM_ADMIN_AUDIT = 'admin_audit'
 
 ALL_PERMISSIONS = {
@@ -128,7 +127,7 @@ ALL_PERMISSIONS = {
     PERM_FILE_TRANSFER, PERM_TERMINAL, PERM_TERMINAL_VIEW,
     PERM_TERMINAL_WRITE, PERM_AUDIO, PERM_GAMEPAD,
     PERM_ADMIN, PERM_ADMIN_USERS, PERM_ADMIN_CONFIG,
-    PERM_ADMIN_SECRETS, PERM_ADMIN_AUDIT,
+    PERM_ADMIN_AUDIT,
 }
 
 # Coarse permissions expand to their fine-grained members: a session
@@ -143,7 +142,7 @@ _PERMISSION_EXPANSION = {
     # terminal_view expands to nothing.
     PERM_TERMINAL_WRITE: {PERM_TERMINAL_VIEW},
     PERM_ADMIN: {PERM_ADMIN_USERS, PERM_ADMIN_CONFIG,
-                 PERM_ADMIN_SECRETS, PERM_ADMIN_AUDIT},
+                 PERM_ADMIN_AUDIT},
 }
 
 
@@ -504,6 +503,39 @@ def verify_ephemeral_token(token: str) -> dict | None:
             'single_use': bool(int(parts[2])),
         }
     except (ValueError, TypeError):
+        return None
+
+
+def preview_session(signed: str) -> dict | None:
+    """Non-consuming preview of a share-link token.
+
+    Returns what a recipient may see BEFORE accepting — role,
+    expiry, coarse flags. Deliberately omits creator identity,
+    bound IPs, hostnames and any infrastructure detail: the link
+    grants access, not reconnaissance. Invalid/expired/revoked
+    tokens all return None (uniform response, no enumeration).
+    """
+    import time as _time
+    try:
+        payload = verify_ephemeral_token(signed)
+        if not payload:
+            return None
+        store = get_session_store()
+        store._load_if_changed()
+        session = store.get(payload['session_token'])
+        if session is None or session.revoked:
+            return None
+        return {
+            'role': session.role,
+            'expires_in_seconds': max(
+                0, int(session.expires_at - _time.time())),
+            'view_only': bool(session.view_only),
+            'single_use': bool(session.single_use),
+            'no_terminal': bool(session.no_terminal),
+            'max_uses': session.max_uses,
+            'resource': session.resource,
+        }
+    except Exception:  # noqa: BLE001 - preview is best-effort
         return None
 
 

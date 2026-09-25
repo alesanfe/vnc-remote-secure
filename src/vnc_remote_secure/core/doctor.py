@@ -298,16 +298,14 @@ def _check_runtime_deps(checks):
               'not reaped on restart. Install with: '
               'pip install "vnc-remote-secure[ops]"')
     try:
-        import waitress  # noqa: F401  # pylint: disable=unused-import
-        _ok(checks, 'deps.waitress',
-            'waitress present — user UI served by a production WSGI '
+        import uvicorn  # noqa: F401  # pylint: disable=unused-import
+        _ok(checks, 'deps.uvicorn',
+            'uvicorn present — web surfaces served by the ASGI '
             'server')
     except ImportError:
-        _warn(checks, 'deps.waitress',
-              'waitress not installed — user UI runs on the Werkzeug '
-              'development server (no read timeouts, not hardened for '
-              'untrusted networks). Install with: '
-              'pip install "vnc-remote-secure[ops]"')
+        _warn(checks, 'deps.uvicorn',
+              'uvicorn not installed — the web services cannot start. '
+              'Install with: pip install "vnc-remote-secure"')
 
 
 def _check_terminal_isolation(checks):
@@ -702,9 +700,9 @@ def run_doctor(as_json: bool = False) -> dict:
     import importlib.util
     for module, critical, pip_name in (
             ('websockify', True, 'websockify'),   # WebSocket->RFB bridge (desktop access)
-            ('flask', True, 'Flask'),             # user UI / hardened profiles require it
-            ('tornado', True, 'tornado'),         # web terminal
-            ('websockets', True, 'websockets'),   # audio/gamepad services
+            ('fastapi', True, 'fastapi'),         # all HTTP/WS surfaces
+            ('uvicorn', True, 'uvicorn'),         # ASGI server
+            ('websockets', True, 'websockets'),   # noVNC upstream client
             ('cryptography', True, 'cryptography'),  # TLS, backup encryption
             ('Crypto', True, 'pycryptodome'),     # VNC DES password handling (vendor/d3des)
     ):

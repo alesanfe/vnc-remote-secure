@@ -40,10 +40,11 @@ def set_maintenance(actor: str, active: bool, reason: str = '',
     drained = 0
     if active and drain:
         drained = stores.maintenance_drain()
-        stores.audit('maintenance_drain', actor, f'count={drained}')
     stores.audit(
-        'maintenance_on' if active else 'maintenance_off',
-        actor, f'reason={reason}' if reason else '')
+        'maintenance_changed', actor,
+        f'active={int(bool(active))}'
+        + (f' drained={drained}' if drained else '')
+        + (f' reason={reason}' if reason else ''))
     info = stores.maintenance_info() or {}
     return {
         'active': stores.maintenance_active(),

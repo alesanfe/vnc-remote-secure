@@ -1205,7 +1205,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Operator password login — mints vnc_op + vnc_csrf cookies and returns the CSRF token. Origin + Sec-Fetch checked; rate limited. */
+        /** Operator password login — mints vnc_op + vnc_csrf cookies and returns the CSRF token. Origin + Sec-Fetch checked; rate limited. When MFA is required (MFA_REQUIRED + TOTP_SECRET), the ``totp`` field carries the TOTP or recovery code; a missing code answers 401 with code=MFA_REQUIRED. */
         post: {
             parameters: {
                 query?: never;
@@ -1218,6 +1218,7 @@ export interface paths {
                     "application/json": {
                         username: string;
                         password: string;
+                        totp?: string;
                     };
                 };
             };
@@ -1236,7 +1237,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description Invalid credentials */
+                /** @description Invalid credentials / MFA_REQUIRED */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -1707,6 +1708,258 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/portal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Portal read-model for the React portal page - services, metrics, LAN links, WS endpoints. Admits any authenticated portal identity (operator or activated share-link); operator viewers additionally get the session inventory and the gamepad kill-switch state. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Portal payload */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No portal session */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Share session lacks portal view */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/session/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Non-consuming share-link grant summary (public - the token IS the credential and travels in the request body, never in a URL). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {role, expires_in_seconds, flags} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing token */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/session/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange a share-link token for the vnc_ephemeral cookie (public, rate-limited). The cookie rides on the JSON response as Set-Cookie. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {activated: true} + Set-Cookie */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing token */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/gamepad/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Local kill-switch - sets the shared gamepad:stopped flag the gamepad service checks per connection/message. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {gamepad_stopped: true} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not an operator with admin_sessions */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/gamepad/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear the gamepad kill-switch flag. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {gamepad_stopped: false} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not an operator with admin_sessions */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1825,8 +2078,6 @@ export interface components {
             data: {
                 /** @description fragment-carried share link */
                 url: string;
-                /** @deprecated */
-                legacy_url?: string;
                 token_id: string;
                 expires_at: number;
                 role: string;
@@ -1946,6 +2197,58 @@ export interface components {
             error: unknown;
             request_id: string;
         };
+        PortalResponse: {
+            data: {
+                is_operator: boolean;
+                metrics: Record<string, never>;
+                services: Record<string, never>[];
+                lan_ips?: string[];
+                nginx_enabled?: boolean;
+                nginx_https_port?: number | null;
+                /** @enum {string} */
+                protocol?: "http" | "https";
+                external_base?: string | null;
+                use_ssl?: boolean;
+                /** @enum {string} */
+                platform?: "windows" | "linux";
+                vnc_direct?: Record<string, never>;
+                audio_ws?: string | null;
+                gamepad_ws?: string | null;
+                maintenance?: Record<string, never>;
+                ports?: Record<string, never>;
+                sessions?: components["schemas"]["SessionSummary"][];
+                gamepad_stopped?: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SessionPreviewResponse: {
+            data: {
+                role: string;
+                expires_in_seconds: number;
+                view_only?: boolean;
+                single_use?: boolean;
+                no_terminal?: boolean;
+                max_uses?: number | null;
+                resource?: string | null;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SessionActivateResponse: {
+            data: {
+                activated: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        GamepadStateResponse: {
+            data: {
+                gamepad_stopped: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
         JobSummary: {
             id: string;
             kind: string;
@@ -1982,6 +2285,7 @@ export interface components {
             data: {
                 password: boolean;
                 passkey: boolean;
+                mfa?: boolean;
             };
             error: unknown;
             request_id: string;
@@ -1994,7 +2298,7 @@ export interface components {
                 };
                 csrf_token: string;
                 /** @enum {string} */
-                auth_method: "password" | "webauthn";
+                auth_method: "password" | "password+totp" | "password+recovery" | "webauthn";
             };
             error: unknown;
             request_id: string;

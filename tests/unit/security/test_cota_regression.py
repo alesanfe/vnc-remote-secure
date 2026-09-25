@@ -17,12 +17,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 class TestCota003SameSiteCoherent:
     """COTA-003: SameSite policy must be coherent."""
 
-    def test_flask_app_uses_env_var(self):
-        """Flask app reads SESSION_SAMESITE from env, defaults to Lax."""
-        from vnc_remote_secure.web.application import create_app
-        # Default should be Lax.
-        app = create_app()
-        assert app.config['SESSION_COOKIE_SAMESITE'] == 'Lax'
+    def test_samesite_resolution_uses_env_var(self):
+        """SESSION_SAMESITE resolves through the shared helper —
+        every cookie-issuing surface reads the same env var and the
+        default stays Lax."""
+        from vnc_remote_secure.core.config import resolve_samesite
+        assert resolve_samesite() == 'Lax'
 
     def test_sessions_py_uses_env_var(self):
         """sessions.py reads SESSION_SAMESITE from env, defaults to Lax."""
@@ -31,16 +31,13 @@ class TestCota003SameSiteCoherent:
         assert opts['samesite'] == 'Lax'
         assert opts['httponly'] is True
 
-    def test_user_ui_app_uses_env_var(self):
-        """Canonical web application reads SESSION_SAMESITE from env, defaults to Lax.
-
-        This was the incongruence: the legacy user_ui_app.py hardcoded 'Lax'
-        while the rest of the codebase used the env var. The canonical
-        implementation is vnc_remote_secure.web.application.
-        """
+    def test_user_ui_app_is_the_health_asgi_app(self):
+        """The canonical web application is the FastAPI health app —
+        no server-rendered user surface remains."""
         from vnc_remote_secure.web.application import create_app
         app = create_app()
-        assert app.config['SESSION_COOKIE_SAMESITE'] == 'Lax'
+        paths = {r.path for r in app.routes}
+        assert '/health' in paths and '/metrics' in paths
 
 
 class TestCota004FlaskSecretEnforced:

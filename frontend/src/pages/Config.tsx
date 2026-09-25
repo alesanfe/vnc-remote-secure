@@ -38,6 +38,7 @@ export default function Config() {
       <div className="toolbar">
         <input
           style={{ maxWidth: 320 }}
+          aria-label="Buscar variable u origen"
           placeholder="Buscar variable u origen…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -46,9 +47,12 @@ export default function Config() {
       </div>
 
       {cfg.isError && (
-        <div className="error-box">
+        <div className="error-box" role="alert">
           No se pudo cargar la configuración (¿falta el permiso admin_config?).
         </div>
+      )}
+      {cfg.isLoading && (
+        <p className="muted" role="status">Cargando…</p>
       )}
       <table className="data">
         <thead>

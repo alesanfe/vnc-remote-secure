@@ -13,7 +13,7 @@ attacker-controlled input is expected by design.
 | 5 | websockify → RFB server | TCP | loopback + DES password (8-char, secondary) | none (loopback) | RFB filter caps buffer | drop+close |
 | 6 | terminal ws → child shell | pipes | step-up + permission `terminal` | n/a | sandbox (bwrap/AppContainer), sanitized env, output caps | SIGKILL group |
 | 7 | any service → shared_state.db | sqlite | filesystem ACL (owner-only) | at-rest OS perms | busy_timeout, WAL | fail closed |
-| 8 | landing → ephemeral exchange | HTTP GET `?session=` | single-use token signature | TLS per profile | token TTL, IP/resource bind | 403, token burned |
+| 8 | portal → ephemeral exchange | URL fragment `#t=` → POST `/api/v1/session/{preview,activate}` | single-use token signature | TLS per profile | token TTL, IP/resource bind | 403, token burned |
 | 9 | alerts → Discord/webhook/email | HTTPS | webhook URL/secret | TLS | timeout, no secrets in payload | drop+log |
 | 10 | CLI → config/.env | file | filesystem ACL | n/a | schema validate, unknown keys warn | refuse start (hardened) |
 | 11 | restore → backup file | file | BACKUP_PASSWORD (Fernet/PBKDF2) | AES-128-CBC | tar path/link sanitization | refuse, no partial write |
@@ -28,8 +28,12 @@ attacker-controlled input is expected by design.
 - **Boundary 3 trusts forwarded headers only under `TRUSTED_PROXY`** —
   a direct client can spoof `X-Forwarded-*`; headers are honoured
   only when the flag is set.
-- **Boundary 8 burns the token on use** — the URL token is exchanged
-  for a cookie once; prefetch/replay gets 403.
+- **Boundary 8 burns the token on use** — the token crosses in the
+  URL fragment (`/share#t=`), which browsers never send to the
+  server; the SPA wipes it and posts it in the request body to
+  `session/preview`/`session/activate`. The token is exchanged for a
+  cookie once — prefetch/replay gets 403. (Legacy `?session=` query
+  links still work via the same consent flow.)
 - **Everything not listed is untrusted input** — Host headers,
   Origin, cookies, query params, WebSocket payloads, RFB bytes.
 

@@ -9,15 +9,12 @@ The base VNC port is read from the ``VNC_PORT`` environment variable
 (falling back to ``DEFAULT_VNC_PORT``) so the service honors the
 operator's configured port, not just the compile-time default.
 """
-import os
 import platform
 
 from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.core.constants import (
     DEFAULT_VNC_DEPTH,
     DEFAULT_VNC_GEOMETRY,
-    DEFAULT_VNC_PORT,
-    TIGERVNC_BASE_PORT,
 )
 from vnc_remote_secure.core.exceptions import ServiceError
 from vnc_remote_secure.core.processes import is_port_available
@@ -28,47 +25,18 @@ load_env_file()
 
 
 def _vnc_base_port():
-    """Return the configured base VNC port.
-
-    Read through ``get_config()`` so the display-derived port (Linux
-    ``5900+N``) is honoured here too — a raw ``VNC_PORT`` env read
-    would return the stale platform default when the operator only
-    changed ``VNC_DISPLAY``.
-    """
-    try:
-        from vnc_remote_secure.core.config import get_config
-        return int(get_config()['vnc_port'])
-    except (ValueError, KeyError):
-        try:
-            return int(os.environ.get('VNC_PORT', str(DEFAULT_VNC_PORT)))
-        except ValueError:
-            return DEFAULT_VNC_PORT
+    """Return the configured base VNC port — delegates to
+    ``core.portal.vnc_base_port`` (single derivation for services and
+    engine read models)."""
+    from vnc_remote_secure.core.portal import vnc_base_port
+    return vnc_base_port()
 
 
 def _vnc_port(display):
-    """Return the RFB port a ``vncserver :N`` display binds.
-
-    TigerVNC binds ``5900 + N`` for display ``:N`` — the adapter does
-    not pass ``-rfbport``, so the port is the RFB convention, not
-    ``VNC_PORT + N`` (VNC_PORT documents the expected port for the
-    configured VNC_DISPLAY and feeds websockify/doctor checks).
-    """
-    if display is None:
-        return _vnc_base_port()
-    raw = str(display)
-    # Strip at most ONE leading colon — '::1' must not silently
-    # become display 1.
-    s = raw[1:] if raw.startswith(':') else raw
-    if not s.isdigit():
-        raise ValueError(f'Invalid VNC display: {display!r}')
-    num = int(s)
-    port = TIGERVNC_BASE_PORT + num
-    # A display whose RFB port exceeds 65535 is meaningless — fail
-    # closed rather than let callers probe/bind a wrapped port.
-    if port > 65535:
-        raise ValueError(
-            f'VNC display {display!r} maps to out-of-range port {port}')
-    return port
+    """Return the RFB port a ``vncserver :N`` display binds — delegates
+    to ``core.portal.vnc_display_port`` (TigerVNC 5900+N convention)."""
+    from vnc_remote_secure.core.portal import vnc_display_port
+    return vnc_display_port(display)
 
 
 def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,

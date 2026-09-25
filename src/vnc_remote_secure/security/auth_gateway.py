@@ -8,7 +8,7 @@ Provides a unified auth layer that sits in front of all services
 - CSRF protection on state-changing requests
 - Origin validation for WebSocket upgrades
 
-This module is designed to be used as Flask middleware or as a
+This module is designed to be used as portal middleware or as a
 standalone HTTP handler pre-check by the stdlib-based services.
 """
 import logging
@@ -275,6 +275,22 @@ def _verify_login_mfa(username: str, totp_code: str, limiter,
     _audit('login', username, client_ip, 'success',
            'Recovery code consumed')
     return True, '', 'recovery'
+
+
+def verify_login_mfa(username: str, totp_code: str,
+                     client_ip: str = 'unknown'
+                     ) -> tuple[bool, str, str | None]:
+    """Second-factor check for the SPA login path.
+
+    Same rules as ``attempt_login``'s MFA branch — TOTP first, then
+    single-use recovery codes — with failures counted against the
+    shared ip:/user: limiter keys. Returns ``(ok, message, method)``
+    where ``method`` is ``'totp'``/``'recovery'`` on success.
+    """
+    limiter = get_auth_limiter()
+    return _verify_login_mfa(
+        username, totp_code, limiter,
+        f'ip:{client_ip}', f'user:{username}', client_ip)
 
 
 def attempt_login(

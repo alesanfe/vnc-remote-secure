@@ -21,7 +21,10 @@ export default function Security() {
       <h1 className="page-title">Seguridad</h1>
 
       {posture.isError && (
-        <div className="error-box">No se pudo calcular la postura.</div>
+        <div className="error-box" role="alert">No se pudo calcular la postura.</div>
+      )}
+      {posture.isLoading && (
+        <p className="muted" role="status">Cargando…</p>
       )}
       {p && (
         <>

@@ -52,7 +52,7 @@ sudo apt update
 sudo apt --fix-broken install
 
 # Install dependencies manually (the web terminal is the built-in
-# Python/Tornado service — ttyd is only needed as an optional alternative)
+# Python/FastAPI service — ttyd is only needed as an optional alternative)
 sudo apt install -y nginx tigervnc-standalone-server novnc openssl
 ```
 
@@ -126,7 +126,7 @@ vnc-remote status
 # Check Web Terminal port
 ss -tlnp | grep :5000
 
-# Test Web Terminal manually (Python Tornado backend, both platforms)
+# Test Web Terminal manually (Python FastAPI backend, both platforms)
 PYTHONPATH=src python -m vnc_remote_secure.services.terminal
 ```
 

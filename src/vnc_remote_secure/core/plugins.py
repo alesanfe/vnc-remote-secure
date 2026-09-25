@@ -45,7 +45,7 @@ _PLUGINS: tuple[OptionalPlugin, ...] = (
         default_enabled=True),
     OptionalPlugin(
         'user_ui', 'user_ui_enabled', 'user:manage',
-        'Flask user-management UI'),
+        'Health/metrics web surface'),
     OptionalPlugin(
         'audio', 'audio_stream_enabled', 'audio:listen',
         'PulseAudio -> Icecast audio stream (Linux only)'),

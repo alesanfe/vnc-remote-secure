@@ -1,39 +1,39 @@
-"""Unit tests for the noVNC WebSocket proxy helpers."""
-from vnc_remote_secure.services.novnc import (
-    _AuthedSimpleHTTPRequestHandler as H,
-)
+"""Unit tests for the noVNC WebSocket upgrade helpers."""
+import pytest
+
+from vnc_remote_secure.services import novnc
 
 
 class TestParseCookies:
     def test_parses_multiple(self):
-        cookies = H._parse_cookies('a=1; vnc_session=abc; x=y')
+        cookies = novnc._parse_cookies('a=1; vnc_session=abc; x=y')
         assert cookies['a'] == '1'
         assert cookies['vnc_session'] == 'abc'
         assert cookies['x'] == 'y'
 
     def test_empty_header(self):
-        assert H._parse_cookies('') == {}
-        assert H._parse_cookies(None) == {}
+        assert novnc._parse_cookies('') == {}
+        assert novnc._parse_cookies(None) == {}
 
     def test_ignores_malformed_parts(self):
-        cookies = H._parse_cookies('nok; good=1; =noval')
+        cookies = novnc._parse_cookies('nok; good=1; =noval')
         assert cookies == {'good': '1', '': 'noval'}
 
 
 class TestEphemeralToken:
     def test_cookie_wins(self):
-        tok = H._ephemeral_token({'vnc_ephemeral': 'c'}, 'bearer')
+        tok = novnc._ephemeral_token({'vnc_ephemeral': 'c'}, 'bearer')
         assert tok == 'c'
 
     def test_bearer_fallback_verifies(self, monkeypatch):
         monkeypatch.setattr(
             'vnc_remote_secure.security.ephemeral_sessions.verify_ephemeral_token',
             lambda t: {'session_token': 'inner'} if t == 'good' else None)
-        assert H._ephemeral_token({}, 'good') == 'inner'
-        assert H._ephemeral_token({}, 'bad') == ''
+        assert novnc._ephemeral_token({}, 'good') == 'inner'
+        assert novnc._ephemeral_token({}, 'bad') == ''
 
     def test_no_credentials(self):
-        assert H._ephemeral_token({}, '') == ''
+        assert novnc._ephemeral_token({}, '') == ''
 
 
 class TestBuildRfbFilter:
@@ -61,15 +61,15 @@ class TestBuildRfbFilter:
                         perm, False)
 
     def test_no_token_no_filter(self):
-        assert H._build_rfb_filter('') is None
+        assert novnc._build_rfb_filter('') is None
 
     def test_full_perms_no_filter(self, monkeypatch):
         self._store(monkeypatch, self._Sess(control=True, clip=True))
-        assert H._build_rfb_filter('tok') is None
+        assert novnc._build_rfb_filter('tok') is None
 
     def test_view_only_gets_filter(self, monkeypatch):
         self._store(monkeypatch, self._Sess(control=False, clip=False))
-        f = H._build_rfb_filter('tok')
+        f = novnc._build_rfb_filter('tok')
         assert f is not None
 
     def test_write_only_clipboard_gets_filter(self, monkeypatch):
@@ -78,151 +78,13 @@ class TestBuildRfbFilter:
         ServerCutText."""
         self._store(monkeypatch, self._Sess(
             control=True, clip=True, clip_r=False))
-        f = H._build_rfb_filter('tok')
+        f = novnc._build_rfb_filter('tok')
         assert f is not None
         assert f.allow_clipboard_read is False
 
     def test_unknown_session_no_filter(self, monkeypatch):
         self._store(monkeypatch, None)
-        assert H._build_rfb_filter('ghost') is None
-
-
-class TestProxyWebsocketGate:
-    """_proxy_websocket reject paths — origin gate, upstream down,
-    TOCTOU revoke. Exercised via a stub handler, no real socket."""
-
-    def _handler(self, stub_handler, headers=None):
-        return stub_handler(H, headers=headers, path='/websockify')
-
-    def test_bad_origin_403_and_rate_limited(self, monkeypatch, stub_handler):
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
-            lambda: ['https://ok.example'], raising=False)
-        h = self._handler(stub_handler,
-                          headers={'Origin': 'https://evil.example'})
-        h._proxy_websocket()
-        h._ws_error.assert_called_once()
-        assert h._ws_error.call_args[0][0] == 403
-        h._record_ws_origin_failure.assert_called_once()
-
-    def test_upstream_down_502(self, monkeypatch, stub_handler):
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
-            lambda: ['https://ok.example'], raising=False)
-        import socket as _s
-        monkeypatch.setattr(
-            _s, 'create_connection',
-            lambda *a, **k: (_ for _ in ()).throw(OSError('down')))
-        h = self._handler(stub_handler,
-                          headers={'Origin': 'https://ok.example'})
-        h._proxy_websocket()
-        assert h._ws_error.call_args[0][0] == 502
-
-    def test_toctou_revoke_returns_early(self, monkeypatch, stub_handler):
-        """_register_ws -> None (session revoked mid-upgrade) must
-        return without relaying."""
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
-            lambda: ['https://ok.example'], raising=False)
-        import socket as _s
-        upstream = type('U', (), {'close': lambda self: None,
-                                  'sendall': lambda self, b: None})()
-        monkeypatch.setattr(_s, 'create_connection',
-                            lambda *a, **k: upstream)
-        h = self._handler(stub_handler, headers={
-            'Origin': 'https://ok.example',
-            'Cookie': 'vnc_session=tok',
-        })
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.H._register_ws'
-            if False else
-            'vnc_remote_secure.services.novnc._AuthedSimpleHTTPRequestHandler._register_ws',
-            lambda *a, **k: None)
-        relayed = []
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.relay_rfb_stream',
-            lambda *a: relayed.append(1))
-        h._proxy_websocket()
-        assert relayed == []
-        assert not h._ws_error.called
-
-
-class TestRelayCleanup:
-    """conn_id must be unregistered on EVERY relay exit — a stale
-    registry entry keeps a dead socket's close callback alive and
-    prevents revocation propagation."""
-
-    def _setup(self, monkeypatch, unreg):
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
-            lambda: ['https://ok.example'], raising=False)
-        import socket as _s
-        upstream = type('U', (), {'close': lambda self: None,
-                                  'sendall': lambda self, b: None})()
-        monkeypatch.setattr(_s, 'create_connection',
-                            lambda *a, **k: upstream)
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.'
-            '_AuthedSimpleHTTPRequestHandler._register_ws',
-            lambda *a, **k: 'conn_7')
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.'
-            '_AuthedSimpleHTTPRequestHandler._ephemeral_token',
-            lambda *a, **k: 'tok', raising=False)
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.websocket_registry.'
-            'unregister_connection',
-            lambda cid: unreg.append(cid))
-        return upstream
-
-    def test_unregister_on_relay_end(self, monkeypatch, stub_handler):
-        unreg = []
-        self._setup(monkeypatch, unreg)
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.relay_rfb_stream',
-            lambda *a: None)
-        h = TestProxyWebsocketGate()._handler(stub_handler, headers={
-            'Origin': 'https://ok.example',
-            'Cookie': 'vnc_session=tok'})
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.'
-            '_AuthedSimpleHTTPRequestHandler._authenticate',
-            lambda *a, **k: (True, 'tok'), raising=False)
-        h._proxy_websocket()
-        assert unreg == ['conn_7']
-
-    def test_unregister_on_relay_oserror(self, monkeypatch, stub_handler):
-        unreg = []
-        self._setup(monkeypatch, unreg)
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.relay_rfb_stream',
-            lambda *a: (_ for _ in ()).throw(OSError('reset')))
-        h = TestProxyWebsocketGate()._handler(stub_handler, headers={
-            'Origin': 'https://ok.example',
-            'Cookie': 'vnc_session=tok'})
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.'
-            '_AuthedSimpleHTTPRequestHandler._authenticate',
-            lambda *a, **k: (True, 'tok'), raising=False)
-        h._proxy_websocket()
-        assert unreg == ['conn_7']
-
-    def test_unregister_on_header_encode_failure(self, monkeypatch, stub_handler):
-        """A header value unencodable in latin-1 must close upstream
-        AND unregister — not leak the registration."""
-        unreg = []
-        self._setup(monkeypatch, unreg)
-        h = TestProxyWebsocketGate()._handler(stub_handler, headers={
-            'Origin': 'https://ok.example',
-            'Cookie': 'vnc_session=tok',
-            'X-Bad': '\u20ac',  # euro sign — not latin-1
-        })
-        monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.'
-            '_AuthedSimpleHTTPRequestHandler._authenticate',
-            lambda *a, **k: (True, 'tok'), raising=False)
-        h._proxy_websocket()
-        assert unreg == ['conn_7']
+        assert novnc._build_rfb_filter('ghost') is None
 
 
 class TestRfbFilterFailClosed:
@@ -230,7 +92,7 @@ class TestRfbFilterFailClosed:
     degrade to unfiltered proxying (fail-closed)."""
 
     def test_store_failure_fails_closed(self, monkeypatch):
-        """_build_rfb_filter raises _RfbFilterError so the caller
+        """_build_rfb_filter raises _RfbFilterError so the route
         denies the upgrade instead of proxying byte-transparent."""
         import pytest
 
@@ -247,39 +109,95 @@ class TestRfbFilterFailClosed:
             'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
             lambda: _BrokenStore())
         with pytest.raises(_RfbFilterError):
-            H._build_rfb_filter('tok')
+            novnc._build_rfb_filter('tok')
 
 
-class TestProxyWebsocketFilterDenial:
-    """The websockify path must 403 when a restricted session's RFB
-    filter cannot be constructed - never proxy byte-transparent."""
+class TestWsPayloads:
+    """The message-level relay wraps payloads in synthetic frames for
+    the RFB filter and unwraps its framed output — _ws_payloads is
+    the unwrap side."""
 
-    def test_filter_error_denies_upgrade(self, monkeypatch, stub_handler):
+    def test_extracts_binary_payload(self):
+        from vnc_remote_secure.services.rfb_filter import _ws_frame
+        framed = _ws_frame(b'RFB-data')
+        assert novnc._ws_payloads(framed) == [b'RFB-data']
+
+    def test_multiple_frames(self):
+        from vnc_remote_secure.services.rfb_filter import _ws_frame
+        framed = _ws_frame(b'one') + _ws_frame(b'two')
+        assert novnc._ws_payloads(framed) == [b'one', b'two']
+
+    def test_unmasked_server_frame(self):
+        from vnc_remote_secure.services.rfb_filter import _ws_server_frame
+        framed = _ws_server_frame(b'srv')
+        assert novnc._ws_payloads(framed) == [b'srv']
+
+
+class TestWebsockifyUpgradeGate:
+    """The /websockify route's pre-accept rejection paths — origin
+    gate, auth gate, upstream down, TOCTOU revoke — exercised over a
+    real uvicorn instance with stubbed boundaries."""
+
+    @pytest.fixture
+    def ws_url(self, monkeypatch, asgi_server):
         monkeypatch.setattr(
             'vnc_remote_secure.security.auth_gateway.get_allowed_origins',
             lambda: ['https://ok.example'], raising=False)
-        import socket as _s
-        closed = []
-        upstream = type('U', (), {
-            'close': lambda self: closed.append(1),
-            'sendall': lambda self, b: None})()
-        monkeypatch.setattr(_s, 'create_connection',
-                            lambda *a, **k: upstream)
         monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.'
-            '_AuthedSimpleHTTPRequestHandler._build_rfb_filter',
-            staticmethod(lambda tok: (_ for _ in ()).throw(
-                __import__(
-                    'vnc_remote_secure.services.novnc',
-                    fromlist=['_RfbFilterError'])._RfbFilterError('x'))))
-        relayed = []
+            'vnc_remote_secure.services.novnc._check_novnc_auth',
+            lambda headers, client_ip=None: (True, ''))
+        port = asgi_server(novnc.make_app('.'))
+        return f'ws://127.0.0.1:{port}/websockify'
+
+    def _connect(self, url, headers):
+        import asyncio
+
+        import websockets
+
+        async def _go():
+            try:
+                async with websockets.connect(
+                        url, additional_headers=headers,
+                        open_timeout=5) as ws:
+                    await ws.recv()
+                    return 'connected'
+            except websockets.exceptions.InvalidStatus as e:
+                return e.response.status_code
+            except websockets.exceptions.ConnectionClosed:
+                return 'closed'
+
+        return asyncio.run(_go())
+
+    def test_bad_origin_403(self, ws_url):
+        status = self._connect(
+            ws_url, {'Origin': 'https://evil.example'})
+        assert status == 403
+
+    def test_upstream_down_502(self, monkeypatch, ws_url):
+        # NOVNC_WS_PORT points at a port with no bridge listening.
+        monkeypatch.setenv('NOVNC_WS_PORT', '1')
+        status = self._connect(
+            ws_url, {'Origin': 'https://ok.example'})
+        assert status == 502
+
+    def test_filter_error_denies_403(self, monkeypatch, ws_url):
+        """A restricted session whose filter cannot be built gets a
+        403 denial — never a byte-transparent proxy."""
+        from vnc_remote_secure.services.novnc import _RfbFilterError
         monkeypatch.setattr(
-            'vnc_remote_secure.services.novnc.relay_rfb_stream',
-            lambda *a: relayed.append(1))
-        h = stub_handler(H, headers={
-            'Origin': 'https://ok.example',
-            'Cookie': 'vnc_ephemeral=tok'})
-        h._proxy_websocket()
-        assert h.send_response.call_args[0][0] == 403
-        assert closed == [1]
-        assert relayed == []
+            'vnc_remote_secure.services.novnc._build_rfb_filter',
+            lambda tok: (_ for _ in ()).throw(_RfbFilterError('x')))
+        status = self._connect(
+            ws_url, {'Origin': 'https://ok.example',
+                     'Cookie': 'vnc_ephemeral=tok'})
+        assert status == 403
+
+    def test_auth_failure_401(self, monkeypatch, tmp_path, asgi_server):
+        monkeypatch.setattr(
+            'vnc_remote_secure.services.novnc._check_novnc_auth',
+            lambda headers, client_ip=None: (False, 'no creds'))
+        port = asgi_server(novnc.make_app(str(tmp_path)))
+        status = self._connect(
+            f'ws://127.0.0.1:{port}/websockify',
+            {'Origin': 'https://ok.example'})
+        assert status == 401

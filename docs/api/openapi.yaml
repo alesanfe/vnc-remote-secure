@@ -1,3 +1,10 @@
+# =============================================================================
+# DEPRECATED — the canonical spec for the versioned API surface is
+# openapi.v1.yaml (the /api/v1/* routes served by the FastAPI portal).
+# This file describes the retired Flask user-management UI and legacy
+# /login scheme; it is retained for historical reference only and is NOT
+# kept in sync. Do not generate clients from it.
+# =============================================================================
 openapi: 3.0.3
 info:
   title: VNC Remote Secure API

@@ -67,8 +67,6 @@ _CATALOG: tuple[Capability, ...] = (
                'Create and delete system users'),
     Capability('admin_config', 'admin', 'medium',
                'Read and modify deployment configuration'),
-    Capability('admin_secrets', 'admin', 'high',
-               'Rotate and manage secrets'),
     Capability('admin_audit', 'admin', 'medium',
                'Read and verify the audit log'),
 )

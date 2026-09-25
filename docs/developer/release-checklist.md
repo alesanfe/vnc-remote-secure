@@ -22,7 +22,7 @@ checkout.
 
 | # | Scenario | Steps | Expected |
 |---|----------|-------|----------|
-| 9 | MFA enrolment | Set `TOTP_SECRET`, login with code | Login requires valid TOTP; replay rejected |
+| 9 | Step-up auth | Call a step-up-gated mutation (e.g. `POST /api/v1/system-users`) without a recent `POST /api/v1/step-up` | 403 `STEP_UP_REQUIRED`; succeeds after step-up |
 | 10 | Recovery codes | Use a recovery code twice | First use succeeds; second rejected |
 | 11 | Session revocation | `session create`, connect, `session revoke` | Live WebSocket closes immediately |
 | 12 | Expired share link | Activate link, wait past `--expires` | Cookie rejected; WS upgrade refused |
@@ -32,7 +32,7 @@ checkout.
 | 16 | View-only session | `--view-only` link, open gamepad/terminal | Control channels refused |
 | 17 | Rate limiting | >10 failed logins from one IP | 429; backoff visible in audit log |
 | 18 | Blocking findings | `public-hardened` + `DISABLE_SSL=true` | `start` refuses with `NO_TLS_PUBLIC` |
-| 19 | CSRF | POST `/api/users` without CSRF token | 403 |
+| 19 | CSRF | POST `/api/v1/system-users` without CSRF token | 403 |
 | 20 | Origin spoofing | WS upgrade with foreign `Origin` | 1008 close |
 
 ## Operational scenarios

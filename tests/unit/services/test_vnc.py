@@ -55,14 +55,17 @@ def _patch_adapter(monkeypatch, adapter):
 # ---------------------------------------------------------------------------
 
 def test_vnc_port_from_display_number():
-    base = vnc.DEFAULT_VNC_PORT
-    assert vnc._vnc_port(':1') == base + 1
-    assert vnc._vnc_port(':0') == base
-    assert vnc._vnc_port('5') == base + 5
+    from vnc_remote_secure.core.constants import DEFAULT_VNC_PORT, TIGERVNC_BASE_PORT
+    assert vnc._vnc_port(':1') == TIGERVNC_BASE_PORT + 1
+    assert vnc._vnc_port(':0') == TIGERVNC_BASE_PORT
+    assert vnc._vnc_port('5') == TIGERVNC_BASE_PORT + 5
+    # None falls back to the configured/default base port.
+    assert DEFAULT_VNC_PORT >= 5900
 
 
 def test_vnc_port_none_defaults_to_base():
-    assert vnc._vnc_port(None) == vnc.DEFAULT_VNC_PORT
+    from vnc_remote_secure.core.constants import DEFAULT_VNC_PORT
+    assert vnc._vnc_port(None) == DEFAULT_VNC_PORT
 
 
 # ---------------------------------------------------------------------------

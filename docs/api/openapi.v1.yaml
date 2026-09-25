@@ -182,7 +182,6 @@ components:
           required: [url, token_id, expires_at, role]
           properties:
             url: { type: string, description: 'fragment-carried share link' }
-            legacy_url: { type: string, deprecated: true }
             token_id: { type: string }
             expires_at: { type: number }
             role: { type: string }
@@ -350,6 +349,76 @@ components:
             info: { type: object }
         error: { nullable: true }
         request_id: { type: string }
+    PortalResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [is_operator, metrics, services]
+          properties:
+            is_operator: { type: boolean }
+            metrics: { type: object }
+            services:
+              type: array
+              items: { type: object }
+            lan_ips: { type: array, items: { type: string } }
+            nginx_enabled: { type: boolean }
+            nginx_https_port: { type: integer, nullable: true }
+            protocol: { type: string, enum: [http, https] }
+            external_base: { type: string, nullable: true }
+            use_ssl: { type: boolean }
+            platform: { type: string, enum: [windows, linux] }
+            vnc_direct: { type: object }
+            audio_ws: { type: string, nullable: true }
+            gamepad_ws: { type: string, nullable: true }
+            maintenance: { type: object, nullable: true }
+            ports: { type: object }
+            sessions:
+              type: array
+              items: { $ref: '#/components/schemas/SessionSummary' }
+            gamepad_stopped: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    SessionPreviewResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [role, expires_in_seconds]
+          properties:
+            role: { type: string }
+            expires_in_seconds: { type: integer }
+            view_only: { type: boolean }
+            single_use: { type: boolean }
+            no_terminal: { type: boolean }
+            max_uses: { type: integer, nullable: true }
+            resource: { type: string, nullable: true }
+        error: { nullable: true }
+        request_id: { type: string }
+    SessionActivateResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [activated]
+          properties:
+            activated: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    GamepadStateResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [gamepad_stopped]
+          properties:
+            gamepad_stopped: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
     JobSummary:
       type: object
       required: [id, kind, actor, state, started_at]
@@ -408,6 +477,7 @@ components:
           properties:
             password: { type: boolean }
             passkey: { type: boolean }
+            mfa: { type: boolean }
         error: { nullable: true }
         request_id: { type: string }
     LoginResponse:
@@ -424,7 +494,9 @@ components:
                 username: { type: string }
                 role: { type: string, nullable: true }
             csrf_token: { type: string }
-            auth_method: { type: string, enum: [password, webauthn] }
+            auth_method:
+              type: string
+              enum: [password, password+totp, password+recovery, webauthn]
         error: { nullable: true }
         request_id: { type: string }
     PasskeyAuthOptionsResponse:
@@ -1094,7 +1166,9 @@ paths:
       summary: >-
         Operator password login — mints vnc_op + vnc_csrf cookies and
         returns the CSRF token. Origin + Sec-Fetch checked; rate
-        limited.
+        limited. When MFA is required (MFA_REQUIRED + TOTP_SECRET),
+        the ``totp`` field carries the TOTP or recovery code; a
+        missing code answers 401 with code=MFA_REQUIRED.
       x-required-permission: public
       x-rate-limit-scope: login
       x-response-schema: LoginResponse
@@ -1110,10 +1184,11 @@ paths:
               properties:
                 username: { type: string, maxLength: 128 }
                 password: { type: string, maxLength: 512 }
+                totp: { type: string, maxLength: 32 }
       responses:
         '200': { description: '{operator, csrf_token, auth_method}' }
         '400': { description: Missing/oversized credentials }
-        '401': { description: Invalid credentials }
+        '401': { description: Invalid credentials / MFA_REQUIRED }
         '403': { description: Cross-site request rejected }
         '429': { description: Rate limited }
   /auth/passkey/begin:
@@ -1323,3 +1398,91 @@ paths:
         '200': { description: '{active, drained_now, drain_at, info}' }
         '400': { description: Invalid payload }
         '403': { description: 'Not admin:* or STEP_UP_REQUIRED' }
+  /portal:
+    get:
+      summary: >-
+        Portal read-model for the React portal page - services,
+        metrics, LAN links, WS endpoints. Admits any authenticated
+        portal identity (operator or activated share-link); operator
+        viewers additionally get the session inventory and the
+        gamepad kill-switch state.
+      x-required-permission: session
+      x-rate-limit-scope: default
+      x-response-schema: PortalResponse
+      responses:
+        '200': { description: Portal payload }
+        '401': { description: No portal session }
+        '403': { description: Share session lacks portal view }
+  /session/preview:
+    post:
+      summary: >-
+        Non-consuming share-link grant summary (public - the token IS
+        the credential and travels in the request body, never in a
+        URL).
+      x-required-permission: public
+      x-rate-limit-scope: session.preview
+      x-response-schema: SessionPreviewResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 4096 }
+      responses:
+        '200': { description: '{role, expires_in_seconds, flags}' }
+        '400': { description: Missing token }
+        '403': { description: Invalid, expired or already used }
+        '429': { description: Rate limited }
+  /session/activate:
+    post:
+      summary: >-
+        Exchange a share-link token for the vnc_ephemeral cookie
+        (public, rate-limited). The cookie rides on the JSON response
+        as Set-Cookie.
+      x-required-permission: public
+      x-rate-limit-scope: session.activate
+      x-response-schema: SessionActivateResponse
+      x-audit-event: session_activated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 4096 }
+      responses:
+        '200': { description: '{activated: true} + Set-Cookie' }
+        '400': { description: Missing token }
+        '403': { description: Invalid, expired or already used }
+        '429': { description: Rate limited }
+  /gamepad/stop:
+    post:
+      summary: >-
+        Local kill-switch - sets the shared gamepad:stopped flag the
+        gamepad service checks per connection/message.
+      x-required-permission: admin_sessions
+      x-csrf-required: true
+      x-rate-limit-scope: default
+      x-response-schema: GamepadStateResponse
+      x-audit-event: portal_gamepad_stop
+      responses:
+        '200': { description: '{gamepad_stopped: true}' }
+        '403': { description: Not an operator with admin_sessions }
+  /gamepad/resume:
+    post:
+      summary: Clear the gamepad kill-switch flag.
+      x-required-permission: admin_sessions
+      x-csrf-required: true
+      x-rate-limit-scope: default
+      x-response-schema: GamepadStateResponse
+      x-audit-event: portal_gamepad_resume
+      responses:
+        '200': { description: '{gamepad_stopped: false}' }
+        '403': { description: Not an operator with admin_sessions }

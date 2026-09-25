@@ -1,15 +1,13 @@
-"""Live-server tests for the noVNC static-file HTTP handler.
+"""Live-server tests for the noVNC static-file HTTP surface.
 
-Runs _AuthedSimpleHTTPRequestHandler on a real ThreadingTCPServer in a
-temp directory so the auth gate, static serving and 404s are exercised
-end-to-end — complementing the relay unit tests (relay_rfb_stream)
-and the ephemeral e2e.
+Runs the FastAPI novnc app on a real uvicorn instance in a temp
+directory so the auth gate, static serving and 404s are exercised
+end-to-end — complementing the relay unit tests (_relay_ws) and the
+ephemeral e2e.
 """
 import http.client
 import os
-import socketserver
 import sys
-import threading
 
 import pytest
 
@@ -19,11 +17,11 @@ from vnc_remote_secure.services import novnc  # noqa: E402
 
 
 @pytest.fixture
-def novnc_server(monkeypatch, tmp_path):
-    """Real threaded server serving a scratch static dir.
+def novnc_server(monkeypatch, tmp_path, asgi_server):
+    """Real uvicorn server serving a scratch static dir.
 
     Auth is stubbed at the module boundary — the credential-resolution
-    tree is covered by auth_gateway tests; here we test the handler's
+    tree is covered by auth_gateway tests; here we test the app's
     enforcement contract (401 + WWW-Authenticate vs. serve).
     """
     (tmp_path / 'vnc.html').write_text('<html>novnc</html>')
@@ -36,17 +34,7 @@ def novnc_server(monkeypatch, tmp_path):
         return False, 'missing credentials'
 
     monkeypatch.setattr(novnc, '_check_novnc_auth', fake_check)
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    srv = socketserver.ThreadingTCPServer(
-        ('127.0.0.1', 0), novnc._AuthedSimpleHTTPRequestHandler)
-    srv.daemon_threads = True
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
-    yield srv.server_address[1]
-    srv.shutdown()
-    srv.server_close()
-    os.chdir(cwd)
+    return asgi_server(novnc.make_app(str(tmp_path)))
 
 
 def _req(port, path, method='GET', headers=None):
@@ -55,13 +43,14 @@ def _req(port, path, method='GET', headers=None):
     resp = conn.getresponse()
     body = resp.read()
     conn.close()
-    return resp.status, dict(resp.getheaders()), body
+    # ASGI servers emit lowercase header names — normalize.
+    return resp.status, {k.lower(): v for k, v in resp.getheaders()}, body
 
 
 def test_get_unauthenticated_401(novnc_server):
     status, headers, body = _req(novnc_server, '/vnc.html')
     assert status == 401
-    assert 'WWW-Authenticate' in headers
+    assert 'www-authenticate' in headers
     assert b'unauthorized' in body
 
 
@@ -103,12 +92,12 @@ def test_unknown_path_404_when_authed(novnc_server):
 
 
 def test_security_headers_present(novnc_server):
-    """end_headers must attach the shared security headers."""
+    """Responses carry the shared security headers."""
     _, headers, _ = _req(
         novnc_server, '/vnc.html',
         headers={'Cookie': 'vnc_session=good'})
     # At minimum the standard hardening headers are set.
-    assert any(k.lower().startswith('x-') or k == 'Content-Security-Policy'
+    assert any(k.lower().startswith('x-') or k == 'content-security-policy'
                for k in headers)
 
 
@@ -117,3 +106,11 @@ def test_query_string_does_not_bypass_auth(novnc_server):
     strips the query, and so does static serving."""
     status, _, _ = _req(novnc_server, '/vnc.html?cache=bust')
     assert status == 401
+
+
+def test_traversal_does_not_escape_root(novnc_server):
+    """../ segments must not escape the noVNC directory."""
+    status, _, _ = _req(
+        novnc_server, '/..%2f..%2fetc%2fpasswd',
+        headers={'Cookie': 'vnc_session=good'})
+    assert status in (400, 404)

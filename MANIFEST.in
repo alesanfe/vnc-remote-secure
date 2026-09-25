@@ -42,11 +42,9 @@ include src/vnc_remote_secure/config/nginx.conf
 # Third-party manifests, licenses, checksums
 recursive-include src/vnc_remote_secure/third_party *
 
-# Web templates (also declared in pyproject.toml package-data; repeated
-# here so sdist includes them).
-recursive-include src/vnc_remote_secure/web/templates *
+# Built React SPA bundle (all user-facing UI lives there now —
+# there are no server-rendered templates anymore).
 recursive-include src/vnc_remote_secure/web/static/admin *
-recursive-include src/vnc_remote_secure/static *.css *.js *.html
 
 # Packaging
 recursive-include packaging *

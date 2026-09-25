@@ -138,7 +138,11 @@ export default function Doctor() {
       )}
 
       {doctor.isError && (
-        <div className="error-box">El diagnóstico falló.</div>
+        <div className="error-box" role="alert">
+          {doctor.error instanceof ApiError
+            ? `El diagnóstico falló: ${doctor.error.message}`
+            : 'El diagnóstico falló.'}
+        </div>
       )}
       {d && (
         <table className="data">

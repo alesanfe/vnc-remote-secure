@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 # actions that actually have a runtime enforcement point — every entry
 # has a ``require_step_up`` call site:
 #   open_terminal  -> services/terminal.py WebSocket open
-#   create_admin   -> web/routes/users.py /create_user, /api/users POST
-#   delete_admin   -> web/routes/users.py /delete_user, /api/users DELETE
+#   create_admin   -> /api/v1/system-users POST (engine use case)
+#   delete_admin   -> /api/v1/system-users/{u} DELETE (engine use case)
 #
 # The remaining sensitive operations (disable_tls, change_profile,
 # rotate_secrets, modify_firewall, view_audit_log, session creation)

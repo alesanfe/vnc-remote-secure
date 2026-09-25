@@ -26,7 +26,7 @@ def error_json(
     code: str | None = None,
     request_id: str | None = None,
 ) -> tuple[str, int]:
-    """Return a JSON error response tuple for Flask/http.server handlers.
+    """Return a JSON error response tuple for HTTP handlers.
 
     Returns (body_string, status_code) where body_string is a JSON
     object with a structured error schema.
@@ -49,28 +49,4 @@ def log_exception(exc, context: str = ''):
         logger.warning("Unhandled exception: %s", exc, exc_info=True)
 
 
-def error_json_response(
-    message: str,
-    status_code: int = 400,
-    detail: str | None = None,
-    code: str | None = None,
-    request_id: str | None = None,
-):
-    """Flask-compatible JSON error response.
 
-    Returns a ``(jsonify_response, status_code)`` tuple suitable for
-    direct return from Flask view functions.
-    """
-    from flask import jsonify
-    body = {'error': True, 'message': str(message)}
-    if code:
-        body['code'] = code
-    if detail is not None:
-        body['detail'] = str(detail)
-    if request_id:
-        body['request_id'] = request_id
-    return jsonify(body), status_code
-
-
-# Flask-compatible alias for the JSON error envelope.
-json_error = error_json_response

@@ -2,7 +2,7 @@
 
 Provides a cookie-based session store with HttpOnly, Secure, SameSite
 attributes, CSRF protection, and idle/max lifetime enforcement. Designed
-to be used by the Flask web application and the health/landing services.
+to be used by the portal transport and the health/landing services.
 
 Token signing is delegated to ``security.token_signing`` so that
 persistent session cookies and ephemeral access tokens share a single

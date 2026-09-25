@@ -134,7 +134,7 @@ def create_ssl_context(cert_file=None, key_file=None):
         # Fail-open to plain HTTP would silently downgrade the whole
         # deployment on a typo'd SSL_CERT or a permissions error. Under
         # hardened profiles this must abort instead — same gate as the
-        # Flask-required check in web/application.py.
+        # transport-required check in web/application.py.
         if _is_hardened_profile():
             raise RuntimeError(
                 f"SSL context failed to load under profile '{_profile()}': "

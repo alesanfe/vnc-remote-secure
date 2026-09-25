@@ -6,7 +6,7 @@ Operational guide for agents and contributors working on this repository.
 
 VNC Remote Secure: cross-platform system for secure browser-based remote access
 via VNC, noVNC desktop, web terminal, optional audio/gamepad streaming, health
-dashboard, and a Flask user-management UI.
+dashboard, and a React admin/user-facing UI (single SPA bundle).
 
 The project uses a **Python-canonical architecture**: the unified Python CLI
 (``vnc_remote_secure.cli``) is the single authoritative runtime on every
@@ -42,7 +42,7 @@ CLI canónico en Python (vnc-remote → vnc_remote_secure.cli:main)
 ### Entry points
 
 - **Canonical CLI**: `vnc-remote` (Bash thin wrapper) → `vnc_remote_secure.cli:main` (Python)
-  - Commands: `start`, `stop`, `restart`, `status`, `doctor`, `install`, `uninstall`, `backup`, `restore`, `session`, `secrets`, `config`, `verify`, `service`, `version`, `help`
+  - Commands: `start`, `stop`, `restart`, `status`, `doctor`, `install`, `uninstall`, `backup`, `restore`, `session`, `operator`, `secrets`, `config`, `security`, `upgrade`, `maintenance`, `verify`, `service`, `version`, `help`
 - **Windows PowerShell**: `VncRemote.ps1` and `src/vnc_remote_secure/native/windows/VncRemote.psm1` (thin
   compatibility wrappers — all commands delegate to the Python CLI via
   `Invoke-PythonCli`; PowerShell verb names map to Python subcommands:
@@ -93,13 +93,18 @@ Never hardcode the version string in more than `pyproject.toml` (the
     **api_v1** (versioned JSON API for the admin SPA)
   - `security/` — audit, **auth_gateway**, authentication, certificates, credentials, ephemeral_sessions, file_permissions, http_auth, http_headers, mfa, posture, **profiles**, **rate_limit**, redaction, sessions, **shared_state**, step_up_auth, tls_validation, **token_signing**, **websocket_registry**
   - `monitoring/` — health, prometheus, **alerts** (Discord/webhook/email dispatch)
-  - `web/` — Flask application, routes, templates, `static/admin/` (built admin SPA)
+  - `web/` — health/metrics app entry point (`application.py` →
+    `backend/health_app.py`, FastAPI/uvicorn; machine-facing only, no
+    UI routes/templates) + `static/admin/` (built SPA assets)
   - `vendor/d3des.py` — VNC DES (legacy protocol compatibility, pycryptodome-backed)
-- **Admin frontend**: `frontend/` — React + TypeScript + Vite SPA
-  (`react-router-dom`, `@tanstack/react-query`). `npm run build` emits
-  the bundle to `src/vnc_remote_secure/web/static/admin/`; the landing
-  service serves it under `/admin/` (operator-only) with SPA fallback
-  to `index.html`. The SPA talks to `/api/v1/*` on the landing service
+- **Frontend**: `frontend/` — React + TypeScript + Vite SPA
+  (`react-router-dom`, `@tanstack/react-query`) serving EVERY
+  user-facing surface: portal (`/`), share links (`/share`), audio
+  (`/audio`), gamepad (`/gamepad`) and the operator console
+  (`/admin/*`). `npm run build` emits the bundle to
+  `src/vnc_remote_secure/web/static/admin/`; the landing service
+  serves `index.html` for all those routes with SPA fallback.
+  The SPA talks to `/api/v1/*` on the landing service
   (`services/api_v1.py`) — Python remains the sole authority on
   security decisions; React only renders and posts actions.
   - `npm run gen:types` regenerates `src/api/generated/types.ts` from
@@ -108,10 +113,14 @@ Never hardcode the version string in more than `pyproject.toml` (the
     the global setup spawns the real landing service on a random
     loopback port with an isolated run dir (no Node needed at runtime,
     only for development).
-- **Share-link flow**: `GET /?session=<token>` renders a non-consuming
-  interstitial (role/expiry preview + POST form); activation happens
-  only via `POST /session/activate`, which issues the `vnc_ephemeral`
-  cookie and redirects to `/`.
+- **Share-link flow**: generated links are fragment URLs —
+  `GET /share#t=<token>` serves the React SPA; the token never reaches
+  the server — the SPA wipes it from the URL, calls
+  `POST /api/v1/session/preview` (non-consuming grant summary →
+  consent card) and, on consent, `POST /api/v1/session/activate`,
+  which issues the `vnc_ephemeral` cookie on the JSON response.
+  Legacy `GET /?session=<token>` links still work through the same
+  consent flow but are never generated.
 - **Linux Bash**: `src/rpi-vnc-remote.sh` (thin compatibility wrapper → Python CLI)
 - **Windows PowerShell**: `src/vnc_remote_secure/native/windows/` (module + commands)
 - **Native assets**: `src/vnc_remote_secure/native/` — `linux/{bin,systemd}/` (launcher + unit), `windows/` (`VncRemote.psm1/.psd1`, `commands/*.ps1`, `Firewall.ps1`, `service/service-config.xml`)
@@ -126,9 +135,9 @@ Never hardcode the version string in more than `pyproject.toml` (the
 
 **Server-side: Linux and Windows.**
 
-- **Linux**: TigerVNC, Tornado (web terminal), nginx, systemd, certbot, fail2ban, apt-get
+- **Linux**: TigerVNC, FastAPI/uvicorn (web terminal + all HTTP/WS surfaces), nginx, systemd, certbot, fail2ban, apt-get
   (the ttyd binary is an optional alternative download, not the default backend)
-- **Windows**: UltraVNC, Tornado (web terminal), Windows Services, Windows Firewall, ACLs
+- **Windows**: UltraVNC, FastAPI/uvicorn (web terminal + all HTTP/WS surfaces), Windows Services, Windows Firewall, ACLs
 
 Platform-specific logic is isolated in `src/vnc_remote_secure/platform/{linux,windows}/`.
 The common business logic in `services/`, `security/`, `monitoring/`, and `web/` is
@@ -282,13 +291,13 @@ addressed in future work but are tracked here for transparency.
   namespace so other processes reject new WebSocket upgrades for
   revoked sessions.
 
-- **F-022 `http.server` fallback.** When Flask is not installed, the
-  package falls back to `http.server` handlers. The fallback omits Flask
-  sessions, CSRF protection, security headers, `/metrics`, `/audit`, and
-  `/audit/verify`. Hardened profiles (`public-hardened`, `private-overlay`,
-  `trusted-lan`) now reject startup in fallback mode with a `RuntimeError`
-  (implemented in `web/application.py`). The `SimpleWebApp` fallback remains
-  available for the `development` profile only. Install Flask in production.
+- **F-022 `http.server` fallback (RESOLVED).** The Flask app, the WSGI
+  fallback and the `SimpleWebApp`/`http.server` degraded mode were
+  removed: `web/application.py` always builds the FastAPI
+  health/metrics app (`backend/health_app.py`, served by uvicorn) and
+  the portal runs on FastAPI/uvicorn (`backend/app.py`). There is no
+  fallback transport that could silently drop sessions, CSRF
+  protection, security headers, or `/metrics`/`/audit` endpoints.
 
 - **F-024 `src/vnc_remote_secure/config/defaults/{common,linux,windows}.env`.** These files are
   loaded by the Python runtime as the lowest-priority defaults (before the
@@ -308,9 +317,12 @@ addressed in future work but are tracked here for transparency.
   directly to the Python CLI. All business logic lives in
   `src/vnc_remote_secure/`.
 
-- **F-028 Auth gateway not applied to Flask routes (RESOLVED).** Flask
-  web routes now validate sessions through `auth_gateway.check_authenticated`
-  via the `_require_session()` helper in `web/routes/users.py`.
+- **F-028 Auth gateway not applied to Flask routes (RESOLVED).** The
+  Flask users blueprint was removed — the user-facing UI is the React
+  SPA served by the landing service, and every mutating surface is
+  `/api/v1/*`, which resolves operator sessions through the auth
+  gateway (`vnc_op` + CSRF) in `services/api_v1.py`. The health/metrics
+  surface is the FastAPI app in `backend/health_app.py`.
 
 - **F-029 Step-up auth and consent (RESOLVED).**
   `require_step_up()` is now called before sensitive actions

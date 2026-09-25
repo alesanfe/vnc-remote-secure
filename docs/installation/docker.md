@@ -3,7 +3,8 @@
 Container packaging lives in `packaging/docker/`:
 
 - `packaging/docker/Dockerfile` — self-contained Linux image (TigerVNC
-  desktop, noVNC, web terminal, health dashboard, Flask management UI),
+  desktop, noVNC, web terminal, health/metrics service, React admin
+  SPA + public portal served by the FastAPI portal),
   with a `test` stage for the integration runner
 - `packaging/docker/compose.yml` — single-service deployment
 - `packaging/docker/compose.integration.yml` — integration-test overrides

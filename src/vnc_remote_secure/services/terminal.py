@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Web Terminal server using tornado + xterm.js.
+Web Terminal server using FastAPI/Starlette WebSocket + xterm.js.
 
 Canonical web terminal on both platforms (replaced ttyd; ConPTY has
 issues on Windows 11 25H2).
@@ -20,6 +20,7 @@ Features:
     default bash) on Linux — the service manager runs this module on
     both platforms
 """
+import asyncio
 import glob
 import json
 import logging
@@ -27,10 +28,6 @@ import os
 import subprocess
 import sys
 import threading
-
-import tornado.ioloop
-import tornado.web
-import tornado.websocket
 
 from vnc_remote_secure.core.errors import log_exception
 from vnc_remote_secure.security.http_auth import (
@@ -83,96 +80,36 @@ else:
     ]
 
 
-def _html_page() -> str:
-    """Return the terminal HTML page.
-
-    The markup lives in ``static/terminal.html`` (package-data) so it
-    can be linted/versioned separately; loaded lazily so a missing
-    asset raises at request time, not at import.
-    """
-    from importlib import resources
-    return resources.files('vnc_remote_secure').joinpath(
-        'static/terminal.html').read_text(encoding='utf-8')
+def _portal_terminal_url(host_header: str) -> str:
+    """Landing-portal URL of the React terminal page."""
+    cfg = _config()
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    proto = ('https' if create_ssl_context(
+        cfg.get('ssl_cert'), cfg.get('ssl_key')) else 'http')
+    host = (host_header or '').split(':')[0] or '127.0.0.1'
+    return f'{proto}://{host}:{cfg["landing_port"]}/terminal'
 
 
-class MainHandler(tornado.web.RequestHandler):
-    """Main Handler."""
-
-    def set_default_headers(self):
-        """Set default headers."""
-        from vnc_remote_secure.security.http_headers import get_security_headers
-        # HSTS only when this app was started with an SSL context —
-        # main() stores it so per-request handlers don't rebuild it.
-        tls = getattr(self.application, '_vnc_tls_enabled', False)
-        headers = get_security_headers(tls_enabled=tls)
-        # The terminal page loads xterm.js from the vendored /xterm/
-        # static route — no CDN dependency, so the strict 'self' CSP
-        # applies (the page's inline handlers still need
-        # 'unsafe-inline'). An explicit CSP_POLICY env override wins
-        # over this default.
-        if not os.environ.get('CSP_POLICY'):
-            headers['Content-Security-Policy'] = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: blob:; "
-                "connect-src 'self' wss: ws:; "
-                "font-src 'self'; "
-                "object-src 'none'; "
-                "base-uri 'self'; "
-                "frame-ancestors 'none'"
-            )
-        for name, value in headers.items():
-            self.set_header(name, value)
-
-    def _ephemeral_authorized(self) -> bool:
-        """Return True when the vnc_ephemeral cookie grants terminal access."""
-        eph = cookie_value(
-            self.request.headers.get('Cookie', ''), 'vnc_ephemeral')
-        if not eph:
-            return False
-        from vnc_remote_secure.security.ephemeral_sessions import check_session_permission
-        return check_session_permission(
-            eph, 'terminal_view', resource='terminal',
-            client_ip=client_ip_from(
-                self.request.headers, self.request.remote_ip))
-
-    def _session_authorized(self) -> bool:
-        """Return True when a valid ``vnc_session`` cookie authenticates the.
-
-        request — the WebSocket upgrade already accepts the session
-        cookie, so the page must too or a portal-authenticated user is
-        double-challenged with Basic credentials the WS does not need.
-        """
-        raw = cookie_value(
-            self.request.headers.get('Cookie', ''), 'vnc_session')
-        if not raw:
-            return False
-        from vnc_remote_secure.security.auth_gateway import (
-            check_authenticated,
+def _root_security_headers(tls_enabled: bool) -> dict:
+    """Security headers for the redirect response."""
+    from vnc_remote_secure.security.http_headers import get_security_headers
+    headers = get_security_headers(tls_enabled=tls_enabled)
+    # The only response this route emits is a redirect to the React
+    # terminal page — the strict 'self' CSP applies (an explicit
+    # CSP_POLICY env override still wins).
+    if not os.environ.get('CSP_POLICY'):
+        headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            "connect-src 'self' wss: ws:; "
+            "font-src 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'"
         )
-        allowed, _user = check_authenticated(raw, '')
-        return bool(allowed)
-
-    def get(self):
-        """Get."""
-        auth = self.request.headers.get('Authorization', '')
-        if not (self._ephemeral_authorized()
-                or self._session_authorized()
-                or (_basic_auth_enabled()
-                    and check_terminal_auth(
-                        auth, client_ip=client_ip_from(
-                            self.request.headers,
-                            self.request.remote_ip)))):
-            from vnc_remote_secure.core.errors import error_json
-            body, status = error_json('Unauthorized', 401)
-            self.set_status(status)
-            self.set_header('WWW-Authenticate', 'Basic realm="Web Terminal"')
-            self.set_header('Content-Type', 'application/json')
-            self.write(body)
-            return
-        self.set_header('Content-Type', 'text/html')
-        self.write(_html_page())
+    return headers
 
 
 def _basic_auth_enabled() -> bool:
@@ -189,8 +126,8 @@ def _basic_auth_enabled() -> bool:
 def _is_origin_allowed(origin):
     """Reject WebSocket connections from unknown origins (prevents CSWSH).
 
-    Delegates to the canonical auth-gateway origin list so Tornado and
-    the rest of the stack enforce the same policy (ALLOWED_ORIGINS +
+    Delegates to the canonical auth-gateway origin list so every
+    WebSocket service enforces the same policy (ALLOWED_ORIGINS +
     DUCK_DOMAIN + local service ports + LAN IPs).
     """
     if not origin:
@@ -645,17 +582,127 @@ def _interrupt_text():
     return '\r\n\x1b[31m^C\x1b[0m\r\n'
 
 
-class TerminalWebSocket(tornado.websocket.WebSocketHandler):
-    """Command executor terminal - runs each command as a subprocess."""
+class _WSRequest:
+    """Duck-typed request shim over a Starlette WebSocket.
+
+    Exposes ``headers``, ``remote_ip`` and ``host`` — the attributes
+    the terminal auth path read off ``self.request``.
+    """
+
+    def __init__(self, websocket):
+        self.headers = websocket.headers
+        self.remote_ip = (
+            websocket.client.host if websocket.client else '')
+        self.host = websocket.headers.get('host', '')
+
+
+class _LoopAdapter:
+    """Callback-scheduling shim over an asyncio loop.
+
+    The drain threads call ``add_callback(fn, *args)``;
+    ``call_soon_threadsafe`` is the asyncio equivalent. ``time()``
+    returns the loop's monotonic clock — the idle watchdog compares
+    it against ``_last_activity``.
+    """
+
+    def __init__(self, loop):
+        self._loop = loop
+
+    def add_callback(self, fn, *args, **kwargs):
+        self._loop.call_soon_threadsafe(fn, *args, **kwargs)
+
+    def time(self):
+        return self._loop.time()
+
+
+class _IdleWatcher:
+    """Periodic idle check, framework-free (thread + Event)."""
+
+    def __init__(self, check, interval=30.0):
+        self._check = check
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop.wait(self._interval):
+            try:
+                self._check()
+            except Exception:  # noqa: BLE001 - watchdog never dies loud
+                pass
+
+    def stop(self):
+        self._stop.set()
+
+
+class TerminalWebSocket:
+    """Command executor terminal — one instance per WebSocket.
+
+    Not a framework handler anymore: the FastAPI route in
+    :func:`make_app` owns the socket lifecycle and delegates to this
+    session object, which keeps the same method surface the tests and
+    drain threads use (``write_message``/``close`` schedule onto the
+    running loop, so they are callable from any thread).
+    """
 
     main_ioloop = None
     # Terminal commands are short JSON envelopes — a multi-MB frame is
-    # only a memory-exhaustion attempt (Tornado default is 10 MiB).
+    # only a memory-exhaustion attempt.
     max_message_size = 64 * 1024
 
-    def check_origin(self, origin):
-        """Reject WebSocket connections from unknown origins (prevents CSWSH)."""
-        return _is_origin_allowed(origin)
+    def __init__(self, websocket):
+        self.websocket = websocket
+        self.request = _WSRequest(websocket)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # pragma: no cover - outside a loop
+            loop = None
+        self._loop = loop
+        self.current_process = None
+
+    # -- transport primitives ----------------------------------------
+    def write_message(self, message, binary=False):
+        """Send a frame — callable from any thread (drain threads
+        produce output off-loop)."""
+        self._touch_activity()
+        ws = self.websocket
+        loop = self._loop
+        if ws is None or loop is None:
+            return
+        coro = (ws.send_bytes(message) if binary
+                else ws.send_text(message))
+        fut = asyncio.run_coroutine_threadsafe(coro, loop)
+
+        def _discard(f):
+            try:
+                f.result()
+            except Exception as e:  # noqa: BLE001 - socket may be closed
+                logger.debug('Terminal send failed: %s', e)
+
+        fut.add_done_callback(_discard)
+        return fut
+
+    def close(self, code=1000, reason=''):
+        """Close the socket — callable pre- or post-accept."""
+        ws = self.websocket
+        loop = self._loop
+        if ws is None or loop is None:
+            return
+        fut = asyncio.run_coroutine_threadsafe(
+            ws.close(code=code, reason=reason), loop)
+
+        def _discard(f):
+            try:
+                f.result()
+            except Exception as e:  # noqa: BLE001
+                logger.debug('Terminal close failed: %s', e)
+
+        fut.add_done_callback(_discard)
+        return fut
 
     def _step_up_required(self, session_cookie, bearer):
         """Enforce step-up auth for operator sessions.
@@ -699,7 +746,6 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         auth = self.request.headers.get('Authorization', '')
         bearer = extract_bearer_token(auth)
         cookie = self.request.headers.get('Cookie', '')
-        # Extract session cookie value if present.
         session_cookie = cookie_value(cookie, 'vnc_session')
         eph = cookie_value(cookie, 'vnc_ephemeral')
         if not (eph or bearer or session_cookie):
@@ -794,11 +840,10 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
                 os.environ.get('TERMINAL_IDLE_TIMEOUT', '900'))
         except ValueError:
             self._idle_timeout = 900
-        self._last_activity = tornado.ioloop.IOLoop.current().time()
+        self._last_activity = self._now()
         self._idle_cb = None
         if self._idle_timeout > 0:
-            self._idle_cb = tornado.ioloop.PeriodicCallback(
-                self._check_idle, 30_000)
+            self._idle_cb = _IdleWatcher(self._check_idle, 30.0)
             self._idle_cb.start()
         # Message rate cap: nobody types 30 commands/s — a flood is a
         # fork/spawn DoS against the shell channel, not usage.
@@ -819,15 +864,25 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self.write_message("\r\n")
         self._send_prompt()
 
+    def _now(self) -> float:
+        """Monotonic clock for the idle watchdog."""
+        try:
+            if self._loop is not None:
+                return self._loop.time()
+        except Exception:  # noqa: BLE001
+            pass
+        import time as _time
+        return _time.monotonic()
+
     def _touch_activity(self):
         try:
-            self._last_activity = tornado.ioloop.IOLoop.current().time()
+            self._last_activity = self._now()
         except Exception:  # noqa: BLE001
             pass
 
     def _check_idle(self):
         """Close the socket when no input/output for idle_timeout s."""
-        if (tornado.ioloop.IOLoop.current().time()
+        if (self._now()
                 - getattr(self, '_last_activity', 0)
                 > self._idle_timeout):
             logger.info("Terminal idle for %ss — closing",
@@ -838,11 +893,6 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
             except Exception:  # noqa: BLE001
                 pass
             self.close(code=1000, reason='idle timeout')
-
-    def write_message(self, message, binary=False):
-        """Track server->client output as activity (watching counts)."""
-        self._touch_activity()
-        return super().write_message(message, binary=binary)
 
     def on_close(self):
         """Clean up on WebSocket close.
@@ -1272,92 +1322,76 @@ class TerminalWebSocket(tornado.websocket.WebSocketHandler):
         self._set_busy(False)
 
 
-class XtermStaticHandler(tornado.web.StaticFileHandler):
-    """Static handler for the vendored xterm assets, auth-gated.
-
-    The rest of the terminal service requires authentication — an
-    unauthenticated static route would fingerprint the deployment and
-    violate the everything-behind-the-gateway posture. Same checks as
-    the terminal page itself (Basic auth or ephemeral cookie).
-    """
-
-    def _authorized(self) -> bool:
-        cookie = self.request.headers.get('Cookie', '')
-        eph = cookie_value(cookie, 'vnc_ephemeral')
-        if eph:
-            from vnc_remote_secure.security.ephemeral_sessions import (
-                check_session_permission,
-            )
-            return check_session_permission(
-                eph, 'terminal:use', resource='terminal',
-                client_ip=client_ip_from(
-                    self.request.headers, self.request.remote_ip))
-        # A valid vnc_session cookie authorizes the terminal — the
-        # WebSocket upgrade already accepts it, so the page's static
-        # assets must too or session-authenticated users break on
-        # xterm.js fetches (401 JS = blank terminal).
-        raw = cookie_value(cookie, 'vnc_session')
-        if raw:
-            from vnc_remote_secure.security.auth_gateway import (
-                check_authenticated,
-            )
-            allowed, _user = check_authenticated(raw, '')
-            if allowed:
-                return True
-        if not _basic_auth_enabled():
-            # TERMINAL_BASIC_AUTH=false — token credentials only; the
-            # static assets must not accept the Basic surface the WS
-            # upgrade already refuses.
-            return False
-        auth = self.request.headers.get('Authorization', '')
-        return check_terminal_auth(
-            auth, client_ip=client_ip_from(
-                self.request.headers, self.request.remote_ip))
-
-    async def get(self, path, include_body=True):
-        """Get."""
-        if not self._authorized():
-            from vnc_remote_secure.core.errors import error_json
-            body, status = error_json('Unauthorized', 401)
-            self.set_status(status)
-            self.set_header('WWW-Authenticate', 'Basic realm="Web Terminal"')
-            self.set_header('Content-Type', 'application/json')
-            self.write(body)
-            return
-        await super().get(path, include_body)
-
-
-def _xterm_static_dir() -> str:
-    """Return the vendored xterm.js assets directory.
-
-    The terminal page must be self-hosted: loading xterm.js from a CDN
-    would break offline deployments and ship an unaudited third-party
-    script into an authenticated session. The assets live under the
-    package so they resolve in both source and installed layouts.
-    """
-    try:
-        from importlib.resources import files
-        return str(files('vnc_remote_secure') / 'static' / 'xterm')
-    except Exception:  # noqa: BLE001 - source-tree fallback
-        return os.path.join(
-            os.path.dirname(os.path.dirname(
-                os.path.abspath(__file__))), 'static', 'xterm')
-
-
 def make_app():
-    """Make app."""
-    return tornado.web.Application([
-        (r'/', MainHandler),
-        (r'/ws', TerminalWebSocket),
-        (r'/xterm/(.*)', XtermStaticHandler,
-         {'path': _xterm_static_dir()}),
-    ])
+    """Build the FastAPI terminal application.
+
+    ``GET /`` redirects to the React terminal page on the portal;
+    ``/ws`` carries the command-executor WebSocket.
+    """
+    from fastapi import FastAPI
+    from starlette.requests import Request
+    from starlette.responses import RedirectResponse
+    from starlette.websockets import WebSocket
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.get('/')
+    def root(request: Request):
+        """The terminal UI is a React page on the portal — redirect.
+
+        The WebSocket endpoint (/ws) is unchanged: the React client
+        connects cross-port with the same vnc_session/vnc_ephemeral
+        cookie this page used to require.
+        """
+        host = request.headers.get('host', '')
+        resp = RedirectResponse(_portal_terminal_url(host))
+        for name, value in _root_security_headers(
+                tls_enabled=request.url.scheme == 'https').items():
+            resp.headers[name] = value
+        return resp
+
+    @app.websocket('/ws')
+    async def ws(websocket: WebSocket):
+        origin = websocket.headers.get('origin', '')
+        if not _is_origin_allowed(origin):
+            await websocket.close(code=1008)
+            return
+        session = TerminalWebSocket(websocket)
+        # Auth runs BEFORE accept — a rejected upgrade must not look
+        # like an open socket to the client.
+        if not session._authenticate():
+            return
+        await websocket.accept()
+        loop = asyncio.get_running_loop()
+        TerminalWebSocket.main_ioloop = _LoopAdapter(loop)
+        session._loop = loop
+        session.open()
+        try:
+            while True:
+                message = await websocket.receive()
+                if message['type'] == 'websocket.disconnect':
+                    break
+                if message['type'] != 'websocket.receive':
+                    continue
+                data = message.get('text')
+                if data is None:
+                    data = message.get('bytes') or b''
+                    data = data.decode('utf-8', errors='replace')
+                if len(data) > session.max_message_size:
+                    await websocket.close(
+                        code=1009, reason='message too large')
+                    break
+                session.on_message(data)
+        except Exception as e:  # noqa: BLE001 - disconnect mid-recv
+            logger.debug('Terminal receive ended: %s', e)
+        finally:
+            session.on_close()
+
+    return app
 
 
 def main():
-    """Start the web terminal server."""
-    app = make_app()
-    TerminalWebSocket.main_ioloop = tornado.ioloop.IOLoop.current()
+    """Start the web terminal server (uvicorn)."""
+    import uvicorn
 
     from vnc_remote_secure.security.certificates import create_ssl_context
     ssl_options = create_ssl_context(_config()['ssl_cert'], _config()['ssl_key'])
@@ -1365,12 +1399,11 @@ def main():
         logger.info("SSL enabled: %s", _config()['ssl_cert'])
     else:
         logger.warning("No SSL (HTTP mode)")
-    # Per-request handlers read this flag to decide whether HSTS
-    # applies (see MainHandler.set_default_headers).
-    app._vnc_tls_enabled = ssl_options is not None
+    kwargs = {}
+    if ssl_options:
+        kwargs = {'ssl_certfile': _config()['ssl_cert'],
+                  'ssl_keyfile': _config()['ssl_key']}
 
-    app.listen(_config()['ttyd_port'], _config()['ttyd_host'],
-               ssl_options=ssl_options)
     logger.info("Web Terminal running on %s:%s",
                 _config()['ttyd_host'], _config()['ttyd_port'])
     logger.info("URL: %s://127.0.0.1:%s",
@@ -1379,11 +1412,11 @@ def main():
     logger.info("Auth: %s:***", _config()['ttyd_username'])
     logger.info("Shell: %s", _config()['webterm_shell'])
 
-    try:
-        tornado.ioloop.IOLoop.current().start()
-    except KeyboardInterrupt:
-        logger.info("Web Terminal shutting down...")
-        tornado.ioloop.IOLoop.current().stop()
+    uvicorn.run(make_app(),
+                host=_config()['ttyd_host'],
+                port=_config()['ttyd_port'],
+                log_level='warning', access_log=False,
+                proxy_headers=False, **kwargs)
 
 
 if __name__ == '__main__':

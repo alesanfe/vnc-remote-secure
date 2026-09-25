@@ -1,5 +1,5 @@
-"""System (OS) user management use cases — migrated from the legacy
-Flask ``web/routes/users.py`` surface.
+"""System (OS) user management use cases — the surface behind
+``POST/DELETE /api/v1/system-users`` in the admin SPA.
 
 Domain rules live here, not in the transport:
 
@@ -7,8 +7,7 @@ Domain rules live here, not in the transport:
   can never be created or deleted;
 * username/password policy is enforced before the OS is touched;
 * every mutation emits an audit event with the actor;
-* step-up is enforced by the route metadata (``step_up=True``) —
-  same guarantee the legacy Flask routes applied.
+* step-up is enforced by the route metadata (``step_up=True``).
 
 Infrastructure (OS calls) goes through
 ``engine.infrastructure.stores`` — this module never imports

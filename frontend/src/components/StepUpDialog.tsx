@@ -33,7 +33,7 @@ export default function StepUpDialog({
     setBusy(true);
     setError('');
     try {
-      await api.post('step-up', { password });
+      await api.stepUp(password);
       setPassword('');
       onVerified();
     } catch (e) {

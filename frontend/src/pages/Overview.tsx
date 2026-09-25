@@ -69,7 +69,10 @@ export default function Overview() {
 
       <h2 className="section">Servicios</h2>
       {services.isError && (
-        <div className="error-box">No se pudo cargar la lista de servicios.</div>
+        <div className="error-box" role="alert">No se pudo cargar la lista de servicios.</div>
+      )}
+      {services.isLoading && (
+        <p className="muted" role="status">Cargando…</p>
       )}
       <div className="cards">
         {(services.data?.services ?? []).map((s) => (

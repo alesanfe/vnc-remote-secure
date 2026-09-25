@@ -1,4 +1,5 @@
-"""Web package: Flask application factory and route blueprints.
+"""Web package: health/metrics application entry point and the built
+admin SPA assets (``static/admin/``).
 
 Provides the web UI for VNC Remote Secure, including the landing page,
 health endpoint, and user-management routes. The application is created

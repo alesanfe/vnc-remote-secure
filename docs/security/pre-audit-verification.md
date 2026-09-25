@@ -19,8 +19,8 @@ external-style review, checked against the actual code. Statuses:
 | 5 | Stale signing key | `_cached_secret` loaded once per process — rotated keys never reached long-running services, which kept signing with retired keys | mtime re-check every 5 s with baseline tracking (`security/authentication.py`) |
 | 6 | PBKDF2 migration | No rehash-on-login — hashes stayed at their minted iteration count forever | Successful `verify()` upgrades stale hashes to the current 600k policy (`security/operator_users.py`) |
 | 7 | Upgrade supply chain | `pip install` inherited `PIP_*` env (hostile index/TLS-bypass), arbitrary downgrades accepted, sdists could run build-time code | `pip --isolated`, `--only-binary :all:` on index specs, pinned and resolved-version downgrade refusal with auto-rollback (`core/upgrader.py`) |
-| 8 | CSRF on landing POSTs | Origin checked only *when present* | `Sec-Fetch-Site: cross-site` (unforgeable Fetch Metadata) rejected in `_operator_gate`; non-browser clients unaffected (`services/landing.py`) |
-| 9 | status.json disclosure | Ephemeral view-only sessions received LAN IPs, system metrics and port topology | `lan_ips`/`system` only emitted for operator identities (`services/landing.py`) |
+| 8 | CSRF on landing POSTs | Origin checked only *when present* | `Sec-Fetch-Site: cross-site` (unforgeable Fetch Metadata) rejected in `_operator_gate`; non-browser clients unaffected (`backend/context.py`) |
+| 9 | status.json disclosure | Ephemeral view-only sessions received LAN IPs, system metrics and port topology | `lan_ips`/`system` only emitted for operator identities (`backend/context.py`) |
 | 10 | Revocation/expiry degradation | `_is_revoked_shared` and `_session_expired` silently returned "not revoked/expired" on backend failure | Throttled warning + `vnc_remote_shared_state_errors_total` metric — degraded-enforcement windows are now observable |
 | 11 | Temp-user process leak | `userdel -r` leaves the deleted uid's processes running | `loginctl terminate-user` + `pkill -9 -u` before `userdel` (`platform/linux/permissions.py`) |
 | 12 | SendInput stuck keys | `WindowsInputInjector.close()` was a no-op — held keys kept typing after disconnect/revoke | Held-vk tracking + explicit KEYUP on close (`platform/windows/gamepad.py`) |
@@ -38,10 +38,12 @@ external-style review, checked against the actual code. Statuses:
   the shared-state backend before local marking; both fail closed.
   Cross-process-safe under the SQLite backend.
 - **WS credential transport** — cookies/Bearer only; no query-string
-  tokens on any WebSocket. The landing `?session=` share-link exchange
-  is the single intentional URL-token surface, mitigated by 302 strip,
-  access-log redaction, `access_log off` for `$arg_session`, and a
-  prefetch interstitial.
+  tokens on any WebSocket. Generated share links carry the token in
+  the URL fragment (`/share#t=`), which browsers never send; the SPA
+  wipes it and posts it in the JSON body of
+  `POST /api/v1/session/preview` and `POST /api/v1/session/activate`.
+  Legacy `?session=` query links remain accepted (access-log
+  redaction still applies) but are no longer generated.
 - **Origin validation on every WS upgrade** — absent/`null` rejected;
   terminal, audio, gamepad, noVNC all enforce it.
 - **Session fixation** — `session.clear()` + fresh signed token +
@@ -64,9 +66,15 @@ external-style review, checked against the actual code. Statuses:
   Tornado `StaticFileHandler`, restore member/link/realpath validation.
 - **AppContainer** — zero granted capabilities (no network), scratch
   dir ACL only, Job Object `KILL_ON_JOB_CLOSE` without breakaway.
-- **No mutating GETs** besides the prefetch-guarded share-link exchange.
-- **`http.server` fallback rejected** under hardened profiles
-  (`web/application.py`).
+- **No mutating GETs** — the share-link exchange is
+  `POST /api/v1/session/activate`; every state change is
+  POST/PATCH/DELETE behind the operator CSRF gate
+  (`vnc_csrf` + `X-CSRF-Token`) or, for pre-auth public routes, the
+  `_public_gate` Origin/`Sec-Fetch-Site` checks.
+- **Web fallback removed** — `web/application.py` always builds the
+  FastAPI health/metrics app (`backend/health_app.py`); there is no
+  Flask/`http.server` fallback that could drop security headers or
+  auth.
 - **Mid-stream expiry for ephemeral sessions** — 5 s watcher closes
   sockets on revocation OR `expires_at`.
 

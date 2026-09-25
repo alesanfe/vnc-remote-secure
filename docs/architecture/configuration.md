@@ -254,17 +254,22 @@ FAIL2BAN_FINDTIME=600         # Time window (10 minutes)
 FAIL2BAN_BANTIME=3600         # Ban duration (1 hour)
 ```
 
-### User Management UI
+### Internal health/metrics service (`user_ui`)
+
+Despite the historical name, `user_ui` serves no UI: it is the
+machine-facing health/metrics/audit service (a FastAPI app,
+`backend/health_app.py`, entered via `web/application.py`). All
+browser-facing UI is the React SPA served by the portal.
 
 ```bash
-# Enable web interface
+# Enable the internal health/metrics service
 USER_UI_ENABLED=false
 
-# UI settings
+# Service settings
 USER_UI_PORT=8081
-USER_UI_PASSWORD="your-strong-password"  # Set a real password; weak/placeholder values are rejected by validate_config
+USER_UI_PASSWORD="your-strong-password"  # Legacy credential name; still validated by validate_config
 
-# Flask security
+# Session/token signing secret (historical name — Flask is no longer used)
 FLASK_SECRET_KEY=  # Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
@@ -523,10 +528,10 @@ Every variable accepted by .env (mirrors .env.example). Variables marked
 | TEMP_USER_PASS | empty | Password applied to the restricted user. On Linux the account is created with `nologin` shell (locked by design); set a shell via `usermod -s` to enable interactive use |
 | KEEP_TEMP_USER | false | Keep the temp user after shutdown |
 | LANDING_PASSWORD | generated | Landing portal Basic-auth password (user admin); a strong random value is generated and persisted to generated_credentials.env when empty |
-| USER_UI_ENABLED | false | Enable the Flask user-management UI |
-| USER_UI_USERNAME | TTYD_USERNAME / OS user (Linux) / admin (Windows) | Management UI username |
-| USER_UI_PASSWORD | empty | Management UI password |
-| FLASK_SECRET_KEY | *(persisted)* | Flask session signing key |
+| USER_UI_ENABLED | false | Enable the internal health/metrics service (`user_ui`) |
+| USER_UI_USERNAME | TTYD_USERNAME / OS user (Linux) / admin (Windows) | Operator-login username (legacy name) |
+| USER_UI_PASSWORD | empty | Operator-login password (legacy name) |
+| FLASK_SECRET_KEY | *(persisted)* | Session/token signing secret (historical name — Flask is no longer used) |
 | AUTH_SECRET | *(persisted)* | Token signing secret (falls back to FLASK_SECRET_KEY) |
 | HEALTH_AUTH_TOKEN | empty | Bearer token for health/metrics/audit endpoints; empty is allowed only on loopback binds (public bind without a token fails closed) |
 | BACKUP_PASSWORD | empty | Encrypt backups with Fernet when set |
@@ -544,7 +549,7 @@ Every variable accepted by .env (mirrors .env.example). Variables marked
 | TTYD_PORT | 5000 | Web Terminal port |
 | LANDING_PORT | 8000 | Landing portal port |
 | HEALTH_WEB_PORT | 8080 Linux / 8090 Windows | Health server port |
-| USER_UI_PORT | 8081 | Flask management UI port |
+| USER_UI_PORT | 8081 | Internal health/metrics service port (`user_ui`) |
 | AUDIO_STREAM_PORT | 7777 | Audio stream port |
 | GAMEPAD_PORT | 7788 | Gamepad forward port |
 | NGINX_ENABLED | false | Enable nginx reverse proxy |
@@ -561,7 +566,7 @@ Every variable accepted by .env (mirrors .env.example). Variables marked
 | TTYD_HOST | 127.0.0.1 | Web Terminal bind |
 | LANDING_HOST | 127.0.0.1 | Landing portal bind |
 | HEALTH_WEB_HOST | 127.0.0.1 | Health server bind |
-| USER_UI_HOST | 127.0.0.1 | Management UI bind |
+| USER_UI_HOST | 127.0.0.1 | Internal health/metrics service bind |
 | SERVE_NOVNC_HOST | 127.0.0.1 | noVNC static server bind |
 | NOVNC_HOST | — | *Deprecated*: legacy fallback for SERVE_NOVNC_HOST |
 | AUDIO_STREAM_HOST | 127.0.0.1 | Audio stream bind |
@@ -599,12 +604,12 @@ Every variable accepted by .env (mirrors .env.example). Variables marked
 | TRUSTED_PROXY | false | Trust X-Forwarded-* headers |
 | CSP_POLICY | hardened default | Content-Security-Policy header |
 | HSTS_HEADER | hardened default | Strict-Transport-Security header |
-| SESSION_SAMESITE | Lax | Session cookie SameSite |
+| SESSION_SAMESITE | Lax | SameSite for the ephemeral `vnc_ephemeral` cookie only — operator cookies (`vnc_op`, `vnc_csrf`, `vnc_session`) are always `SameSite=Strict` |
 | SESSION_COOKIE_SECURE | true | Secure flag on session cookie |
-| SESSION_COOKIE_NAME | vnc_flask_session | Flask session cookie name (the raw session token cookie `vnc_session` is reserved) |
+| SESSION_COOKIE_NAME | vnc_flask_session | Legacy cookie-name setting — retained in the schema but unused since the Flask UI was removed (the raw session token cookie `vnc_session` is reserved) |
 | SESSION_IDLE_TIMEOUT | 1800 | Idle session timeout (s) |
 | SESSION_MAX_LIFETIME | 28800 | Absolute session lifetime (s) |
-| WEB_MAX_CONTENT_LENGTH | 65536 | Max request body size (bytes) for the web UI |
+| WEB_MAX_CONTENT_LENGTH | 65536 | Legacy — retained in the schema but unused; `/api/v1` enforces a fixed 16 KiB JSON body limit |
 
 ### Services & Features
 

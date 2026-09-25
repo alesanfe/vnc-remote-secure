@@ -40,7 +40,6 @@ ROLE_PERMISSIONS = {
 ADMIN_PERMISSIONS = {
     'admin_users',
     'admin_config',
-    'admin_secrets',
     'admin_audit',
     'admin_sessions',
 }
@@ -138,7 +137,6 @@ def add_user(username: str, password: str, role: str) -> None:
         'created_at': int(time.time()),
     }
     _save(data)
-    _audit('operator_add', username, f'role={role}')
 
 
 def remove_user(username: str) -> bool:
@@ -148,7 +146,6 @@ def remove_user(username: str) -> bool:
         return False
     del data[username]
     _save(data)
-    _audit('operator_remove', username)
     return True
 
 
@@ -178,7 +175,6 @@ def set_password(username: str, password: str) -> bool:
     data[username]['password_hash'] = hash_password(password)
     _save(data)
     _mark_sessions_revoked(username)
-    _audit('operator_set_password', username)
     return True
 
 
@@ -192,7 +188,6 @@ def set_role(username: str, role: str) -> bool:
     data[username]['role'] = role
     _save(data)
     _mark_sessions_revoked(username)
-    _audit('operator_set_role', username, f'role={role}')
     return True
 
 
@@ -204,8 +199,6 @@ def set_disabled(username: str, disabled: bool) -> bool:
     data[username]['disabled'] = bool(disabled)
     _save(data)
     _mark_sessions_revoked(username)
-    _audit('operator_disable' if disabled else 'operator_enable',
-           username)
     return True
 
 
@@ -283,13 +276,6 @@ def get_permissions(username: str) -> set:
 def has_permission(username: str, permission: str) -> bool:
     """Return True when ``username`` holds ``permission`` (or ``admin:*``)."""
     return permission in get_permissions(username)
-
-
-def _audit(event: str, username: str, detail: str = '') -> None:
-    """Emit an audit event for operator-store mutations."""
-    from vnc_remote_secure.security.audit import audit_event
-    audit_event(event, user='cli', detail=username
-                + (f' {detail}' if detail else ''))
 
 
 def passwords_equal(a: str, b: str) -> bool:

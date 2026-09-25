@@ -6,25 +6,50 @@ resource binding — the documented contract the tests enforce.
 ## Lifecycle
 
 ```text
-create (CLI)  →  signed URL token  →  GET /?session=<token>
+create (CLI)  →  signed token  →  share link /share#t=<token>
                                         │
                                         ▼
-                              activate_ephemeral_session()
+                              React SPA (SharePage) reads the
+                              fragment and wipes it from the URL
+                                        │
+                                        ▼
+                              POST /api/v1/session/preview
+                              (non-consuming grant summary
+                               → consent card)
+                                        │
+                                        ▼
+                    on consent: POST /api/v1/session/activate
                               (verify signature + is_valid +
                                atomic consume for single_use)
                                         │
                                         ▼
-                              vnc_ephemeral cookie set
+                              vnc_ephemeral cookie set → /
                                         │
                     every request/upgrade → is_valid() again
                                         │
                               revoked / expired / used → 403
 ```
 
+Generated links are **fragment URLs** (`/share#t=<token>`): the token
+never appears in a request URL, so it cannot land in access logs,
+Referer headers, or browser history. The SPA sends it in the JSON
+body of two public endpoints — `POST /api/v1/session/preview`
+returns a non-consuming grant summary (role, expiry, restrictions)
+that backs the consent card, and only explicit consent triggers
+`POST /api/v1/session/activate`, which performs the exchange
+(`activate_ephemeral_session`) and sets the `vnc_ephemeral` HttpOnly
+cookie. The user then lands on `/` (the public portal). There is no
+GET-based token exchange.
+
+Legacy `/?session=<token>` links still work for compatibility — the
+SPA reads the query parameter, wipes it from the URL, and renders the
+same consent flow — but they are never generated anymore.
+
 ## single_use
 
-- Consumed **at exchange time** (`activate_ephemeral_session`), not
-  per WebSocket upgrade. One token = one cookie issue.
+- Consumed **at exchange time** (`activate_ephemeral_session`, invoked
+  by `POST /api/v1/session/activate`), not per WebSocket upgrade.
+  One token = one cookie issue.
 - Consumption is atomic through the shared-state backend — two
   simultaneous exchanges of the same token: exactly one wins.
 - After the cookie is set, the session lives until `expires_at`,

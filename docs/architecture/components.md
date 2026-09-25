@@ -24,10 +24,12 @@ vnc-remote-secure/
 │       ├── platform/
 │       │   ├── linux/               # Linux platform adapter
 │       │   └── windows/             # Windows platform adapter
-│       ├── services/               # landing, health, terminal, vnc, novnc, audio, gamepad
+│       ├── backend/                # FastAPI/uvicorn portal (app.py) serving the React
+│       │                           #   SPA + /api/v1/*; health_app.py = health/metrics app
+│       ├── services/               # landing, health, terminal, vnc, novnc, audio, gamepad, api_v1
 │       ├── security/               # authentication, certificates, credentials
 │       ├── monitoring/             # health, prometheus
-│       ├── web/                    # Flask app, routes, templates
+│       ├── web/                    # health/metrics app entry point + static/admin/ (built SPA)
 │       ├── vendor/
 │       │   └── d3des.py            # VNC DES (legacy protocol compat)
 │       ├── native/
@@ -43,6 +45,8 @@ vnc-remote-secure/
 │       │           └── service-config.xml  # Windows Service config
 │       ├── config/                  # Config schema, defaults, examples, nginx.conf
 │       └── third_party/             # Dependency manifests, licenses, checksums
+├── frontend/                       # React + TypeScript + Vite SPA source
+│                                   #   (npm run build → web/static/admin/)
 ├── VncRemote.ps1                    # Windows PowerShell entry point
 ├── vnc-remote                       # Bash CLI wrapper (root)
 ├── launch.sh                        # Windows Git-Bash launcher (deprecated)
@@ -97,7 +101,7 @@ vnc-remote-secure/
 | `src/vnc_remote_secure/core/processes.py` | Process management | Port availability, process lifecycle |
 | `src/vnc_remote_secure/services/landing.py` | Landing page | Service links, LAN IP discovery |
 | `src/vnc_remote_secure/services/health.py` | Health dashboard | HTTP health endpoint, port checks |
-| `src/vnc_remote_secure/services/terminal.py` | Web Terminal | Tornado WebSocket, auth, shell exec |
+| `src/vnc_remote_secure/services/terminal.py` | Web Terminal | FastAPI WebSocket, auth, shell exec |
 | `src/vnc_remote_secure/services/vnc.py` | VNC management | Start/stop VNC server |
 | `src/vnc_remote_secure/services/novnc.py` | noVNC static server | Auth-gated static files + `/websockify` upgrade proxy to the loopback websockify bridge (`NOVNC_WS_PORT`, 5700) |
 | `src/vnc_remote_secure/security/authentication.py` | Auth | Token-based, Basic auth |

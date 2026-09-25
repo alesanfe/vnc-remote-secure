@@ -69,11 +69,12 @@ export function setCsrfToken(token: string): void {
   csrfToken = token;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (init?.method && init.method !== 'GET') {
+async function request<T>(path: string, init?: RequestInit,
+                          retried = false): Promise<T> {
+  const method = init?.method ?? 'GET';
+  const headers: Record<string, string> = {};
+  if (method !== 'GET') {
+    headers['Content-Type'] = 'application/json';
     const token = await getCsrfToken();
     if (token) headers['X-CSRF-Token'] = token;
   }
@@ -94,6 +95,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // Not a permission failure — the session is valid but stale;
       // callers surface the step-up dialog and retry.
       throw new ApiError(res.status, 'Step-up required', code);
+    }
+    // A rotated/expired vnc_csrf nonce rejects mutations with a plain
+    // 403 — refresh the cached token and retry ONCE. Any other 403
+    // (permissions) is not retryable.
+    if (res.status === 403 && method !== 'GET' && !retried) {
+      resetCsrfToken();
+      const fresh = await getCsrfToken();
+      if (fresh) return request<T>(path, init, true);
     }
     throw new ApiError(
       res.status, errorMessage(body, res.statusText), code);
@@ -122,11 +131,12 @@ export const api = {
       On success the server sets vnc_op + vnc_csrf cookies; the
       returned csrf_token is cached via setCsrfToken. */
   authMethods: () =>
-    request<{ password: boolean; passkey: boolean }>('auth/methods'),
-  login: (username: string, password: string) =>
+    request<{ password: boolean; passkey: boolean; mfa: boolean }>(
+      'auth/methods'),
+  login: (username: string, password: string, totp = '') =>
     request<LoginResult>('auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, totp }),
     }),
   passkeyBegin: (username: string) =>
     request<{ options: Record<string, unknown> }>(
@@ -139,6 +149,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username, credential }),
     }),
+  /** The share-link session's own context — for the recipient banner. */
+  sessionContext: () => request<SessionContext>('session-context'),
   /** Expire the session server-side, then drop the cached CSRF
       token. The caller re-renders the login gate (the /me query
       fails 401 once the cookies are dead). */
@@ -149,6 +161,27 @@ export const api = {
       resetCsrfToken();
     }
   },
+  /** Portal read-model — any authenticated portal identity (operator
+      session or activated share-link cookie). Anonymous callers get
+      401 and the portal page renders its restricted view. */
+  portal: () => request<PortalData>('portal'),
+  /** Share-link ceremonies — public routes (the token IS the
+      credential; no session or CSRF exists yet). */
+  sessionPreview: (token: string) =>
+    request<SessionPreview>('session/preview', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  sessionActivate: (token: string) =>
+    request<{ activated: boolean }>('session/activate', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  /** Gamepad kill-switch (operator, admin_sessions). */
+  gamepadControl: (stop: boolean) =>
+    request<{ gamepad_stopped: boolean }>(
+      stop ? 'gamepad/stop' : 'gamepad/resume',
+      { method: 'POST', body: '{}' }),
 };
 
 // ---- Types ----
@@ -170,6 +203,57 @@ export interface LoginResult {
   operator: { username: string; role?: string | null };
   csrf_token: string;
   auth_method: 'password' | 'webauthn';
+}
+
+export interface PortalData {
+  is_operator: boolean;
+  metrics: Record<string, string>;
+  services: ServiceCard[];
+  lan_ips?: string[];
+  nginx_enabled?: boolean;
+  nginx_https_port?: number | null;
+  protocol?: 'http' | 'https';
+  external_base?: string | null;
+  use_ssl?: boolean;
+  platform?: 'windows' | 'linux';
+  vnc_direct?: {
+    addr: string;
+    port: number;
+    running: boolean;
+    loopback_only: boolean;
+  };
+  audio_ws?: string | null;
+  gamepad_ws?: string | null;
+  terminal_ws?: string | null;
+  maintenance?: Record<string, unknown> | null;
+  ports?: Record<string, number>;
+  sessions?: EphemeralSessionInfo[];
+  gamepad_stopped?: boolean;
+}
+
+export interface SessionPreview {
+  role: string;
+  expires_in_seconds: number;
+  view_only?: boolean;
+  single_use?: boolean;
+  no_terminal?: boolean;
+  max_uses?: number | null;
+  resource?: string | null;
+}
+
+// --- Portal + share-link public surface --------------------------------
+
+export interface SessionContext {
+  ephemeral: boolean;
+  active?: boolean;
+  role?: string;
+  permissions?: string[];
+  expires_at?: number | null;
+  view_only?: boolean;
+  single_use?: boolean;
+  no_terminal?: boolean;
+  resource?: string | null;
+  maintenance?: boolean;
 }
 
 export interface StatusPayload {

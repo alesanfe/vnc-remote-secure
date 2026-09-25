@@ -83,7 +83,7 @@ export default function Users() {
 
       {flash && <div className="info-box">{flash}</div>}
       {ops.isError && (
-        <div className="error-box">
+        <div className="error-box" role="alert">
           No se pudieron cargar los operadores (¿falta el permiso
           admin_users?).
         </div>
@@ -91,7 +91,7 @@ export default function Users() {
       {act.isError &&
         !(act.error instanceof ApiError &&
           act.error.code === 'STEP_UP_REQUIRED') && (
-        <div className="error-box">
+        <div className="error-box" role="alert">
           {act.error instanceof ApiError
             ? `${act.error.status}: ${act.error.message}`
             : 'Operación fallida'}
@@ -278,7 +278,7 @@ function CreateOperatorForm({ onDone }: { onDone: () => void }) {
         </select>
       </div>
       {create.isError && (
-        <div className="error-box">
+        <div className="error-box" role="alert">
           {create.error instanceof ApiError
             ? create.error.message
             : 'No se pudo crear'}
@@ -377,20 +377,27 @@ function OperatorDetailPanel({ username }: { username: string }) {
   const invalidateKeys = () =>
     qc.invalidateQueries({ queryKey: ['operator-passkeys', username] });
 
-  /** Run a mutation; on STEP_UP_REQUIRED open the dialog and retry. */
-  const withStepUp = async (fn: () => Promise<unknown>) => {
+  const [keyName, setKeyName] = useState('');
+  const [renaming, setRenaming] = useState<string | null>(null);
+
+  /** Run a mutation; on STEP_UP_REQUIRED open the dialog and retry.
+      The retry re-enters this same wrapper so a second step-up or a
+      real failure surfaces as regErr instead of an unhandled
+      rejection. */
+  const withStepUp = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
       await fn();
     } catch (e) {
       if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
-        setStepUpFor(() => () => void fn().then(invalidateKeys));
+        setStepUpFor(() => () =>
+          void withStepUp(fn).then(invalidateKeys));
         return;
       }
-      throw e;
+      setRegErr(e instanceof ApiError ? e.message : 'Operación fallida');
     }
   };
 
-  const register = () => withStepUp(async () => {
+  const register = () => void withStepUp(async () => {
     setRegBusy(true);
     setRegErr('');
     try {
@@ -400,7 +407,8 @@ function OperatorDetailPanel({ username }: { username: string }) {
         options as Record<string, unknown>);
       await api.post(
         `operators/${username}/passkeys/register/complete`,
-        { credential, name: 'passkey' });
+        { credential, name: keyName.trim() || 'passkey' });
+      setKeyName('');
       invalidateKeys();
     } catch (e) {
       if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED')
@@ -409,11 +417,19 @@ function OperatorDetailPanel({ username }: { username: string }) {
     } finally {
       setRegBusy(false);
     }
-  }).catch(() => {});
+  });
+
+  const renameKey = (ref: string, name: string) =>
+    void withStepUp(async () => {
+      await api.patch(
+        `operators/${username}/passkeys/${ref}`, { name });
+      setRenaming(null);
+      invalidateKeys();
+    });
 
   if (detail.isLoading) return <p className="muted">Cargando…</p>;
   if (detail.isError || !detail.data)
-    return <p className="error-box">No se pudo cargar la ficha.</p>;
+    return <p className="error-box" role="alert">No se pudo cargar la ficha.</p>;
   const op = detail.data.operator;
   return (
     <div className="card">
@@ -422,7 +438,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
         Rol <strong>{op.role}</strong> · {op.passkey_count ?? 0} passkey(s)
       </p>
       {op.deletion_allowed === false && (
-        <p className="warn-box">
+        <p className="notice">
           Protegido: {(op.blocking_reasons ?? []).join(', ')}.
         </p>
       )}
@@ -441,10 +457,34 @@ function OperatorDetailPanel({ username }: { username: string }) {
             {keys.data.passkeys.map((k) => (
               <tr key={k.ref}>
                 <td><code>{k.ref}</code></td>
-                <td>{k.name || '—'}</td>
+                <td>
+                  {renaming === k.ref ? (
+                    <input
+                      aria-label="Nuevo nombre de la passkey"
+                      defaultValue={k.name}
+                      autoFocus
+                      maxLength={64}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter')
+                          renameKey(k.ref, e.currentTarget.value);
+                        if (e.key === 'Escape') setRenaming(null);
+                      }}
+                      onBlur={(e) => renameKey(k.ref, e.target.value)}
+                    />
+                  ) : (
+                    k.name || '—'
+                  )}
+                </td>
                 <td>{k.created_at || '—'}</td>
                 <td>{k.sign_count}</td>
                 <td>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setRenaming(k.ref)}
+                  >
+                    Renombrar
+                  </button>{' '}
                   <button
                     type="button"
                     className="danger"
@@ -459,7 +499,15 @@ function OperatorDetailPanel({ username }: { username: string }) {
         </table>
       )}
       {isSelf && webauthnSupported() && (
-        <p>
+        <p className="row">
+          <input
+            aria-label="Nombre de la nueva passkey"
+            placeholder="Nombre (opcional)"
+            maxLength={64}
+            value={keyName}
+            onChange={(e) => setKeyName(e.target.value)}
+            style={{ maxWidth: 220 }}
+          />
           <button type="button" disabled={regBusy} onClick={register}>
             {regBusy ? 'Registrando…' : 'Registrar passkey'}
           </button>
@@ -495,10 +543,7 @@ function OperatorDetailPanel({ username }: { username: string }) {
           setDelRef(null);
           void withStepUp(() =>
             api.del(`operators/${username}/passkeys/${ref}`)
-              .then(invalidateKeys),
-          ).catch((e) =>
-            setRegErr(
-              e instanceof ApiError ? e.message : 'Revocación fallida'));
+              .then(invalidateKeys));
         }}
       >
         <p>

@@ -76,6 +76,20 @@ class TestLoginGate:
         monkeypatch.setenv('USER_UI_USERNAME', 'admin')
         assert maintenance.maintenance_login_allowed('admin') is True
 
+    def test_bootstrap_admin_allowed_without_ui_username(
+            self, monkeypatch):
+        """'admin' is the fixed LANDING_PASSWORD bootstrap identity —
+        maintenance must never lock it out (the admin who enabled it
+        could not log in to lift it)."""
+        maintenance.set_maintenance(True)
+        monkeypatch.setattr(
+            'vnc_remote_secure.security.operator_users.get_permissions',
+            lambda u: set())
+        monkeypatch.delenv('USER_UI_USERNAME', raising=False)
+        monkeypatch.delenv('TTYD_USERNAME', raising=False)
+        assert maintenance.maintenance_login_allowed('admin') is True
+        assert maintenance.maintenance_login_allowed('guest') is False
+
 
 class TestEnforcement:
     def test_ephemeral_activate_denied(self, monkeypatch):

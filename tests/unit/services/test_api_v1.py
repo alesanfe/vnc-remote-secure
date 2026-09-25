@@ -8,9 +8,7 @@ import base64
 import http.client
 import json
 import os
-import socketserver
 import sys
-import threading
 import time
 
 import pytest
@@ -23,19 +21,27 @@ from vnc_remote_secure.services import (
 
 
 @pytest.fixture
-def server(monkeypatch, tmp_path):
-    """Real threaded HTTP server running LandingHandler, patched to
-    require Basic auth with a known password."""
+def server(monkeypatch, tmp_path, asgi_server):
+    """Real uvicorn server running the FastAPI portal app, patched to
+    require Basic auth with a known password.
+
+    Service-status reads flow through the engine read model →
+    ``stores`` boundary, so the probes/metrics are stubbed THERE —
+    real port connects + a ~3 s metrics collection would otherwise
+    blow the 5 s request timeout.
+    """
     monkeypatch.setenv('LANDING_PASSWORD', 'T3st-Landing!Pass')
-    monkeypatch.setattr(
-        landing, 'generate_landing_page',
-        lambda forwarded_host=None, forwarded_proto=None,
-        is_operator=True, csrf_token='':
-        '<html><body>portal</body></html>')
     monkeypatch.setattr(landing, 'check_port', lambda *a, **k: True)
     monkeypatch.setattr(landing, 'get_lan_ips', lambda: ['10.0.0.9'])
     monkeypatch.setattr(
         landing, 'get_system_metrics',
+        lambda: {'hostname': 'h', 'os': 'os', 'uptime': '1h',
+                 'cpu': '1%', 'memory': '2G', 'disk': '3G'})
+    from vnc_remote_secure.core import portal as cp
+    monkeypatch.setattr(cp, 'check_port', lambda *a, **k: True)
+    monkeypatch.setattr(cp, 'get_lan_ips', lambda: ['10.0.0.9'])
+    monkeypatch.setattr(
+        cp, 'get_system_metrics',
         lambda: {'hostname': 'h', 'os': 'os', 'uptime': '1h',
                  'cpu': '1%', 'memory': '2G', 'disk': '3G'})
     cfg = {
@@ -47,15 +53,24 @@ def server(monkeypatch, tmp_path):
     monkeypatch.setattr(landing, '_config', lambda: cfg)
     cwd = os.getcwd()
     os.chdir(tmp_path)
-    srv = socketserver.ThreadingTCPServer(
-        ('127.0.0.1', 0), landing.LandingHandler)
-    srv.daemon_threads = True
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
-    yield srv.server_address[1]
-    srv.shutdown()
-    srv.server_close()
-    os.chdir(cwd)
+    try:
+        from vnc_remote_secure.backend.app import create_app
+        yield asgi_server(create_app())
+    finally:
+        os.chdir(cwd)
+
+
+class _Hdrs(dict):
+    """Case-insensitive response-header mapping (ASGI servers
+    lowercase names on the wire — http.client returns them as sent)."""
+    def __getitem__(self, k):
+        return super().__getitem__(k.lower())
+
+    def get(self, k, default=None):
+        return super().get(k.lower(), default)
+
+    def __contains__(self, k):
+        return super().__contains__(k.lower())
 
 
 def _req(port, path, method='GET', headers=None, body=None):
@@ -66,9 +81,10 @@ def _req(port, path, method='GET', headers=None, body=None):
     conn.close()
     # Merge repeated headers (Set-Cookie arrives more than once per
     # response) — a plain dict() would silently drop all but one.
-    hdrs = {}
+    hdrs = _Hdrs()
     for k, v in resp.getheaders():
-        hdrs[k] = f'{hdrs[k]}; {v}' if k in hdrs else v
+        kl = k.lower()
+        hdrs[kl] = f'{hdrs[kl]}; {v}' if kl in hdrs else v
     return resp.status, hdrs, data
 
 
@@ -437,21 +453,16 @@ def test_ephemeral_cookie_gets_status_only(server, monkeypatch):
 
 def test_share_page_public(server):
     """GET /share must be reachable WITHOUT auth — the link recipient
-    has no credentials; the token is the credential. The page carries
-    no inline script (CSP script-src 'self') — the logic lives in the
-    self-hosted /share.js."""
+    has no credentials; the token is the credential. The route serves
+    the React SPA shell (the interstitial is a client-side route that
+    POSTs to /api/v1/session/preview + /session/activate)."""
     status, headers, body = _req(server, '/share')
     assert status == 200
-    assert b'src="/share.js"' in body
+    assert b'id="root"' in body  # SPA shell
     csp = headers.get('Content-Security-Policy', '')
     assert "script-src 'self'" in csp
     assert "unsafe-inline" not in csp.split(
         'script-src', 1)[1].split(';')[0]
-    # The script itself is public too (same-origin CSP fetch).
-    status, _, js = _req(server, '/share.js')
-    assert status == 200
-    assert b'/session/activate' in js
-    assert b'/session/preview' in js
 
 
 def test_session_preview_public(server, monkeypatch):
@@ -470,10 +481,10 @@ def test_session_preview_public(server, monkeypatch):
     monkeypatch.setattr(
         'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
         lambda: store)
-    status, _, body = _api_post(server, '/session/preview',
+    status, _, body = _api_post(server, '/api/v1/session/preview',
                                 {'token': 'signed'})
     assert status == 200
-    data = json.loads(body)
+    data = json.loads(body)['data']
     assert data['role'] == 'viewer'
     assert 'expires_in_seconds' in data
     # Never leaks creator or binding details.
@@ -486,7 +497,7 @@ def test_session_preview_invalid_403(server, monkeypatch):
         'vnc_remote_secure.security.ephemeral_sessions.'
         'verify_ephemeral_token',
         lambda t: None)
-    status, _, _ = _api_post(server, '/session/preview',
+    status, _, _ = _api_post(server, '/api/v1/session/preview',
                              {'token': 'bogus'})
     assert status == 403
 
@@ -524,8 +535,13 @@ def test_logout_expires_csrf(server):
     status, headers, _ = _api_post(server, '/api/v1/logout', {},
                                    headers=h)
     assert status == 200
-    assert 'vnc_csrf=;' in headers.get('Set-Cookie', '')
-    assert 'Max-Age=0' in headers.get('Set-Cookie', '')
+    sc = headers.get('Set-Cookie', '')
+    assert 'vnc_csrf=;' in sc
+    # The remote-service cookie dies too — leaving vnc_session alive
+    # would keep noVNC/terminal reachable after "logout".
+    assert 'vnc_session=;' in sc
+    assert 'vnc_op=;' in sc
+    assert 'Max-Age=0' in sc
 
 
 # ---------------------------------------------------------------------------
@@ -651,9 +667,11 @@ def test_revoke_missing_session_uniform_200(server, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def _bare_handler(headers=None):
-    """Bare LandingHandler for direct cookie-verifier unit tests."""
-    h = object.__new__(landing.LandingHandler)
+    """Bare PortalContext for direct cookie-verifier unit tests."""
+    from vnc_remote_secure.backend.context import AsgiPortalContext
+    h = object.__new__(AsgiPortalContext)
     h.headers = headers or {}
+    h.is_tls = False
     h.__dict__['_pending_cookies'] = []
     return h
 
@@ -1179,7 +1197,14 @@ def test_login_password_mints_session(server):
     sc = headers.get('Set-Cookie', '')
     op = _cookie_value(sc, 'vnc_op')
     csrf = _cookie_value(sc, 'vnc_csrf')
+    vnc = _cookie_value(sc, 'vnc_session')
     assert op and csrf
+    # The canonical remote-service cookie rides too — noVNC, the
+    # terminal, audio and gamepad authenticate off `vnc_session`, so
+    # an SPA login must mint it (not only the admin cookies).
+    assert vnc
+    from vnc_remote_secure.security.sessions import verify_session_cookie
+    assert verify_session_cookie(vnc)
     # The minted session must authorize a follow-up GET.
     status, _, body = _req(
         server, '/api/v1/me',
@@ -1308,7 +1333,6 @@ def test_jobs_ledger_records_revoke_all(server, monkeypatch):
 
 def test_audit_user_and_result_filters(server):
     """?user= / ?result= narrow the audit page server-side."""
-    h = _csrf_session(server)
     status, _, body = _req(
         server, '/api/v1/audit?user=filterme',
         headers=_auth_headers())
@@ -1320,3 +1344,61 @@ def test_audit_user_and_result_filters(server):
         headers=_auth_headers())
     assert status == 200
     assert json.loads(body)['data']['entries'] == []
+
+
+# ---------------------------------------------------------------------------
+# MFA-gated login
+# ---------------------------------------------------------------------------
+
+def _totp_now(secret_b32: str) -> str:
+    """Compute the current TOTP code for a base32 secret."""
+    import base64 as _b64
+    import hashlib
+    import hmac
+    import struct
+    key = _b64.b32decode(secret_b32)
+    counter = int(time.time()) // 30
+    digest = hmac.new(key, struct.pack('>Q', counter),
+                      hashlib.sha1).digest()
+    off = digest[-1] & 0x0F
+    code = (struct.unpack('>I', digest[off:off + 4])[0]
+            & 0x7FFFFFFF) % 1000000
+    return f'{code:06d}'
+
+
+def test_login_requires_totp_when_mfa_enabled(server, monkeypatch):
+    """MFA_REQUIRED + TOTP_SECRET must gate the password login — a
+    configured second factor is not advisory."""
+    import base64 as _b64
+    import secrets as _secrets
+    secret = _b64.b32encode(_secrets.token_bytes(20)).decode()
+    monkeypatch.setenv('MFA_REQUIRED', 'true')
+    monkeypatch.setenv('TOTP_SECRET', secret)
+    status, _, body = _api_post(
+        server, '/api/v1/auth/login',
+        {'username': 'admin', 'password': 'T3st-Landing!Pass'})
+    assert status == 401
+    assert json.loads(body).get('code') == 'MFA_REQUIRED'
+    # Wrong code: denied.
+    status, _, _ = _api_post(
+        server, '/api/v1/auth/login',
+        {'username': 'admin', 'password': 'T3st-Landing!Pass',
+         'totp': '000000'})
+    assert status == 401
+    # Correct code: session minted.
+    status, hdrs, body = _api_post(
+        server, '/api/v1/auth/login',
+        {'username': 'admin', 'password': 'T3st-Landing!Pass',
+         'totp': _totp_now(secret)})
+    assert status == 200
+    data = json.loads(body)['data']
+    assert data['auth_method'] == 'password+totp'
+    assert 'vnc_op=' in hdrs.get('Set-Cookie', '')
+
+
+def test_auth_methods_reports_mfa_flag(server, monkeypatch):
+    monkeypatch.setenv('MFA_REQUIRED', 'true')
+    monkeypatch.setenv('TOTP_SECRET', 'AAAA')
+    status, _, body = _req(server, '/api/v1/auth/methods')
+    assert status == 200
+    assert json.loads(body)['data']['mfa'] is True

@@ -20,7 +20,8 @@ export default function Audit() {
           (userFilter ? `&user=${encodeURIComponent(userFilter)}` : '') +
           (resultFilter
             ? `&result=${encodeURIComponent(resultFilter)}` : '') +
-          (pageParam ? `&cursor=${pageParam}` : ''),
+          (pageParam
+            ? `&cursor=${encodeURIComponent(pageParam)}` : ''),
       ),
     initialPageParam: null as number | null,
     getNextPageParam: (last) =>
@@ -96,7 +97,7 @@ export default function Audit() {
       </div>
 
       {entries.isError && (
-        <div className="error-box">
+        <div className="error-box" role="alert">
           No se pudo leer la auditoría (¿falta el permiso admin_audit?).
         </div>
       )}

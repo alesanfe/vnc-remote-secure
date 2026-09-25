@@ -213,7 +213,7 @@ class TestDecisionShape:
                 assert func in body, (
                     f'{op}: {func} not found in {path}')
                 assert _re.search(
-                    r'auth_policy|_enforce_auth_policy|evaluate\(',
+                    r'auth_policy|_enforce_auth_policy|evaluate\(|step_up',
                     body), (f'{op}: {path} has no policy-evaluator '
                             'reference')
 

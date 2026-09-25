@@ -10,14 +10,10 @@ class TestAuthenticateCredentials:
         return authentication
 
     def test_hashed_ui_password_accepted(self, monkeypatch):
-        try:
-            from werkzeug.security import generate_password_hash
-            stored = generate_password_hash('Str0ng!Pass')
-        except ImportError:
-            import hashlib
-            dk = hashlib.pbkdf2_hmac(
-                'sha256', b'Str0ng!Pass', b'salt', 1000)
-            stored = f'pbkdf2:1000$salt${dk.hex()}'
+        import hashlib
+        dk = hashlib.pbkdf2_hmac(
+            'sha256', b'Str0ng!Pass', b'salt', 1000)
+        stored = f'pbkdf2:1000$salt${dk.hex()}'
         monkeypatch.setenv('USER_UI_USERNAME', 'admin')
         monkeypatch.setenv('USER_UI_PASSWORD', stored)
         assert self._auth(monkeypatch).authenticate(

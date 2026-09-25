@@ -8,6 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
+from vnc_remote_secure.core import portal as _core_portal
 from vnc_remote_secure.services import landing
 
 # ---------------------------------------------------------------------------
@@ -99,9 +100,9 @@ def test_get_lan_ips_handles_adapter_failure(monkeypatch):
 
 def test_get_system_metrics_returns_dict(monkeypatch):
     """get_system_metrics returns a dict with expected keys and values."""
-    monkeypatch.setattr(landing.platform, 'system', lambda: 'Linux')
-    monkeypatch.setattr(landing.platform, 'node', lambda: 'test-host')
-    monkeypatch.setattr(landing.platform, 'release', lambda: '6.5')
+    monkeypatch.setattr(_core_portal.platform, 'system', lambda: 'Linux')
+    monkeypatch.setattr(_core_portal.platform, 'node', lambda: 'test-host')
+    monkeypatch.setattr(_core_portal.platform, 'release', lambda: '6.5')
 
     # Mock the platform metrics module to return deterministic values
     fake_metrics = {
@@ -129,9 +130,9 @@ def test_get_system_metrics_returns_dict(monkeypatch):
 
 def test_get_system_metrics_falls_back_to_platform_release(monkeypatch):
     """get_system_metrics falls back to platform.release() when get_os_display_name returns None."""
-    monkeypatch.setattr(landing.platform, 'system', lambda: 'Linux')
-    monkeypatch.setattr(landing.platform, 'node', lambda: 'test-host')
-    monkeypatch.setattr(landing.platform, 'release', lambda: '6.5')
+    monkeypatch.setattr(_core_portal.platform, 'system', lambda: 'Linux')
+    monkeypatch.setattr(_core_portal.platform, 'node', lambda: 'test-host')
+    monkeypatch.setattr(_core_portal.platform, 'release', lambda: '6.5')
 
     fake_metrics = {'cpu': 'N/A', 'memory': 'N/A', 'disk': 'N/A', 'uptime': 'N/A'}
     import vnc_remote_secure.platform.linux.metrics as linux_metrics

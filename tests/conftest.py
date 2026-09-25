@@ -134,7 +134,7 @@ _SHARED_STATE_TEST_NAMESPACES = (
     'mfa_last_step', 'mfa_used_steps', 'mfa_used_recovery_codes',
     'step_up_auth_times', 'webauthn_challenges', 'maintenance',
     'api_rate', 'op_revoked_sessions', 'op_revoked_users',
-    'op_sessions',
+    'op_sessions', 'web_auth_context',
 )
 
 
@@ -190,11 +190,57 @@ def ns():
 
 
 @pytest.fixture
-def stub_handler():
-    """Bare http.server-style handler stub with mocked write paths.
+def asgi_server():
+    """Spawn a FastAPI app on a real uvicorn instance (ephemeral port).
 
-    Used by novnc/landing tests that drive handler methods without a
-    real socket: ``stub_handler(LandingHandler, headers={...},
+    The portal tests exercise the real HTTP surface — they must see a
+    real socket, not the ASGI transport double. Usage::
+
+        port = asgi_server(create_app())   # yields the bound port
+
+    The uvicorn server runs in a daemon thread and is stopped on
+    teardown.
+    """
+    import threading
+    import time
+
+    import uvicorn
+
+    servers = []
+
+    def _spawn(app):
+        config = uvicorn.Config(
+            app, host='127.0.0.1', port=0,
+            log_level='error', access_log=False,
+            # Same rule as production main(): the app's own
+            # TRUSTED_PROXY gate decides whether X-Forwarded-* counts —
+            # uvicorn must not trust them implicitly.
+            proxy_headers=False)
+        server = uvicorn.Server(config)
+        t = threading.Thread(target=server.run, daemon=True)
+        t.start()
+        deadline = time.time() + 10
+        while not server.started:
+            if time.time() > deadline:
+                raise RuntimeError('uvicorn did not start')
+            time.sleep(0.01)
+        port = server.servers[0].sockets[0].getsockname()[1]
+        servers.append((server, t))
+        return port
+
+    yield _spawn
+
+    for server, t in servers:
+        server.should_exit = True
+        t.join(timeout=5)
+
+
+@pytest.fixture
+def stub_handler():
+    """Bare handler/portal-context stub with mocked write paths.
+
+    Used by novnc/portal tests that drive handler methods without a
+    real socket: ``stub_handler(SomeHandler, headers={...},
     path='/?session=x')``.
     """
     from unittest.mock import MagicMock

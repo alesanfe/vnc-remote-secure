@@ -22,7 +22,6 @@ Environment variables:
 """
 
 import argparse
-import asyncio
 import json
 import logging
 import os
@@ -329,10 +328,13 @@ class GamepadServer:
                     # Reset for next client
                     self.injector.uinput = None
 
-    async def run(self):
-        """Run."""
+    def run(self):
+        """Run the gamepad server (uvicorn/FastAPI)."""
+        import uvicorn
+
         # Optional TLS via shared SSL context builder.
         from vnc_remote_secure.security.certificates import create_ssl_context
+        from vnc_remote_secure.services.ws_adapter import make_ws_app
         ssl_ctx = create_ssl_context()
         scheme = 'wss' if ssl_ctx else 'ws'
 
@@ -343,19 +345,19 @@ class GamepadServer:
         logger.info("  Injector: %s", 'available' if self.injector and self.injector.available else 'not available')
         logger.info("  URL:    %s://%s:%s", scheme, self.host, self.port)
 
-        async with websockets.serve(
-            self.handle_client,
-            self.host,
-            self.port,
-            ssl=ssl_ctx,
-            ping_interval=DEFAULT_PING_INTERVAL,
-            ping_timeout=DEFAULT_PING_TIMEOUT,
-            # Gamepad events are small JSON objects — the 1 MiB default
-            # only served a memory-exhaustion vector.
-            max_size=8192,
-        ):
-            logger.info("Server running. Press Ctrl+C to stop.")
-            await asyncio.Future()
+        kwargs = {}
+        if ssl_ctx:
+            kwargs = {'ssl_certfile': os.environ.get('SSL_CERT'),
+                      'ssl_keyfile': os.environ.get('SSL_KEY')}
+        logger.info("Server running. Press Ctrl+C to stop.")
+        uvicorn.run(make_ws_app(self.handle_client),
+                    host=self.host, port=self.port,
+                    log_level='warning', access_log=False,
+                    proxy_headers=False,
+                    ws_ping_interval=DEFAULT_PING_INTERVAL,
+                    ws_ping_timeout=DEFAULT_PING_TIMEOUT,
+                    ws_max_size=8192,
+                    **kwargs)
 
 
 def main():
@@ -378,7 +380,7 @@ def main():
     server = GamepadServer(host, port)
 
     try:
-        asyncio.run(server.run())
+        server.run()
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Shutting down...")
         if server.injector:

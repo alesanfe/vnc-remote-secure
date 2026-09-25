@@ -165,7 +165,10 @@ def _pid_alive(pid: int) -> bool:
                 ['tasklist', '/FI', f'PID eq {pid}', '/NH', '/FO', 'CSV'],
                 capture_output=True, text=True, timeout=5,
             )
-            return f',"{pid}",' in res.stdout
+            # res.stdout is None when tasklist output cannot be
+            # decoded (non-UTF-8 console locale) — treat as "unknown",
+            # not a crash.
+            return f',"{pid}",' in (res.stdout or '')
         except (OSError, subprocess.SubprocessError):
             return False
     try:
@@ -704,7 +707,7 @@ def _enabled_services(config: dict) -> list:
     from vnc_remote_secure.core.plugins import iter_plugins, plugin_enabled
     windows = is_windows()
     # 'health' precedes websockify: the standalone health server is
-    # optional (HEALTH_WEB_ENABLED gates it — the Flask UI exposes
+    # optional (HEALTH_WEB_ENABLED gates it — the user-ui app exposes
     # the same endpoints on USER_UI_PORT when it is off), and
     # preserving the historical start order keeps supervision
     # deterministic.
@@ -887,9 +890,9 @@ def _start_vnc(config: dict) -> int | None:
 def _start_terminal(config: dict) -> int | None:
     """Start the web terminal.
 
-    On Linux, prefer the Python Tornado terminal (services.terminal) so
-    that auth_gateway and WebSocket registry are connected. On Windows,
-    the same module is used (it was designed for ConPTY issues).
+    The Python FastAPI terminal (services.terminal) runs on both
+    platforms so that auth_gateway and WebSocket registry are
+    connected (it was designed for ConPTY issues).
     """
     return _start_python_service(
         'vnc_remote_secure.services.terminal', 'terminal',

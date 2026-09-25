@@ -171,9 +171,10 @@ def _check_auth_posture(findings):
         })
 
     # Health auth - required when ANY health-serving bind is
-    # public. The endpoints live on the standalone health server
-    # and the Flask UI alike, so HEALTH_WEB_HOST, USER_UI_HOST
-    # and BIND_HOST are all considered - mirroring check_health_auth.
+    # public. The endpoints are served by both the standalone health
+    # service and the internal user_ui health app, so
+    # HEALTH_WEB_HOST, USER_UI_HOST and BIND_HOST are all considered
+    # - mirroring check_health_auth.
     health_auth = bool(_env_val('HEALTH_AUTH_TOKEN'))
     base_bind = _env_val('BIND_HOST', '127.0.0.1')
     health_public = any(

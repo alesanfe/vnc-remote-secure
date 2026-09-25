@@ -60,7 +60,7 @@ _revoke_check_warned_at = 0.0
 
 # Type for a close callback. The callback should close the WebSocket
 # connection. This abstraction allows the registry to work with
-# different WebSocket implementations (Tornado, Flask-SocketIO, etc.).
+# different WebSocket implementations (websockets, Starlette, etc.).
 CloseCallback = Callable[[], bool]
 
 

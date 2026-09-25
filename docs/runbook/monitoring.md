@@ -13,19 +13,20 @@ Operational guide for monitoring and troubleshooting VNC Remote Secure.
 | `/health/all` | Yes | Complete report (system + services + posture) |
 
 > `/metrics`, `/audit` and `/audit/verify` are served by **both** the
-> standalone health server (on `HEALTH_WEB_PORT`) and the Flask
-> user-management UI (on `USER_UI_PORT`, default `8081`) — the two
-> implementations are kept at parity.
+> standalone health server (on `HEALTH_WEB_PORT`) and the internal
+> health/metrics service — the `user_ui` process (on `USER_UI_PORT`,
+> default `8081`). Both run the same FastAPI app
+> (`backend/health_app.py`).
 
 > The standalone health server is optional: `HEALTH_WEB_ENABLED=false`
-> disables it, in which case the Flask UI is the only source of these
-> endpoints (point Prometheus at `USER_UI_PORT` instead). A disabled
-> health server is also excluded from `/health` port probing and the
-> `vnc-remote status`/`doctor` checks.
+> disables it, in which case the `user_ui` service is the only source
+> of these endpoints (point Prometheus at `USER_UI_PORT` instead). A
+> disabled health server is also excluded from `/health` port probing
+> and the `vnc-remote status`/`doctor` checks.
 
 ### Default ports
 
-| Platform | Health port | User UI port (metrics/audit) |
+| Platform | Health port | `user_ui` port (metrics/audit) |
 |----------|------------|------------------------------|
 | Linux | 8080 | 8081 |
 | Windows | 8090 | 8081 |
@@ -116,7 +117,7 @@ for e in get_audit_entries(limit=20, event='login'):
 ### Authentication fails
 
 1. Check `AUTH_SECRET` is set in `.env`.
-2. Check `FLASK_SECRET_KEY` is set.
+2. Check `AUTH_SECRET` (or `FLASK_SECRET_KEY`) is set.
 3. If MFA is enabled, verify `TOTP_SECRET` is valid.
 4. Check rate limiting: `AUTH_MAX_ATTEMPTS` and `AUTH_LOCKOUT_SECONDS`.
 5. Check audit log for failed attempts: see above.

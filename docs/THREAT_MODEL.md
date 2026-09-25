@@ -10,14 +10,18 @@ security assumptions, and provides a risk matrix.
 VNC Remote Secure is a cross-platform system for secure browser-based remote
 desktop access. The server runs on Linux or Windows and exposes a web
 interface that aggregates a noVNC desktop session, a web terminal, an
-optional audio/gamepad stream, and a health dashboard. A Flask user-management
-UI handles authentication and session management.
+optional audio/gamepad stream, and a health dashboard. All browser-facing
+UI is a single React SPA (public portal at `/`, operator console at
+`/admin/*`, share/audio/gamepad/terminal pages) served by the FastAPI
+portal; authentication and session management go through the versioned
+`/api/v1/*` API (`vnc_op` operator cookie + `vnc_csrf`/X-CSRF-Token,
+`vnc_ephemeral` share-session cookie, step-up auth for destructive ops).
 
 The architecture is package-based: a common Python core
 (`src/vnc_remote_secure/`) delegates platform-specific operations to
 adapters under `platform/{linux,windows}/`. On Linux, TigerVNC, a
-Tornado-based web terminal, nginx, and systemd are used; on Windows,
-UltraVNC, the same Tornado web terminal, and Windows Services are used.
+FastAPI/uvicorn-based web terminal, nginx, and systemd are used; on Windows,
+UltraVNC, the same FastAPI web terminal, and Windows Services are used.
 The client requires only a web browser.
 
 The intended deployment topology places nginx as the sole public entry point
@@ -31,7 +35,7 @@ recommended for higher-security deployments.
 |-------|-------------|----------------------|
 | VNC password | Authentication credential for desktop access | Full remote desktop control |
 | Web Terminal credentials | Basic-auth credentials for the Web Terminal | Remote code execution on the host |
-| UI user password | Credential for the Flask user-management UI | Unauthorized service administration |
+| Operator credential | Password/passkey for the admin console (`vnc_op` session) | Unauthorized service administration |
 | SSL/TLS private keys | Private keys for the server certificate | Man-in-the-middle, traffic decryption |
 | DuckDNS token | Dynamic DNS API token | DNS hijacking, domain takeover |
 | User session | Authenticated browser session cookie | Unauthorized access to services |
@@ -115,7 +119,7 @@ recommended for higher-security deployments.
 |-------|----------|
 | Transport | SSL/TLS with self-signed or Let's Encrypt certificates; noVNC `--ssl-only` when SSL is enabled; HTTPS for the web terminal and UI |
 | Authentication | Required VNC password (hashed); web terminal basic auth; UI session-based auth with CSRF protection; strong password validation rejecting defaults (`changeme`, `admin123`, etc.); constant-time comparison via `hmac.compare_digest` |
-| Session | `HttpOnly`, `SameSite=Lax`, `Secure` cookies; CSRF tokens on state-changing requests |
+| Session | `HttpOnly`, `Secure` cookies; `SameSite=Strict` for operator cookies (`vnc_op`, `vnc_csrf`, `vnc_session`); the ephemeral `vnc_ephemeral` cookie follows `SESSION_SAMESITE`; CSRF tokens on state-changing requests |
 | Network | nginx as sole public entry point; internal services default to `127.0.0.1`; WebSocket origin validation; Fail2ban integration (Linux); documented firewall guidance |
 | User isolation (Linux) | Temporary user created per session and removed on exit by default (`KEEP_TEMP_USER=false`); reserved usernames rejected; `useradd`/`userdel` used for portability |
 | System hardening | systemd hardening (`NoNewPrivileges`, `ProtectSystem`, `PrivateTmp`); secret files with `0600` permissions; `doctor` command validates permissions and configuration |
@@ -167,8 +171,9 @@ These controls are recommended but not yet implemented:
   beyond TLS, the operator is responsible for additional controls (VPN,
   firewall).
 - Physical access to the host is restricted and out of scope.
-- Third-party dependencies (TigerVNC, UltraVNC, noVNC, ttyd, nginx, Flask)
-  are trusted to behave according to their own security policies; their
+- Third-party dependencies (TigerVNC, UltraVNC, noVNC, ttyd, nginx,
+  FastAPI/uvicorn, the React/Vite frontend toolchain) are trusted to
+  behave according to their own security policies; their
   vulnerabilities are reported upstream.
 - The VNC protocol's legacy DES authentication is accepted as a known
   limitation and is mitigated by placing VNC behind TLS and restricting
@@ -208,5 +213,5 @@ classified as Low, Medium, High, or Critical.
 | Configuration tampering | Low | Critical | High | File permissions, `doctor` validation |
 | DNS hijacking (DuckDNS token theft) | Low | High | Medium | Token in gitignored `.env`, Gitleaks |
 | TLS misconfiguration | Medium | Medium | Medium | Self-signed with 600 perms, Let's Encrypt option |
-| Injection in Flask UI | Low | High | Medium | Input validation, parameterized queries, error sanitization |
+| Injection via admin SPA / `/api/v1` | Low | High | Medium | CSRF gate (`vnc_csrf` + X-CSRF-Token), Origin/Sec-Fetch-Site checks, per-route capability gating, step-up auth, input validation, error sanitization |
 | Supply chain (dependency CVEs) | Low | Medium | Low | Trivy, pinned versions, upstream reporting |

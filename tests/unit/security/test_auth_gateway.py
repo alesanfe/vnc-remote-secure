@@ -115,24 +115,6 @@ class TestLogin:
         assert not ok
         assert 'mfa' in msg.lower()
 
-    def test_web_session_token_validates_as_session_cookie(self):
-        """create_web_session() must store a session-type token.
-
-        Regression: it used to store a TOKEN_TYPE_BEARER value which
-        verify_session_cookie() (TOKEN_TYPE_SESSION) rejected — the web
-        login succeeded but every subsequent request bounced to /login.
-        """
-        from vnc_remote_secure.security.authentication import create_web_session
-        from vnc_remote_secure.security.sessions import verify_session_cookie
-
-        flask_session = {}
-        token = create_web_session(flask_session, 'alice')
-        assert flask_session['token'] == token
-
-        verified = verify_session_cookie(token)
-        assert verified is not None
-        assert verified['username'] == 'alice'
-
 
 from vnc_remote_secure.security.auth_gateway import authorize_request
 

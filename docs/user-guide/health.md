@@ -3,12 +3,16 @@
 ## Overview
 
 The health endpoint provides real-time system status information through a
-JSON API. Two implementations coexist:
+JSON API. A single FastAPI application
+(`src/vnc_remote_secure/backend/health_app.py`, served by uvicorn) backs
+both service processes:
 
-- **Python (Flask)**: `src/vnc_remote_secure/web/routes/health.py` — served
-  via the Flask application in `src/vnc_remote_secure/web/application.py`.
-- **Python (stdlib)**: `src/vnc_remote_secure/services/health.py` — a
-  zero-dependency `http.server` fallback used when Flask is not installed.
+- **Health service**: `src/vnc_remote_secure/services/health.py` on
+  `HEALTH_WEB_PORT`.
+- **Internal health/metrics service (`user_ui`)**:
+  `src/vnc_remote_secure/web/application.py` on `USER_UI_PORT` — despite
+  the historical name it exposes no UI pages; every browser-facing page
+  is the React SPA served by the portal.
 
 Both expose the same contract documented below.
 
@@ -138,9 +142,9 @@ The `posture` key carries the security-posture report (score and
 findings) documented in the monitoring runbook; it is best-effort and
 may be `{}` if posture calculation fails.
 
-> **Note:** On the standalone stdlib health server, `/health` returns
-> HTTP `503` when the aggregate status is `down`. The Flask route
-> (`/health` on the user-management UI port) always returns `200`.
+> **Note:** `/health` returns HTTP `503` when the aggregate status is
+> `down` or `unknown` — identical behaviour on the standalone health
+> server and the `user_ui` service (same FastAPI app).
 
 System metrics are collected via the platform adapter
 (`src/vnc_remote_secure/platform/linux/metrics.py` or `src/vnc_remote_secure/platform/windows/metrics.py`).
@@ -159,7 +163,7 @@ All errors use the unified JSON envelope:
 | Status | Cause |
 |--------|-------|
 | `401` | Missing or invalid `HEALTH_AUTH_TOKEN` |
-| `404` | Unknown path (stdlib server only) |
+| `404` | Unknown path |
 
 ## Integration Examples
 

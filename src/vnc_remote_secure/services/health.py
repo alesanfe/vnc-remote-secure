@@ -1,10 +1,10 @@
-"""Health check service for VNC Remote Secure.
+"""Health check service — status aggregation and the server launcher.
 
-Provides a lightweight HTTP health endpoint and helper functions to
-query the status of all managed services. The HTTP server uses only the
-standard library so it has no external dependencies.
+The HTTP transport is FastAPI/uvicorn
+(``vnc_remote_secure.backend.health_app``); this module keeps the
+service-port inventory, the aggregate status computation and the
+``start_health_server`` entry point other callers use.
 """
-import json
 import logging
 import os
 import threading
@@ -19,7 +19,6 @@ from vnc_remote_secure.core.constants import (
     DEFAULT_TTYD_PORT,
 )
 from vnc_remote_secure.core.processes import is_port_available
-from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 logger = logging.getLogger(__name__)
 
@@ -138,170 +137,27 @@ def get_health_status():
     }
 
 
-class _HealthHandler(SecuredHandlerMixin):
-    """HTTP request handler for the health endpoint.
-
-    Auth is controlled by ``HEALTH_AUTH_TOKEN`` via the shared
-    :func:`check_health_auth` helper. When the token is unset, access
-    is open only while every health-serving bind is loopback; a public
-    bind without a token fails closed with 401. The mixin installs the
-    Slowloris read timeout and security headers.
-    """
-
-    def _require_health_auth(self, realm='Health', scope=None):
-        """Check the health auth token; send 401 and return False on failure."""
-        from vnc_remote_secure.security.http_auth import check_health_auth
-        if check_health_auth(self.headers.get('Authorization', ''),
-                             peer_ip=self.peer_ip(), scope=scope):
-            return True
-        self.send_json_error('Unauthorized', 401,
-                             www_authenticate=f'Bearer realm="{realm}"')
-        return False
-
-    def _serve_health(self, ready_only=False):
-        """Serve the aggregated health status."""
-        if not self._require_health_auth():
-            return
-        status = get_health_status()
-        body = json.dumps(status, indent=2).encode('utf-8')
-        # Readiness is stricter than /health: a 'degraded' aggregate
-        # means an enabled service is down, so the deployment cannot
-        # serve all traffic (matches the Flask blueprint, which
-        # requires all services listening).
-        ok_states = ('healthy',) if ready_only else ('healthy', 'degraded')
-        code = 200 if status['status'] in ok_states else 503
-        self.send_body(code, body, 'application/json')
-
-    def _serve_live(self):
-        """Serve the liveness probe (unauthenticated, rate-limited)."""
-        # Rate-limited per IP like the Flask blueprint — the probe is
-        # unauthenticated so it must not be a cheap DoS/recon vector.
-        # 60 req / 60s — liveness probes poll frequently (k8s: every
-        # 10s by default); the generic 5/5min budget would break real
-        # monitoring.
-        from vnc_remote_secure.security.http_auth import client_ip_from
-        from vnc_remote_secure.security.rate_limit import (
-            check_rate_limit,
-        )
-        if not check_rate_limit(
-                client_ip_from(
-                    self.headers, self.peer_ip()),
-                max_requests=60, window_seconds=60):
-            self.send_json_error('Too many requests', 429)
-            return
-        self.send_json({'status': 'alive'})
-
-    def _serve_services(self):
-        """Per-service status with PID and port details."""
-        if not self._require_health_auth():
-            return
-        from vnc_remote_secure.core.service_manager import status_all
-        self.send_json(status_all(), indent=2)
-
-    def _serve_all_health(self):
-        """Serve the monitoring aggregate (all health checks)."""
-        if not self._require_health_auth():
-            return
-        from vnc_remote_secure.monitoring.health import get_all_health
-        try:
-            status = get_all_health()
-            self.send_json(status, indent=2)
-        except Exception:
-            logger.exception("Health status generation failed")
-            self.send_json_error('Health status generation failed', 500)
-
-    def _serve_metrics(self):
-        """Prometheus scrape endpoint on the health port."""
-        if not self._require_health_auth(realm='Metrics',
-                                         scope='metrics'):
-            return
-        from vnc_remote_secure.monitoring.prometheus import metrics_handler
-        body, status = metrics_handler()
-        self.send_body(status, body, 'text/plain; version=0.0.4')
-
-    def _serve_audit(self):
-        """Serve recent audit entries (bounded by ?limit=)."""
-        if not self._require_health_auth(realm='Audit', scope='audit'):
-            return
-        from urllib.parse import parse_qs, urlparse
-
-        from vnc_remote_secure.security.audit import get_audit_entries
-        qs = parse_qs(urlparse(self.path).query)
-        try:
-            limit = max(1, min(int(qs.get('limit', ['100'])[0]), 1000))
-        except (ValueError, TypeError):
-            self.send_json_error('Invalid limit parameter', 400)
-            return
-        event = qs.get('event', [None])[0]
-        entries = get_audit_entries(limit=limit, event=event)
-        self.send_json(entries, indent=2)
-
-    def _serve_audit_verify(self):
-        """Serve the audit chain integrity check."""
-        if not self._require_health_auth(realm='Audit', scope='audit'):
-            return
-        from vnc_remote_secure.security.audit import verify_chain
-        intact, message = verify_chain()
-        self.send_json({'intact': intact, 'message': message})
-
-    def do_GET(self):  # noqa: N802 - stdlib API
-        from vnc_remote_secure.security.http_auth import request_headers_safe
-        if not request_headers_safe(self.headers):
-            self.send_json_error('Ambiguous request framing', 400)
-            return
-        # Strip the query string once: Flask routes match path-only and
-        # nginx forwards the request URI verbatim, so /health?x=1 must
-        # not 404 here while succeeding through the proxy. (The /audit
-        # branch still reads the query via urlparse(self.path).)
-        path = self.path.split('?', 1)[0]
-        if path in ('/health', '/health_status', '/health_status.json'):
-            self._serve_health()
-        elif path == '/health/live':
-            self._serve_live()
-        elif path == '/health/ready':
-            self._serve_health(ready_only=True)
-        elif path == '/health/services':
-            self._serve_services()
-        elif path == '/health/all':
-            self._serve_all_health()
-        elif path == '/metrics':
-            self._serve_metrics()
-        elif path == '/audit':
-            self._serve_audit()
-        elif path == '/audit/verify':
-            self._serve_audit_verify()
-        else:
-            self.send_json_error('Not found', 404)
-
-
-def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST, ssl_context=None):
-    """Start the health HTTP server in a background thread.
+def start_health_server(port=DEFAULT_HEALTH_PORT, host=DEFAULT_BIND_HOST,
+                        ssl_context=None, ssl_certfile=None,
+                        ssl_keyfile=None):
+    """Start the health HTTP server (uvicorn) in a background thread.
 
     Args:
         port: Port to listen on.
         host: Bind address.
-        ssl_context: Optional :class:`ssl.SSLContext` to enable HTTPS.
+        ssl_context: Deprecated — kept for call-site compatibility;
+            pass ``ssl_certfile``/``ssl_keyfile`` for TLS.
+        ssl_certfile / ssl_keyfile: PEM paths when serving HTTPS.
 
-    Returns the :class:`http.server.HTTPServer` instance. The caller is
-    responsible for calling ``shutdown()`` when finished.
+    Returns a :class:`UvicornServerHandle` exposing
+    ``server_address``, ``shutdown()`` and ``server_close()``.
     """
-    # Bounded threading server: a single slow/hung health probe must
-    # not block every other probe behind it (HTTP/1.1 keep-alive),
-    # and a pre-auth connection flood cannot exhaust threads.
-    from vnc_remote_secure.services.bounded_server import (
-        BoundedThreadingHTTPServer,
-    )
-    server = BoundedThreadingHTTPServer((host, port), _HealthHandler)
-    if ssl_context:
-        server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    return server
+    from vnc_remote_secure.backend.health_app import start_health_server as _start
+    return _start(port=port, host=host,
+                  ssl_certfile=ssl_certfile, ssl_keyfile=ssl_keyfile)
 
 
 if __name__ == '__main__':
-    import time
-
     from vnc_remote_secure.core.config import load_env_file
     load_env_file()
     _port = int(os.environ.get('HEALTH_WEB_PORT', str(DEFAULT_HEALTH_PORT)))
@@ -311,13 +167,14 @@ if __name__ == '__main__':
     _host = (os.environ.get('HEALTH_WEB_HOST', '').strip()
              or os.environ.get('BIND_HOST', '').strip()
              or DEFAULT_BIND_HOST)
-    from vnc_remote_secure.security.certificates import create_ssl_context
-    _ssl = create_ssl_context()
-    logger.info("Health server starting on %s:%s (%s)", _host, _port, 'https' if _ssl else 'http')
-    srv = start_health_server(port=_port, host=_host, ssl_context=_ssl)
+    _cert = os.environ.get('SSL_CERT') or None
+    _key = os.environ.get('SSL_KEY') or None
+    srv = start_health_server(port=_port, host=_host,
+                              ssl_certfile=_cert, ssl_keyfile=_key)
+    logger.info("Health server on %s://%s:%s",
+                'https' if _cert else 'http', _host, _port)
     try:
         while True:
-            time.sleep(1)
+            threading.Event().wait(3600)
     except KeyboardInterrupt:
         srv.shutdown()
-        logger.info("Health server stopped")

@@ -28,13 +28,15 @@ TLS_SECURITY_HEADERS = {
 }
 
 # CSP policy (configurable via CSP_POLICY env var).
-# Note: 'unsafe-inline' is retained for script-src because the templates
-# use inline event handlers; 'unsafe-eval' is removed to prevent eval().
+# script-src is 'self'-only: every user-facing page is the React SPA
+# (external bundle, no inline scripts/handlers). 'unsafe-inline' is
+# retained for style-src — React components use style attributes —
+# and 'unsafe-eval' stays out to prevent eval().
 # connect-src is restricted to 'self' and the same-origin WebSocket
 # schemes (wss/ws) which are required for the noVNC/terminal connections.
 DEFAULT_CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; "
     "connect-src 'self' wss: ws:; "

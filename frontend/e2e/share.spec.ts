@@ -13,13 +13,14 @@ test.describe('share link', () => {
       });
 
       await page.goto(url);
-      // The token must be gone from the address bar immediately.
-      expect(page.url()).not.toContain('t=');
-      expect(page.url()).not.toContain('#');
-
-      // Preview text + consent buttons rendered by /share.js.
+      // Preview text + consent buttons rendered by the React share
+      // page — waiting for #info also gives React time to wipe the
+      // fragment via history.replaceState before we assert on it.
       await expect(page.locator('#info')).toContainText(
         'forma remota');
+      // The token must be gone from the address bar.
+      expect(page.url()).not.toContain('t=');
+      expect(page.url()).not.toContain('#');
       const accept = page.getByRole('button', {
         name: /Aceptar y abrir sesi/,
       });

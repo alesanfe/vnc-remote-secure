@@ -13,9 +13,15 @@
 - Multiple sessions supported
 - SSL-encrypted connection
 - Configurable shell (bash on Linux, cmd.exe on Windows)
-- Fully self-hosted: xterm.js assets are vendored under
-  `static/xterm/` and served at `/xterm/` — no CDN dependency, so the
-  terminal works in air-gapped/offline deployments
+- Fully self-hosted: xterm.js is bundled into the React SPA by Vite
+  (`@xterm/xterm` npm dependency) — no CDN dependency and no separate
+  `/xterm/` static route, so the terminal works in
+  air-gapped/offline deployments
+- The page at `/terminal` (alias `/terminal.html`) is the React
+  `TerminalPage`; it obtains the WebSocket URL from
+  `GET /api/v1/portal` and talks a JSON line-editing protocol
+  (`command` / `interrupt` / `complete` messages) to the terminal
+  service (`services/terminal.py`, Starlette WebSocket at `/ws`)
 
 ## Configuration
 
@@ -30,8 +36,10 @@ TTYD_PORT=5000
 ## Security
 
 - Web Terminal is behind the SSL reverse proxy
-- Authentication required (username/password, or an ephemeral Bearer
-  token with terminal permission)
+- Authentication required (operator session cookie, or an ephemeral
+  Bearer token with terminal permission)
+- Permission split: `terminal_view` opens the terminal with read-only
+  builtins; spawning commands requires `terminal_write`
 - Internal port (5000) is not publicly exposed
 - Rate limiting enforced at the application layer (auth lockouts and
   per-IP throttling via `security/rate_limit.py`)

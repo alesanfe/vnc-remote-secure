@@ -8,6 +8,8 @@ getpass — never accepted on argv (``ps``-visible).
 import getpass
 import json
 
+from vnc_remote_secure.cli._common import _audit_cli
+
 
 def _prompt_password(confirm=True):
     """Read a password interactively; empty aborts."""
@@ -46,11 +48,15 @@ def cmd_operator(args):
         except ValueError as e:
             print(f'Error: {e}')
             return 2
+        _audit_cli('operator_created', 'success',
+                   f'target={args.username} role={args.role}')
         print(f"Operator '{args.username}' added (role={args.role}).")
         return 0
 
     if action == 'remove':
         if ops.remove_user(args.username):
+            _audit_cli('operator_deleted', 'success',
+                       f'target={args.username}')
             print(f"Operator '{args.username}' removed.")
             return 0
         print(f"Operator '{args.username}' not found.")
@@ -60,6 +66,8 @@ def cmd_operator(args):
         if not ops.set_password(args.username, _prompt_password()):
             print(f"Operator '{args.username}' not found.")
             return 1
+        _audit_cli('operator_updated', 'success',
+                   f'target={args.username} password')
         print(f"Password updated for '{args.username}'.")
         return 0
 
@@ -67,6 +75,8 @@ def cmd_operator(args):
         if not ops.set_role(args.username, args.role):
             print(f"Operator '{args.username}' not found or bad role.")
             return 1
+        _audit_cli('operator_updated', 'success',
+                   f'target={args.username} role={args.role}')
         print(f"Role of '{args.username}' set to {args.role}.")
         return 0
 
@@ -74,6 +84,8 @@ def cmd_operator(args):
         if not ops.set_disabled(args.username, action == 'disable'):
             print(f"Operator '{args.username}' not found.")
             return 1
+        _audit_cli('operator_updated', 'success',
+                   f'target={args.username} {action}d')
         print(f"Operator '{args.username}' {action}d.")
         return 0
 

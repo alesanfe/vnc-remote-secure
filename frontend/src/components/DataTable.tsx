@@ -13,10 +13,6 @@ interface Props<T> {
   error?: boolean;
   errorText?: string;
   emptyText?: string;
-  /** Cursor pagination controls. */
-  nextCursor?: number | null;
-  hasMore?: boolean;
-  onNextPage?: () => void;
 }
 
 /** Shared table with loading / empty / error states baked in. */
@@ -28,9 +24,6 @@ export default function DataTable<T>({
   error = false,
   errorText = 'No se pudieron cargar los datos.',
   emptyText = 'Sin resultados.',
-  nextCursor,
-  hasMore,
-  onNextPage,
 }: Props<T>) {
   if (error) {
     return <div className="error-box" role="alert">{errorText}</div>;
@@ -67,17 +60,6 @@ export default function DataTable<T>({
           )}
         </tbody>
       </table>
-      {hasMore && onNextPage && (
-        <p>
-          <button
-            className="ghost"
-            onClick={onNextPage}
-            disabled={nextCursor == null}
-          >
-            Más resultados
-          </button>
-        </p>
-      )}
     </>
   );
 }

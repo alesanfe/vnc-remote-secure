@@ -395,7 +395,7 @@ def cmd_maintenance(args):
         set_maintenance(True, by='cli',
                         reason=getattr(args, 'reason', '') or '',
                         drain_at=drain_at)
-        _audit_cli('maintenance_mode', 'success', 'enabled via CLI')
+        _audit_cli('maintenance_changed', 'success', 'active=1 via CLI')
         print('Maintenance mode ENABLED - new non-admin sessions refused.')
         if drain_at is not None:
             print(f'Drain scheduled: existing share sessions denied '
@@ -403,8 +403,8 @@ def cmd_maintenance(args):
         if getattr(args, 'drain', False):
             from vnc_remote_secure.security.maintenance import drain_sessions
             n = drain_sessions()
-            _audit_cli('maintenance_drain', 'success',
-                       f'revoked {n} ephemeral sessions')
+            _audit_cli('maintenance_changed', 'success',
+                       f'active=1 drained={n} via CLI')
             print(f'Drained {n} active share session(s).')
         return 0
     if action == 'off':
@@ -412,7 +412,7 @@ def cmd_maintenance(args):
             print('[DRY RUN] Would disable maintenance mode')
             return 0
         set_maintenance(False, by='cli')
-        _audit_cli('maintenance_mode', 'success', 'disabled via CLI')
+        _audit_cli('maintenance_changed', 'success', 'active=0 via CLI')
         print('Maintenance mode DISABLED.')
         return 0
     if maintenance_active():

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""noVNC static file server with session validation.
+"""noVNC static file server with session validation (FastAPI).
 
 Serves the noVNC web client and enforces authentication before any
 request is served. Authentication uses the central auth gateway so
@@ -16,12 +16,18 @@ RFB input filtering — ``view_only`` enforcement:
     ``desktop:control`` (or either clipboard direction) the relay
     activates ``services.rfb_filter.RfbInputFilter``: a protocol-aware
     filter that parses the RFB message streams inside the WebSocket
-    frames both ways — dropping KeyEvent (4), PointerEvent (5) and
+    payloads both ways — dropping KeyEvent (4), PointerEvent (5) and
     ClientCutText (6) client->server, and ServerCutText (3)
     server->client unless ``desktop:clipboard_read`` is held. Unknown
     message types or unparseable streams close the connection (fail
     closed). Regular (non-ephemeral) sessions are
     not filtered — they are full-control admin sessions.
+
+    The filter operates on raw WebSocket frames; the ASGI transport
+    demuxes frames into messages, so the relay re-wraps each message
+    payload in a synthetic frame before feeding the filter and unwraps
+    the filter's framed output back into messages. Frame payloads are
+    byte-identical either way — the RFB tracker sees the same stream.
 
 Security model:
     This server binds to 127.0.0.1 by default. Even with the bind,
@@ -30,27 +36,21 @@ Security model:
     discouraged and logged as a warning.
 """
 import contextlib
-import http.server
 import logging
 import os
-import select
-import signal
 import sys
-import time
 
 logger = logging.getLogger(__name__)
 
-from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.core.constants import (
     DEFAULT_BIND_HOST,
     DEFAULT_NOVNC_PORT,
     DEFAULT_NOVNC_WS_PORT,
 )
-from vnc_remote_secure.services.bounded_server import SecuredHandlerMixin
 
 # Idle budget for the WebSocket relay: no traffic in either direction
 # for this long closes the tunnel. VNC sessions are chatty in practice;
-# a dead peer is reaped instead of pinning a thread + upstream socket.
+# a dead peer is reaped instead of pinning a task + upstream socket.
 _RELAY_IDLE_TIMEOUT = 300
 
 
@@ -71,7 +71,11 @@ def _check_novnc_auth(headers, client_ip=None):
     credentials from the headers.
     """
     from vnc_remote_secure.security.auth_gateway import authorize_request
-    from vnc_remote_secure.security.http_auth import cookie_value, extract_bearer_token, header_get
+    from vnc_remote_secure.security.http_auth import (
+        cookie_value,
+        extract_bearer_token,
+        header_get,
+    )
     cookie = header_get(headers, 'Cookie')
     session_cookie = cookie_value(cookie, 'vnc_session')
     eph = cookie_value(cookie, 'vnc_ephemeral')
@@ -87,426 +91,451 @@ def _check_novnc_auth(headers, client_ip=None):
     return allowed, reason
 
 
-def relay_rfb_stream(client_sock, upstream, rfb_filter=None):
-    """Pump bytes between the client WS connection and the upstream.
+def _parse_cookies(cookie_header):
+    """Parse the Cookie header into a ``name -> value`` dict."""
+    cookies = {}
+    if cookie_header:
+        for part in cookie_header.split(';'):
+            part = part.strip()
+            if '=' in part:
+                k, _, v = part.partition('=')
+                cookies[k.strip()] = v.strip()
+    return cookies
 
-    websockify bridge, applying ``rfb_filter`` when present.
 
-    Extracted from the request handler so the relay is unit-testable
-    over ``socket.socketpair()`` without spawning the service.
+def _ephemeral_token(cookies, bearer):
+    """Return the ephemeral session token, from cookie or Bearer.
 
-    Details preserved from the handler implementation:
-    - The upstream bridge answers the relayed upgrade with its own
-      ``HTTP/1.1 101`` header block before WebSocket traffic begins.
-      Those bytes reach the client verbatim but must NOT enter the
-      RFB tracker's WS-frame parser — parsing HTTP as frames would
-      desynchronise the handshake state machine permanently.
-    - Idle cap: a half-open TCP connection (client vanished without
-      RST) must not pin this handler thread and the upstream socket
-      forever — select's 60s tick is the probe, but only an absolute
-      budget actually reaps zombies.
-    - ``rfb_filter.client_to_server`` returning ``None`` is a protocol
-      violation: fail closed by tearing down both sockets.
-
-    Returns when either side closes, errors, or the idle deadline is
-    exceeded. Caller owns socket cleanup.
+    The ephemeral credential may arrive as the ``vnc_ephemeral``
+    cookie OR as a Bearer token — a Bearer-only path would bypass
+    view-only enforcement entirely.
     """
-    upstream_hdr_pending = rfb_filter is not None
-    idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
-    while True:
-        readable, _, _ = select.select(
-            [client_sock, upstream], [], [], 60)
-        if not readable:
-            if time.monotonic() > idle_deadline:
-                logger.debug("novnc relay idle timeout — closing")
-                return
-            continue
-        idle_deadline = time.monotonic() + _RELAY_IDLE_TIMEOUT
-        for sock in readable:
-            data = sock.recv(65536)
-            if not data:
-                return
-            if rfb_filter is not None:
-                if sock is client_sock:
-                    out = rfb_filter.client_to_server(data)
-                    if out is None:
-                        # Protocol violation / fail-closed:
-                        # tear the connection down rather than
-                        # relay unparseable input.
-                        return
-                    if out:
-                        upstream.sendall(out)
-                else:
-                    if upstream_hdr_pending:
-                        end = data.find(b'\r\n\r\n')
-                        if end >= 0:
-                            # Header block complete; the 101 headers
-                            # pass verbatim, the WS remainder is
-                            # filtered.
-                            out = rfb_filter.track_server(
-                                data[end + 4:])
-                            upstream_hdr_pending = False
-                            if out is None:
-                                return  # protocol violation: dead
-                            client_sock.sendall(data[:end + 4] + out)
-                            continue
-                        # else: still inside the 101 headers —
-                        # nothing reaches the filter yet.
-                        client_sock.sendall(data)
-                        continue
-                    out = rfb_filter.track_server(data)
-                    if out is None:
-                        return
-                    if out:
-                        client_sock.sendall(out)
-                continue
-            peer = upstream if sock is client_sock else client_sock
-            peer.sendall(data)
-
-
-class _AuthedSimpleHTTPRequestHandler(
-        SecuredHandlerMixin, http.server.SimpleHTTPRequestHandler):
-    """SimpleHTTPRequestHandler that enforces auth before serving files.
-
-    The mixin installs the Slowloris read timeout (the websocket path
-    clears it before relaying — the RFB relay owns its own idle
-    timeout) and the security headers.
-    """
-
-    def _require_auth(self) -> bool:
-        """Run the auth gate; sends 401 and returns False on failure."""
-        from vnc_remote_secure.security.http_auth import client_ip_from
-        client_ip = client_ip_from(
-            self.headers,
-            self.peer_ip())
-        allowed, reason = _check_novnc_auth(
-            self.headers, client_ip=client_ip)
-        if not allowed:
-            body = b'{"error":"unauthorized","reason":"' + reason.encode() + b'"}'
-            self.send_response(401)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('WWW-Authenticate', 'Bearer realm="noVNC"')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return False
-        return True
-
-    def do_GET(self):  # noqa: N802 - stdlib API
-        from vnc_remote_secure.security.http_auth import request_headers_safe
-        if not request_headers_safe(self.headers):
-            self.send_response(400)
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return
-        if not self._require_auth():
-            return
-        if self.path.split('?', 1)[0] == '/websockify' and \
-                'websocket' in self.headers.get('Upgrade', '').lower():
-            self._proxy_websocket()
-            return
-        super().do_GET()
-
-    def do_HEAD(self):  # noqa: N802 - stdlib API
-        from vnc_remote_secure.security.http_auth import request_headers_safe
-        if not request_headers_safe(self.headers):
-            self.send_response(400)
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return
-        # HEAD must go through the same gate — otherwise directory
-        # listings and file metadata leak without authentication.
-        if not self._require_auth():
-            return
-        super().do_HEAD()
-
-    def _ws_error(self, status, body):
-        """Send a JSON error response for a rejected upgrade."""
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _record_ws_origin_failure(self):
-        """Record a rate-limit failure for a rejected WS origin."""
-        try:
-            from vnc_remote_secure.security.http_auth import client_ip_from
-            from vnc_remote_secure.security.rate_limit import get_auth_limiter
-            ip = client_ip_from(
-                self.headers,
-                self.peer_ip())
-            get_auth_limiter().record_failure(f'ws:{ip}')
-        except Exception:  # noqa: BLE001 - rate limiting is best-effort
-            pass
-
-    @staticmethod
-    def _parse_cookies(cookie_header):
-        """Parse the Cookie header into a ``name -> value`` dict."""
-        cookies = {}
-        if cookie_header:
-            for part in cookie_header.split(';'):
-                part = part.strip()
-                if '=' in part:
-                    k, _, v = part.partition('=')
-                    cookies[k.strip()] = v.strip()
-        return cookies
-
-    @staticmethod
-    def _ephemeral_token(cookies, bearer):
-        """Return the ephemeral session token, from cookie or Bearer.
-
-        The ephemeral credential may arrive as the ``vnc_ephemeral``
-        cookie OR as a Bearer token — a Bearer-only path would bypass
-        view-only enforcement entirely.
-        """
-        eph_tok = cookies.get('vnc_ephemeral') or ''
-        if not eph_tok and bearer:
-            try:
-                from vnc_remote_secure.security.ephemeral_sessions import (
-                    verify_ephemeral_token,
-                )
-                payload = verify_ephemeral_token(bearer)
-                if payload:
-                    eph_tok = payload['session_token']
-            except Exception:  # noqa: BLE001 - not an ephemeral bearer
-                pass
-        return eph_tok
-
-    @staticmethod
-    def _build_rfb_filter(eph_tok):
-        """Return an RfbInputFilter when the ephemeral session is restricted.
-
-        An ephemeral session without ``desktop:control`` gets
-        protocol-level view-only — the filter drops
-        KeyEvent/PointerEvent/ClientCutText inside the WebSocket stream
-        so a modified client cannot send input even though the UI hides
-        the controls.
-        """
-        if not eph_tok:
-            return None
+    eph_tok = cookies.get('vnc_ephemeral') or ''
+    if not eph_tok and bearer:
         try:
             from vnc_remote_secure.security.ephemeral_sessions import (
-                get_session_store,
+                verify_ephemeral_token,
             )
-            store = get_session_store()
-            store._load_if_changed()
-            sess = store.get(eph_tok)
-            if sess is None:
-                return None
-            keyboard = sess.has_permission(
-                'desktop:keyboard', 'desktop')
-            pointer = sess.has_permission(
-                'desktop:pointer', 'desktop')
-            clip_w = sess.has_permission(
-                'desktop:clipboard_write', 'desktop')
-            clip_r = sess.has_permission(
-                'desktop:clipboard_read', 'desktop')
-            if keyboard and pointer and clip_w and clip_r:
-                return None
-            from vnc_remote_secure.services.rfb_filter import (
-                RfbInputFilter,
-            )
-            logger.info(
-                "RFB input filter active (keyboard=%s pointer=%s "
-                "clipboard_write=%s clipboard_read=%s)",
-                keyboard, pointer, clip_w, clip_r)
-            return RfbInputFilter(
-                allow_keyboard=keyboard, allow_pointer=pointer,
-                allow_clipboard_write=clip_w,
-                allow_clipboard_read=clip_r)
-        except Exception as exc:  # noqa: BLE001 - fail CLOSED
-            # A restricted session whose filter cannot be built must
-            # not fall back to byte-transparent proxying — that would
-            # silently grant full RFB input to a view-only session.
-            logger.exception(
-                "RFB filter construction failed for ephemeral "
-                "session — denying upgrade")
-            raise _RfbFilterError(
-                "cannot enforce restricted-session input policy") from exc
+            payload = verify_ephemeral_token(bearer)
+            if payload:
+                eph_tok = payload['session_token']
+        except Exception:  # noqa: BLE001 - not an ephemeral bearer
+            pass
+    return eph_tok
 
-    def _register_ws(self, token, upstream):
-        """Register the connection for live revocation (best-effort)."""
-        import socket
 
-        from vnc_remote_secure.security.websocket_registry import (
-            register_connection,
-            start_revocation_watcher_thread,
-        )
+def _build_rfb_filter(eph_tok):
+    """Return an RfbInputFilter when the ephemeral session is restricted.
 
-        def _close():
-            for s in (self.connection, upstream):
-                with contextlib.suppress(OSError):
-                    s.shutdown(socket.SHUT_RDWR)
-                with contextlib.suppress(OSError):
-                    s.close()
-
-        conn_id = register_connection(
-            token, _close, resource='desktop',
-            client_ip=getattr(self, 'client_address', ('',))[0])
-        if conn_id is not None:
-            # Cross-process revocation: a CLI revoke marks the shared
-            # namespace — this handler runs on a worker thread, so the
-            # watcher is a thread too.
-            start_revocation_watcher_thread(token)
-            return conn_id
-        # Session revoked between validation and registration (TOCTOU
-        # guard in the registry) — do not forward the upgrade.
-        self.send_response(403)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(b'{"error":"Session revoked","status":403}')
-        with contextlib.suppress(OSError):
-            upstream.close()
+    An ephemeral session without ``desktop:control`` gets
+    protocol-level view-only — the filter drops
+    KeyEvent/PointerEvent/ClientCutText inside the WebSocket stream
+    so a modified client cannot send input even though the UI hides
+    the controls.
+    """
+    if not eph_tok:
         return None
+    try:
+        from vnc_remote_secure.security.ephemeral_sessions import (
+            get_session_store,
+        )
+        store = get_session_store()
+        store._load_if_changed()
+        sess = store.get(eph_tok)
+        if sess is None:
+            return None
+        keyboard = sess.has_permission('desktop:keyboard', 'desktop')
+        pointer = sess.has_permission('desktop:pointer', 'desktop')
+        clip_w = sess.has_permission(
+            'desktop:clipboard_write', 'desktop')
+        clip_r = sess.has_permission(
+            'desktop:clipboard_read', 'desktop')
+        if keyboard and pointer and clip_w and clip_r:
+            return None
+        from vnc_remote_secure.services.rfb_filter import (
+            RfbInputFilter,
+        )
+        logger.info(
+            "RFB input filter active (keyboard=%s pointer=%s "
+            "clipboard_write=%s clipboard_read=%s)",
+            keyboard, pointer, clip_w, clip_r)
+        return RfbInputFilter(
+            allow_keyboard=keyboard, allow_pointer=pointer,
+            allow_clipboard_write=clip_w,
+            allow_clipboard_read=clip_r)
+    except _RfbFilterError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - fail CLOSED
+        # A restricted session whose filter cannot be built must
+        # not fall back to byte-transparent proxying — that would
+        # silently grant full RFB input to a view-only session.
+        logger.exception(
+            "RFB filter construction failed for ephemeral "
+            "session — denying upgrade")
+        raise _RfbFilterError(
+            "cannot enforce restricted-session input policy") from exc
 
-    def _proxy_websocket(self):
-        """Relay the WebSocket upgrade to the loopback websockify bridge.
 
-        The bridge (``NOVNC_WS_PORT``, default 5700, loopback only) does
-        the RFB-over-WebSocket translation to the VNC server. Clients
-        reach it only through this authenticated endpoint, so the
-        auth-gateway check above is the single enforcement point. The
-        connection is registered so revoking the session kills the
-        stream immediately.
+def _record_ws_origin_failure(headers, peer_ip):
+    """Record a rate-limit failure for a rejected WS origin."""
+    try:
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        from vnc_remote_secure.security.rate_limit import get_auth_limiter
+        ip = client_ip_from(headers, peer_ip)
+        get_auth_limiter().record_failure(f'ws:{ip}')
+    except Exception:  # noqa: BLE001 - rate limiting is best-effort
+        pass
+
+
+def _ws_payloads(data: bytes):
+    """Extract message payloads from raw WebSocket frames.
+
+    Returns a list of payloads for data opcodes, or ``None`` on a
+    protocol violation. The RFB filter emits complete frames; anything
+    unparseable means the filter's own output is broken — the caller
+    must tear the connection down (fail closed).
+    """
+    from vnc_remote_secure.services.rfb_filter import _parse_ws_frames
+    buf = bytearray(data)
+    frames = _parse_ws_frames(buf)
+    if frames is None:
+        return None
+    out = []
+    for opcode, payload, _raw, _fin in frames:
+        if opcode in (0, 1, 2):  # continuation/text/binary
+            out.append(payload)
+        elif opcode == 8:  # close — relay ends
+            return out if out else []
+    return out
+
+
+async def _relay_ws(websocket, upstream, rfb_filter):
+    """Pump messages between the client WebSocket and the upstream
+    websockify bridge, applying ``rfb_filter`` when present.
+
+    ``websocket`` is a Starlette WebSocket (message-level) and
+    ``upstream`` a ``websockets`` client connection. With a filter,
+    each message payload is wrapped in a synthetic frame — the filter
+    tracks WS framing internally — and its framed output is unwrapped
+    back to message payloads. ``None`` from the filter is a protocol
+    violation: fail closed by tearing down both ends.
+
+    The idle deadline mirrors the old select-loop budget: a receive
+    that blocks longer than ``_RELAY_IDLE_TIMEOUT`` reaps the tunnel.
+
+    Returns when either side closes, errors, or the idle deadline is
+    exceeded. Caller owns endpoint cleanup.
+    """
+    import asyncio
+
+    from vnc_remote_secure.services.rfb_filter import (
+        _ws_frame,
+        _ws_server_frame,
+    )
+
+    async def client_to_upstream():
+        while True:
+            data = await asyncio.wait_for(
+                websocket.receive_bytes(), timeout=_RELAY_IDLE_TIMEOUT)
+            if rfb_filter is None:
+                await upstream.send(data)
+                continue
+            out = rfb_filter.client_to_server(_ws_frame(data))
+            if out is None:
+                return
+            payloads = _ws_payloads(out)
+            if payloads is None:
+                return
+            for payload in payloads:
+                await upstream.send(payload)
+
+    async def upstream_to_client():
+        while True:
+            msg = await asyncio.wait_for(
+                upstream.recv(), timeout=_RELAY_IDLE_TIMEOUT)
+            data = msg if isinstance(msg, bytes) else msg.encode()
+            if rfb_filter is None:
+                await websocket.send_bytes(data)
+                continue
+            out = rfb_filter.track_server(_ws_server_frame(data))
+            if out is None:
+                return
+            payloads = _ws_payloads(out)
+            if payloads is None:
+                return
+            for payload in payloads:
+                await websocket.send_bytes(payload)
+
+    tasks = [asyncio.ensure_future(client_to_upstream()),
+             asyncio.ensure_future(upstream_to_client())]
+    done, _pending = await asyncio.wait(
+        tasks, return_when=asyncio.FIRST_COMPLETED)
+    for t in tasks:
+        t.cancel()
+    # Surface a pump failure to the caller for logging/teardown.
+    for t in done:
+        with contextlib.suppress(Exception):
+            t.result()
+
+
+def _resolve_static(root: str, path: str):
+    """Resolve ``path`` inside ``root``; None when outside/missing.
+
+    Returns (kind, absolute_path) where kind is 'file' or 'dir'.
+    """
+    root_real = os.path.realpath(root)
+    target = os.path.realpath(os.path.join(root_real, path))
+    if target != root_real and not target.startswith(root_real + os.sep):
+        return None
+    if os.path.isfile(target):
+        return ('file', target)
+    if os.path.isdir(target):
+        return ('dir', target)
+    return None
+
+
+def make_app(novnc_dir: str | None = None):
+    """Build the FastAPI noVNC application.
+
+    ``GET /<path>`` serves the vendored noVNC static bundle behind the
+    auth gateway; ``/websockify`` upgrades to the authenticated
+    RFB-over-WebSocket relay toward the loopback websockify bridge.
+    """
+    from fastapi import FastAPI
+    from starlette.requests import Request
+    from starlette.responses import (
+        FileResponse,
+        JSONResponse,
+        RedirectResponse,
+    )
+    from starlette.websockets import WebSocket, WebSocketDisconnect
+
+    from vnc_remote_secure.security.http_headers import get_security_headers
+
+    root = os.path.realpath(novnc_dir or os.environ.get('NOVNC_DIR', '.'))
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    def _unauthorized(reason: str) -> JSONResponse:
+        return JSONResponse(
+            {'error': 'unauthorized', 'reason': reason},
+            status_code=401,
+            headers={'WWW-Authenticate': 'Bearer realm="noVNC"'})
+
+    def _client_ip(headers, client) -> str:
+        from vnc_remote_secure.security.http_auth import client_ip_from
+        return client_ip_from(
+            headers, client.host if client else '')
+
+    @app.middleware('http')
+    async def _security_headers(request, call_next):
+        resp = await call_next(request)
+        emitted = {k.lower() for k in resp.headers.keys()}
+        for name, value in get_security_headers(
+                tls_enabled=request.url.scheme == 'https').items():
+            if name.lower() not in emitted:
+                resp.headers[name] = value
+        return resp
+
+    @app.websocket('/websockify')
+    async def websockify(websocket: WebSocket):
+        """Authenticated RFB-over-WebSocket relay to the loopback
+        websockify bridge (``NOVNC_WS_PORT``, default 5700).
+
+        The bridge does the RFB-over-WebSocket translation to the VNC
+        server. Clients reach it only through this authenticated
+        endpoint, so the auth-gateway check below is the single
+        enforcement point. The connection is registered so revoking
+        the session kills the stream immediately.
         """
-        import socket
+        import asyncio
+
+        headers = websocket.headers
+        client_ip = _client_ip(headers, websocket.client)
+
+        # Auth gate first — a rejected upgrade answers HTTP 401/403,
+        # not an accepted socket.
+        allowed, reason = _check_novnc_auth(headers, client_ip)
+        if not allowed:
+            await websocket.send_denial_response(
+                _unauthorized(reason))
+            return
 
         # CSWSH protection: the upgrade carries ambient credentials
-        # (cookies), so the Origin header must be on the allowlist —
-        # same rule the other WebSocket services enforce via
-        # check_websocket_upgrade.
-        from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
+        # (cookies), so the Origin header must be on the allowlist.
+        from vnc_remote_secure.security.auth_gateway import (
+            check_origin,
+            get_allowed_origins,
+        )
         if not check_origin(
-                self.headers.get('Origin', ''), get_allowed_origins()):
-            self._record_ws_origin_failure()
-            self._ws_error(403, b'{"error":"invalid origin"}')
-            return
-        ws_port = int(os.environ.get(
-            'NOVNC_WS_PORT', str(DEFAULT_NOVNC_WS_PORT)))
-        try:
-            upstream = socket.create_connection(('127.0.0.1', ws_port), timeout=10)
-        except OSError:
-            self._ws_error(502, b'{"error":"vnc bridge unavailable"}')
+                headers.get('origin', ''), get_allowed_origins()):
+            _record_ws_origin_failure(
+                headers, websocket.client.host if websocket.client
+                else '')
+            await websocket.send_denial_response(JSONResponse(
+                {'error': 'invalid origin'}, status_code=403))
             return
 
-        # Re-register for live revocation (best-effort).
-        conn_id = None
-        rfb_filter = None
+        # Credential extraction + RFB filter BEFORE the upstream dial
+        # — a denied restricted session never reaches the bridge.
         bearer = ''
         cookies = {}
         try:
-            from vnc_remote_secure.security.http_auth import extract_bearer_token
+            from vnc_remote_secure.security.http_auth import (
+                extract_bearer_token,
+            )
             bearer = extract_bearer_token(
-                self.headers.get('Authorization', ''))
-            cookies = self._parse_cookies(self.headers.get('Cookie', ''))
-            # Pick the credential in the same priority order the auth
-            # check uses (vnc_ephemeral > bearer > vnc_session) so the
-            # revocation registration binds to the identity that
-            # actually authenticated — revoking the "other" cookie
-            # must not leave this socket alive.
-            token = (cookies.get('vnc_ephemeral') or bearer
-                     or cookies.get('vnc_session') or '')
+                headers.get('authorization', ''))
+            cookies = _parse_cookies(headers.get('cookie', ''))
         except Exception:  # noqa: BLE001 - header parse is best-effort
-            token = ''
+            pass
         try:
-            rfb_filter = self._build_rfb_filter(
-                self._ephemeral_token(cookies, bearer))
+            rfb_filter = _build_rfb_filter(
+                _ephemeral_token(cookies, bearer))
         except _RfbFilterError:
             # Restricted session, filter unavailable: deny rather than
             # proxy unfiltered (fail-closed, see _build_rfb_filter).
-            self.send_response(403)
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            with contextlib.suppress(OSError):
-                upstream.close()
+            await websocket.send_denial_response(JSONResponse(
+                {'error': 'restricted session'}, status_code=403))
             return
-        except Exception:  # noqa: BLE001 - unfiltered path errors
-            rfb_filter = None
+
+        ws_port = int(os.environ.get(
+            'NOVNC_WS_PORT', str(DEFAULT_NOVNC_WS_PORT)))
+        try:
+            import websockets
+            upstream = await websockets.connect(
+                f'ws://127.0.0.1:{ws_port}{websocket.url.path}',
+                subprotocols=[
+                    s for s in websocket.scope.get('subprotocols', [])
+                ] or None,
+                open_timeout=10,
+                # No pings — the old byte-level TCP relay added none;
+                # keep the wire behavior identical.
+                ping_interval=None,
+                max_size=None,
+            )
+        except Exception:  # noqa: BLE001 - any dial/handshake failure
+            await websocket.send_denial_response(JSONResponse(
+                {'error': 'vnc bridge unavailable'}, status_code=502))
+            return
+
+        # Register for live revocation. The registry's close callback
+        # fires on a watcher THREAD — hop back onto the loop.
+        loop = asyncio.get_running_loop()
+        token = (cookies.get('vnc_ephemeral') or bearer
+                 or cookies.get('vnc_session') or '')
+        conn_id = None
         if token:
+            def _close_cb():
+                async def _tear():
+                    with contextlib.suppress(Exception):
+                        await upstream.close()
+                    with contextlib.suppress(Exception):
+                        await websocket.close(code=1000)
+                asyncio.run_coroutine_threadsafe(_tear(), loop)
             try:
-                conn_id = self._register_ws(token, upstream)
-                if conn_id is None:
+                from vnc_remote_secure.security.websocket_registry import (
+                    register_connection,
+                    start_revocation_watcher_thread,
+                )
+                conn_id = register_connection(
+                    token, _close_cb, resource='desktop',
+                    client_ip=client_ip)
+                if conn_id is not None:
+                    start_revocation_watcher_thread(token)
+                else:
+                    # Session revoked between validation and
+                    # registration (TOCTOU guard in the registry).
+                    await websocket.send_denial_response(JSONResponse(
+                        {'error': 'Session revoked'}, status_code=403))
+                    with contextlib.suppress(Exception):
+                        await upstream.close()
                     return
             except Exception:  # noqa: BLE001 - registration best-effort
                 conn_id = None
 
-        # Rebuild and forward the original upgrade request verbatim.
-        request = f"{self.command} {self.path} HTTP/1.1\r\n"
-        for key, val in self.headers.items():
-            request += f"{key}: {val}\r\n"
-        request += "\r\n"
-        # The upstream bridge's own ``HTTP/1.1 101`` header block is
-        # forwarded verbatim but skipped for the RFB tracker — handled
-        # inside relay_rfb_stream.
+        # Negotiate the 'binary' subprotocol the upstream picked — the
+        # noVNC client offers it and expects it echoed back.
+        await websocket.accept(subprotocol=upstream.subprotocol)
         try:
-            # latin-1 can raise UnicodeEncodeError on exotic header
-            # values — encode failures are not OSError, so encode here
-            # first and let the except below catch both.
-            request_bytes = request.encode('latin-1')
-        except ValueError:  # UnicodeEncodeError subclasses ValueError
-            logger.debug("Unencodable upstream request; dropping relay")
-            with contextlib.suppress(OSError):
-                upstream.close()
+            await _relay_ws(websocket, upstream, rfb_filter)
+        except WebSocketDisconnect:
+            pass
+        except Exception:  # noqa: BLE001 - pump ended abnormally
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                await upstream.close()
             if conn_id:
                 try:
-                    from vnc_remote_secure.security.websocket_registry import unregister_connection
+                    from vnc_remote_secure.security.websocket_registry import (
+                        unregister_connection,
+                    )
                     unregister_connection(conn_id)
                 except Exception:  # noqa: BLE001
                     pass
-            return
-        try:
-            upstream.sendall(request_bytes)
-            self.close_connection = True
-            # The header-read timeout from setup() must not fire inside
-            # the relay — an idle VNC session is legitimate, and the
-            # relay applies its own (longer) idle timeout via select.
-            self.connection.settimeout(None)
-            relay_rfb_stream(self.connection, upstream, rfb_filter)
-        except OSError:
-            pass
-        finally:
-            with contextlib.suppress(OSError):
-                upstream.close()
-            if conn_id:
-                from vnc_remote_secure.security.auth_gateway import (
-                    unregister_websocket_quiet,
-                )
-                unregister_websocket_quiet(conn_id)
+
+    @app.api_route('/{path:path}', methods=['GET', 'HEAD'])
+    async def static_files(request: Request, path: str = ''):
+        """Serve the noVNC bundle behind the auth gate.
+
+        Directory requests serve ``index.html`` when present; the
+        bare root falls back to ``vnc.html`` (the noVNC bundle has no
+        index). No directory listings — path containment is enforced
+        with realpath.
+        """
+        from vnc_remote_secure.security.http_auth import (
+            request_headers_safe,
+        )
+        if not request_headers_safe(request.headers):
+            return JSONResponse({'error': 'bad request'},
+                                status_code=400)
+        client_ip = _client_ip(request.headers, request.client)
+        allowed, reason = _check_novnc_auth(request.headers, client_ip)
+        if not allowed:
+            return _unauthorized(reason)
+        resolved = _resolve_static(root, path)
+        if resolved is None:
+            return JSONResponse({'error': 'not found'},
+                                status_code=404)
+        kind, target = resolved
+        if kind == 'dir':
+            for cand in ('index.html', 'vnc.html', 'vnc_lite.html'):
+                hit = _resolve_static(root, f'{path.rstrip("/")}/{cand}'
+                                      .lstrip('/'))
+                if hit and hit[0] == 'file':
+                    if path == '':
+                        return RedirectResponse(f'/{cand}')
+                    return FileResponse(hit[1])
+            return JSONResponse({'error': 'not found'},
+                                status_code=404)
+        return FileResponse(target)
+
+    return app
 
 
 def main():
-    """Start the noVNC static file server.
+    """Run the authenticated noVNC server (uvicorn)."""
+    import uvicorn
 
-    Reads the noVNC directory and port from argv (or NOVNC_PORT env).
-    """
-    load_env_file()
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s')
 
-    novnc_dir = sys.argv[1] if len(sys.argv) > 1 else os.environ.get('NOVNC_DIR', '')
+    novnc_dir = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+        'NOVNC_DIR')
     if not novnc_dir:
-        # Never default to '.' — serving the process CWD would expose the
-        # source tree and .env through the authenticated endpoint.
         logger.error(
             "noVNC directory not provided (argv[1] or NOVNC_DIR). "
-            "Run 'make setup-novnc' or set NOVNC_DIR in .env.")
+            "Run the dependency downloader first.")
         sys.exit(1)
-    try:
-        port = int(sys.argv[2]) if len(sys.argv) > 2 else int(
-            os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)))
-    except ValueError:
-        logger.exception("Invalid port '%s'", sys.argv[2])
-        sys.exit(1)
-
     if not os.path.isdir(novnc_dir):
         logger.error("Directory '%s' does not exist", novnc_dir)
         sys.exit(1)
 
-    os.chdir(novnc_dir)
-
-    from vnc_remote_secure.services.bounded_server import (
-        BoundedThreadingTCPServer,
-    )
-
+    try:
+        port = int(os.environ.get('NOVNC_PORT', str(DEFAULT_NOVNC_PORT)))
+    except (TypeError, ValueError):
+        port = DEFAULT_NOVNC_PORT
     # Same resolution chain as config._env_host: SERVE_NOVNC_HOST →
     # NOVNC_HOST → BIND_HOST → loopback — so the documented BIND_HOST
     # knob actually controls this backend's binding.
@@ -519,23 +548,20 @@ def main():
         logger.warning("SERVE_NOVNC_HOST=0.0.0.0 exposes noVNC directly; "
                        "use a reverse proxy instead")
 
-    def signal_handler(sig, frame):
-        logger.info("Shutting down...")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    if hasattr(signal, 'SIGTERM'):
-        signal.signal(signal.SIGTERM, signal_handler)
-
-    with BoundedThreadingTCPServer((host, port), _AuthedSimpleHTTPRequestHandler) as httpd:
-        from vnc_remote_secure.security.certificates import create_ssl_context
-        ssl_ctx = create_ssl_context()
-        if ssl_ctx:
-            httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
-        scheme = 'https' if ssl_ctx else 'http'
-        logger.info("noVNC web server running on %s://%s:%s (auth: enabled)",
-                    scheme, host, port)
-        httpd.serve_forever()
+    ssl_kwargs = {}
+    from vnc_remote_secure.security.certificates import create_ssl_context
+    if create_ssl_context():
+        ssl_kwargs = {
+            'ssl_certfile': os.environ.get('SSL_CERT'),
+            'ssl_keyfile': os.environ.get('SSL_KEY')}
+        scheme = 'https'
+    else:
+        scheme = 'http'
+    logger.info("noVNC web server running on %s://%s:%s (auth: enabled)",
+                scheme, host, port)
+    uvicorn.run(make_app(novnc_dir), host=host, port=port,
+                log_level='warning', access_log=False,
+                proxy_headers=False, **ssl_kwargs)
 
 
 if __name__ == '__main__':

@@ -38,7 +38,7 @@ documentation.
 | Public ↔ gateway | `auth_gateway.authorize_request`, `check_websocket_upgrade`, `check_origin` | `tests/unit/security/test_auth_gateway.py`, `test_bypass_prevention.py` |
 | Gateway ↔ internal services | `INTERNAL_HOST` binds, `audit_internal_listeners()` | `vnc-remote security check`, `tests/unit/core/test_service_manager*.py` |
 | Share-link ↔ session | `ephemeral_sessions.check_permission` (signed tokens, resource binding, single-use, IP binding) | `test_token_binding.py`, `test_per_action_auth.py` |
-| Operator ↔ admin surface | `_require_session`, step-up auth, portal operator endpoints | `test_step_up_auth.py`, `tests/unit/services/test_landing*.py` |
+| Operator ↔ admin surface | `_operator_gate` (`vnc_op` + `vnc_csrf`/X-CSRF-Token), RBAC per-route permissions, step-up auth | `test_step_up_auth.py`, `tests/unit/services/test_api_v1*.py` |
 | Terminal ↔ host | command executor (no PTY), `_build_child_env` secret scrubbing, `WEBTERM_SHELL` allowlist, `TERMINAL_COMMAND_ALLOWLIST`, Job Objects/process groups | `test_terminal*.py` |
 | Backup ↔ restore | manifest validation, tar limits, zip-slip guards, session expiry on restore | `test_backup.py` |
 | Audit log ↔ tampering | hash chain + genesis anchor + monotonic seq + tip witness + optional mirror | `test_audit*.py` |
@@ -112,9 +112,13 @@ python scripts/security/collect-audit-evidence.py   # --quick skips pytest
 - **Windows Session 0**: services cannot capture the interactive
   console on modern Windows; the session-broker model is documented
   in `docs/architecture/windows-session-model.md`.
-- **Single-operator model**: the Flask UI/portal authenticate one
-  operator credential set; multi-user RBAC exists only for ephemeral
-  share links (roles/permissions), not for operators.
+- **Bootstrap credential**: named operator accounts carry RBAC roles —
+  `admin` (`admin:*`), `operator` (`admin_sessions` + `admin_audit`),
+  `viewer` (read-only) — but the env `admin`/`LANDING_PASSWORD`
+  credential remains a shared bootstrap admin whenever the operator
+  store has no entry for that username. Deletes are tombstoned
+  (`GET /api/v1/operators/deleted` + restore) and destructive
+  operations require step-up auth (`POST /api/v1/step-up`).
 - **Self-signed default TLS**: hardened profiles require real certs
   or tunnel deployment.
 - **No public-exposure claim**: this package deliberately does NOT

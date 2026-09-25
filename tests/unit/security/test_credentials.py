@@ -8,14 +8,27 @@ from vnc_remote_secure.security.credentials import verify_password
 
 
 def test_verify_password_werkzeug_hash():
-    """verify_password accepts werkzeug-style hashes."""
-    try:
-        from werkzeug.security import generate_password_hash
-    except ImportError:
-        return
-    h = generate_password_hash("Str0ng!Pass")
-    assert verify_password("Str0ng!Pass", h) is True
-    assert verify_password("wrong", h) is False
+    """verify_password accepts werkzeug-style pbkdf2 hashes
+    (``pbkdf2:method:iters$salt$hex``)."""
+    import hashlib
+    salt = 'pepper'
+    dk = hashlib.pbkdf2_hmac('sha256', b'Str0ng!Pass',
+                             salt.encode('utf-8'), 600000)
+    h = f'pbkdf2:sha256:600000${salt}${dk.hex()}'
+    assert verify_password('Str0ng!Pass', h) is True
+    assert verify_password('wrong', h) is False
+
+
+def test_verify_password_scrypt_hash():
+    """verify_password accepts werkzeug-style ``scrypt:N:r:p$salt$hex``
+    hashes via stdlib ``hashlib.scrypt``."""
+    import hashlib
+    salt = 'somesalt'
+    dk = hashlib.scrypt(b'Str0ng!Pass', salt=salt.encode('utf-8'),
+                        n=32768, r=8, p=1, maxmem=128 * 1024 * 1024)
+    h = f'scrypt:32768:8:1${salt}${dk.hex()}'
+    assert verify_password('Str0ng!Pass', h) is True
+    assert verify_password('wrong', h) is False
 
 
 def test_verify_password_pbkdf2_hash():

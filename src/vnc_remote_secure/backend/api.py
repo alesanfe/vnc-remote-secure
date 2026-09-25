@@ -14,9 +14,10 @@ from vnc_remote_secure.services.api_v1 import (
     handle_get,
     handle_post,
     is_api_path,
+    is_public_route,
 )
 
 __all__ = [
-    'handle_get', 'handle_post', 'is_api_path',
+    'handle_get', 'handle_post', 'is_api_path', 'is_public_route',
     '_ROUTES', '_dispatch', '_rate_limit', '_csrf_token',
 ]

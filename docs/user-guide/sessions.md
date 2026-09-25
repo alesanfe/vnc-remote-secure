@@ -19,10 +19,12 @@ vnc-remote session create --no-terminal        # block terminal
 vnc-remote session create --json               # machine-readable output
 ```
 
-The command prints a signed URL pointing at the landing portal. Whoever
-opens it gets a `vnc_ephemeral` cookie that is validated on every
-WebSocket upgrade (origin, signature, expiry, revocation, IP, resource,
-permission).
+The command prints a signed fragment URL (`/share#t=<token>`) pointing
+at the portal. Whoever opens it sees a consent card describing the
+grant and, on accept, gets a `vnc_ephemeral` cookie that is validated
+on every WebSocket upgrade (origin, signature, expiry, revocation, IP,
+resource, permission). The token lives in the URL fragment — it is
+never sent in a request URL.
 
 ### Roles
 
@@ -59,7 +61,7 @@ expand to their members:
 | `control` | `keyboard`, `pointer` | RFB input filtering |
 | `clipboard` | `clipboard_write`, `clipboard_read` | ClientCutText / ServerCutText forwarding |
 | `terminal` | `terminal_view`, `terminal_write` | connect vs execute |
-| `admin` | `admin_users`, `admin_config`, `admin_secrets`, `admin_audit` | administrative surface |
+| `admin` | `admin_users`, `admin_config`, `admin_audit` | administrative surface |
 
 A `terminal_view` session opens the terminal and uses read-only
 builtins (`help`, `history`, `cls`, `exit`) but every command
@@ -107,7 +109,7 @@ vnc-remote operator remove bob
 
 | Operator role | Permissions | Can do |
 |---------------|-------------|--------|
-| `admin` | `admin:*` → all `admin_*` | everything: manage operators, sessions, config, secrets, audit |
+| `admin` | `admin:*` → all `admin_*` | everything: manage operators, sessions, config, audit |
 | `operator` | `admin_sessions`, `admin_audit` | session list/revoke/revoke-all, gamepad kill-switch, audit view |
 | `viewer` | — | read-only portal (no mutations) |
 
@@ -118,11 +120,12 @@ Rules:
   for the username. A username that IS stored does **not** fall back
   to the env password — stored users authenticate only against their
   own credentials.
-- Portal mutating endpoints (`/sessions/revoke`, `/revoke-all`,
-  `/gamepad/stop|resume`) require `admin_sessions` — a `viewer`
-  authenticates but gets 403 on mutations.
-- Flask admin routes (create/delete system user) require
-  `admin_users` in addition to step-up auth.
+- Mutating API endpoints (`POST /api/v1/sessions/revoke`,
+  `/sessions/revoke-all`, `/gamepad/stop|resume`) require
+  `admin_sessions` — a `viewer` authenticates but gets 403 on
+  mutations.
+- System-user management (`POST`/`DELETE /api/v1/system-users`)
+  requires `admin_users` in addition to step-up auth.
 - Passwords are stored as `pbkdf2:sha256` in
   `<data_dir>/operator_users.json` (`0o600`, atomic writes) and are
   prompted via getpass — never accepted as CLI arguments.

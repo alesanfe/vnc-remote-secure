@@ -7,7 +7,7 @@ maps sensitive operations to their requirements, and ``evaluate()``
 returns a structured decision — no scattered ``if not
 session['phishing_resistant']`` checks diverging per route.
 
-Capability checks stay separate: holding ``admin_secrets`` does NOT
+Capability checks stay separate: holding ``admin_users`` does NOT
 waive a recent-auth requirement.
 
 Enforcement is profile-scaled to avoid lockouts:
@@ -105,12 +105,18 @@ PENDING_POLICIES: dict[str, AuthRequirement] = {
 # asserts declared == enforced.
 POLICY_ENFORCEMENT_POINTS: dict[str, frozenset] = {
     'open_terminal': frozenset({'services/terminal.py:open_terminal'}),
-    'create_admin': frozenset({'web/routes/users.py:create_user'}),
-    'delete_admin': frozenset({'web/routes/users.py:delete_user'}),
+    # OS-account admin ops are API mutations: step_up=True on the
+    # /system-users routes is checked by needs_step_up() in dispatch.
+    'create_admin': frozenset(
+        {'services/api_v1.py:_post_system_user_create'}),
+    'delete_admin': frozenset(
+        {'services/api_v1.py:_delete_system_user'}),
+    # Passkey lifecycle gates run inside the engine use cases
+    # (_gate_step_up -> stores.step_up_error -> step_up_auth).
     'webauthn_register': frozenset(
-        {'web/routes/users.py:webauthn_register_begin'}),
+        {'engine/application/passkeys.py:begin_registration'}),
     'webauthn_delete': frozenset(
-        {'web/routes/users.py:webauthn_delete_credential'}),
+        {'engine/application/passkeys.py:delete_passkey'}),
 }
 
 # Profile -> which requirement fields actually deny (rest audit-only).
@@ -153,7 +159,7 @@ def record_auth_context(session_id: str, ctx: dict,
                         stable_id: str | None = None,
                         expires_at: int | None = None) -> None:
     """Persist the login's auth properties for cross-process policy
-    checks — the Flask session is a signed cookie unavailable to the
+    checks — the operator session is a signed cookie unavailable to the
     terminal/health services, so enforcement needs shared state.
 
     ``stable_id`` (``username:created``) indexes the context so

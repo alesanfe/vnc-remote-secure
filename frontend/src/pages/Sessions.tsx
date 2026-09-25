@@ -46,7 +46,9 @@ export default function Sessions() {
     queryFn: ({ pageParam }) =>
       api.get<SessionPage>(
         `sessions?status=${tab}` +
-          (pageParam ? `&cursor=${pageParam}` : '')),
+          (pageParam
+            ? `&cursor=${encodeURIComponent(pageParam)}`
+            : '')),
     initialPageParam: null as string | null,
     getNextPageParam: (last) =>
       last.has_more ? last.next_cursor : undefined,
@@ -73,6 +75,7 @@ export default function Sessions() {
     useState<EphemeralSessionInfo | null>(null);
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
   const [stepUp, setStepUp] = useState<(() => void) | null>(null);
+  const [mutError, setMutError] = useState('');
 
   const create = useMutation({
     mutationFn: () =>
@@ -101,19 +104,31 @@ export default function Sessions() {
   const revoke = useMutation({
     mutationFn: (token_id: string) =>
       api.post('sessions/revoke', { token_id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }),
+    onSuccess: () => {
+      setMutError('');
+      qc.invalidateQueries({ queryKey: ['sessions'] });
+    },
+    onError: (e) =>
+      setMutError(
+        e instanceof ApiError ? e.message : 'Error al revocar'),
     onSettled: () => setRevokeTarget(null),
   });
 
   const revokeAll = useMutation({
     mutationFn: () => api.post<{ revoked: number }>('sessions/revoke-all'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }),
+    onSuccess: () => {
+      setMutError('');
+      qc.invalidateQueries({ queryKey: ['sessions'] });
+    },
     onError: (e) => {
       // Mass revocation is step-up gated: offer the re-auth dialog
       // and retry on success rather than failing hard.
       if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED') {
         setStepUp(() => () => revokeAll.mutate());
+        return;
       }
+      setMutError(
+        e instanceof ApiError ? e.message : 'Error al revocar todo');
     },
     onSettled: () => setConfirmRevokeAll(false),
   });
@@ -261,6 +276,10 @@ export default function Sessions() {
         )}
       </div>
 
+      {mutError && (
+        <div className="error-box" role="alert">{mutError}</div>
+      )}
+
       <div className="toolbar section">
         <h2 style={{ margin: 0 }} id="sessions-heading">Inventario</h2>
         <div role="tablist" aria-label="Vistas de sesiones"
@@ -268,6 +287,7 @@ export default function Sessions() {
           {(['active', 'revoked'] as const).map((t) => (
             <button
               key={t}
+              type="button"
               role="tab"
               aria-selected={tab === t}
               className={tab === t ? '' : 'ghost'}

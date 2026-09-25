@@ -1,11 +1,10 @@
 """Shared HTTP authentication helpers for VNC Remote Secure services.
 
-Provides Basic-auth and Bearer-token validation plus a Flask decorator
-so that landing, terminal, health, and the Flask UI use a single auth
+Provides Basic-auth and Bearer-token validation plus shared helpers
+so that landing, terminal, health, and the API layer use a single auth
 model instead of each service implementing its own.
 """
 import base64
-import functools
 import hmac
 import logging
 import os
@@ -469,52 +468,3 @@ def check_health_auth(auth_header, client_ip=None, peer_ip=None,
         else:
             limiter.record_failure(limiter_ip)
     return ok
-
-
-def require_auth(check_func, scheme='Basic', realm='VNC Remote Secure'):
-    """Flask decorator that requires authentication via ``check_func``.
-
-    ``check_func`` receives the ``Authorization`` header value and
-    returns ``True`` if access is allowed. On failure, returns a
-    uniform JSON 401 response with ``WWW-Authenticate`` header.
-
-    ``scheme`` selects the ``WWW-Authenticate`` challenge advertised to
-    clients (e.g., ``'Bearer'`` for token-based health auth).
-
-    Checkers that accept a ``client_ip`` keyword argument receive the
-    request's remote address so they can feed the shared auth rate
-    limiter; single-argument checkers are called as before.
-    """
-    import inspect
-    params = inspect.signature(check_func).parameters
-    wants_ip = 'client_ip' in params
-    wants_peer = 'peer_ip' in params
-
-    def decorator(view):
-        @functools.wraps(view)
-        def wrapper(*args, **kwargs):
-            from flask import request
-
-            from vnc_remote_secure.core.errors import json_error
-            auth = request.headers.get('Authorization', '')
-            # Resolve the real client IP through X-Forwarded-For when
-            # TRUSTED_PROXY is set — behind nginx, remote_addr is the
-            # proxy (127.0.0.1), which would otherwise rate-limit and
-            # audit-log the proxy instead of the actual client.
-            real_ip = client_ip_from(request.headers, request.remote_addr)
-            check_kwargs = {}
-            if wants_ip:
-                check_kwargs['client_ip'] = real_ip
-            if wants_peer:
-                # The raw socket peer — XFF-spoofable checks (loopback
-                # gating) must use this, not the resolved real_ip.
-                check_kwargs['peer_ip'] = request.remote_addr
-            ok = check_func(auth, **check_kwargs)
-            if not ok:
-                resp, status = json_error('Unauthorized', 401)
-                resp.headers['WWW-Authenticate'] = f'{scheme} realm="{realm}"'
-                resp.status_code = status
-                return resp
-            return view(*args, **kwargs)
-        return wrapper
-    return decorator

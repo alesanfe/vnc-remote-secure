@@ -108,7 +108,8 @@ Isolated function tests (Python/pytest):
   rate limiting, MFA, file permissions, shared state, token signing
 - Services: start/stop helpers, landing page generation, noVNC auth,
   terminal auth, health endpoints
-- Web: Flask application, routes, user management
+- Web/API: health/metrics app endpoints, `/api/v1` routes (operator
+  auth, CSRF, RBAC, share-link preview/activate), React SPA serving
 
 ### Level 3 — Integration (`tests/integration/`)
 

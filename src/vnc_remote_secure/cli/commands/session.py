@@ -94,7 +94,6 @@ def _print_session_created(args, signed_token, expires_in, role,
         print(json.dumps({
             'token': signed_token,
             'url': share_url,
-            'legacy_url': f"{base_url}/?session={signed_token}",
             'expires_in': expires_in,
             'role': role,
             'view_only': args.view_only,

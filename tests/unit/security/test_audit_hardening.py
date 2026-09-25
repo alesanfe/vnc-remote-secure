@@ -148,25 +148,31 @@ class TestCoroutineCloseCallback:
 
 class TestLandingLogRedaction:
     def test_session_token_redacted(self):
+        """The ASGI access log (backend.app._access_log) must redact
+        the share-link token exactly like the old stdlib log_message
+        did."""
         import logging
+        from unittest.mock import MagicMock
 
-        from vnc_remote_secure.services.landing import LandingHandler
+        from vnc_remote_secure.backend.app import _access_log
         records = []
 
         class _Cap(logging.Handler):
             def emit(self, r):
                 records.append(r.getMessage())
 
-        logger = logging.getLogger('vnc_remote_secure.services.landing')
+        logger = logging.getLogger('vnc_remote_secure.backend.app')
         old_level = logger.level
         logger.setLevel(logging.INFO)
         cap = _Cap()
         logger.addHandler(cap)
         try:
-            handler = LandingHandler.__new__(LandingHandler)
-            handler.client_address = ('127.0.0.1', 1234)
-            handler.log_message(
-                '"GET /?session=SECRET_TOKEN_123 HTTP/1.1" 302 -')
+            request = MagicMock()
+            request.method = 'GET'
+            request.url.path = '/'
+            request.url.query = 'session=SECRET_TOKEN_123'
+            request.client.host = '127.0.0.1'
+            _access_log(request, 302)
         finally:
             logger.removeHandler(cap)
             logger.setLevel(old_level)

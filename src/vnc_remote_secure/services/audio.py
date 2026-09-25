@@ -360,7 +360,7 @@ class AudioStreamServer:
             await websocket.close(
                 code=1013, reason='Too many audio clients')
             return None
-        return eph or bearer or cookie_value
+        return eph or bearer or session_cookie
 
     async def handle_client(self, websocket, _path=None):
         """Handle a new WebSocket client connection.
@@ -440,10 +440,15 @@ class AudioStreamServer:
                 async with self._ffmpeg_lock:
                     await self.stop_ffmpeg()
 
-    async def run(self):
-        """Start the WebSocket server."""
+    def run(self):
+        """Start the WebSocket server (uvicorn/FastAPI)."""
+        import contextlib as _cl
+
+        import uvicorn
+
         # Optional TLS via shared SSL context builder.
         from vnc_remote_secure.security.certificates import create_ssl_context
+        from vnc_remote_secure.services.ws_adapter import make_ws_app
         ssl_ctx = create_ssl_context()
         scheme = 'wss' if ssl_ctx else 'ws'
 
@@ -454,24 +459,32 @@ class AudioStreamServer:
         logger.info("  Format: MP3 %skbps", self.bitrate)
         logger.info("  URL:    %s://%s:%s", scheme, self.host, self.port)
 
-        # Start audio reader task
-        asyncio.create_task(self.audio_reader())
+        @_cl.asynccontextmanager
+        async def _lifespan(_app):
+            # The ffmpeg drain task and its teardown run on the SAME
+            # loop — awaiting a subprocess from a fresh loop hangs.
+            reader = asyncio.create_task(self.audio_reader())
+            try:
+                yield
+            finally:
+                await self.stop_ffmpeg()
+                reader.cancel()
 
-        # Start WebSocket server (with optional TLS).
-        async with websockets.serve(
-            self.handle_client,
-            self.host,
-            self.port,
-            ssl=ssl_ctx,
-            ping_interval=DEFAULT_PING_INTERVAL,
-            ping_timeout=DEFAULT_PING_TIMEOUT,
-            # Inbound client messages are control-only — the audio
-            # flows server->client, so a few KiB is generous (default
-            # was 1 MiB).
-            max_size=8192,
-        ):
-            logger.info("Server running. Press Ctrl+C to stop.")
-            await asyncio.Future()  # Run forever
+        app = make_ws_app(self.handle_client)
+        app.router.lifespan_context = _lifespan
+
+        kwargs = {}
+        if ssl_ctx:
+            kwargs = {'ssl_certfile': os.environ.get('SSL_CERT'),
+                      'ssl_keyfile': os.environ.get('SSL_KEY')}
+        logger.info("Server running. Press Ctrl+C to stop.")
+        uvicorn.run(app, host=self.host, port=self.port,
+                    log_level='warning', access_log=False,
+                    proxy_headers=False,
+                    ws_ping_interval=DEFAULT_PING_INTERVAL,
+                    ws_ping_timeout=DEFAULT_PING_TIMEOUT,
+                    ws_max_size=8192,
+                    **kwargs)
 
 
 def main():
@@ -507,17 +520,8 @@ def main():
 
     server = AudioStreamServer(host, port, device or None, bitrate)
 
-    async def _main():
-        try:
-            await server.run()
-        finally:
-            # Stop ffmpeg on the SAME loop that created it — awaiting a
-            # subprocess from a fresh loop (asyncio.run after the first
-            # one closed) raises RuntimeError or hangs.
-            await server.stop_ffmpeg()
-
     try:
-        asyncio.run(_main())
+        server.run()
     except KeyboardInterrupt:
         logger.info("Shutting down...")
 

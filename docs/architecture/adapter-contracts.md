@@ -40,7 +40,7 @@ satisfy.
 | `metrics.py` | `get_metrics()` → dict for the portal/health pages; keys may differ per platform, missing keys render as `N/A`. |
 | `firewall.py` (Windows) | Windows-specific rule helpers; Linux folds this into the adapter. |
 | `sandbox.py` (Windows) | Job Object creation/assignment — POSIX adapters use process groups instead and don't need this module. |
-| `users.py` | Platform user queries used by the Flask user-management UI. |
+| `users.py` | Platform OS-account adapters behind `/api/v1/system-users` — the React admin console manages runtime accounts through them; there is no server-rendered user UI. |
 
 ## Non-negotiable rules for new adapters
 

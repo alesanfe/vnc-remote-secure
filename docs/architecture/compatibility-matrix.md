@@ -9,7 +9,7 @@ implementation differs per OS by design (platform adapters).
 | VNC server | TigerVNC (`Xtigervnc`) | UltraVNC (`winvnc.exe`) | Legacy DES auth on both — 8-char password, loopback-only + relay |
 | Browser desktop (noVNC) | ✅ | ✅ | Same websockify bridge + RFB filter |
 | RFB input filter (view-only) | ✅ | ✅ | Protocol-level; identical |
-| Web terminal | Tornado executor | Tornado executor | No PTY either side (ConPTY deliberately avoided); `WEBTERM_SHELL` allowlist |
+| Web terminal | FastAPI/uvicorn executor | FastAPI/uvicorn executor | No PTY either side (ConPTY deliberately avoided); `WEBTERM_SHELL` allowlist |
 | Terminal resource limits | process groups + SIGKILL tree | Job Objects (`KILL_ON_JOB_CLOSE`) | Windows uses `taskkill /T` fallback |
 | Audio streaming | ffmpeg (`-f pulse`/alsa) | ffmpeg (`-f dshow`) | Per-device availability varies |
 | Gamepad forwarding | uinput via `evdev` (real virtual device) | **ViGEm X360 virtual controller** (`vgamepad`, `[windows-gamepad]` extra) with `SendInput` fallback | Parity when the ViGEmBus driver is installed — games see a real XInput controller. Without the driver, `SendInput` injects keyboard/mouse (no gamepad). `doctor` reports which backend is active |

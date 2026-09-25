@@ -91,14 +91,16 @@ def test_novnc_module_imports_cleanly():
     assert callable(mod.main)
 
 
-def test_novnc_auth_handler_rejects_missing_token(monkeypatch):
-    """The noVNC auth handler rejects requests without a valid token."""
-    from vnc_remote_secure.services.novnc import _AuthedSimpleHTTPRequestHandler
+def test_novnc_app_exposes_auth_gate():
+    """The noVNC FastAPI app exposes the auth gate and the websockify
+    route — the two enforcement surfaces."""
+    from vnc_remote_secure.services import novnc
 
-    # The handler must expose the auth gate plus the stdlib entry
-    # point it protects.
-    assert hasattr(_AuthedSimpleHTTPRequestHandler, '_require_auth')
-    assert hasattr(_AuthedSimpleHTTPRequestHandler, 'do_GET')
+    assert callable(novnc._check_novnc_auth)
+    app = novnc.make_app('.')
+    paths = {r.path for r in app.routes}
+    assert '/websockify' in paths
+    assert '/{path:path}' in paths
 
 
 def _generate_self_signed(cert_path, key_path):

@@ -250,6 +250,10 @@ def maintenance_login_allowed(username: str) -> bool:
         logger.debug('Operator store unavailable during maintenance '
                      'check', exc_info=True)
     env_admins = {
+        # 'admin' is the fixed env bootstrap identity (LANDING_PASSWORD
+        # maps to it in authenticate_landing) — without it the operator
+        # who enabled maintenance could not log back in to lift it.
+        'admin',
         os.environ.get('USER_UI_USERNAME', ''),
         os.environ.get('TTYD_USERNAME', ''),
     }

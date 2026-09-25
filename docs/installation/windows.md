@@ -94,7 +94,7 @@ backend ports should be restricted to the LAN or VPN.
 ## Limitations on Windows
 
 - UltraVNC instead of TigerVNC
-- Python/Tornado web terminal instead of ttyd
+- Python/FastAPI web terminal instead of ttyd
 - Self-signed SSL certificates (no Let's Encrypt)
 - No systemd — a Windows Service (`VncRemoteSecure`) plus the Python
   service manager handle lifecycle instead

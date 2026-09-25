@@ -87,7 +87,7 @@ class TestStore:
 class TestPermissions:
     def test_admin_umbrella_expands(self, store):
         ops.add_user('root', 'Pass 1!', 'admin')
-        for perm in ('admin_users', 'admin_config', 'admin_secrets',
+        for perm in ('admin_users', 'admin_config',
                      'admin_audit', 'admin_sessions'):
             assert ops.has_permission('root', perm)
 

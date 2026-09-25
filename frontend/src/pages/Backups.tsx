@@ -23,7 +23,10 @@ export default function Backups() {
       </p>
 
       {backups.isError && (
-        <div className="error-box">No se pudo listar los backups.</div>
+        <div className="error-box" role="alert">No se pudo listar los backups.</div>
+      )}
+      {backups.isLoading && (
+        <p className="muted" role="status">Cargando…</p>
       )}
       <table className="data">
         <thead>

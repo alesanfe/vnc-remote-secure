@@ -211,7 +211,7 @@ def config_entry_to_api(e: dict) -> dict:
 def _external_base(handler) -> str | None:
     """Public nginx base from trusted forwarded headers, else None.
 
-    Mirrors ``generate_landing_page``: the forwarded host lands inside
+    Mirrors ``read_models.portal``: the forwarded host lands inside
     URLs returned to the SPA, so it is constrained to a strict
     hostname set — a crafted X-Forwarded-Host must not become
     reflected markup.
@@ -269,8 +269,8 @@ def _get_status(handler, query):
 
 
 def _get_services(handler, query):
-    from vnc_remote_secure.services.landing import _build_service_list
-    services = _build_service_list(_protocol(), _external_base(handler))
+    from vnc_remote_secure.core.portal import build_service_list
+    services = build_service_list(_protocol(), _external_base(handler))
     for svc in services:
         # Booleans/ints/urls only — the raw dict is already the same
         # data the portal page renders for any authenticated user.
@@ -673,7 +673,6 @@ def _post_session_create(handler, query):
         # Fragment-carried link: the token never reaches the server in
         # the URL, so it cannot leak via history, Referer, or logs.
         'url': f'{base}/share#t={signed}',
-        'legacy_url': f'{base}/?session={signed}',
         'token_id': session.to_dict()['token_id'],
         'expires_at': session.expires_at,
         'role': session.role,
@@ -759,6 +758,22 @@ def _post_step_up(handler, query):
         return
     from vnc_remote_secure.security.step_up_auth import record_auth_time
     record_auth_time(username)
+    # Refresh the auth-policy context too — without it the step-up
+    # clears step_up_auth's clock but evaluate() still reads the
+    # stale ``authenticated_at`` recorded at login and fails
+    # max_auth_age policies.
+    try:
+        from vnc_remote_secure.security.auth_policy import (
+            session_id_for_cookie,
+            update_auth_context,
+        )
+        sid = session_id_for_cookie(
+            cookie_value(
+                handler.headers.get('Cookie', ''), 'vnc_session'))
+        if sid:
+            update_auth_context(sid, authenticated_at=int(time.time()))
+    except Exception:  # noqa: BLE001 - advisory record
+        pass
     audit_event('step_up_granted', user=username)
     _ok(handler, {'stepped_up': True, 'expires_in': 300})
 
@@ -792,18 +807,29 @@ def _post_logout(handler, query):
             cookie_exp = int(parts[2])
         except ValueError:
             cookie_exp = 0
-    for target_sid, exp in ((sid, cookie_exp),
+    # Revoke each sid with ITS OWN validity horizon — the gate sid
+    # gets a fresh TTL, the cookie sid gets the expiry it carries.
+    now = int(time.time())
+    for target_sid, exp in ((sid, now + handler._OP_SESSION_TTL),
                             (cookie_sid, cookie_exp)):
         if target_sid:
             try:
                 handler._revoke_op_session(
-                    target_sid,
-                    exp or int(time.time()) + handler._OP_SESSION_TTL)
+                    target_sid, exp or now + handler._OP_SESSION_TTL)
             except Exception:  # noqa: BLE001 - best-effort
                 pass
     from vnc_remote_secure.security.audit import audit_event
     audit_event('portal_logout',
                 user=handler._api_operator.get('username', 'unknown'))
+    # Drop the auth-policy context recorded at login — the vnc_session
+    # sid dies with the session, its assurance record must too.
+    try:
+        from vnc_remote_secure.security.auth_policy import drop_auth_context_for_cookie
+        drop_auth_context_for_cookie(
+            cookie_value(
+                handler.headers.get('Cookie', ''), 'vnc_session'))
+    except Exception:  # noqa: BLE001 - best-effort
+        pass
     # Cancel any pending session cookies this request minted, then
     # expire both explicitly.
     handler.__dict__['_pending_cookies'] = []
@@ -811,6 +837,8 @@ def _post_logout(handler, query):
         'vnc_op=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict')
     handler._queue_cookie(
         'vnc_csrf=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict')
+    handler._queue_cookie(
+        'vnc_session=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict')
     _ok(handler, {'logged_out': True})
 
 
@@ -865,11 +893,11 @@ def _get_operator_passkeys(handler, query):
     if _operator_record(username) is None:
         _err(handler, 'Operator not found', 404)
         return
-    from vnc_remote_secure.engine.application.passkeys import _gate_manage, list_passkeys
+    from vnc_remote_secure.engine.application.passkeys import gate_manage, list_passkeys
     from vnc_remote_secure.engine.domain.decision import UseCaseError
     try:
-        _gate_manage(operator.get('username', '?'),
-                     set(operator.get('permissions') or []), username)
+        gate_manage(operator.get('username', '?'),
+                    set(operator.get('permissions') or []), username)
     except UseCaseError as exc:
         _err(handler, exc.detail or exc.code, _uc_error_status(exc))
         return
@@ -1071,13 +1099,86 @@ def _get_auth_methods(handler, query):
         passkey = stores.webauthn_gate_error() is None
     except Exception:  # noqa: BLE001 - unavailable
         passkey = False
-    _ok(handler, {'password': True, 'passkey': passkey})
+    from vnc_remote_secure.security.mfa import mfa_required_for_login
+    mfa = False
+    try:
+        mfa = mfa_required_for_login()
+    except Exception:  # noqa: BLE001 - unavailable
+        mfa = False
+    _ok(handler, {'password': True, 'passkey': passkey, 'mfa': mfa})
+
+
+def _queue_operator_service_cookie(handler, username: str) -> dict | None:
+    """Mint ``vnc_session`` — the raw HMAC operator cookie the remote
+    services (terminal, noVNC, audio, gamepad) verify. Without it a
+    SPA-logged-in operator could not open the desktop or terminal.
+    Cookies are host-scoped, so a value set by the landing service is
+    sent to the sibling services on their own ports.
+
+    Returns the parsed session record (sid/created/expires) so the
+    caller can key the auth-policy context by it."""
+    import ssl as _ssl
+
+    from vnc_remote_secure.core.constants import (
+        DEFAULT_SESSION_IDLE_TIMEOUT,
+        DEFAULT_SESSION_MAX_LIFETIME,
+    )
+    from vnc_remote_secure.security.sessions import (
+        _get_env_int,
+        create_session_cookie,
+    )
+    lifetime = _get_env_int('SESSION_MAX_LIFETIME',
+                            DEFAULT_SESSION_MAX_LIFETIME)
+    token = create_session_cookie(username, max_lifetime=lifetime)['value']
+    max_age = min(_get_env_int('SESSION_IDLE_TIMEOUT',
+                               DEFAULT_SESSION_IDLE_TIMEOUT),
+                  lifetime)
+    # Same Secure convention as the share-link cookie: only when the
+    # request actually arrived over TLS (direct socket or trusted
+    # X-Forwarded-Proto behind nginx).
+    trusted = env_flag('TRUSTED_PROXY', 'false')
+    is_tls = ((trusted and
+               handler.headers.get('X-Forwarded-Proto', '') == 'https')
+              or getattr(handler, 'is_tls', None) is True
+              or isinstance(getattr(handler, 'connection', None),
+                            _ssl.SSLSocket))
+    secure = ' Secure;' if is_tls else ''
+    handler._queue_cookie(
+        f'vnc_session={token};{secure} HttpOnly; Path=/; '
+        f'SameSite=Strict; Max-Age={max_age}')
+    try:
+        from vnc_remote_secure.security.sessions import verify_session_cookie
+        return verify_session_cookie(token)
+    except Exception:  # noqa: BLE001 - context record is advisory
+        return None
 
 
 def _finish_operator_login(handler, username: str,
                            auth_method: str) -> None:
-    """Mint the operator session + CSRF nonce and answer /login."""
+    """Mint the operator session + CSRF nonce and answer /login.
+
+    ``auth_method`` is the VERIFIED ceremony ('password',
+    'password+totp', 'password+recovery', 'webauthn') — it lands in
+    the shared auth context so auth_policy.evaluate (e.g. the
+    terminal's open_terminal check) can enforce MFA/phishing
+    requirements across processes."""
     handler._portal_sid = handler._issue_op_session(username)
+    sess = _queue_operator_service_cookie(handler, username)
+    try:
+        if sess and sess.get('sid'):
+            from vnc_remote_secure.security.auth_policy import record_auth_context
+            record_auth_context(sess['sid'], {
+                'username': username,
+                'auth_method': auth_method,
+                'authenticated_at': int(time.time()),
+                'mfa': '+totp' in auth_method
+                       or '+recovery' in auth_method,
+                'phishing_resistant': auth_method == 'webauthn',
+                'user_verified': auth_method == 'webauthn',
+            }, stable_id=f"{username}:{sess.get('created')}",
+                expires_at=sess.get('expires'))
+    except Exception:  # noqa: BLE001 - policy context is advisory
+        pass
     _ok(handler, {
         'operator': {
             'username': username,
@@ -1114,19 +1215,50 @@ def _post_auth_login(handler, query):
         authenticate_landing,
         client_ip_from,
     )
+    client_ip = client_ip_from(handler.headers, handler.peer_ip())
     ok, operator = authenticate_landing(
-        f'Basic {cred}',
-        client_ip=client_ip_from(handler.headers, handler.peer_ip()))
+        f'Basic {cred}', client_ip=client_ip)
     from vnc_remote_secure.security.audit import audit_event
     if not ok or operator is None:
         audit_event('operator_login', user=username,
                     result='failure')
         _err(handler, 'Invalid credentials', 401)
         return
+    # Second factor — MFA_REQUIRED + TOTP_SECRET must actually gate
+    # the password path, not just exist as configuration.
+    from vnc_remote_secure.security.mfa import mfa_required_for_login
+    mfa_method = None
+    if mfa_required_for_login():
+        totp = payload.get('totp')
+        if not isinstance(totp, str) or not totp.strip():
+            audit_event('operator_login', user=username,
+                        detail='mfa required', result='failure')
+            handler.send_json_error(
+                'MFA code required', 401, code='MFA_REQUIRED')
+            return
+        from vnc_remote_secure.security.auth_gateway import verify_login_mfa
+        mfa_ok, mfa_msg, mfa_method = verify_login_mfa(
+            username, totp.strip()[:32], client_ip=client_ip)
+        if not mfa_ok:
+            _err(handler, mfa_msg or 'Invalid MFA code', 401)
+            return
+    # Maintenance mode: valid credentials clear the lockout but no
+    # new session is issued to non-admin accounts — parity with
+    # auth_gateway.attempt_login.
+    from vnc_remote_secure.security.maintenance import maintenance_login_allowed
+    if not maintenance_login_allowed(username):
+        audit_event('operator_login', user=username,
+                    detail='maintenance mode', result='failure')
+        _err(handler, 'System under maintenance. Try again later.',
+             503)
+        return
     audit_event('operator_login', user=username,
-                detail='method=password', result='success')
-    _finish_operator_login(handler, operator.get('username', username),
-                           'password')
+                detail='method=password' + (
+                    f'+{mfa_method}' if mfa_method else ''),
+                result='success')
+    _finish_operator_login(
+        handler, operator.get('username', username),
+        'password' + (f'+{mfa_method}' if mfa_method else ''))
 
 
 def _post_auth_passkey_begin(handler, query):
@@ -1148,9 +1280,9 @@ def _post_auth_passkey_begin(handler, query):
     if not isinstance(username, str) or not username.strip():
         _err(handler, 'username is required', 400)
         return
-    from vnc_remote_secure.engine.application.passkeys import _rp_id
+    from vnc_remote_secure.engine.application.passkeys import rp_id
     from vnc_remote_secure.security.webauthn import begin_authentication
-    options = begin_authentication(username.strip()[:128], _rp_id())
+    options = begin_authentication(username.strip()[:128], rp_id())
     from vnc_remote_secure.security.audit import audit_event
     if options is None:
         audit_event('passkey_auth_begin', user=username,
@@ -1182,12 +1314,12 @@ def _post_auth_passkey_complete(handler, query):
         _err(handler, 'username and credential are required', 400)
         return
     from vnc_remote_secure.engine.application.passkeys import (
-        _origin,
-        _rp_id,
+        rp_id,
+        webauthn_origin,
     )
     from vnc_remote_secure.security.webauthn import complete_authentication
     result = complete_authentication(
-        username.strip()[:128], credential, _rp_id(), _origin())
+        username.strip()[:128], credential, rp_id(), webauthn_origin())
     from vnc_remote_secure.security.audit import audit_event
     if not result.ok:
         audit_event('operator_login', user=username,
@@ -1197,6 +1329,145 @@ def _post_auth_passkey_complete(handler, query):
     audit_event('operator_login', user=username,
                 detail='method=webauthn', result='success')
     _finish_operator_login(handler, username.strip()[:128], 'webauthn')
+
+
+# ---------------------------------------------------------------------------
+# Portal + share-link surface (the React portal page consumes these)
+# ---------------------------------------------------------------------------
+
+def _get_portal(handler, query):
+    """GET /portal — read-model for the React portal page.
+
+    ``perm='session'`` admits any authenticated portal identity:
+    ``_api_operator`` carries the operator record, or ``None`` when
+    the caller is an activated share-link session (a view recipient
+    must not see the session inventory or the gamepad kill-switch).
+    """
+    import ssl as _ssl
+
+    from vnc_remote_secure.engine.application import read_models
+    trusted = env_flag('TRUSTED_PROXY', 'false')
+    try:
+        data = read_models.portal(
+            is_operator=handler._api_operator is not None,
+            host=handler.headers.get('Host', ''),
+            forwarded_host=(handler.headers.get('X-Forwarded-Host', '')
+                            if trusted else ''),
+            forwarded_proto=(handler.headers.get('X-Forwarded-Proto', '')
+                             if trusted else ''),
+            is_tls=(getattr(handler, 'is_tls', None) is True
+                    or isinstance(getattr(handler, 'connection', None),
+                                  _ssl.SSLSocket)),
+            trusted_proxy=trusted)
+    except Exception as e:  # noqa: BLE001 - never take the portal down
+        log_exception(e, 'api /portal')
+        _err(handler, 'Portal data unavailable', 500)
+        return
+    if data.get('sessions'):
+        data['sessions'] = [session_to_api(s)
+                            for s in data['sessions']]
+    _ok(handler, data)
+
+
+def _post_session_preview(handler, query):
+    """POST /session/preview — non-consuming grant summary.
+
+    Public: the token IS the credential, so the preview reveals only
+    what the link grants (role, expiry, coarse flags) — never creator
+    or infrastructure detail. Rate-limited by ``session.preview``.
+    """
+    if not _public_gate(handler):
+        return
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    token = payload.get('token')
+    if not isinstance(token, str) or not token.strip():
+        _err(handler, 'token required', 400)
+        return
+    from vnc_remote_secure.engine.application import read_models
+    preview = read_models.session_grant_preview(token.strip())
+    if preview is None:
+        _err(handler,
+             'Session link is invalid, expired, or already used', 403)
+        return
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event('session_preview',
+                detail=f"role={preview.get('role', '?')}")
+    _ok(handler, preview)
+
+
+def _post_session_activate(handler, query):
+    """POST /session/activate — exchange a share-link token.
+
+    Public: the link itself is the credential; the token arrives in
+    the request BODY so it never lands in a URL the server logs or a
+    Referer could carry onward. On success the ``vnc_ephemeral``
+    cookie is queued onto the JSON response.
+    """
+    if not _public_gate(handler):
+        return
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    token = payload.get('token')
+    if not isinstance(token, str) or not token.strip():
+        _err(handler, 'token required', 400)
+        return
+    from vnc_remote_secure.engine.application import read_models
+    from vnc_remote_secure.security.http_auth import client_ip_from
+    internal = read_models.activate_share_link(
+        token.strip(),
+        client_ip=client_ip_from(handler.headers, handler.peer_ip()))
+    if not internal:
+        _err(handler,
+             'Session link is invalid, expired, or already used', 403)
+        return
+    # Same cookie semantics as the old landing exchange — Secure only
+    # over a real TLS hop (direct SSLSocket or the trusted-proxy
+    # X-Forwarded-Proto); a direct client claiming https must not get
+    # a Secure cookie the browser would never send back over HTTP.
+    import ssl as _ssl
+    trusted = env_flag('TRUSTED_PROXY', 'false')
+    is_tls = ((trusted and
+               handler.headers.get('X-Forwarded-Proto', '') == 'https')
+              or getattr(handler, 'is_tls', None) is True
+              or isinstance(getattr(handler, 'connection', None),
+                            _ssl.SSLSocket))
+    secure = ' Secure;' if is_tls else ''
+    from vnc_remote_secure.core.config import resolve_samesite
+    handler._queue_cookie(
+        f'vnc_ephemeral={internal};{secure} HttpOnly; Path=/; '
+        f'SameSite={resolve_samesite()}')
+    _ok(handler, {'activated': True})
+
+
+def _gamepad_control(handler, stop: bool):
+    """Local kill-switch — flips the shared ``gamepad:stopped`` flag
+    the gamepad service checks per-connection and per-message, so the
+    operator at the machine can cut remote input injection even while
+    a session holds it."""
+    from vnc_remote_secure.engine.infrastructure import stores
+    try:
+        stores.gamepad_set_stopped(stop)
+    except Exception as e:  # noqa: BLE001
+        _err(handler, str(e), 500)
+        return
+    from vnc_remote_secure.security.audit import audit_event
+    audit_event(
+        'portal_gamepad_' + ('stop' if stop else 'resume'),
+        user=(handler._api_operator or {}).get('username', 'unknown'))
+    _ok(handler, {'gamepad_stopped': stop})
+
+
+def _post_gamepad_stop(handler, query):
+    _gamepad_control(handler, True)
+
+
+def _post_gamepad_resume(handler, query):
+    _gamepad_control(handler, False)
 
 
 def _get_jobs(handler, query):
@@ -1384,6 +1655,8 @@ _Route = namedtuple(
 _ROUTES = {
     ('GET', 'me'): _Route(
         _get_me, None, 'default', None, 'MeResponse'),
+    ('GET', 'portal'): _Route(
+        _get_portal, 'session', 'default', None, 'PortalResponse'),
     ('GET', 'status'): _Route(
         _get_status, None, 'default', None, 'StatusResponse'),
     ('GET', 'session-context'): _Route(
@@ -1432,12 +1705,28 @@ _ROUTES = {
     ('POST', 'auth/passkey/complete'): _Route(
         _post_auth_passkey_complete, 'public', 'passkeys.auth',
         'operator_login', 'LoginResponse'),
+    # Share-link exchange — public: the token IS the credential and
+    # travels in the request body, never in a URL.
+    ('POST', 'session/preview'): _Route(
+        _post_session_preview, 'public', 'session.preview',
+        'session_preview', 'SessionPreviewResponse'),
+    ('POST', 'session/activate'): _Route(
+        _post_session_activate, 'public', 'session.activate',
+        'ephemeral_session_activate', 'SessionActivateResponse'),
+    # Local gamepad kill-switch (operator-only — the flag cuts remote
+    # input injection even while a share session holds it).
+    ('POST', 'gamepad/stop'): _Route(
+        _post_gamepad_stop, 'admin_sessions', 'default',
+        'portal_gamepad_stop', 'GamepadStateResponse'),
+    ('POST', 'gamepad/resume'): _Route(
+        _post_gamepad_resume, 'admin_sessions', 'default',
+        'portal_gamepad_resume', 'GamepadStateResponse'),
     ('POST', 'maintenance'): _Route(
         _post_maintenance, 'admin:*', 'maintenance',
-        'maintenance_toggle', 'MaintenanceSetResponse', True),
+        'maintenance_changed', 'MaintenanceSetResponse', True),
     ('POST', 'sessions'): _Route(
         _post_session_create, 'admin_sessions', 'sessions.create',
-        'portal_session_create', 'SessionCreatedResponse'),
+        'ephemeral_session_create', 'SessionCreatedResponse'),
     ('POST', 'sessions/revoke'): _Route(
         _post_session_revoke, 'admin_sessions', 'sessions.revoke',
         'portal_session_revoke', 'SessionRevokeResponse'),
@@ -1494,7 +1783,7 @@ _ROUTES = {
     ('POST', 'operators/{username}/restore'): _Route(
         _post_operator_restore, 'admin_users', 'operators.create',
         'operator_restored', 'OperatorResponse', True),
-    # OS-level runtime accounts (migrated from the Flask users UI).
+    # OS-level runtime accounts surfaced to the admin SPA.
     ('GET', 'system-users'): _Route(
         _get_system_users, 'admin_users', 'default', None,
         'SystemUserPageResponse'),
@@ -1510,9 +1799,11 @@ _ROUTES = {
 # a configuration bug a contract test catches.
 _KNOWN_PERMS = {
     'operator', 'admin_sessions', 'admin_audit', 'admin_config',
-    'admin_users', 'admin_secrets',
+    'admin_users',
     # Unauthenticated surface — login ceremonies only.
     'public',
+    # Any authenticated portal identity — operator or share session.
+    'session',
     # System-wide gate — only the umbrella holder may touch it.
     'admin:*',
 }
@@ -1578,12 +1869,8 @@ def _deny_step_up(handler, operator: dict, method: str,
         'step_up_required',
         user=operator.get('username', '?'),
         detail=f'{method} {rel}')
-    handler.send_json({
-        'error': True,
-        'message': 'Step-up authentication required',
-        'code': 'STEP_UP_REQUIRED',
-        'request_id': _request_id(),
-    }, 403)
+    handler.send_json_error(
+        'Step-up authentication required', 403, code='STEP_UP_REQUIRED')
 
 
 def _dispatch(handler, method: str, path: str, query: dict) -> bool:
@@ -1602,6 +1889,26 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
         # Unauthenticated surface (login ceremonies): no operator
         # gate — handlers run _public_gate for Origin/Sec-Fetch
         # checks; CSRF is meaningless before a session exists.
+        handler._api_params = params
+        spec.fn(handler, query)
+        return True
+    if spec.perm == 'session':
+        # Any authenticated portal identity — an activated share-link
+        # cookie or an operator session. GETs already ran
+        # _portal_identity in do_GET; the explicit re-check keeps
+        # direct dispatch paths (mutations, tests) from trusting the
+        # caller to have run it.
+        if handler._valid_ephemeral_cookie():
+            handler._api_ephemeral = True
+            handler._api_operator = None
+        else:
+            operator = (handler._operator_gate(None)
+                        if method != 'GET'
+                        else _operator(handler, None))
+            if operator is None:
+                return True
+            handler._api_ephemeral = False
+            handler._api_operator = operator
         handler._api_params = params
         spec.fn(handler, query)
         return True
@@ -1640,13 +1947,3 @@ def handle_get(handler, path: str, query: dict) -> bool:
 def handle_post(handler, path: str) -> bool:
     """Dispatch a POST under /api/v1/. Returns True when handled."""
     return _dispatch(handler, 'POST', path, {})
-
-
-def handle_patch(handler, path: str) -> bool:
-    """Dispatch a PATCH under /api/v1/. Returns True when handled."""
-    return _dispatch(handler, 'PATCH', path, {})
-
-
-def handle_delete(handler, path: str) -> bool:
-    """Dispatch a DELETE under /api/v1/. Returns True when handled."""
-    return _dispatch(handler, 'DELETE', path, {})

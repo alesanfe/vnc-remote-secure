@@ -27,12 +27,11 @@ classifiers = [
   "Topic :: System :: Networking"
 ]
 dependencies = [
-  "Flask>=3.0.3,<4.0",
-  "tornado>=6.5.8,<7.0",
+  "fastapi>=0.115,<1.0",
+  "uvicorn>=0.30,<1.0",
   "cryptography>=50.0,<52.0",
   "websockets>=12.0,<17.0",
   "websockify>=0.10,<1.0",
-  "werkzeug>=3.0.3,<4.0",
   "pycryptodome>=3.19.0,<4.0"
 ]
 
@@ -59,8 +58,7 @@ webauthn = [
 # Optional: enables orphan-process reaping in the service manager
 # (_reap_stale_service). Without it the stale-PID cleanup no-ops.
 ops = [
-  "psutil>=5.9,<7.0",
-  "waitress>=2.1,<4.0"
+  "psutil>=5.9,<7.0"
 ]
 # Browser E2E (tests/e2e/browser). After installing, run
 # `python -m playwright install chromium` once to fetch the browser.
@@ -117,7 +115,7 @@ ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
 # Optional/platform-specific dependencies without published type stubs.
-module = ["evdev", "psutil", "waitress", "vgamepad"]
+module = ["evdev", "psutil", "vgamepad"]
 ignore_missing_imports = true
 
 [tool.pylint.messages_control]
@@ -134,9 +132,9 @@ disable = [
     "import-outside-toplevel",       # lazy imports are intentional
     "redefined-outer-name",          # lazy inner imports shadow by design
     "protected-access",              # module-internal helpers access _x
-    "arguments-differ",              # stdlib/tornado override signatures
-    "abstract-method",               # tornado's data_received is optional
-    "attribute-defined-outside-init",# tornado WS lifecycle + ctypes fields
+    "arguments-differ",              # stdlib/framework override signatures
+    "abstract-method",               # framework lifecycle hooks are optional
+    "attribute-defined-outside-init",# WS session lifecycle + ctypes fields
     "cyclic-import",
     "duplicate-code",
 ]
@@ -156,7 +154,6 @@ ignore = ["E501", "E402"]
 
 [tool.setuptools.package-data]
 vnc_remote_secure = [
-  "web/templates/*.html",
   "config/defaults/*.env",
   "config/examples/*.env.example",
   "config/schema/*.json",
@@ -174,9 +171,6 @@ vnc_remote_secure = [
   "third_party/licenses/*.txt",
   "third_party/checksums/*",
   "third_party/README.md",
-  "static/xterm/*",
-  "static/landing.css",
-  "static/terminal.html",
   "web/static/admin/index.html",
   "web/static/admin/assets/*"
 ]

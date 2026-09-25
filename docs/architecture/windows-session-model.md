@@ -21,7 +21,7 @@ Session 0 (services)                Session N (interactive user)
 ┌─────────────────────────┐         ┌──────────────────────────────┐
 │  Windows Service         │         │  winvnc.exe (UltraVNC)        │
 │  (vnc-remote service     │  PID    │   └ captures THIS session     │
-│   manager watchdog)      ├────────►│  Tornado web terminal         │
+│   manager watchdog)      ├────────►│  FastAPI web terminal         │
 │                          │ spawn   │   └ AppContainer sandbox      │
 │  shared_state.db is NOT  │         │  ffmpeg audio capture         │
 │  readable from Session N │         │  ViGEm gamepad injector       │

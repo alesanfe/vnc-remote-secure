@@ -17,7 +17,6 @@ never imports ``security/*`` directly.
 """
 from __future__ import annotations
 
-import os
 import time
 
 from vnc_remote_secure.engine.domain.decision import (
@@ -48,7 +47,7 @@ def viable_admin_count(excluding: str = '') -> int:
     configured — a demotion must never assume it silently exists.
     """
     count = 0
-    if excluding != 'admin' and os.environ.get('LANDING_PASSWORD'):
+    if excluding != 'admin' and stores.env('LANDING_PASSWORD'):
         count += 1
     for name, rec in _store().items():
         if name != excluding and not rec.get('disabled') \
@@ -110,6 +109,7 @@ def update_operator(actor: str, actor_perms: set, username: str,
         raise UseCaseError(ERR_NOT_FOUND, 'operator not found')
 
     changed: list[str] = []
+    detail_bits: list[str] = []
     revoke = False
 
     if role is not None:
@@ -125,8 +125,8 @@ def update_operator(actor: str, actor_perms: set, username: str,
                 ERR_PERMISSION, 'granting admin requires admin:*')
         if not stores.operator_set_role(username, role):
             raise UseCaseError(ERR_INVALID, 'role update failed')
-        _audit('operator_role_changed', actor,
-               f'target={username} {rec.get("role")}->{role}')
+        detail_bits.append(
+            f'role={rec.get("role")}->{role}')
         changed.append('role')
         revoke = True
 
@@ -138,8 +138,7 @@ def update_operator(actor: str, actor_perms: set, username: str,
                 'would disable the last viable administrator')
         if not stores.operator_set_disabled(username, disabled):
             raise UseCaseError(ERR_INVALID, 'state update failed')
-        _audit('operator_disabled' if disabled else 'operator_enabled',
-               actor, f'target={username}')
+        detail_bits.append('disabled' if disabled else 'enabled')
         changed.append('disabled')
         if disabled:
             revoke = True
@@ -147,13 +146,15 @@ def update_operator(actor: str, actor_perms: set, username: str,
     if password is not None:
         if not stores.operator_set_password(username, password):
             raise UseCaseError(ERR_INVALID, 'password update failed')
-        _audit('operator_password_changed', actor,
-               f'target={username}')
+        detail_bits.append('password')
         changed.append('password')
         revoke = True
 
     if revoke:
         revoke_operator_sessions(username)
+    # One audit entry per request — the detail names what changed.
+    _audit('operator_updated', actor,
+           f'target={username} {" ".join(detail_bits)}')
     return {
         'record': _store()[username],
         'changed': changed,

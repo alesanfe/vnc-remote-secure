@@ -58,7 +58,7 @@ export default function DeletedOperatorsSection({
         Restaurables durante ~30 días. La cuenta vuelve deshabilitada
         y sin contraseña — habilítala y asígnale una nueva.
       </p>
-      {error && <div className="error-box">{error}</div>}
+      {error && <div className="error-box" role="alert">{error}</div>}
       <table className="data">
         <thead>
           <tr>

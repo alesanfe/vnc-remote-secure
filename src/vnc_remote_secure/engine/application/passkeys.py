@@ -20,7 +20,6 @@ Domain rules:
 from __future__ import annotations
 
 import hashlib
-import os
 
 from vnc_remote_secure.engine.domain.decision import (
     ERR_CONFLICT,
@@ -82,17 +81,17 @@ def _gate_step_up(actor: str, action: str) -> None:
         raise UseCaseError(ERR_STEP_UP, err)
 
 
-def _rp_id() -> str:
-    return os.environ.get('WEBAUTHN_RP_ID', '').strip() or 'localhost'
+def rp_id() -> str:
+    return stores.env('WEBAUTHN_RP_ID').strip() or 'localhost'
 
 
-def _origin() -> str:
-    return os.environ.get('WEBAUTHN_ORIGIN', '').strip() \
-        or f'https://{_rp_id()}'
+def webauthn_origin() -> str:
+    return stores.env('WEBAUTHN_ORIGIN').strip() \
+        or f'https://{rp_id()}'
 
 
-def _rp_name() -> str:
-    return os.environ.get('WEBAUTHN_RP_NAME', '').strip() \
+def rp_name() -> str:
+    return stores.env('WEBAUTHN_RP_NAME').strip() \
         or 'VNC Remote Secure'
 
 
@@ -108,7 +107,8 @@ def begin_registration(actor: str, username: str) -> dict:
             ERR_PERMISSION,
             'passkey registration is self-service only')
     _gate_step_up(actor, 'webauthn_register')
-    return stores.webauthn_begin(username, _rp_id(), _rp_name())
+    _audit('passkey_register_begin', actor, f'target={username}')
+    return stores.webauthn_begin(username, rp_id(), rp_name())
 
 
 def complete_registration(actor: str, username: str, credential: dict,
@@ -122,13 +122,13 @@ def complete_registration(actor: str, username: str, credential: dict,
     if not isinstance(credential, dict) or 'id' not in credential:
         raise UseCaseError(ERR_INVALID, 'credential object required')
     ok, message = stores.webauthn_complete(
-        username, credential, _rp_id(), _origin(), name=name[:64])
+        username, credential, rp_id(), webauthn_origin(), name=name[:64])
     if not ok:
         raise UseCaseError(ERR_INVALID, message)
     _audit('passkey_registered', actor, f'target={username}')
 
 
-def _gate_manage(actor: str, actor_perms: set, username: str) -> None:
+def gate_manage(actor: str, actor_perms: set, username: str) -> None:
     """Rename/revoke: the owner, or an admin_users operator."""
     if username != actor and 'admin_users' not in actor_perms \
             and 'admin:*' not in actor_perms:
@@ -140,7 +140,7 @@ def _gate_manage(actor: str, actor_perms: set, username: str) -> None:
 def rename_passkey(actor: str, actor_perms: set, username: str,
                    ref: str, name: str) -> None:
     """Rename a credential (metadata only — no cryptographic effect)."""
-    _gate_manage(actor, actor_perms, username)
+    gate_manage(actor, actor_perms, username)
     cid = _resolve_ref(username, ref)
     if cid is None:
         raise UseCaseError(ERR_NOT_FOUND, 'passkey not found')
@@ -156,7 +156,7 @@ def delete_passkey(actor: str, actor_perms: set, username: str,
     """Remove a credential. The account must keep a usable auth
     method: refusing the last passkey when MFA is required and no TOTP
     fallback exists prevents lockout."""
-    _gate_manage(actor, actor_perms, username)
+    gate_manage(actor, actor_perms, username)
     _gate_step_up(actor, 'webauthn_revoke')
     cid = _resolve_ref(username, ref)
     if cid is None:
@@ -168,7 +168,7 @@ def delete_passkey(actor: str, actor_perms: set, username: str,
         rec = stores.operator_load_store().get(username)
         has_password = bool(
             rec and rec.get('password_hash')) or (
-            username == 'admin' and os.environ.get('LANDING_PASSWORD'))
+            username == 'admin' and stores.env('LANDING_PASSWORD'))
         try:
             mfa_ok = not stores.mfa_required() or stores.mfa_available()
         except Exception:  # noqa: BLE001 - assume MFA may be required

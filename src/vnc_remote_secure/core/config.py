@@ -701,7 +701,7 @@ def _get_ports_config():
 def _get_credentials_config(vnc_password, ttyd_username, ttyd_password, user_ui_password):
     """Return the credentials dict (from .env, never hardcoded).
 
-    Flask secret key and auth secret: do NOT generate random values
+    Signing secret and auth secret: do NOT generate random values
     here. _get_secret() in authentication.py handles persistent
     generation to a file so tokens remain valid across CLI/service
     processes. Setting random per-process secrets here would break

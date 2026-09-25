@@ -285,7 +285,7 @@
     },
     "FLASK_SECRET_KEY": {
       "type": "string",
-      "description": "Secret key for Flask session signing."
+      "description": "Session/token signing secret (historical name — AUTH_SECRET is the primary, this is the fallback)."
     },
     "GAMEPAD_BACKEND_PROTOCOL": {
       "type": "string",
@@ -471,7 +471,7 @@
     },
     "SESSION_COOKIE_NAME": {
       "type": "string",
-      "description": "Flask session cookie name."
+      "description": "Legacy cookie-name setting — retained for schema compatibility but unused (the operator session cookie 'vnc_session' name is fixed)."
     },
     "SESSION_COOKIE_SECURE": {
       "type": "boolean",
@@ -481,7 +481,7 @@
       "type": "integer",
       "minimum": 60,
       "default": 1800,
-      "description": "Session idle timeout in seconds (used by the session cookie and Flask UI)."
+      "description": "Session idle timeout in seconds (used by the vnc_session/vnc_op cookies)."
     },
     "SESSION_MAX_LIFETIME": {
       "type": "integer",
@@ -493,7 +493,7 @@
       "type": "integer",
       "minimum": 1024,
       "default": 65536,
-      "description": "Maximum request body size in bytes accepted by the Flask user-management UI (mitigates memory-DoS via oversized POSTs)."
+      "description": "Legacy — retained for schema compatibility but unused; /api/v1 enforces a fixed 16 KiB JSON body limit."
     },
     "EPHEMERAL_REQUIRE_RESOURCE": {
       "type": "boolean",
@@ -506,7 +506,7 @@
         "Lax",
         "None"
       ],
-      "description": "SameSite attribute for the session cookie.",
+      "description": "SameSite attribute for the ephemeral share-session cookie (vnc_ephemeral). Lax lets a recipient open the link from another app and stay authenticated; operator cookies (vnc_op, vnc_csrf, vnc_session) are always Strict by design.",
       "default": "Lax"
     },
     "SHARED_STATE_BACKEND": {
@@ -608,21 +608,21 @@
     },
     "TTYD_HOST": {
       "type": "string",
-      "description": "Bind address for the web terminal (ttyd on Linux, Tornado on Windows)."
+      "description": "Bind address for the web terminal (Python FastAPI service on both platforms)."
     },
     "TTYD_PASSWD": {
       "type": "string",
-      "description": "Password for the web terminal (ttyd on Linux, Tornado on Windows). If not set, a random one is generated at startup (see .env.example)."
+      "description": "Password for the web terminal (Python FastAPI service on both platforms). If not set, a random one is generated at startup (see .env.example)."
     },
     "TTYD_PORT": {
       "type": "integer",
       "minimum": 1,
       "maximum": 65535,
-      "description": "Port the web terminal listens on (ttyd on Linux, Tornado on Windows)."
+      "description": "Port the web terminal listens on (Python FastAPI service on both platforms)."
     },
     "TTYD_USERNAME": {
       "type": "string",
-      "description": "Username for the web terminal (ttyd on Linux, Tornado on Windows). Leave empty to use the OS default (see .env.example)."
+      "description": "Username for the web terminal (Python FastAPI service on both platforms). Leave empty to use the OS default (see .env.example)."
     },
     "ULTRAVNC_PATH": {
       "type": "string",

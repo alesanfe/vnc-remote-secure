@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 interface Props {
   open: boolean;
@@ -34,6 +34,7 @@ export default function ConfirmDialog({
   onCancel,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const opener = useRef<Element | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [typedOk, setTypedOk] = useState(false);
@@ -89,9 +90,9 @@ export default function ConfirmDialog({
         className="dialog"
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="confirm-title"
+        aria-labelledby={titleId}
       >
-        <h2 id="confirm-title">{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <div className="dialog-body">{children}</div>
         {needsTyping && (
           <input
@@ -104,6 +105,7 @@ export default function ConfirmDialog({
         )}
         <div className="dialog-actions">
           <button
+            type="button"
             className="ghost"
             onClick={onCancel}
             disabled={busy}
@@ -112,6 +114,7 @@ export default function ConfirmDialog({
             {cancelLabel}
           </button>
           <button
+            type="button"
             className={danger ? 'danger' : ''}
             data-confirm
             disabled={busy || (needsTyping && !typedOk)}

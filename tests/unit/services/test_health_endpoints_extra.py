@@ -28,13 +28,15 @@ def _get(server, path):
     resp = conn.getresponse()
     body = resp.read()
     conn.close()
-    return resp.status, dict(resp.getheaders()), body
+    # ASGI servers emit lowercase header names — normalize so lookups
+    # stay case-insensitive.
+    return resp.status, {k.lower(): v for k, v in resp.getheaders()}, body
 
 
 def test_metrics_endpoint_returns_prometheus_format(health_server):
     status, headers, body = _get(health_server, '/metrics')
     assert status == 200
-    assert 'text/plain' in headers.get('Content-Type', '')
+    assert 'text/plain' in headers.get('content-type', '')
 
 
 def test_audit_endpoint_returns_entries(health_server):

@@ -212,6 +212,17 @@ def delete_credential(credential_id: str, username: str) -> bool:
     return True
 
 
+def rename_credential(credential_id: str, name: str) -> bool:
+    """Rename a credential (metadata only). Returns True if found."""
+    with _store_lock():
+        store = _load_store()
+        if credential_id not in store:
+            return False
+        store[credential_id]['name'] = name
+        _save_store(store)
+    return True
+
+
 def _user_credentials(username: str) -> dict:
     return {cid: rec for cid, rec in _load_store().items()
             if rec.get('username') == username}

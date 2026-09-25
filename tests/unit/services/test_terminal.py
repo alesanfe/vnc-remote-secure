@@ -491,39 +491,30 @@ class TestIdleTimeout:
         return ws
 
     def test_idle_close(self, monkeypatch):
-        import tornado.ioloop
+        import types
         ws = self._ws(monkeypatch)
-        monkeypatch.setattr(
-            tornado.ioloop.IOLoop, 'current',
-            staticmethod(lambda: type('L', (), {'time':
-                                                lambda s: 20.0})()))
+        ws._loop = types.SimpleNamespace(time=lambda: 20.0)
         ws._check_idle()
         assert ws._closed_with == [
             {'code': 1000, 'reason': 'idle timeout'}]
 
     def test_activity_prevents_close(self, monkeypatch):
-        import tornado.ioloop
+        import types
         ws = self._ws(monkeypatch)
         ws._last_activity = 15.0
-        monkeypatch.setattr(
-            tornado.ioloop.IOLoop, 'current',
-            staticmethod(lambda: type('L', (), {'time':
-                                                lambda s: 20.0})()))
+        ws._loop = types.SimpleNamespace(time=lambda: 20.0)
         ws._check_idle()
         assert ws._closed_with == []
 
     def test_zero_disables(self, monkeypatch):
         ws = self._ws(monkeypatch, timeout='0')
-        # With timeout=0 the PeriodicCallback is never installed.
+        # With timeout=0 the idle watcher is never installed.
         assert ws._idle_cb is None
 
     def test_touch_updates_activity(self, monkeypatch):
-        import tornado.ioloop
+        import types
         ws = self._ws(monkeypatch)
-        monkeypatch.setattr(
-            tornado.ioloop.IOLoop, 'current',
-            staticmethod(lambda: type('L', (), {'time':
-                                                lambda s: 42.0})()))
+        ws._loop = types.SimpleNamespace(time=lambda: 42.0)
         ws._touch_activity()
         assert ws._last_activity == 42.0
 
@@ -644,39 +635,15 @@ class TestBasicAuthGate:
         assert 'Basic auth disabled' in closed[0][1]
         assert consulted == []
 
-    def test_static_path_basic_denied_when_disabled(self, monkeypatch):
-        """The xterm static handler's Basic fallback must obey the
-        same gate — otherwise the page assets accept a credential the
-        WS upgrade refuses."""
-        from unittest.mock import MagicMock
-
+    def test_static_xterm_route_removed(self, monkeypatch):
+        """The vendored /xterm/ static route is gone — the terminal UI
+        is the React page now, so the service exposes only '/' (the
+        redirect to the portal) and '/ws'."""
         from vnc_remote_secure.services import terminal as term
-        monkeypatch.setenv('TERMINAL_BASIC_AUTH', 'false')
-        h = object.__new__(term.XtermStaticHandler)
-        h.request = MagicMock()
-        h.request.headers.get = lambda k, d='': (
-            'Basic dTpw' if k == 'Authorization' else d)
-        h.request.remote_ip = '127.0.0.1'
-        consulted = []
-        monkeypatch.setattr(
-            term, 'check_terminal_auth',
-            lambda *a, **k: consulted.append(1) or True)
-        assert h._authorized() is False
-        assert consulted == []
-
-    def test_static_path_basic_allowed_when_enabled(
-            self, monkeypatch):
-        """Default: the Basic fallback on the static path still works
-        when the credential is valid."""
-        from unittest.mock import MagicMock
-
-        from vnc_remote_secure.services import terminal as term
-        monkeypatch.delenv('TERMINAL_BASIC_AUTH', raising=False)
-        h = object.__new__(term.XtermStaticHandler)
-        h.request = MagicMock()
-        h.request.headers.get = lambda k, d='': (
-            'Basic dTpw' if k == 'Authorization' else d)
-        h.request.remote_ip = '127.0.0.1'
-        monkeypatch.setattr(
-            term, 'check_terminal_auth', lambda *a, **k: True)
-        assert h._authorized() is True
+        assert not hasattr(term, 'XtermStaticHandler')
+        app = term.make_app()
+        assert app is not None  # builds without the static mount
+        import inspect
+        src = inspect.getsource(term)
+        assert '/xterm/' not in src
+        assert 'static/xterm' not in src

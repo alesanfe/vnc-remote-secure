@@ -226,4 +226,4 @@ class TestTerminalViewWriteSplit:
         s2 = self._sess({'admin_users'})
         assert s2.has_permission('admin_users')
         assert not s2.has_permission('admin')
-        assert not s2.has_permission('admin_secrets')
+        assert not s2.has_permission('admin_config')

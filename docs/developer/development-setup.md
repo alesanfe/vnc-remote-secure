@@ -45,15 +45,23 @@ Unified CLI (vnc-remote) → Python service manager (src/vnc_remote_secure/core/
         |     audio, gamepad, health, landing, novnc, terminal, vnc
         |
         +-- Platform adapters (src/vnc_remote_secure/platform/)
-        |     linux/  — TigerVNC, Tornado terminal, nginx, systemd, certbot
-        |     windows/ — UltraVNC, Tornado, Windows Services, Firewall, ACLs
+        |     linux/  — TigerVNC, FastAPI terminal, nginx, systemd, certbot
+        |     windows/ — UltraVNC, FastAPI, Windows Services, Firewall, ACLs
         |
         +-- Security (src/vnc_remote_secure/security/)
         |     auth_gateway, authentication, mfa, sessions, rate_limit,
         |     audit, certificates, http_auth, websocket_registry, ...
         |
-        +-- Web UI (src/vnc_remote_secure/web/)
-              Flask app, routes (health, landing, users), templates
+        +-- Portal transport (src/vnc_remote_secure/backend/app.py)
+        |     FastAPI/uvicorn — serves the built React SPA and /api/v1/*
+        |
+        +-- Frontend (frontend/)
+        |     React + TypeScript + Vite SPA; `npm run build` emits the
+        |     bundle to src/vnc_remote_secure/web/static/admin/
+        |
+        +-- Health service (src/vnc_remote_secure/web/application.py)
+              entry point for the machine-facing health/metrics/audit
+              app (backend/health_app.py) — no UI routes or templates
 ```
 
 The canonical entry point is `vnc-remote` (a thin Bash wrapper that

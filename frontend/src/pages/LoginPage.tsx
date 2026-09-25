@@ -22,6 +22,10 @@ export default function LoginPage({
   });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
+  // Shown when the server requires a second factor (MFA_REQUIRED) —
+  // either proactively from /auth/methods or reactively on a 401.
+  const [mfaNeeded, setMfaNeeded] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'password' | 'passkey' | null>(null);
 
@@ -38,10 +42,15 @@ export default function LoginPage({
     setBusy('password');
     setError('');
     try {
-      const res = await api.login(username, password);
+      const res = await api.login(username, password, totp);
       finish(res.csrf_token);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Error de red');
+      if (e instanceof ApiError && e.code === 'MFA_REQUIRED') {
+        setMfaNeeded(true);
+        setError('Introduce el código de autenticación (TOTP o recuperación).');
+      } else {
+        setError(e instanceof ApiError ? e.message : 'Error de red');
+      }
     } finally {
       setBusy(null);
     }
@@ -72,7 +81,8 @@ export default function LoginPage({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!busy && username && password) void loginPassword();
+            if (!busy && username && password &&
+                (!mfaNeeded || totp)) void loginPassword();
           }}
         >
           <label htmlFor="login-user">Usuario</label>
@@ -91,13 +101,30 @@ export default function LoginPage({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          {(mfaNeeded || methods.data?.mfa) && (
+            <>
+              <label htmlFor="login-mfa">
+                Código MFA / recuperación
+              </label>
+              <input
+                id="login-mfa"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                value={totp}
+                onChange={(e) => setTotp(e.target.value)}
+              />
+            </>
+          )}
           {error && (
             <div className="error-box" role="alert">{error}</div>
           )}
           <div className="row" style={{ marginTop: '0.75rem' }}>
             <button
               type="submit"
-              disabled={busy !== null || !username || !password}
+              disabled={
+                busy !== null || !username || !password ||
+                (mfaNeeded && !totp)
+              }
             >
               {busy === 'password' ? 'Verificando…' : 'Entrar'}
             </button>

@@ -8,6 +8,14 @@ a delegation, not a re-implementation.
 """
 from __future__ import annotations
 
+
+def env(name: str, default: str = '') -> str:
+    """Configuration read — env access stays in the infrastructure
+    layer so use cases never touch ``os.environ`` directly."""
+    import os
+    return os.environ.get(name, default)
+
+
 # --- Ephemeral share-link sessions -----------------------------------
 
 
@@ -152,14 +160,8 @@ def credential_delete(credential_id: str, username: str) -> bool:
 
 
 def credential_rename(credential_id: str, name: str) -> bool:
-    from vnc_remote_secure.security.webauthn import _load_store, _save_store, _store_lock
-    with _store_lock():
-        store = _load_store()
-        if credential_id not in store:
-            return False
-        store[credential_id]['name'] = name
-        _save_store(store)
-    return True
+    from vnc_remote_secure.security.webauthn import rename_credential
+    return rename_credential(credential_id, name)
 
 
 def webauthn_gate_error() -> str | None:
@@ -358,3 +360,90 @@ def tombstone_remove(username: str) -> None:
 def tombstones() -> list:
     from vnc_remote_secure.security.jobs import tombstones
     return tombstones()
+
+
+# --- Portal read-model inputs ----------------------------------------
+
+
+def portal_config() -> dict:
+    """The runtime config (lazy, honours .env reload)."""
+    from vnc_remote_secure.core.portal import portal_config as _pc
+    return _pc()
+
+
+def service_list(protocol: str, external_base: str | None = None) -> list:
+    """Service cards for the portal page (name/url/port/running)."""
+    from vnc_remote_secure.core.portal import build_service_list
+    return build_service_list(protocol, external_base)
+
+
+def lan_ips() -> list:
+    from vnc_remote_secure.core.portal import get_lan_ips
+    return get_lan_ips()
+
+
+def system_metrics() -> dict:
+    from vnc_remote_secure.core.portal import get_system_metrics
+    return get_system_metrics()
+
+
+def port_listening(port: int, host: str = '127.0.0.1') -> bool:
+    from vnc_remote_secure.core.portal import check_port
+    return check_port(port, host)
+
+
+def is_windows() -> bool:
+    from vnc_remote_secure.platform.detection import is_windows as _iw
+    return _iw()
+
+
+def vnc_effective_port() -> int:
+    """The RFB port actually bound — TigerVNC derives 5900+display on
+    Linux regardless of an explicit VNC_PORT."""
+    from vnc_remote_secure.core.portal import vnc_effective_port as _vp
+    return _vp()
+
+
+def tls_available(cfg: dict) -> bool:
+    """True when the configured cert/key yield a usable TLS context."""
+    from vnc_remote_secure.core.portal import tls_available as _ta
+    return _ta(cfg)
+
+
+def session_preview(signed: str) -> dict | None:
+    """Non-consuming grant summary for a share-link token."""
+    from vnc_remote_secure.security.ephemeral_sessions import preview_session
+    return preview_session(signed)
+
+
+def activate_share_session(signed: str, client_ip: str | None = None):
+    """Consume a share-link token; returns the internal session token."""
+    from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+    return activate_ephemeral_session(signed, client_ip=client_ip)
+
+
+def audio_capture_active() -> bool:
+    """True while the audio service is capturing the mic — reads the
+    shared-state flag directly (the engine must not import services/*;
+    services/audio refreshes 'audio_indicator:capture' with a 120 s
+    TTL while ffmpeg runs)."""
+    try:
+        return bool(shared_backend().get('audio_indicator', 'capture'))
+    except Exception:  # noqa: BLE001 - flag is best-effort
+        return False
+
+
+def gamepad_stopped() -> bool:
+    """Shared kill-switch flag read by the gamepad service per message."""
+    try:
+        return bool(shared_backend().get('gamepad', 'stopped'))
+    except Exception:  # noqa: BLE001 - flag is best-effort
+        return False
+
+
+def gamepad_set_stopped(stop: bool) -> None:
+    """Set/clear the shared kill-switch flag (1y ttl while stopped)."""
+    if stop:
+        shared_backend().set_ttl('gamepad', 'stopped', '1', 86400 * 365)
+    else:
+        shared_backend().delete('gamepad', 'stopped')

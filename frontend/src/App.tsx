@@ -22,6 +22,9 @@ const NAV = [
   { to: '/config', label: 'Configuración' },
 ];
 
+/** Admin shell — mounted by main.tsx under basename="/admin". Gates
+    on /me: no operator session renders the in-app login page
+    (password or passkey) instead of the browser's Basic prompt. */
 export default function App() {
   const qc = useQueryClient();
   const me = useQuery({
@@ -30,8 +33,6 @@ export default function App() {
     retry: false,
   });
 
-  // No operator session → the in-app login page (password or
-  // passkey) instead of the browser's Basic-auth prompt.
   if (me.isError && me.error instanceof ApiError &&
       me.error.status === 401) {
     return (
@@ -44,6 +45,30 @@ export default function App() {
   }
   if (me.isLoading) {
     return <main className="main"><p className="muted">Cargando…</p></main>;
+  }
+  if (me.isError) {
+    // A non-401 failure (500, network, proxy page) is NOT the login
+    // gate — render a real error so the operator isn't staring at a
+    // dead shell with no operator context.
+    return (
+      <main className="main">
+        <div className="error-box" role="alert">
+          <strong>No se pudo verificar la sesión.</strong>
+          <p className="muted">
+            {me.error instanceof ApiError
+              ? `${me.error.status}: ${me.error.message}`
+              : 'Error de red — el servicio puede estar caído.'}
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              void qc.invalidateQueries({ queryKey: ['me'] })}
+          >
+            Reintentar
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -95,6 +120,14 @@ export default function App() {
           <Route path="/doctor" element={<Doctor />} />
           <Route path="/backups" element={<Backups />} />
           <Route path="/config" element={<Config />} />
+          <Route
+            path="*"
+            element={
+              <div className="error-box" role="alert">
+                Página no encontrada.
+              </div>
+            }
+          />
         </Routes>
       </main>
     </div>

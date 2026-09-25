@@ -43,9 +43,9 @@ export default function SystemUsersSection({
 
   return (
     <>
-      {error && <div className="error-box">{error}</div>}
+      {error && <div className="error-box" role="alert">{error}</div>}
       {users.isError && (
-        <div className="error-box">
+        <div className="error-box" role="alert">
           No se pudieron cargar los usuarios de sistema.
         </div>
       )}

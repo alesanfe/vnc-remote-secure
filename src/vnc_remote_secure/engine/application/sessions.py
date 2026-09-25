@@ -25,8 +25,7 @@ from vnc_remote_secure.engine.infrastructure import stores
 # link carrying any of these requires the operator to hold 'admin:*',
 # otherwise an 'admin_sessions' operator could hand out admin links.
 ADMINISH_PERMS = {
-    'admin', 'admin_users', 'admin_config', 'admin_secrets',
-    'admin_audit',
+    'admin', 'admin_users', 'admin_config', 'admin_audit',
 }
 
 # Resources a share link may be scoped to.
@@ -100,9 +99,9 @@ def revoke_share_links_by(actor: str, created_by: str) -> int:
     store = stores.session_store()
     stores.session_refresh(store)
     count = 0
-    for token, sess in list(store._sessions.items()):
-        if getattr(sess, 'created_by', '') == created_by \
-                and stores.revoke_ephemeral_token(token):
+    for s in list(store.list_active()):
+        if s.get('created_by') == created_by \
+                and stores.revoke_ephemeral_token(s['token_id']):
             count += 1
     _audit('portal_session_revoke_user', actor,
            f'target={created_by} count={count}')

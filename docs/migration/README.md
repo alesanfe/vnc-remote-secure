@@ -93,8 +93,11 @@ Linux, `%ProgramData%\VncRemoteSecure\logs` on Windows).
 
 A `/metrics` endpoint is now available in Prometheus text format,
 served by the health service on `HEALTH_WEB_PORT` (8080 on Linux,
-8090 on Windows) and by the Flask UI on `USER_UI_PORT` (8081) when
-`USER_UI_ENABLED=true`.
+8090 on Windows) and by the internal health/metrics service
+(`user_ui`) on `USER_UI_PORT` (8081) when `USER_UI_ENABLED=true`.
+(Since then, the browser UI migration completed: all user-facing
+pages are the React SPA served by the portal — the `user_ui` service
+is machine-facing health/metrics/audit only, no Flask UI remains.)
 
 **Action**: Add a scrape config to your Prometheus (adjust the port to
 your health service):
