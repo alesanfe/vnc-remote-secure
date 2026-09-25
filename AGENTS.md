@@ -113,6 +113,21 @@ Never hardcode the version string in more than `pyproject.toml` (the
     the global setup spawns the real landing service on a random
     loopback port with an isolated run dir (no Node needed at runtime,
     only for development).
+- **CLI ↔ UI parity**: every manageable CLI verb is reachable over
+  `/api/v1/*` with the same use case behind it
+  (`engine/application/ops.py` — backups create/verify/restore,
+  secrets status/redact/rotate/rotate-signing/check/recovery-codes,
+  config effective/explain/validate/diff/migrate, lifecycle
+  status/start/stop/restart, upgrade check/run/rollback, version).
+  The shared logic lives in `security/secret_rotation.py` and
+  `core/config_migration.py` so CLI and API never diverge.
+  `POST /api/v1/lifecycle` delegates to a detached child
+  (`core/deferred_lifecycle.py`) that sleeps briefly before touching
+  the service manager — the response escapes before `stop`/`restart`
+  can kill the portal serving it. Destructive routes are `admin:*`
+  + step-up gated. Host bootstrap stays CLI-only by design:
+  `install`, `uninstall`, `service --run`, `help` cannot run from a
+  UI that only exists once services are up.
 - **Share-link flow**: generated links are fragment URLs —
   `GET /share#t=<token>` serves the React SPA; the token never reaches
   the server — the SPA wipes it from the URL, calls

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api, type ConfigVar } from '../api';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { api, ApiError, type ConfigVar } from '../api';
+import { useStepUp } from '../components/useStepUp';
 
 const SOURCE_BADGE: Record<string, string> = {
   env: 'ok',
@@ -11,6 +12,133 @@ const SOURCE_BADGE: Record<string, string> = {
   'security-policy': 'warn',
   'not-set': 'fail',
 };
+
+const PROFILES = [
+  'development', 'trusted-lan', 'private-overlay', 'public-hardened',
+];
+
+/** Config operations — `vnc-remote config validate|diff|migrate`
+    parity; migrate is step-up gated (it rewrites .env). */
+function ConfigOps() {
+  const stepUp = useStepUp();
+  const [a, setA] = useState(PROFILES[0]);
+  const [b, setB] = useState(PROFILES[1]);
+  const [migrated, setMigrated] = useState<{
+    applied: boolean; changes: { old: string; new: string;
+                                message: string }[];
+  } | null>(null);
+
+  const validate = useQuery({
+    queryKey: ['config-validate'],
+    queryFn: () => api.configValidate(),
+  });
+  const diff = useQuery({
+    queryKey: ['config-diff', a, b],
+    queryFn: () => api.configDiff(a, b),
+    enabled: a !== b,
+  });
+  const migrate = useMutation({
+    mutationFn: (dryRun: boolean) => api.configMigrate(dryRun),
+    onSuccess: setMigrated,
+    onError: (e, dryRun) => {
+      stepUp.gate(
+        e,
+        dryRun
+          ? 'vista previa de migración de configuración'
+          : 'migración del .env',
+        () => migrate.mutate(dryRun));
+    },
+  });
+
+  return (
+    <>
+      <h2 className="section">Operaciones</h2>
+
+      {validate.data && (
+        <div className={validate.data.ok ? 'info-box' : 'error-box'}>
+          {validate.data.ok
+            ? 'Configuración válida — sin findings críticos.'
+            : `${validate.data.findings.length} finding(s):`}
+          {validate.data.findings.length > 0 && (
+            <ul>
+              {validate.data.findings.map((f, i) => (
+                <li key={i}>
+                  [{String(f.severity ?? 'info').toUpperCase()}]{' '}
+                  {String(f.message ?? '')}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="toolbar">
+        <label>Diff:
+          <select value={a} onChange={(e) => setA(e.target.value)}>
+            {PROFILES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select value={b} onChange={(e) => setB(e.target.value)}>
+            {PROFILES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+        <button type="button" disabled={migrate.isPending}
+                onClick={() => migrate.mutate(true)}>
+          Previsualizar migración
+        </button>
+        <button type="button" className="danger" disabled={migrate.isPending}
+                onClick={() => migrate.mutate(false)}>
+          Aplicar migración .env
+        </button>
+      </div>
+
+      {diff.data && a !== b && (
+        <table className="data">
+          <thead>
+            <tr><th>Variable</th><th>{a}</th><th>{b}</th></tr>
+          </thead>
+          <tbody>
+            {diff.data.diffs.map(d => (
+              <tr key={d.name}>
+                <td className="mono">{d.name}</td>
+                <td className="mono">{String(d.value_a ?? '—')}</td>
+                <td className="mono">{String(d.value_b ?? '—')}</td>
+              </tr>
+            ))}
+            {diff.data.diffs.length === 0 && (
+              <tr><td colSpan={3} className="muted">Sin diferencias.</td></tr>
+            )}
+          </tbody>
+        </table>
+      )}
+
+      {migrated && (
+        <div className="info-box">
+          {migrated.changes.length === 0
+            ? 'Sin migraciones pendientes — la config está al día.'
+            : `${migrated.applied ? 'Aplicadas' : 'Se aplicarían'} ${migrated.changes.length} migración(es):`}
+          {migrated.changes.length > 0 && (
+            <ul>
+              {migrated.changes.map(c => (
+                <li key={c.old}>
+                  <code>{c.old}</code> → <code>{c.new}</code>: {c.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {migrate.error && !(migrate.error instanceof ApiError &&
+          migrate.error.code === 'STEP_UP_REQUIRED') && (
+        <div className="error-box" role="alert">
+          {migrate.error instanceof ApiError
+            ? `${migrate.error.status}: ${migrate.error.message}`
+            : 'Migración fallida'}
+        </div>
+      )}
+      {stepUp.dialog}
+    </>
+  );
+}
 
 export default function Config() {
   const [filter, setFilter] = useState('');
@@ -76,6 +204,8 @@ export default function Config() {
           ))}
         </tbody>
       </table>
+
+      <ConfigOps />
     </>
   );
 }

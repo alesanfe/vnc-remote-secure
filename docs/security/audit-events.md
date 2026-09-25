@@ -92,8 +92,14 @@ can be configured with `AUDIT_MIRROR_FILE`.
 |-------|--------------|----------|
 | `secret_rotate` | `vnc-remote secrets rotate` completes | warning |
 | `recovery_codes_generate` | `vnc-remote secrets` recovery-code regeneration | warning |
-| `backup_create` | `vnc-remote backup` succeeds or fails | info / warning on failure |
-| `backup_restore` | `vnc-remote restore` succeeds or fails | warning |
+| `backup_create` | `vnc-remote backup` or `POST /api/v1/backups` succeeds or fails | info / warning on failure |
+| `backup_verify` | `vnc-remote verify backup` or `POST /api/v1/backups/verify` | info |
+| `backup_restore` | `vnc-remote restore` or `POST /api/v1/backups/restore` (step-up) | warning |
+| `lifecycle_action` | `POST /api/v1/lifecycle` queued start/stop/restart (step-up) | warning |
+| `secrets_check` | `vnc-remote secrets check` or `POST /api/v1/secrets/check` | info |
+| `config_migrate` | `vnc-remote config migrate` or `POST /api/v1/config/migrate` applied changes (step-up) | warning |
+| `upgrade_run` | `vnc-remote upgrade` or `POST /api/v1/upgrade` completed (step-up) | warning |
+| `upgrade_rollback` | `vnc-remote upgrade --rollback` or `POST /api/v1/upgrade/rollback` (step-up) | warning |
 
 ## System lifecycle
 

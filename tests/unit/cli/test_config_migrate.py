@@ -12,14 +12,14 @@ def _env(tmp_path, monkeypatch, content):
     env = tmp_path / '.env'
     env.write_text(content, encoding='utf-8')
     monkeypatch.setattr(
-        'vnc_remote_secure.cli.commands.config._find_project_root',
+        'vnc_remote_secure.core.paths.find_project_root',
         lambda: str(tmp_path))
     return env
 
 
 def test_migrate_no_env_file(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
-        'vnc_remote_secure.cli.commands.config._find_project_root',
+        'vnc_remote_secure.core.paths.find_project_root',
         lambda: str(tmp_path))
     assert _config_migrate(_args()) == 1
     assert 'No .env file' in capsys.readouterr().out

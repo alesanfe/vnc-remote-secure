@@ -59,6 +59,13 @@ _RATE_LIMITS = {
     'passkeys.manage': (30, 60),
     'system_users.manage': (30, 60),
     'maintenance': (10, 60),
+    # Operations parity — destructive/host-level actions get the
+    # tightest budgets.
+    'lifecycle': (6, 60),
+    'backups.write': (10, 60),
+    'secrets.rotate': (10, 60),
+    'config.write': (10, 60),
+    'upgrade': (6, 60),
     # Credential oracles — throttled as hard as the login limiter.
     'login': (10, 60),
     'passkeys.auth': (10, 60),
@@ -1634,6 +1641,308 @@ def _post_operator_revoke_sessions(handler, query):
 
 
 # ---------------------------------------------------------------------------
+# Operations parity endpoints — the same verbs the CLI exposes
+# ---------------------------------------------------------------------------
+
+def _get_version(handler, query):
+    """GET /api/v1/version — installed package version."""
+    try:
+        from vnc_remote_secure.engine.application import ops
+        _ok(handler, ops.version())
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /version')
+        _err(handler, 'Version read failed', 500)
+
+
+def _get_lifecycle(handler, query):
+    """GET /api/v1/lifecycle — PID/running map + port health
+    (``vnc-remote status`` parity)."""
+    try:
+        from vnc_remote_secure.engine.application import ops
+        _ok(handler, ops.lifecycle_status())
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /lifecycle')
+        _err(handler, 'Service status read failed', 500)
+
+
+def _post_lifecycle(handler, query):
+    """POST /api/v1/lifecycle — {action: start|stop|restart}.
+
+    Spawns the detached deferred runner: the portal answers the
+    request, then the child runs the action — so ``stop``/``restart``
+    can kill the portal service itself without losing the response.
+    """
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=1024)
+    if error:
+        _err(handler, *error)
+        return
+    if set(payload) - {'action'}:
+        _err(handler, 'Allowed fields: action', 400)
+        return
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        result = ops.lifecycle_action(
+            operator.get('username', '?'), payload.get('action'))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    _ok(handler, result, status=202)
+
+
+def _post_backup_create(handler, query):
+    """POST /api/v1/backups — create a backup archive."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.create_backup(
+            operator.get('username', '?')), status=201)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_backup_verify(handler, query):
+    """POST /api/v1/backups/verify — {file} CRC/decrypt check."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    if set(payload) - {'file'}:
+        _err(handler, 'Allowed fields: file', 400)
+        return
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.verify_backup(
+            operator.get('username', '?'), payload.get('file')))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_backup_restore(handler, query):
+    """POST /api/v1/backups/restore — {file} overwrites live config."""
+    operator = handler._api_operator
+    payload, error = _read_json_body(handler, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    if set(payload) - {'file'}:
+        _err(handler, 'Allowed fields: file', 400)
+        return
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.restore_backup(
+            operator.get('username', '?'), payload.get('file')))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _get_secrets(handler, query):
+    """GET /api/v1/secrets — per-secret status, never values."""
+    try:
+        from vnc_remote_secure.engine.application import ops
+        _ok(handler, ops.secrets_status())
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /secrets')
+        _err(handler, 'Secret status read failed', 500)
+
+
+def _get_secret_redact(handler, query):
+    """GET /api/v1/secrets/{name} — fingerprinted redaction."""
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.secret_redact(handler._api_params['name']))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_secret_rotate(handler, query):
+    """POST /api/v1/secrets/{name}/rotate — hard cutover rotation."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.rotate_secret(
+            operator.get('username', '?'),
+            handler._api_params['name']))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_secrets_rotate_signing(handler, query):
+    """POST /api/v1/secrets/rotate-signing — coexistence window."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.rotate_signing_key(operator.get('username', '?')))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_secrets_check(handler, query):
+    """POST /api/v1/secrets/check — {fix?} TLS + permission findings.
+    An empty body means check-only."""
+    operator = handler._api_operator
+    try:
+        length = int(handler.headers.get('Content-Length', 0) or 0)
+    except (TypeError, ValueError):
+        length = 0
+    payload = {}
+    if length:
+        payload, error = _read_json_body(handler, limit=1024)
+        if error:
+            _err(handler, *error)
+            return
+    fix = bool(payload.get('fix'))
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.secrets_check(
+            operator.get('username', '?'), fix=fix))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_recovery_codes(handler, query):
+    """POST /api/v1/secrets/recovery-codes — the plaintext codes are
+    returned ONCE in the response; only hashes persist."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.recovery_codes(operator.get('username', '?')))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _get_config_effective(handler, query):
+    """GET /api/v1/config/effective?profile= — full provenance table."""
+    profile = (query.get('profile') or [None])[0]
+    try:
+        from vnc_remote_secure.engine.infrastructure import stores
+        entries = stores.config_effective_profile(profile or None)
+        _ok(handler, {'profile': profile, 'vars': [
+            config_entry_to_api(e) for e in entries]})
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /config/effective')
+        _err(handler, 'Config inspection failed', 500)
+
+
+def _get_config_explain(handler, query):
+    """GET /api/v1/config/explain/{name} — one variable's provenance."""
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        result = ops.config_explain(handler._api_params['name'])
+        _ok(handler, {'entry': config_entry_to_api(result['entry'])})
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _get_config_validate(handler, query):
+    """GET /api/v1/config/validate?profile= — contradiction findings."""
+    profile = (query.get('profile') or [None])[0]
+    try:
+        from vnc_remote_secure.engine.application import ops
+        _ok(handler, ops.config_validate(profile or None))
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /config/validate')
+        _err(handler, 'Config validation failed', 500)
+
+
+def _get_config_diff(handler, query):
+    """GET /api/v1/config/diff?a=..&b=.. — profile diff."""
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.config_diff(
+            (query.get('a') or [''])[0],
+            (query.get('b') or [''])[0]))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_config_migrate(handler, query):
+    """POST /api/v1/config/migrate — {dry_run?} legacy .env renames.
+    An empty body defaults to a real (non-dry-run) apply."""
+    operator = handler._api_operator
+    try:
+        length = int(handler.headers.get('Content-Length', 0) or 0)
+    except (TypeError, ValueError):
+        length = 0
+    payload = {}
+    if length:
+        payload, error = _read_json_body(handler, limit=1024)
+        if error:
+            _err(handler, *error)
+            return
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.config_migrate(
+            operator.get('username', '?'),
+            dry_run=bool(payload.get('dry_run'))))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _get_upgrade(handler, query):
+    """GET /api/v1/upgrade — installed vs available version."""
+    try:
+        from vnc_remote_secure.engine.application import ops
+        _ok(handler, ops.upgrade_status())
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /upgrade')
+        _err(handler, 'Upgrade check failed', 500)
+
+
+def _post_upgrade(handler, query):
+    """POST /api/v1/upgrade — {source?} self-upgrade w/ rollback."""
+    operator = handler._api_operator
+    try:
+        length = int(handler.headers.get('Content-Length', 0) or 0)
+    except (TypeError, ValueError):
+        length = 0
+    payload = {}
+    if length:
+        payload, error = _read_json_body(handler, limit=4096)
+        if error:
+            _err(handler, *error)
+            return
+    if set(payload) - {'source'}:
+        _err(handler, 'Allowed fields: source', 400)
+        return
+    source = payload.get('source')
+    if source is not None and not isinstance(source, str):
+        _err(handler, 'source must be a string', 400)
+        return
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.upgrade_run(
+            operator.get('username', '?'), source=source))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+def _post_upgrade_rollback(handler, query):
+    """POST /api/v1/upgrade/rollback — restore pre-upgrade snapshot."""
+    operator = handler._api_operator
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.upgrade_rollback(operator.get('username', '?')))
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+
+
+# ---------------------------------------------------------------------------
 # Declarative route registry
 # ---------------------------------------------------------------------------
 # Single source of truth for the API contract. ``perm`` is the
@@ -1793,6 +2102,72 @@ _ROUTES = {
     ('DELETE', 'system-users/{username}'): _Route(
         _delete_system_user, 'admin_users', 'system_users.manage',
         'user_delete', 'DeleteResponse', True),
+    # --- Operations parity with the CLI ----------------------------------
+    # Version/status.
+    ('GET', 'version'): _Route(
+        _get_version, 'session', 'default', None, 'VersionResponse'),
+    ('GET', 'lifecycle'): _Route(
+        _get_lifecycle, 'operator', 'default', None,
+        'LifecycleStatusResponse'),
+    ('POST', 'lifecycle'): _Route(
+        _post_lifecycle, 'admin:*', 'lifecycle', 'lifecycle_action',
+        'LifecycleActionResponse', True),
+    # Backups — create/verify/restore over ``core.backup``; names are
+    # resolved server-side (basename allowlist) so the wire value never
+    # reaches the filesystem.
+    ('POST', 'backups'): _Route(
+        _post_backup_create, 'admin:*', 'backups.write',
+        'backup_create', 'BackupCreatedResponse', True),
+    ('POST', 'backups/verify'): _Route(
+        _post_backup_verify, 'admin:*', 'default',
+        'backup_verify', 'BackupVerifyResponse'),
+    ('POST', 'backups/restore'): _Route(
+        _post_backup_restore, 'admin:*', 'backups.write',
+        'backup_restore', 'BackupRestoreResponse', True),
+    # Secrets — status/redact are admin reads; rotations are step-up.
+    ('GET', 'secrets'): _Route(
+        _get_secrets, 'admin:*', 'default', None, 'SecretsResponse'),
+    ('GET', 'secrets/{name}'): _Route(
+        _get_secret_redact, 'admin:*', 'default', None,
+        'SecretRedactResponse'),
+    ('POST', 'secrets/{name}/rotate'): _Route(
+        _post_secret_rotate, 'admin:*', 'secrets.rotate',
+        'secret_rotate', 'SecretRotateResponse', True),
+    ('POST', 'secrets/rotate-signing'): _Route(
+        _post_secrets_rotate_signing, 'admin:*', 'secrets.rotate',
+        'signing_key_rotate', 'SigningRotateResponse', True),
+    ('POST', 'secrets/check'): _Route(
+        _post_secrets_check, 'admin:*', 'default',
+        'secrets_check', 'SecretsCheckResponse'),
+    ('POST', 'secrets/recovery-codes'): _Route(
+        _post_recovery_codes, 'admin:*', 'secrets.rotate',
+        'recovery_codes_generate', 'RecoveryCodesResponse', True),
+    # Config inspector — explain/validate/diff are reads; migrate
+    # mutates .env so it gets step-up.
+    ('GET', 'config/effective'): _Route(
+        _get_config_effective, 'admin_config', 'default', None,
+        'ConfigPageResponse'),
+    ('GET', 'config/explain/{name}'): _Route(
+        _get_config_explain, 'admin_config', 'default', None,
+        'ConfigExplainResponse'),
+    ('GET', 'config/validate'): _Route(
+        _get_config_validate, 'admin_config', 'default', None,
+        'ConfigValidateResponse'),
+    ('GET', 'config/diff'): _Route(
+        _get_config_diff, 'admin_config', 'default', None,
+        'ConfigDiffResponse'),
+    ('POST', 'config/migrate'): _Route(
+        _post_config_migrate, 'admin_config', 'config.write',
+        'config_migrate', 'ConfigMigrateResponse', True),
+    # Self-upgrade — long-running pip work under a job-ledger entry.
+    ('GET', 'upgrade'): _Route(
+        _get_upgrade, 'operator', 'default', None, 'UpgradeResponse'),
+    ('POST', 'upgrade'): _Route(
+        _post_upgrade, 'admin:*', 'upgrade', 'upgrade_run',
+        'UpgradeRunResponse', True),
+    ('POST', 'upgrade/rollback'): _Route(
+        _post_upgrade_rollback, 'admin:*', 'upgrade',
+        'upgrade_rollback', 'UpgradeRollbackResponse', True),
 }
 
 # Operator capabilities the registry may reference — anything else is

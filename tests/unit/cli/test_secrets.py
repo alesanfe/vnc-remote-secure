@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from vnc_remote_secure.cli.commands import secrets as sec  # noqa: E402
+from vnc_remote_secure.security.secret_rotation import generate_secret_value as _g  # noqa: E402
 
 
 class TestRotate:
@@ -27,7 +28,7 @@ class TestRotate:
             'vnc_remote_secure.core.config._system_env_path',
             lambda: None, raising=False)
         monkeypatch.setattr(
-            'vnc_remote_secure.cli.commands.secrets._find_project_root',
+            'vnc_remote_secure.core.paths.find_project_root',
             lambda: str(tmp_path))
         monkeypatch.setattr(
             'vnc_remote_secure.cli.commands.secrets._audit_cli',
@@ -51,7 +52,7 @@ class TestRotate:
             'vnc_remote_secure.core.config._system_env_path',
             lambda: None, raising=False)
         monkeypatch.setattr(
-            'vnc_remote_secure.cli.commands.secrets._find_project_root',
+            'vnc_remote_secure.core.paths.find_project_root',
             lambda: str(tmp_path))
         monkeypatch.setattr(
             'vnc_remote_secure.cli.commands.secrets._audit_cli',
@@ -104,7 +105,7 @@ class TestCheck:
 class TestGenerateSecretValue:
     def test_value_has_all_char_classes(self):
         for _ in range(10):
-            v = sec._generate_secret_value('TTYD_PASSWD')
+            v = _g('TTYD_PASSWD')
             assert len(v) == 24
             assert any(c.isupper() for c in v)
             assert any(c.islower() for c in v)

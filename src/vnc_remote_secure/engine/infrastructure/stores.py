@@ -447,3 +447,135 @@ def gamepad_set_stopped(stop: bool) -> None:
         shared_backend().set_ttl('gamepad', 'stopped', '1', 86400 * 365)
     else:
         shared_backend().delete('gamepad', 'stopped')
+
+
+# --- Operations parity (CLI <-> API use cases) --------------------------
+
+
+def version_info() -> str:
+    """Installed package version (``vnc-remote version``)."""
+    from vnc_remote_secure import __version__
+    return __version__
+
+
+def backup_create() -> str:
+    """Create a backup archive; returns its path."""
+    from vnc_remote_secure.core.backup import create_backup
+    return create_backup()
+
+
+def backup_verify(path: str) -> tuple[bool, str, int]:
+    """Decrypt (if needed) + CRC-check every tar member."""
+    from vnc_remote_secure.core.backup import verify_backup
+    return verify_backup(path)
+
+
+def backup_restore(path: str) -> bool:
+    """Restore a backup archive onto the live config."""
+    from vnc_remote_secure.core.backup import restore_backup
+    return restore_backup(path)
+
+
+def secret_status_map() -> dict:
+    """Per-secret status (set/missing/weak) — never values."""
+    from vnc_remote_secure.security.secret_rotation import secret_status
+    return secret_status()
+
+
+def secret_redact(name: str) -> str:
+    """Fingerprinted redaction for one secret name."""
+    from vnc_remote_secure.security.secret_rotation import redact_secret
+    return redact_secret(name)
+
+
+def secret_rotatable_names() -> set:
+    """The allowlist of rotatable env-var credential names."""
+    from vnc_remote_secure.security.secret_rotation import ROTATABLE
+    return set(ROTATABLE)
+
+
+def secret_rotate(name: str) -> dict:
+    """Rotate one env-var credential; returns metadata only."""
+    from vnc_remote_secure.security.secret_rotation import rotate_secret
+    return rotate_secret(name)
+
+
+def secret_rotate_signing() -> dict:
+    """Rotate the signing secret with a coexistence window."""
+    from vnc_remote_secure.security.secret_rotation import rotate_signing_key
+    return rotate_signing_key()
+
+
+def secrets_check(fix: bool = False):
+    """TLS config + secret-file permission findings."""
+    from vnc_remote_secure.security.secret_rotation import secrets_check
+    return secrets_check(fix=fix)
+
+
+def recovery_codes_generate(count: int = 8) -> list:
+    """New MFA recovery codes — plaintext returned once, hashes persist."""
+    from vnc_remote_secure.security.secret_rotation import generate_recovery_codes
+    return generate_recovery_codes(count)
+
+
+def config_effective_profile(profile_name: str | None = None) -> list:
+    """Effective config entries for a named profile."""
+    from vnc_remote_secure.core.config_inspector import compute_effective_config
+    return compute_effective_config(profile_name=profile_name)
+
+
+def config_validate(profile_name: str | None = None) -> list:
+    """Contradiction/policy findings for a named profile."""
+    from vnc_remote_secure.core.config_inspector import validate_config
+    return validate_config(profile_name=profile_name)
+
+
+def config_diff(profile_a: str, profile_b: str) -> list:
+    """Value diffs between two profiles' effective configs."""
+    from vnc_remote_secure.core.config_inspector import (
+        compute_effective_config,
+        diff_configs,
+    )
+    return diff_configs(compute_effective_config(profile_name=profile_a),
+                        compute_effective_config(profile_name=profile_b))
+
+
+def config_migrate(dry_run: bool = False) -> dict:
+    """Legacy .env migration (names + profile-value renames)."""
+    from vnc_remote_secure.core.config_migration import migrate_env
+    return migrate_env(dry_run=dry_run)
+
+
+def service_status() -> dict:
+    """PID/enabled/running per managed service + port health."""
+    from vnc_remote_secure.core.service_manager import status_all
+    try:
+        from vnc_remote_secure.monitoring.health import get_service_health
+        port_health = get_service_health()
+    except (ImportError, RuntimeError):
+        port_health = {}
+    return {'services': status_all(), 'port_health': port_health}
+
+
+def lifecycle_spawn(action: str, delay: float = 1.5) -> int:
+    """Spawn the detached deferred runner; returns its PID."""
+    from vnc_remote_secure.core.deferred_lifecycle import spawn_lifecycle
+    return spawn_lifecycle(action, delay=delay)
+
+
+def upgrade_check() -> dict:
+    """Installed vs available version info."""
+    from vnc_remote_secure.core.upgrader import upgrade_check
+    return upgrade_check()
+
+
+def upgrade_run(source: str | None = None) -> dict:
+    """Self-upgrade with automatic rollback."""
+    from vnc_remote_secure.core.upgrader import perform_upgrade
+    return perform_upgrade(source=source)
+
+
+def upgrade_rollback() -> dict:
+    """Rollback to the pre-upgrade snapshot."""
+    from vnc_remote_secure.core.upgrader import perform_rollback
+    return perform_rollback()

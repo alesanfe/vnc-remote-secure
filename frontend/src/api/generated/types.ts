@@ -682,7 +682,32 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
+        /** Create a backup archive (vnc-remote backup parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {created: true, name, size} */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not admin:* or step-up missing */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1960,6 +1985,729 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Installed package version (vnc-remote version parity). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {version: "x.y.z"} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Managed-service PID/running map + port health (vnc-remote status parity). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {services, port_health} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not an operator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /** Queue start|stop|restart on a detached runner so the response is delivered before the portal service itself may die. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        action: "start" | "stop" | "restart";
+                    };
+                };
+            };
+            responses: {
+                /** @description {accepted: true, pid} */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown action */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not admin:* or step-up missing */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** CRC/decrypt-verify a backup by name (vnc-remote verify backup parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description basename of a listed backup */
+                        file: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {file, ok, members, message} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Backup not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a backup over the live config (vnc-remote restore parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description basename of a listed backup */
+                        file: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {restored: true, name} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Backup not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-secret status (set/missing/weak) - never values (secrets status parity). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {secrets: {NAME: status}} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fingerprinted redaction of one secret (secrets redact parity). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {name, redacted} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown secret name */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{name}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hard-cutover rotation of an env credential (secrets rotate parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {name, fingerprint, env_path, sessions_revoked} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Non-rotatable name or .env write failed */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/rotate-signing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate the token-signing secret with a 7-day coexistence window. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {rotated: true, window_days: 7} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** TLS config + secret-file permission findings (secrets check parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        fix?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description {findings, fixed, ok} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/recovery-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate MFA recovery codes - plaintext returned ONCE, only hashes persist (secrets recovery-codes parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {codes: [...]} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/effective": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Effective config with provenance (config show-effective parity). */
+        get: {
+            parameters: {
+                query?: {
+                    profile?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {vars: [ConfigEntry]} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/explain/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One variable's value + provenance (config explain parity). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {entry: ConfigEntry} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown variable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contradiction findings for a profile (config validate parity). */
+        get: {
+            parameters: {
+                query?: {
+                    profile?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {findings, ok} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Value diff between two profiles (config diff parity). */
+        get: {
+            parameters: {
+                query: {
+                    a: string;
+                    b: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {a, b, diffs} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/migrate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Legacy .env key/profile-value renames (config migrate parity); dry_run previews without writing. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        dry_run?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description {changes, applied, env_path} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/upgrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Installed vs available version (upgrade --check parity). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {current, available, update, source} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /** Self-upgrade with automatic rollback (vnc-remote upgrade parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @description wheel path or URL */
+                        source?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {ok, previous, version, backup} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/upgrade/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore the pre-upgrade snapshot (upgrade --rollback parity). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {ok, restored} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2017,6 +2765,19 @@ export interface components {
             name: string;
             value: string | null;
             source: string;
+        };
+        SecretRotationResult: {
+            name: string;
+            /** @description sha256[:8] of the new value — the value itself is NEVER returned */
+            fingerprint: string;
+            env_path: string;
+            sessions_revoked: boolean;
+        };
+        LifecycleService: {
+            pid?: number | null;
+            running?: boolean;
+            enabled?: boolean;
+            port?: number | null;
         };
         MeResponse: {
             data: {
@@ -2339,6 +3100,180 @@ export interface components {
         LogoutResponse: {
             data: {
                 logged_out: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        VersionResponse: {
+            data: {
+                version: string;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        LifecycleStatusResponse: {
+            data: {
+                services: {
+                    [key: string]: components["schemas"]["LifecycleService"];
+                };
+                port_health: {
+                    [key: string]: boolean;
+                };
+            };
+            error: unknown;
+            request_id: string;
+        };
+        LifecycleActionResponse: {
+            data: {
+                action: string;
+                pid?: number;
+                accepted: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        BackupCreatedResponse: {
+            data: {
+                created: boolean;
+                name: string;
+                size?: number | null;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        BackupVerifyResponse: {
+            data: {
+                file: string;
+                ok: boolean;
+                members: number;
+                message?: string;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        BackupRestoreResponse: {
+            data: {
+                restored: boolean;
+                name: string;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SecretsResponse: {
+            data: {
+                secrets: {
+                    [key: string]: string;
+                };
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SecretRedactResponse: {
+            data: {
+                name: string;
+                redacted: string;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SecretRotateResponse: {
+            data: components["schemas"]["SecretRotationResult"];
+            error: unknown;
+            request_id: string;
+        };
+        SigningRotateResponse: {
+            data: {
+                rotated: boolean;
+                window_days?: number;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SecretsCheckResponse: {
+            data: {
+                findings: {
+                    [key: string]: unknown;
+                }[];
+                fixed?: {
+                    [key: string]: unknown;
+                }[];
+                ok: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        RecoveryCodesResponse: {
+            data: {
+                /** @description shown ONCE — only hashes persist */
+                codes: string[];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        ConfigExplainResponse: {
+            data: {
+                entry: components["schemas"]["ConfigEntry"];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        ConfigValidateResponse: {
+            data: {
+                profile?: string | null;
+                findings: {
+                    [key: string]: unknown;
+                }[];
+                ok: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        ConfigDiffResponse: {
+            data: {
+                a: string;
+                b: string;
+                diffs: {
+                    [key: string]: unknown;
+                }[];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        ConfigMigrateResponse: {
+            data: {
+                changes: {
+                    [key: string]: unknown;
+                }[];
+                applied: boolean;
+                env_path?: string;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        UpgradeResponse: {
+            data: {
+                current?: string;
+                available?: string | null;
+                update?: string | null;
+                source?: string;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        UpgradeRunResponse: {
+            data: {
+                ok?: boolean;
+                previous?: string;
+                version?: string;
+                backup?: string;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        UpgradeRollbackResponse: {
+            data: {
+                ok?: boolean;
+                restored?: string;
             };
             error: unknown;
             request_id: string;

@@ -99,6 +99,21 @@ components:
         name: { type: string }
         value: { type: string, nullable: true }
         source: { type: string }
+    SecretRotationResult:
+      type: object
+      required: [name, fingerprint, env_path, sessions_revoked]
+      properties:
+        name: { type: string }
+        fingerprint: { type: string, description: 'sha256[:8] of the new value — the value itself is NEVER returned' }
+        env_path: { type: string }
+        sessions_revoked: { type: boolean }
+    LifecycleService:
+      type: object
+      properties:
+        pid: { type: integer, nullable: true }
+        running: { type: boolean }
+        enabled: { type: boolean }
+        port: { type: integer, nullable: true }
     # --- Response envelopes (x-response-schema names) ------------------
     # Each is the full {data, error, request_id} envelope with `data`
     # typed to the payload the endpoint actually emits.
@@ -563,6 +578,234 @@ components:
             logged_out: { type: boolean }
         error: { nullable: true }
         request_id: { type: string }
+    VersionResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [version]
+          properties:
+            version: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    LifecycleStatusResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [services, port_health]
+          properties:
+            services: { type: object, additionalProperties: { $ref: '#/components/schemas/LifecycleService' } }
+            port_health: { type: object, additionalProperties: { type: boolean } }
+        error: { nullable: true }
+        request_id: { type: string }
+    LifecycleActionResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [action, accepted]
+          properties:
+            action: { type: string }
+            pid: { type: integer }
+            accepted: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    BackupCreatedResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [created, name]
+          properties:
+            created: { type: boolean }
+            name: { type: string }
+            size: { type: integer, nullable: true }
+        error: { nullable: true }
+        request_id: { type: string }
+    BackupVerifyResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [file, ok, members]
+          properties:
+            file: { type: string }
+            ok: { type: boolean }
+            members: { type: integer }
+            message: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    BackupRestoreResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [restored, name]
+          properties:
+            restored: { type: boolean }
+            name: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    SecretsResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [secrets]
+          properties:
+            secrets: { type: object, additionalProperties: { type: string } }
+        error: { nullable: true }
+        request_id: { type: string }
+    SecretRedactResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [name, redacted]
+          properties:
+            name: { type: string }
+            redacted: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    SecretRotateResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data: { $ref: '#/components/schemas/SecretRotationResult' }
+        error: { nullable: true }
+        request_id: { type: string }
+    SigningRotateResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [rotated]
+          properties:
+            rotated: { type: boolean }
+            window_days: { type: integer }
+        error: { nullable: true }
+        request_id: { type: string }
+    SecretsCheckResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [findings, ok]
+          properties:
+            findings: { type: array, items: { type: object, additionalProperties: true } }
+            fixed: { type: array, items: { type: object, additionalProperties: true } }
+            ok: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    RecoveryCodesResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [codes]
+          properties:
+            codes: { type: array, items: { type: string }, description: 'shown ONCE — only hashes persist' }
+        error: { nullable: true }
+        request_id: { type: string }
+    ConfigExplainResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [entry]
+          properties:
+            entry: { $ref: '#/components/schemas/ConfigEntry' }
+        error: { nullable: true }
+        request_id: { type: string }
+    ConfigValidateResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [findings, ok]
+          properties:
+            profile: { type: string, nullable: true }
+            findings: { type: array, items: { type: object, additionalProperties: true } }
+            ok: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    ConfigDiffResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [a, b, diffs]
+          properties:
+            a: { type: string }
+            b: { type: string }
+            diffs: { type: array, items: { type: object, additionalProperties: true } }
+        error: { nullable: true }
+        request_id: { type: string }
+    ConfigMigrateResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [changes, applied]
+          properties:
+            changes: { type: array, items: { type: object, additionalProperties: true } }
+            applied: { type: boolean }
+            env_path: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    UpgradeResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            current: { type: string }
+            available: { type: string, nullable: true }
+            update: { type: string, nullable: true }
+            source: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    UpgradeRunResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            ok: { type: boolean }
+            previous: { type: string }
+            version: { type: string }
+            backup: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    UpgradeRollbackResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            ok: { type: boolean }
+            restored: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
     StepUpResponse:
       type: object
       required: [data, error, request_id]
@@ -734,7 +977,7 @@ paths:
       x-rate-limit-scope: sessions.create
       x-request-schema: SessionCreateRequest
       x-response-schema: SessionCreatedResponse
-      x-audit-event: portal_session_create
+      x-audit-event: ephemeral_session_create
       parameters:
         - $ref: '#/components/parameters/csrfHeader'
       requestBody:
@@ -935,6 +1178,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BackupPageResponse'
+    post:
+      summary: Create a backup archive (vnc-remote backup parity).
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: backups.write
+      x-response-schema: BackupCreatedResponse
+      x-audit-event: backup_create
+      responses:
+        '201': { description: '{created: true, name, size}' }
+        '403': { description: Not admin:* or step-up missing }
   /operators:
     get:
       summary: Operator accounts
@@ -1198,6 +1452,7 @@ paths:
         404 for unknown user or no credentials — no enumeration.
       x-required-permission: public
       x-rate-limit-scope: passkeys.auth
+      x-audit-event: passkey_auth_begin
       x-response-schema: PasskeyAuthOptionsResponse
       requestBody:
         required: true
@@ -1377,7 +1632,7 @@ paths:
       x-step-up-required: true
       x-rate-limit-scope: maintenance
       x-response-schema: MaintenanceSetResponse
-      x-audit-event: maintenance_toggle
+      x-audit-event: maintenance_changed
       parameters:
         - $ref: '#/components/parameters/csrfHeader'
       requestBody:
@@ -1421,6 +1676,7 @@ paths:
         URL).
       x-required-permission: public
       x-rate-limit-scope: session.preview
+      x-audit-event: session_preview
       x-response-schema: SessionPreviewResponse
       requestBody:
         required: true
@@ -1446,7 +1702,7 @@ paths:
       x-required-permission: public
       x-rate-limit-scope: session.activate
       x-response-schema: SessionActivateResponse
-      x-audit-event: session_activated
+      x-audit-event: ephemeral_session_activate
       requestBody:
         required: true
         content:
@@ -1486,3 +1742,261 @@ paths:
       responses:
         '200': { description: '{gamepad_stopped: false}' }
         '403': { description: Not an operator with admin_sessions }
+  /version:
+    get:
+      summary: Installed package version (vnc-remote version parity).
+      x-required-permission: session
+      x-rate-limit-scope: default
+      x-response-schema: VersionResponse
+      responses:
+        '200': { description: '{version: "x.y.z"}' }
+  /lifecycle:
+    get:
+      summary: Managed-service PID/running map + port health (vnc-remote status parity).
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: LifecycleStatusResponse
+      responses:
+        '200': { description: '{services, port_health}' }
+        '403': { description: Not an operator }
+    post:
+      summary: >-
+        Queue start|stop|restart on a detached runner so the response is
+        delivered before the portal service itself may die.
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: lifecycle
+      x-response-schema: LifecycleActionResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, stop, restart] }
+      responses:
+        '202': { description: '{accepted: true, pid}' }
+        '400': { description: Unknown action }
+        '403': { description: Not admin:* or step-up missing }
+  /backups/verify:
+    post:
+      summary: CRC/decrypt-verify a backup by name (vnc-remote verify backup parity).
+      x-required-permission: admin:*
+      x-csrf-required: true
+      x-rate-limit-scope: default
+      x-response-schema: BackupVerifyResponse
+      x-audit-event: backup_verify
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file: { type: string, description: 'basename of a listed backup' }
+      responses:
+        '200': { description: '{file, ok, members, message}' }
+        '404': { description: Backup not found }
+  /backups/restore:
+    post:
+      summary: Restore a backup over the live config (vnc-remote restore parity).
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: backups.write
+      x-response-schema: BackupRestoreResponse
+      x-audit-event: backup_restore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file: { type: string, description: 'basename of a listed backup' }
+      responses:
+        '200': { description: '{restored: true, name}' }
+        '404': { description: Backup not found }
+  /secrets:
+    get:
+      summary: Per-secret status (set/missing/weak) - never values (secrets status parity).
+      x-required-permission: admin:*
+      x-rate-limit-scope: default
+      x-response-schema: SecretsResponse
+      responses:
+        '200': { description: '{secrets: {NAME: status}}' }
+  /secrets/{name}:
+    get:
+      summary: Fingerprinted redaction of one secret (secrets redact parity).
+      x-required-permission: admin:*
+      x-rate-limit-scope: default
+      x-response-schema: SecretRedactResponse
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '{name, redacted}' }
+        '400': { description: Unknown secret name }
+  /secrets/{name}/rotate:
+    post:
+      summary: Hard-cutover rotation of an env credential (secrets rotate parity).
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: secrets.rotate
+      x-response-schema: SecretRotateResponse
+      x-audit-event: secret_rotate
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '{name, fingerprint, env_path, sessions_revoked}' }
+        '400': { description: Non-rotatable name or .env write failed }
+  /secrets/rotate-signing:
+    post:
+      summary: Rotate the token-signing secret with a 7-day coexistence window.
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: secrets.rotate
+      x-response-schema: SigningRotateResponse
+      x-audit-event: signing_key_rotate
+      responses:
+        '200': { description: '{rotated: true, window_days: 7}' }
+  /secrets/check:
+    post:
+      summary: TLS config + secret-file permission findings (secrets check parity).
+      x-required-permission: admin:*
+      x-csrf-required: true
+      x-rate-limit-scope: default
+      x-response-schema: SecretsCheckResponse
+      x-audit-event: secrets_check
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                fix: { type: boolean }
+      responses:
+        '200': { description: '{findings, fixed, ok}' }
+  /secrets/recovery-codes:
+    post:
+      summary: >-
+        Generate MFA recovery codes - plaintext returned ONCE, only
+        hashes persist (secrets recovery-codes parity).
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: secrets.rotate
+      x-response-schema: RecoveryCodesResponse
+      x-audit-event: recovery_codes_generate
+      responses:
+        '200': { description: '{codes: [...]}' }
+  /config/effective:
+    get:
+      summary: Effective config with provenance (config show-effective parity).
+      x-required-permission: admin_config
+      x-rate-limit-scope: default
+      x-response-schema: ConfigPageResponse
+      parameters:
+        - { name: profile, in: query, schema: { type: string } }
+      responses:
+        '200': { description: '{vars: [ConfigEntry]}' }
+  /config/explain/{name}:
+    get:
+      summary: One variable's value + provenance (config explain parity).
+      x-required-permission: admin_config
+      x-rate-limit-scope: default
+      x-response-schema: ConfigExplainResponse
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '{entry: ConfigEntry}' }
+        '404': { description: Unknown variable }
+  /config/validate:
+    get:
+      summary: Contradiction findings for a profile (config validate parity).
+      x-required-permission: admin_config
+      x-rate-limit-scope: default
+      x-response-schema: ConfigValidateResponse
+      parameters:
+        - { name: profile, in: query, schema: { type: string } }
+      responses:
+        '200': { description: '{findings, ok}' }
+  /config/diff:
+    get:
+      summary: Value diff between two profiles (config diff parity).
+      x-required-permission: admin_config
+      x-rate-limit-scope: default
+      x-response-schema: ConfigDiffResponse
+      parameters:
+        - { name: a, in: query, required: true, schema: { type: string } }
+        - { name: b, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '{a, b, diffs}' }
+  /config/migrate:
+    post:
+      summary: >-
+        Legacy .env key/profile-value renames (config migrate parity);
+        dry_run previews without writing.
+      x-required-permission: admin_config
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: config.write
+      x-response-schema: ConfigMigrateResponse
+      x-audit-event: config_migrate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                dry_run: { type: boolean }
+      responses:
+        '200': { description: '{changes, applied, env_path}' }
+  /upgrade:
+    get:
+      summary: Installed vs available version (upgrade --check parity).
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: UpgradeResponse
+      responses:
+        '200': { description: '{current, available, update, source}' }
+    post:
+      summary: Self-upgrade with automatic rollback (vnc-remote upgrade parity).
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: upgrade
+      x-response-schema: UpgradeRunResponse
+      x-audit-event: upgrade_run
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                source: { type: string, description: 'wheel path or URL' }
+      responses:
+        '200': { description: '{ok, previous, version, backup}' }
+  /upgrade/rollback:
+    post:
+      summary: Restore the pre-upgrade snapshot (upgrade --rollback parity).
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: upgrade
+      x-response-schema: UpgradeRollbackResponse
+      x-audit-event: upgrade_rollback
+      responses:
+        '200': { description: '{ok, restored}' }

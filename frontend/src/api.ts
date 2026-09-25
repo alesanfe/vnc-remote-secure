@@ -182,6 +182,95 @@ export const api = {
     request<{ gamepad_stopped: boolean }>(
       stop ? 'gamepad/stop' : 'gamepad/resume',
       { method: 'POST', body: '{}' }),
+
+  // --- Operations parity with the CLI -------------------------------
+  /** `vnc-remote version`. */
+  version: () => request<{ version: string }>('version'),
+  /** `vnc-remote status` — PID/running map + port health. */
+  lifecycleStatus: () =>
+    request<LifecycleStatus>('lifecycle'),
+  /** `vnc-remote start|stop|restart` — queued on a detached runner so
+      the response is delivered before the portal itself may die
+      (admin:* + step-up). */
+  lifecycleAction: (action: 'start' | 'stop' | 'restart') =>
+    request<{ action: string; pid: number; accepted: boolean }>(
+      'lifecycle', { method: 'POST', body: JSON.stringify({ action }) }),
+  /** `vnc-remote backup` (admin:* + step-up). */
+  backupCreate: () =>
+    request<{ created: boolean; name: string; size: number | null }>(
+      'backups', { method: 'POST', body: '{}' }),
+  /** `vnc-remote verify backup <name>` (admin:*). */
+  backupVerify: (file: string) =>
+    request<{ file: string; ok: boolean; members: number;
+              message?: string }>(
+      'backups/verify',
+      { method: 'POST', body: JSON.stringify({ file }) }),
+  /** `vnc-remote restore <name>` — overwrites live config
+      (admin:* + step-up). */
+  backupRestore: (file: string) =>
+    request<{ restored: boolean; name: string }>(
+      'backups/restore',
+      { method: 'POST', body: JSON.stringify({ file }) }),
+  /** `vnc-remote secrets status` (admin:*). */
+  secretsStatus: () =>
+    request<{ secrets: Record<string, string> }>('secrets'),
+  /** `vnc-remote secrets redact --name X` (admin:*). */
+  secretRedact: (name: string) =>
+    request<{ name: string; redacted: string }>(
+      `secrets/${encodeURIComponent(name)}`),
+  /** `vnc-remote secrets rotate --name X` (admin:* + step-up). */
+  secretRotate: (name: string) =>
+    request<SecretRotationResult>(
+      `secrets/${encodeURIComponent(name)}/rotate`,
+      { method: 'POST', body: '{}' }),
+  /** `vnc-remote secrets rotate-signing` (admin:* + step-up). */
+  secretRotateSigning: () =>
+    request<{ rotated: boolean; window_days: number }>(
+      'secrets/rotate-signing', { method: 'POST', body: '{}' }),
+  /** `vnc-remote secrets check [--fix]` (admin:*). */
+  secretsCheck: (fix = false) =>
+    request<SecretsCheckResult>(
+      'secrets/check',
+      { method: 'POST', body: JSON.stringify({ fix }) }),
+  /** `vnc-remote secrets recovery-codes` — codes are returned ONCE;
+      only hashes persist (admin:* + step-up). */
+  recoveryCodes: () =>
+    request<{ codes: string[] }>(
+      'secrets/recovery-codes', { method: 'POST', body: '{}' }),
+  /** `vnc-remote config show-effective [--profile P]` (admin_config). */
+  configEffective: (profile?: string) =>
+    request<{ vars: ConfigVar[] }>(
+      `config/effective${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`),
+  /** `vnc-remote config explain NAME` (admin_config). */
+  configExplain: (name: string) =>
+    request<{ entry: ConfigVar }>(
+      `config/explain/${encodeURIComponent(name)}`),
+  /** `vnc-remote config validate [--profile P]` (admin_config). */
+  configValidate: (profile?: string) =>
+    request<ConfigValidateResult>(
+      `config/validate${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`),
+  /** `vnc-remote config diff A B` (admin_config). */
+  configDiff: (a: string, b: string) =>
+    request<ConfigDiffResult>(
+      `config/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  /** `vnc-remote config migrate [--dry-run]` (admin_config + step-up). */
+  configMigrate: (dryRun = true) =>
+    request<ConfigMigrateResult>(
+      'config/migrate',
+      { method: 'POST', body: JSON.stringify({ dry_run: dryRun }) }),
+  /** `vnc-remote upgrade --check` (operator). */
+  upgradeStatus: () =>
+    request<UpgradeStatus>('upgrade'),
+  /** `vnc-remote upgrade [--from X]` (admin:* + step-up). */
+  upgradeRun: (source?: string) =>
+    request<UpgradeRunResult>(
+      'upgrade',
+      { method: 'POST',
+        body: JSON.stringify(source ? { source } : {}) }),
+  /** `vnc-remote upgrade --rollback` (admin:* + step-up). */
+  upgradeRollback: () =>
+    request<{ ok: boolean; restored?: string }>(
+      'upgrade/rollback', { method: 'POST', body: '{}' }),
 };
 
 // ---- Types ----
@@ -202,7 +291,11 @@ export interface Me {
 export interface LoginResult {
   operator: { username: string; role?: string | null };
   csrf_token: string;
-  auth_method: 'password' | 'webauthn';
+  auth_method:
+    | 'password'
+    | 'password+totp'
+    | 'password+recovery'
+    | 'webauthn';
 }
 
 export interface PortalData {
@@ -355,3 +448,81 @@ export type PasskeyItem = NonNullable<
 export type OperatorEditResult = NonNullable<
   components['schemas']['OperatorResponse']['data']
 >;
+
+// --- Operations parity types (CLI <-> API) ---------------------------
+
+export interface LifecycleService {
+  pid?: number | null;
+  running?: boolean;
+  enabled?: boolean;
+  port?: number | null;
+}
+
+export interface LifecycleStatus {
+  services: Record<string, LifecycleService>;
+  port_health: Record<string, boolean>;
+}
+
+export interface Finding {
+  severity?: string;
+  message?: string;
+  file?: string;
+  [key: string]: unknown;
+}
+
+export type SecretRotationResult = NonNullable<
+  components['schemas']['SecretRotationResult']
+>;
+
+export interface SecretsCheckResult {
+  findings: Finding[];
+  fixed?: { file: string; fixed: boolean }[];
+  ok: boolean;
+}
+
+export interface ConfigValidateResult {
+  profile?: string | null;
+  findings: Finding[];
+  ok: boolean;
+}
+
+export interface ConfigDiffEntry {
+  name: string;
+  value_a?: string | null;
+  value_b?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ConfigDiffResult {
+  a: string;
+  b: string;
+  diffs: ConfigDiffEntry[];
+}
+
+export interface ConfigMigrateChange {
+  old: string;
+  new: string;
+  message: string;
+}
+
+export interface ConfigMigrateResult {
+  changes: ConfigMigrateChange[];
+  applied: boolean;
+  env_path?: string;
+}
+
+export interface UpgradeStatus {
+  current: string;
+  available?: string | null;
+  update?: string | null;
+  source?: string;
+}
+
+export interface UpgradeRunResult {
+  ok: boolean;
+  previous?: string;
+  version?: string;
+  backup?: string;
+  rolled_back?: boolean;
+  error?: string;
+}
