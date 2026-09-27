@@ -31,6 +31,7 @@ _SPA_PATHS = (
     '/audio_receiver.html', '/gamepad.html',
     '/audio', '/audio/', '/gamepad', '/gamepad/',
     '/terminal', '/terminal/', '/terminal.html',
+    '/guest', '/guest/', '/recovery', '/recovery/',
 )
 
 

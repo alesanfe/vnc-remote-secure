@@ -46,7 +46,9 @@ export function ShareAccept({ token }: { token: string }) {
     api
       .sessionActivate(token)
       .then(() => {
-        window.location.href = '/';
+        // Land on the guest portal — the hub listing the resources
+        // this grant actually covers.
+        window.location.href = '/guest';
       })
       .catch((e) => {
         setBusy(false);

@@ -354,6 +354,45 @@ export default function PortalPage() {
   }
 
   const p = portal.data;
+
+  // Progressive disclosure: a share-link guest gets the minimal
+  // portal — grant context plus the link to /guest. Host metrics,
+  // the service map and LAN details stay operator-only so the
+  // portal can't be used for unauthenticated host reconnaissance.
+  if (!p.is_operator) {
+    return (
+      <main className="portal">
+        <div className="header" role="banner">
+          <h1>🔒 VNC Remote Secure</h1>
+          <p className="muted">{t('portal.tagline')}</p>
+        </div>
+        <div id="main">
+          {ctx.data?.ephemeral && ctx.data.active && (
+            <EphemeralBanner ctx={ctx.data} />
+          )}
+          {p.maintenance && (
+            <div className="notice" role="alert">
+              ⚠️ <strong>{t('portal.maintenance.title')}</strong> —{' '}
+              {t('portal.maintenance.desc')}
+              {typeof p.maintenance.reason === 'string' &&
+              p.maintenance.reason
+                ? `: ${p.maintenance.reason}`
+                : ''}
+              .
+            </div>
+          )}
+          <div className="card" style={{ maxWidth: '30rem' }}>
+            <h3>🔗 {t('guest.title')}</h3>
+            <p className="muted">{t('guest.subtitle')}</p>
+            <div className="row">
+              <a href="/guest">{t('common.open')}</a>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const isWindows = p.platform === 'windows';
   const shell = isWindows ? 'cmd.exe' : t('portal.shell.system');
   const osLabel = isWindows ? 'Windows' : 'Linux';

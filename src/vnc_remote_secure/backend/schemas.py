@@ -108,6 +108,27 @@ class SessionCreateRequest(StrictBody):
     no_terminal: bool = False
     allowed_ip: str | None = Field(default=None, max_length=64)
     resource: str | None = None
+    # Competitor parity (TeamViewer/AnyDesk email invite): when set the
+    # finished share link is delivered to this address through the
+    # configured SMTP relay. Optional — empty means "copy link only".
+    email_to: str | None = Field(default=None, max_length=254)
+
+    @field_validator('email_to')
+    @classmethod
+    def _email_plausible(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        # Not an address parser — just enough to reject header
+        # injection and obvious garbage before it reaches SMTP.
+        if any(c in v for c in '\r\n\t '):
+            raise ValueError('invalid email address')
+        local, _, domain = v.partition('@')
+        if not local or '.' not in domain or len(v) > 254:
+            raise ValueError('invalid email address')
+        return v
 
     @field_validator('role')
     @classmethod

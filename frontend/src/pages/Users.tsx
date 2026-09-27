@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
@@ -27,6 +28,7 @@ export default function Users() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [flash, setFlash] = useState('');
+  const [query, setQuery] = useState('');
   // Pending destructive confirmation: which operator + which action.
   const [pending, setPending] = useState<{
     kind: 'revoke' | 'delete';
@@ -98,11 +100,19 @@ export default function Users() {
         </div>
       )}
 
-      <p>
+      <div className="toolbar">
         <button type="button" onClick={() => setShowCreate(!showCreate)}>
           {showCreate ? t('common.cancel') : t('users.newOperator')}
         </button>
-      </p>
+        <span className="spacer" />
+        <input
+          style={{ maxWidth: 200 }}
+          aria-label={t('common.search')}
+          placeholder={t('common.search')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
       {showCreate && (
         <CreateOperatorForm
           onDone={() => {
@@ -124,7 +134,14 @@ export default function Users() {
           </tr>
         </thead>
         <tbody>
-          {(ops.data?.operators ?? []).map((u) => (
+          {(() => {
+            const qq = query.trim().toLowerCase();
+            const list = (ops.data?.operators ?? []).filter((u) =>
+              !qq ||
+              [u.username, u.role, ...u.permissions]
+                .some((v) => String(v).toLowerCase().includes(qq)));
+            return list;
+          })().map((u) => (
             <OperatorRow
               key={u.username}
               u={u}
@@ -334,7 +351,10 @@ function OperatorRow({
           </button>{' '}
           <button type="button" disabled={busy} onClick={onDelete}>
             {t('common.delete')}
-          </button>
+          </button>{' '}
+          <Link to={`/identities/${encodeURIComponent(u.username)}`}>
+            {t('common.detail')}
+          </Link>
         </td>
       </tr>
       {expanded && (
@@ -348,7 +368,7 @@ function OperatorRow({
   );
 }
 
-function OperatorDetailPanel({ username }: { username: string }) {
+export function OperatorDetailPanel({ username }: { username: string }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const me = useQuery({

@@ -61,6 +61,15 @@ _RATE_LIMITS = {
     # Step-up re-authentication — a password-verification oracle must
     # be throttled as hard as login itself.
     'stepup': (10, 60),
+    # File share + chat — writes are tighter than reads; downloads
+    # bounded so a guest can't hammer the disk.
+    'files.list': (60, 60),
+    'files.download': (60, 60),
+    'files.write': (20, 60),
+    'chat': (120, 60),
+    # Host power — shutdown/restart/sleep/WoL. A flood of these is a
+    # denial of service on the host itself.
+    'power': (4, 60),
     'default': (120, 60),
 }
 _RATE_NS = 'api_rate'
@@ -228,7 +237,9 @@ def session_to_api(s: dict) -> dict:
     keys = ('token_id', 'role', 'permissions', 'expires_at',
             'single_use', 'view_only', 'no_terminal', 'allowed_ip',
             'created_by', 'created_at', 'used', 'revoked', 'resource',
-            'max_uses', 'use_count')
+            'max_uses', 'use_count', 'last_used_at', 'last_used_ip',
+            'last_connected_at', 'last_disconnected_at',
+            'connection_count')
     return {k: s.get(k) for k in keys if k in s}
 
 
@@ -371,6 +382,240 @@ def _get_sessions(handler, query):
         _err(handler, 'Failed to list sessions', 500)
 
 
+def _get_session_detail(handler, query):
+    """GET /api/v1/sessions/{token_id} — one share-link record by its
+    public fingerprint. Unknown and reaped ids both answer 404; the
+    detail page refreshes against this rather than paging the whole
+    inventory."""
+    try:
+        from vnc_remote_secure.engine.application.sessions import (
+            get_share_link,
+        )
+        session = get_share_link(handler._api_params['token_id'])
+        if session is None:
+            _err(handler, 'Session not found', 404)
+            return
+        from vnc_remote_secure.engine.application.sessions import (
+            share_link_connections,
+        )
+        _ok(handler, {
+            'session': session_to_api(session),
+            # Live sockets carrying this grant right now — resource,
+            # peer IP and connect time per connection.
+            'connections': share_link_connections(
+                handler._api_params['token_id']),
+        })
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /sessions/{token_id}')
+        _err(handler, 'Failed to read session', 500)
+
+
+def _ephemeral_session(handler):
+    """Resolve the request's ``vnc_ephemeral`` cookie to its store
+    session object, or None. Used by 'session'-perm routes that must
+    distinguish a guest's own grant from an operator's."""
+    if not getattr(handler, '_api_ephemeral', False):
+        return None
+    internal = cookie_value(
+        handler.headers.get('Cookie', ''), 'vnc_ephemeral')
+    if not internal:
+        return None
+    try:
+        from vnc_remote_secure.engine.infrastructure import stores
+        store = stores.session_store()
+        stores.session_refresh(store)
+        return store.get(internal)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _actor_name(handler) -> str:
+    """Audit/alert actor label: operator username or guest fingerprint."""
+    operator = getattr(handler, '_api_operator', None)
+    if operator is not None:
+        return operator.get('username', '?')
+    session = _ephemeral_session(handler)
+    if session is not None:
+        return f'guest:{session.to_dict().get("token_id", "?")}'
+    return 'anonymous'
+
+
+def _files_allowed(handler) -> bool:
+    """file_transfer gate for 'session'-perm routes.
+
+    Operators get the host file share outright; an ephemeral session
+    must explicitly carry ``file_transfer`` AND either be unbound or
+    bound to the 'files' resource — a desktop-scoped link must not
+    reach the filesystem as a side channel.
+    """
+    if getattr(handler, '_api_operator', None) is not None:
+        return True
+    session = _ephemeral_session(handler)
+    if session is None:
+        _err(handler, 'Not found', 404)
+        return False
+    bound = getattr(session, 'resource', None)
+    if bound not in (None, 'files'):
+        _err(handler, 'Not found', 404)
+        return False
+    if not session.has_permission('file_transfer', resource='files'):
+        _err(handler, 'file_transfer permission required', 403)
+        return False
+    return True
+
+
+def _get_files(handler, query):
+    """GET /files?path= — list one directory inside the share root."""
+    if not _files_allowed(handler):
+        return
+    from vnc_remote_secure.engine.application import files
+    rel = (query.get('path') or [''])[0]
+    try:
+        data = files.list_dir(rel, _actor_name(handler))
+        data.update(files.share_info())
+        _ok(handler, data)
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /files')
+        _err(handler, 'File listing failed', 500)
+
+
+def _get_files_download(handler, query):
+    """GET /files/download?path= — raw bytes, attachment disposition."""
+    if not _files_allowed(handler):
+        return
+    from vnc_remote_secure.engine.application import files
+    rel = (query.get('path') or [''])[0]
+    try:
+        data, name = files.read_file(rel, _actor_name(handler))
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+        return
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /files/download')
+        _err(handler, 'Download failed', 500)
+        return
+    safe_name = ''.join(
+        c for c in name if c.isalnum() or c in '._- ') or 'download'
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'application/octet-stream')
+    handler.send_header(
+        'Content-Disposition', f'attachment; filename="{safe_name}"')
+    handler.send_header('Content-Length', str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _post_files_upload(handler, query):
+    """POST /files/upload — {path, content_b64, overwrite?}.
+
+    JSON+base64 keeps this inside the existing typed-body pipeline
+    (the API surface is JSON-only; multipart would need a parser).
+    """
+    if not _files_allowed(handler):
+        return
+    from vnc_remote_secure.engine.application import files
+    body, error = _read_json_body(
+        handler, limit=int(files.MAX_FILE_BYTES * 4 / 3) + 4096)
+    if error:
+        _err(handler, *error)
+        return
+    import base64
+    import binascii
+    rel = str(body.get('path') or '')
+    try:
+        data = base64.b64decode(
+            str(body.get('content_b64') or ''), validate=True)
+    except (binascii.Error, ValueError):
+        _err(handler, 'content_b64 must be base64', 400)
+        return
+    try:
+        _ok(handler, files.write_file(
+            rel, data, _actor_name(handler),
+            overwrite=bool(body.get('overwrite'))), status=201)
+    except FileExistsError:
+        _err(handler, 'File already exists', 409)
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /files/upload')
+        _err(handler, 'Upload failed', 500)
+
+
+def _post_files_mkdir(handler, query):
+    """POST /files/mkdir — {path} creates one directory."""
+    if not _files_allowed(handler):
+        return
+    body, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    from vnc_remote_secure.engine.application import files
+    try:
+        _ok(handler, files.mkdir(
+            str(body.get('path') or ''), _actor_name(handler)),
+            status=201)
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /files/mkdir')
+        _err(handler, 'mkdir failed', 500)
+
+
+def _chat_session_id(handler, query, body: dict | None = None):
+    """The chat channel id for this request: an operator names the
+    session explicitly; a guest always gets their own grant's
+    fingerprint (never a caller-chosen id — guests can't read other
+    sessions' channels)."""
+    if getattr(handler, '_api_operator', None) is not None:
+        src = body if body is not None else query
+        raw = src.get('session')
+        return (raw[0] if isinstance(raw, list) else raw) or None
+    session = _ephemeral_session(handler)
+    if session is None:
+        return None
+    return session.to_dict().get('token_id')
+
+
+def _get_chat(handler, query):
+    """GET /chat?session=<id> — channel history (polled by the UI)."""
+    from vnc_remote_secure.engine.application import chat
+    token_id = _chat_session_id(handler, query)
+    if not token_id:
+        _err(handler, 'session required', 400)
+        return
+    try:
+        _ok(handler, {'session': token_id,
+                      'messages': chat.list_messages(token_id)})
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /chat')
+        _err(handler, 'Chat read failed', 500)
+
+
+def _post_chat(handler, query):
+    """POST /chat — {session?, text}. Guests omit ``session`` (the
+    channel is derived from their cookie)."""
+    body, error = _read_json_body(handler, limit=8192)
+    if error:
+        _err(handler, *error)
+        return
+    from vnc_remote_secure.engine.application import chat
+    token_id = _chat_session_id(handler, query, body)
+    if not token_id:
+        _err(handler, 'session required', 400)
+        return
+    try:
+        msg = chat.post_message(
+            token_id, _actor_name(handler), str(body.get('text') or ''))
+        _ok(handler, {'message': msg}, status=201)
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /chat post')
+        _err(handler, 'Chat post failed', 500)
+
+
 def _get_session_context(handler, query):
     """GET /api/v1/session-context — the share-link session's own
     minimal context (what an ephemeral client may know about itself).
@@ -409,6 +654,9 @@ def _get_session_context(handler, query):
         'single_use': bool(getattr(sess, 'single_use', False)),
         'no_terminal': bool(getattr(sess, 'no_terminal', False)),
         'resource': getattr(sess, 'resource', None),
+        # Public fingerprint — the chat channel and detail links use
+        # it; the internal token never leaves the cookie.
+        'token_id': sess.to_dict().get('token_id'),
         'maintenance': maintenance,
     })
 
@@ -599,10 +847,35 @@ def _post_session_create(handler, query):
 
     from vnc_remote_secure.core.share_url import share_base_url
     base = share_base_url()
+    url = f'{base}/share#t={signed}'
+    emailed = False
+    if body.email_to:
+        # Link delivery is best-effort: a mail failure must not lose a
+        # freshly minted grant — the operator still sees the URL to
+        # copy. Audit records the attempt, not the token.
+        try:
+            from vnc_remote_secure.monitoring.alerts import (
+                send_email_alert,
+            )
+            emailed = send_email_alert(
+                'Enlace de acceso remoto',
+                'Se te ha compartido un acceso remoto.\n\n'
+                f'Abre este enlace para conectar:\n{url}\n\n'
+                f'Caduca (epoch): {int(session.expires_at)}\n',
+                to_addr=body.email_to)
+            from vnc_remote_secure.engine.infrastructure import (
+                stores as _st,
+            )
+            _st.audit('share_link_email',
+                      operator.get('username', 'admin'),
+                      f'to={body.email_to} sent={emailed}')
+        except Exception:  # noqa: BLE001 - alerting must not break create
+            emailed = False
     _ok(handler, {
         # Fragment-carried link: the token never reaches the server in
         # the URL, so it cannot leak via history, Referer, or logs.
-        'url': f'{base}/share#t={signed}',
+        'url': url,
+        'emailed': emailed,
         'token_id': session.to_dict()['token_id'],
         'expires_at': session.expires_at,
         'role': session.role,
@@ -632,6 +905,17 @@ def _post_session_revoke(handler, query):
     from vnc_remote_secure.engine.application.sessions import revoke_share_link
     revoked = revoke_share_link(
         operator.get('username', 'unknown'), token_id)
+    if revoked:
+        # A revoked grant kills any live guest sessions — page the
+        # configured channels so the operator sees who cut it and when.
+        try:
+            from vnc_remote_secure.monitoring.alerts import notify
+            notify('Share link revoked',
+                   f'token_id={token_id} '
+                   f'by={operator.get("username", "unknown")}',
+                   'warning')
+        except Exception:  # noqa: BLE001 - alerting must not break revoke
+            pass
     # Uniform 200 whether the token existed or not — the caller is
     # already authorized; distinguishing 404 would only help enumerate
     # live session ids.
@@ -643,7 +927,61 @@ def _post_session_revoke_all(handler, query):
     operator = handler._api_operator
     from vnc_remote_secure.engine.application.sessions import revoke_all_share_links
     count = revoke_all_share_links(operator.get('username', 'unknown'))
+    if count:
+        try:
+            from vnc_remote_secure.monitoring.alerts import notify
+            notify('All share links revoked',
+                   f'count={count} '
+                   f'by={operator.get("username", "unknown")}',
+                   'critical')
+        except Exception:  # noqa: BLE001 - alerting must not break revoke
+            pass
     _ok(handler, {'revoked': count})
+
+
+def _post_power(handler, query):
+    """POST /api/v1/power — shutdown/restart/sleep the host.
+
+    admin:* + step-up (route flag). The use case runs the action on a
+    grace delay so this 200 is delivered before the host drops."""
+    operator = handler._api_operator
+    body, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    action = str(body.get('action') or '').strip()
+    try:
+        from vnc_remote_secure.engine.application.power import host_power
+        _ok(handler, host_power(action, operator.get('username', '?')))
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /power')
+        _err(handler, 'Power action failed', 500)
+
+
+def _post_power_wol(handler, query):
+    """POST /api/v1/power/wol — Wake-on-LAN magic packet."""
+    operator = handler._api_operator
+    body, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    mac = str(body.get('mac') or '')
+    broadcast = str(body.get('broadcast') or '255.255.255.255')
+    try:
+        port = int(body.get('port') or 9)
+    except (TypeError, ValueError):
+        _err(handler, 'invalid port', 400)
+        return
+    try:
+        from vnc_remote_secure.engine.application.power import wake_on_lan
+        _ok(handler, wake_on_lan(mac, broadcast, port))
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /power/wol')
+        _err(handler, 'Wake-on-LAN failed', 500)
 
 
 def _post_step_up(handler, query):
@@ -1350,6 +1688,15 @@ def _post_session_activate(handler, query):
     handler._queue_cookie(
         f'vnc_ephemeral={internal};{secure} HttpOnly; Path=/; '
         f'SameSite={resolve_samesite()}')
+    # An activation means an external party just consumed a grant —
+    # worth paging the configured alert channels about.
+    try:
+        from vnc_remote_secure.monitoring.alerts import notify
+        notify('Share link activated',
+               f'ip={client_ip_from(handler.headers, handler.peer_ip())}',
+               'warning')
+    except Exception:  # noqa: BLE001 - alerting must not break auth
+        pass
     _ok(handler, {'activated': True})
 
 
@@ -1895,6 +2242,26 @@ _ROUTES = {
     ('GET', 'sessions'): _Route(
         _get_sessions, 'admin_sessions', 'default', None,
         'SessionPageResponse'),
+    ('GET', 'sessions/{token_id}'): _Route(
+        _get_session_detail, 'admin_sessions', 'default', None,
+        'SessionDetailResponse'),
+    # File share — 'session' perm so guests with file_transfer can
+    # use it; the handlers gate the capability per-identity.
+    ('GET', 'files'): _Route(
+        _get_files, 'session', 'files.list', None, 'FileListResponse'),
+    ('GET', 'files/download'): _Route(
+        _get_files_download, 'session', 'files.download', None, None),
+    ('POST', 'files/upload'): _Route(
+        _post_files_upload, 'session', 'files.write', None,
+        'FileWriteResponse'),
+    ('POST', 'files/mkdir'): _Route(
+        _post_files_mkdir, 'session', 'files.write', None,
+        'FileWriteResponse'),
+    # Session-scoped chat — both parties reach the same channel.
+    ('GET', 'chat'): _Route(
+        _get_chat, 'session', 'chat', None, 'ChatResponse'),
+    ('POST', 'chat'): _Route(
+        _post_chat, 'session', 'chat', None, 'ChatPostResponse'),
     ('GET', 'health'): _Route(
         _get_health, 'operator', 'default', None, 'HealthResponse'),
     ('GET', 'security/posture'): _Route(
@@ -1961,6 +2328,16 @@ _ROUTES = {
     ('POST', 'sessions/revoke-all'): _Route(
         _post_session_revoke_all, 'admin_sessions', 'sessions.revoke-all',
         'portal_session_revoke_all', 'SessionRevokeResponse', True),
+    # Host power — MeshCentral/RustDesk parity. Step-up gated: a guest
+    # or a stolen session must never be able to halt the host; WoL is
+    # included (a spoofed packet can only wake, but the endpoint still
+    # gets the same treatment because it emits a broadcast).
+    ('POST', 'power'): _Route(
+        _post_power, 'admin:*', 'power', 'power_action',
+        'PowerActionResponse', True),
+    ('POST', 'power/wol'): _Route(
+        _post_power_wol, 'admin:*', 'power', 'power_wol',
+        'WolResponse'),
     ('POST', 'logout'): _Route(
         _post_logout, 'operator', 'default', 'portal_logout',
         'LogoutResponse'),

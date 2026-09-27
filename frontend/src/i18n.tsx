@@ -24,6 +24,7 @@ const es = {
   'common.yes': 'sí',
   'common.no': 'no',
   'common.detail': 'Detalle',
+  'common.search': 'Buscar…',
   'common.errorBox': 'No se pudo cargar la información.',
   'lang.label': 'Idioma',
 
@@ -39,6 +40,14 @@ const es = {
   'nav.backToPortal': '← Portal',
   'nav.logout': 'Cerrar sesión',
   'nav.adminPanel': 'panel de administración',
+  'nav.group.access': 'Accesos',
+  'nav.group.identities': 'Identidades',
+  'nav.group.monitoring': 'Supervisión',
+  'nav.group.security': 'Seguridad',
+  'nav.group.operations': 'Operaciones',
+  'nav.group.settings': 'Configuración',
+  'nav.connect': 'Conexiones',
+  'nav.files': 'Archivos',
   'nav.notFound': 'Página no encontrada.',
   'nav.sessionError': 'No se pudo verificar la sesión.',
   'nav.sessionErrorNet': 'Error de red — el servicio puede estar caído.',
@@ -96,6 +105,21 @@ const es = {
 
   'overview.title': 'Resumen',
   'overview.recentJobs': 'Jobs recientes',
+  'overview.power.title': 'Energía del equipo',
+  'overview.power.shutdown': 'Apagar equipo',
+  'overview.power.restart': 'Reiniciar equipo',
+  'overview.power.sleep': 'Suspender equipo',
+  'overview.power.accepted':
+    'Acción {{action}} aceptada — se ejecuta en ~1 s.',
+  'overview.power.stepup': 'acción de energía del equipo',
+  'overview.power.wolMac': 'MAC del equipo a despertar',
+  'overview.power.wolSend': 'Despertar (WoL)',
+  'overview.power.wolSent': 'Paquete Wake-on-LAN enviado a {{mac}}',
+  'overview.power.confirmTitle': '{{action}} el equipo',
+  'overview.power.confirmLabel': 'Ejecutar',
+  'overview.power.confirmBody':
+    'La acción {{action}} se ejecutará sobre este equipo remoto. ' +
+    'Las sesiones activas se interrumpirán.',
   'overview.col.job': 'Job',
   'overview.col.op': 'Operación',
   'overview.col.actor': 'Actor',
@@ -230,7 +254,9 @@ const es = {
   'security.blockingFindings': 'Hallazgos bloqueantes',
   'security.findings': 'Hallazgos',
   'security.col.check': 'Check',
+  'security.col.severity': 'Severidad',
   'security.col.status': 'Estado',
+  'security.col.evidence': 'Evidencia',
   'security.secrets.title': 'Secretos',
   'security.secrets.forbidden':
     'Gestión de secretos no disponible con este rol (requiere admin:*).',
@@ -317,6 +343,8 @@ const es = {
     'validación, diff de perfiles y migración.',
   'config.filter': 'Filtrar variables',
   'config.vars': '{{count}} variables',
+  'config.profile': 'Perfil',
+  'config.profile.live': 'Entorno actual',
   'config.loadError': 'No se pudo cargar la configuración.',
   'config.col.var': 'Variable',
   'config.col.value': 'Valor',
@@ -565,6 +593,164 @@ const es = {
   'sessions.loadMore': 'Cargar más',
   'sessions.stepup.revokeAll': 'cierre de todas las sesiones activas',
 
+  // --- Session creation wizard ---------------------------------------------------------
+  'sessions.wizard.resources': 'Recurso',
+  'sessions.wizard.permissions': 'Permisos',
+  'sessions.wizard.limits': 'Duración y restricciones',
+  'sessions.wizard.review': 'Revisión',
+  'sessions.wizard.next': 'Siguiente',
+  'sessions.wizard.back': 'Atrás',
+  'sessions.wizard.resourceHint':
+    'Recomendado: vincular el enlace a un solo recurso. Sin ' +
+    'vinculación, el token alcanza todos los recursos que sus ' +
+    'permisos permitan.',
+  'sessions.wizard.roleHint':
+    'viewer = solo ver; support = asistencia; operator = control ' +
+    'y gestión de sesiones; administrator = control total.',
+  'sessions.wizard.summaryTitle': 'Resumen del acceso',
+  'sessions.wizard.ttlQuick': 'Duración rápida',
+  'sessions.wizard.custom': 'personalizado',
+  'sessions.wizard.restrictions': 'Restricciones',
+  'sessions.wizard.restrictionsNone':
+    'Ninguna — reutilizable desde cualquier IP hasta que expire.',
+  'sessions.wizard.riskUnbound':
+    'Sin vinculación de recurso: el enlace alcanzará todos los ' +
+    'recursos permitidos por su rol.',
+  'sessions.wizard.riskAdmin':
+    'Permiso administrator: control total del sistema remoto.',
+  'sessions.wizard.maxUsesN': 'máx. {{count}} usos',
+  'sessions.wizard.ipOnly': 'solo desde {{ip}}',
+  'sessions.wizard.permission': 'Permiso',
+  'sessions.wizard.duration': 'Duración',
+  'sessions.res.desktop': 'Escritorio remoto',
+  'sessions.res.terminal': 'Terminal',
+  'sessions.res.audio': 'Audio',
+  'sessions.res.gamepad': 'Gamepad',
+  'sessions.res.all': 'Todos los recursos permitidos',
+  'sessions.res.files': 'Archivos',
+  'sessions.qrAlt': 'Código QR del enlace de invitación',
+  'sessions.emailTo': 'Enviar el enlace por email a (opcional)',
+  'sessions.emailPlaceholder': 'destinatario@dominio.com',
+  'sessions.emailedOk': 'Enlace enviado por email a {{to}}.',
+  'sessions.emailedFail':
+    'No se pudo enviar el email — copia el enlace manualmente.',
+  'sessions.access.view': 'Solo visualización',
+
+  // --- Access lifecycle split + detail -----------------------------------------
+  'sessions.tab.invitations': 'Invitaciones',
+  'sessions.tab.connections': 'Conexiones',
+  'sessions.tab.history': 'Historial',
+  'sessions.empty.invitations': 'No hay invitaciones pendientes.',
+  'sessions.empty.connections': 'No hay conexiones en uso.',
+  'sessions.empty.history': 'No hay accesos finalizados.',
+  'sessions.stateExpired': 'expirada',
+  'sessions.stateUsed': 'en uso',
+  'sessions.stateInvitation': 'invitación',
+  'sessions.detail.title': 'Acceso',
+  'sessions.detail.created': 'Creado',
+  'sessions.detail.createdBy': 'Creado por',
+  'sessions.detail.uses': 'Usos',
+  'sessions.detail.notFound':
+    'Acceso no encontrado — pudo expirar o depurarse.',
+  'sessions.detail.back': '← Volver a accesos',
+  'sessions.detail.lastUsed': 'Último uso',
+  'sessions.detail.lastIp': 'IP de uso',
+  'sessions.detail.lastConnected': 'Última conexión',
+  'sessions.detail.lastDisconnected': 'Última desconexión',
+  'sessions.detail.connectionCount': 'Conexiones acumuladas',
+  'sessions.detail.liveConnections': 'Conexiones activas ahora',
+  'sessions.detail.duration': 'Duración',
+  'sessions.detail.exportAudit': 'Exportar auditoría de la sesión',
+
+  // --- Entity detail pages ----------------------------------------------------
+  'users.detail.title': 'Operador',
+  'users.detail.back': '← Volver a operadores',
+  'jobs.detail.title': 'Tarea',
+  'jobs.detail.notFound': 'Tarea no encontrada.',
+  'jobs.detail.back': '← Volver a tareas',
+  'jobs.detail.started': 'Inicio',
+  'jobs.detail.finished': 'Fin',
+  'jobs.detail.claimedBy': 'Ejecutor',
+  'jobs.detail.payload': 'Parámetros',
+
+  // --- Guest portal (/guest) -------------------------------------------------
+  'guest.title': 'Portal de invitado',
+  'guest.subtitle':
+    'Los recursos a los que da acceso tu enlace compartido.',
+  'guest.role': 'Permiso',
+  'guest.expires': 'Expira',
+  'guest.resources': 'Recursos disponibles',
+  'guest.endSession': 'Terminar sesión',
+  'guest.none':
+    'No hay sesión de invitado activa — esta página es para ' +
+    'destinatarios de enlaces compartidos.',
+  'guest.expired': 'La sesión ha expirado o fue revocada.',
+  'guest.portalLink': 'Volver al portal',
+  'guest.resDesc.desktop': 'Escritorio remoto en el navegador',
+  'guest.resDesc.terminal': 'Terminal web',
+  'guest.resDesc.audio': 'Receptor de audio en vivo',
+  'guest.resDesc.gamepad': 'Reenvío de gamepad',
+  'guest.resDesc.files': 'Carpeta compartida de archivos',
+  'chat.title': 'Chat de la sesión',
+  'chat.placeholder': 'Escribe un mensaje…',
+  'chat.send': 'Enviar',
+  'chat.sendError': 'No se pudo enviar el mensaje',
+  'chat.empty': 'Sin mensajes todavía.',
+  'chat.unavailable': 'Chat no disponible.',
+  'chat.notify': 'Notificar mensajes nuevos',
+  'files.title': 'Archivos compartidos',
+  'files.subtitle':
+    'Carpeta compartida del equipo remoto (FILE_SHARE_ROOT).',
+  'files.dropHint': 'Arrastra archivos a esta página para subirlos.',
+  'files.breadcrumb': 'Ruta actual',
+  'files.upload': 'Subir',
+  'files.newDir': 'nueva-carpeta',
+  'files.mkdir': 'Crear carpeta',
+  'files.download': 'Descargar',
+  'files.col.name': 'Nombre',
+  'files.col.size': 'Tamaño',
+  'files.col.mtime': 'Modificado',
+  'files.empty': 'Carpeta vacía.',
+  'files.truncated': 'Listado truncado: demasiadas entradas.',
+  'files.loadError': 'No se pudo listar la carpeta.',
+  'files.uploadError': 'La subida falló.',
+  'files.mkdirError': 'No se pudo crear la carpeta.',
+  'files.tooBig': 'El archivo excede el límite permitido.',
+
+  // --- Connection center (/admin/connect) ------------------------------------
+  'connect.title': 'Conexiones',
+  'connect.subtitle':
+    'Accesos directos al sistema remoto y enlaces compartidos.',
+  'connect.direct': 'Acceso directo',
+  'connect.directDesc':
+    'Superficies de conexión disponibles en este host.',
+  'connect.grants': 'Enlaces activos',
+  'connect.grantsDesc':
+    'Accesos compartidos vigentes — gestión completa en Sesiones.',
+  'connect.newLink': 'Crear enlace',
+  'connect.manage': 'Gestionar',
+  'connect.guestView': 'Vista del invitado',
+  'connect.empty': 'No hay enlaces activos.',
+
+  // --- Recovery (/recovery) ----------------------------------------------------
+  'recovery.title': 'Acceso de emergencia',
+  'recovery.subtitle':
+    'Usa un código de recuperación de un solo uso si perdiste tu ' +
+    'segundo factor.',
+  'recovery.username': 'Usuario',
+  'recovery.password': 'Contraseña',
+  'recovery.code': 'Código de recuperación',
+  'recovery.submit': 'Entrar',
+  'recovery.busy': 'Verificando…',
+  'recovery.error': 'Credenciales no válidas.',
+  'recovery.usedNote':
+    'Cada código de recuperación es de un solo uso: se consume al ' +
+    'entrar.',
+  'recovery.where':
+    '¿Sin códigos? Un administrador puede generarlos desde ' +
+    'Seguridad → Secretos o con `vnc-remote secrets recovery-codes`.',
+  'recovery.back': '← Volver al portal',
+
   // --- Users (operators) --------------------------------------------------------------
   'users.title': 'Operadores',
   'users.subtitle':
@@ -672,6 +858,7 @@ const en: typeof es = {
   'common.confirm': 'Confirm',
   'common.loading': 'Loading…',
   'common.error': 'Operation failed',
+  'common.search': 'Search…',
   'common.delete': 'Delete',
   'common.create': 'Create',
   'common.save': 'Save',
@@ -696,6 +883,14 @@ const en: typeof es = {
   'nav.backToPortal': '← Portal',
   'nav.logout': 'Log out',
   'nav.adminPanel': 'administration panel',
+  'nav.group.access': 'Access',
+  'nav.group.identities': 'Identities',
+  'nav.group.monitoring': 'Monitoring',
+  'nav.group.security': 'Security',
+  'nav.group.operations': 'Operations',
+  'nav.group.settings': 'Settings',
+  'nav.connect': 'Connections',
+  'nav.files': 'Files',
   'nav.notFound': 'Page not found.',
   'nav.sessionError': 'Could not verify the session.',
   'nav.sessionErrorNet': 'Network error — the service may be down.',
@@ -751,6 +946,21 @@ const en: typeof es = {
 
   'overview.title': 'Summary',
   'overview.recentJobs': 'Recent jobs',
+  'overview.power.title': 'Host power',
+  'overview.power.shutdown': 'Shut down host',
+  'overview.power.restart': 'Restart host',
+  'overview.power.sleep': 'Sleep host',
+  'overview.power.accepted':
+    '{{action}} accepted — executes in ~1 s.',
+  'overview.power.stepup': 'host power action',
+  'overview.power.wolMac': 'MAC of the host to wake',
+  'overview.power.wolSend': 'Wake (WoL)',
+  'overview.power.wolSent': 'Wake-on-LAN packet sent to {{mac}}',
+  'overview.power.confirmTitle': '{{action}} the host',
+  'overview.power.confirmLabel': 'Execute',
+  'overview.power.confirmBody':
+    'The {{action}} action will run on this remote host. ' +
+    'Active sessions will be interrupted.',
   'overview.col.job': 'Job',
   'overview.col.op': 'Operation',
   'overview.col.actor': 'Actor',
@@ -883,7 +1093,9 @@ const en: typeof es = {
   'security.blockingFindings': 'Blocking findings',
   'security.findings': 'Findings',
   'security.col.check': 'Check',
+  'security.col.severity': 'Severity',
   'security.col.status': 'Status',
+  'security.col.evidence': 'Evidence',
   'security.secrets.title': 'Secrets',
   'security.secrets.forbidden':
     'Secret management is not available with this role (requires admin:*).',
@@ -968,6 +1180,8 @@ const en: typeof es = {
   'config.page.subtitle':
     'Parity with vnc-remote config: effective view with provenance, ' +
     'validation, profile diff and migration.',
+  'config.profile': 'Profile',
+  'config.profile.live': 'Live environment',
   'config.filter': 'Filter variables',
   'config.vars': '{{count}} variables',
   'config.loadError': 'Could not load configuration.',
@@ -1215,6 +1429,160 @@ const en: typeof es = {
     'guests lose access immediately.',
   'sessions.loadMore': 'Load more',
   'sessions.stepup.revokeAll': 'closing all active sessions',
+
+  // --- Session creation wizard ---------------------------------------------------------
+  'sessions.wizard.resources': 'Resource',
+  'sessions.wizard.permissions': 'Permissions',
+  'sessions.wizard.limits': 'Duration & restrictions',
+  'sessions.wizard.review': 'Review',
+  'sessions.wizard.next': 'Next',
+  'sessions.wizard.back': 'Back',
+  'sessions.wizard.resourceHint':
+    'Recommended: bind the link to a single resource. Unbound ' +
+    'tokens reach every resource their permissions allow.',
+  'sessions.wizard.roleHint':
+    'viewer = view only; support = assistance; operator = control ' +
+    'and session management; administrator = full control.',
+  'sessions.wizard.summaryTitle': 'Access summary',
+  'sessions.wizard.ttlQuick': 'Quick duration',
+  'sessions.wizard.custom': 'custom',
+  'sessions.wizard.restrictions': 'Restrictions',
+  'sessions.wizard.restrictionsNone':
+    'None — reusable from any IP until it expires.',
+  'sessions.wizard.riskUnbound':
+    'No resource binding: the link will reach every resource its ' +
+    'role allows.',
+  'sessions.wizard.riskAdmin':
+    'Administrator permission: full control of the remote system.',
+  'sessions.wizard.maxUsesN': 'max {{count}} uses',
+  'sessions.wizard.ipOnly': 'only from {{ip}}',
+  'sessions.wizard.permission': 'Permission',
+  'sessions.wizard.duration': 'Duration',
+  'sessions.res.desktop': 'Remote desktop',
+  'sessions.res.terminal': 'Terminal',
+  'sessions.res.audio': 'Audio',
+  'sessions.res.gamepad': 'Gamepad',
+  'sessions.res.all': 'All allowed resources',
+  'sessions.res.files': 'Files',
+  'sessions.qrAlt': 'QR code for the share link',
+  'sessions.emailTo': 'Email the link to (optional)',
+  'sessions.emailPlaceholder': 'recipient@example.com',
+  'sessions.emailedOk': 'Link emailed to {{to}}.',
+  'sessions.emailedFail':
+    'Email delivery failed — copy the link manually.',
+  'sessions.access.view': 'View only',
+
+  // --- Access lifecycle split + detail -----------------------------------------
+  'sessions.tab.invitations': 'Invitations',
+  'sessions.tab.connections': 'Connections',
+  'sessions.tab.history': 'History',
+  'sessions.empty.invitations': 'No pending invitations.',
+  'sessions.empty.connections': 'No connections in use.',
+  'sessions.empty.history': 'No finished accesses.',
+  'sessions.stateExpired': 'expired',
+  'sessions.stateUsed': 'in use',
+  'sessions.stateInvitation': 'invitation',
+  'sessions.detail.title': 'Access',
+  'sessions.detail.created': 'Created',
+  'sessions.detail.createdBy': 'Created by',
+  'sessions.detail.uses': 'Uses',
+  'sessions.detail.notFound':
+    'Access not found — it may have expired or been reaped.',
+  'sessions.detail.back': '← Back to accesses',
+  'sessions.detail.lastUsed': 'Last used',
+  'sessions.detail.lastIp': 'Last used IP',
+  'sessions.detail.lastConnected': 'Last connected',
+  'sessions.detail.lastDisconnected': 'Last disconnected',
+  'sessions.detail.connectionCount': 'Total connections',
+  'sessions.detail.duration': 'Duration',
+  'sessions.detail.liveConnections': 'Live connections now',
+  'sessions.detail.exportAudit': 'Export audit (JSON)',
+
+  // --- Entity detail pages ----------------------------------------------------
+  'users.detail.title': 'Operator',
+  'users.detail.back': '← Back to operators',
+  'jobs.detail.title': 'Job',
+  'jobs.detail.notFound': 'Job not found.',
+  'jobs.detail.back': '← Back to jobs',
+  'jobs.detail.started': 'Started',
+  'jobs.detail.finished': 'Finished',
+  'jobs.detail.claimedBy': 'Runner',
+  'jobs.detail.payload': 'Payload',
+
+  // --- Guest portal (/guest) -------------------------------------------------
+  'guest.title': 'Guest portal',
+  'guest.subtitle':
+    'The resources your shared link grants access to.',
+  'guest.role': 'Permission',
+  'guest.expires': 'Expires',
+  'guest.resources': 'Available resources',
+  'guest.endSession': 'End session',
+  'guest.none':
+    'No active guest session — this page is for share-link ' +
+    'recipients.',
+  'guest.expired': 'The session has expired or was revoked.',
+  'guest.portalLink': 'Back to portal',
+  'guest.resDesc.desktop': 'Remote desktop in the browser',
+  'guest.resDesc.terminal': 'Web terminal',
+  'guest.resDesc.audio': 'Live audio receiver',
+  'guest.resDesc.gamepad': 'Gamepad forwarding',
+  'guest.resDesc.files': 'Shared file folder',
+  'chat.title': 'Session chat',
+  'chat.placeholder': 'Type a message…',
+  'chat.send': 'Send',
+  'chat.sendError': 'Message could not be sent',
+  'chat.empty': 'No messages yet.',
+  'chat.unavailable': 'Chat unavailable.',
+  'chat.notify': 'Notify on new messages',
+  'files.title': 'Shared files',
+  'files.subtitle': 'Shared folder on the remote host (FILE_SHARE_ROOT).',
+  'files.dropHint': 'Drop files onto this page to upload them.',
+  'files.breadcrumb': 'Current path',
+  'files.upload': 'Upload',
+  'files.newDir': 'new-folder',
+  'files.mkdir': 'Create folder',
+  'files.download': 'Download',
+  'files.col.name': 'Name',
+  'files.col.size': 'Size',
+  'files.col.mtime': 'Modified',
+  'files.empty': 'Empty folder.',
+  'files.truncated': 'Listing truncated: too many entries.',
+  'files.loadError': 'Could not list the folder.',
+  'files.uploadError': 'Upload failed.',
+  'files.mkdirError': 'Could not create the folder.',
+  'files.tooBig': 'File exceeds the allowed size limit.',
+
+  // --- Connection center (/admin/connect) ------------------------------------
+  'connect.title': 'Connections',
+  'connect.subtitle':
+    'Direct access to the remote system and shared links.',
+  'connect.direct': 'Direct access',
+  'connect.directDesc':
+    'Connection surfaces available on this host.',
+  'connect.grants': 'Active links',
+  'connect.grantsDesc':
+    'Currently valid shared access — full management under Sessions.',
+  'connect.newLink': 'Create link',
+  'connect.manage': 'Manage',
+  'connect.guestView': 'Guest view',
+  'connect.empty': 'No active links.',
+
+  // --- Recovery (/recovery) ----------------------------------------------------
+  'recovery.title': 'Emergency access',
+  'recovery.subtitle':
+    'Use a single-use recovery code if you lost your second factor.',
+  'recovery.username': 'Username',
+  'recovery.password': 'Password',
+  'recovery.code': 'Recovery code',
+  'recovery.submit': 'Sign in',
+  'recovery.busy': 'Verifying…',
+  'recovery.error': 'Invalid credentials.',
+  'recovery.usedNote':
+    'Each recovery code is single-use: it is consumed on sign-in.',
+  'recovery.where':
+    'No codes? An administrator can generate them under ' +
+    'Security → Secrets or with `vnc-remote secrets recovery-codes`.',
+  'recovery.back': '← Back to portal',
 
   // --- Users (operators) --------------------------------------------------------------
   'users.title': 'Operators',

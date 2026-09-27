@@ -155,9 +155,14 @@ function ConfigOps() {
 export default function Config() {
   const { t } = useI18n();
   const [filter, setFilter] = useState('');
+  // '' = the live environment; a profile name previews the values that
+  // profile resolves (GET config/effective?profile=<name>).
+  const [profile, setProfile] = useState('');
   const cfg = useQuery({
-    queryKey: ['config'],
-    queryFn: () => api.get<{ vars: ConfigVar[] }>('config'),
+    queryKey: ['config', profile],
+    queryFn: () => profile
+      ? api.configEffective(profile)
+      : api.get<{ vars: ConfigVar[] }>('config'),
     staleTime: 5 * 60_000,
   });
 
@@ -183,6 +188,13 @@ export default function Config() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
+        <label>{t('config.profile')}
+          <select value={profile}
+                  onChange={(e) => setProfile(e.target.value)}>
+            <option value="">{t('config.profile.live')}</option>
+            {PROFILES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
         <span className="muted">
           {t('config.vars', { count: vars.length })}
         </span>

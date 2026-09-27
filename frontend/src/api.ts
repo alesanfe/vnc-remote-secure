@@ -169,6 +169,45 @@ export const api = {
       session or activated share-link cookie). Anonymous callers get
       401 and the portal page renders its restricted view. */
   portal: () => request<PortalData>('portal'),
+  /** One share-link record by its public fingerprint — 404 on
+      unknown or reaped ids. Includes the live sockets currently
+      carrying the grant. */
+  session: (tokenId: string) =>
+    request<{
+      session: EphemeralSessionInfo;
+      connections?: SessionConnection[];
+    }>(`sessions/${tokenId}`),
+  /** File share — operators always, guests when their grant carries
+      file_transfer. Downloads are raw bytes (browser navigates or
+      fetches the URL directly). */
+  filesList: (path = '') =>
+    request<FileListResult>(
+      `files?path=${encodeURIComponent(path)}`),
+  filesUpload: (path: string, content_b64: string,
+                overwrite = false) =>
+    request<{ path: string; size: number }>('files/upload', {
+      method: 'POST',
+      body: JSON.stringify({ path, content_b64, overwrite }),
+    }),
+  filesMkdir: (path: string) =>
+    request<{ path: string }>('files/mkdir', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+  /** Same-origin URL for the raw-bytes download endpoint — usable
+      as an <a href> target (the cookie travels with the request). */
+  filesDownloadUrl: (path: string) =>
+    `/api/v1/files/download?path=${encodeURIComponent(path)}`,
+  /** Session chat — operators pass the token_id; guests omit it
+      (the channel is derived from their cookie server-side). */
+  chat: (session?: string) =>
+    request<{ session: string; messages: ChatMessage[] }>(
+      `chat${session ? `?session=${encodeURIComponent(session)}` : ''}`),
+  chatSend: (text: string, session?: string) =>
+    request<{ message: ChatMessage }>('chat', {
+      method: 'POST',
+      body: JSON.stringify(session ? { text, session } : { text }),
+    }),
   /** Share-link ceremonies — public routes (the token IS the
       credential; no session or CSRF exists yet). */
   sessionPreview: (token: string) =>
@@ -186,6 +225,18 @@ export const api = {
     request<{ gamepad_stopped: boolean }>(
       stop ? 'gamepad/stop' : 'gamepad/resume',
       { method: 'POST', body: '{}' }),
+  /** Host power (admin:* + step-up) — shutdown/restart/sleep run on a
+      grace delay so the response is delivered first. */
+  hostPower: (action: 'shutdown' | 'restart' | 'sleep') =>
+    request<{ action: string; accepted: boolean;
+              effective_in_seconds: number }>(
+      'power', { method: 'POST', body: JSON.stringify({ action }) }),
+  /** Wake-on-LAN magic packet (admin:*). */
+  wakeOnLan: (mac: string, broadcast = '255.255.255.255', port = 9) =>
+    request<{ sent: boolean; mac: string }>(
+      'power/wol',
+      { method: 'POST',
+        body: JSON.stringify({ mac, broadcast, port }) }),
 
   // --- Operations parity with the CLI -------------------------------
   /** `vnc-remote version`. */
@@ -358,6 +409,8 @@ export interface SessionContext {
   single_use?: boolean;
   no_terminal?: boolean;
   resource?: string | null;
+  /** Public grant fingerprint — identifies the chat channel. */
+  token_id?: string;
   maintenance?: boolean;
 }
 
@@ -394,6 +447,18 @@ export interface ServiceCard {
 
 export type EphemeralSessionInfo =
   components['schemas']['SessionSummary'];
+export type SessionConnection =
+  components['schemas']['SessionConnection'];
+export type FileEntry = components['schemas']['FileEntry'];
+export type ChatMessage = components['schemas']['ChatMessage'];
+
+export interface FileListResult {
+  path: string;
+  entries: FileEntry[];
+  truncated: boolean;
+  max_file_bytes?: number;
+  max_list_entries?: number;
+}
 export type ConfigVar = components['schemas']['ConfigEntry'];
 export type BackupItem = components['schemas']['BackupSummary'];
 export type OperatorUser = components['schemas']['OperatorSummary'];
@@ -403,7 +468,10 @@ export type SessionCreateRequest =
 export interface PostureCheck {
   name: string;
   status: 'ok' | 'warn' | 'fail';
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
   detail: string;
+  /** Observed value backing the check — never a secret. */
+  evidence: string;
 }
 
 export interface Posture {

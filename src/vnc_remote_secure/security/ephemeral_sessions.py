@@ -225,6 +225,15 @@ class EphemeralSession:
         self.created_monotonic = time.monotonic()
         self.used = False
         self.revoked = False
+        # Forensics: when and from where the grant was last consumed.
+        self.last_used_at = None
+        self.last_used_ip = None
+        # Live-connection forensics: set by the WebSocket registry
+        # hooks (connect/disconnect), so the detail view can answer
+        # "is anyone attached right now and for how long".
+        self.last_connected_at = None
+        self.last_disconnected_at = None
+        self.connection_count = 0
         # Strong binding fields.
         self.resource = resource  # e.g. 'desktop', 'terminal'
         self.instance_id = instance_id or _get_instance_id()
@@ -285,10 +294,23 @@ class EphemeralSession:
             return False
         return perm in expand_permissions(self.permissions)
 
-    def mark_used(self):
-        """Mark this session as used (for single-use sessions)."""
+    def mark_used(self, client_ip: str | None = None):
+        """Mark this session as used (for single-use sessions) and
+        record the consumption for the access detail view."""
         self.used = True
         self.use_count += 1
+        self.last_used_at = time.time()
+        if client_ip:
+            self.last_used_ip = client_ip
+
+    def note_connected(self):
+        """A WebSocket carrying this session's grant opened."""
+        self.last_connected_at = time.time()
+        self.connection_count += 1
+
+    def note_disconnected(self):
+        """The last live connection for this session closed."""
+        self.last_disconnected_at = time.time()
 
     def revoke(self):
         """Revoke this session immediately."""
@@ -318,6 +340,11 @@ class EphemeralSession:
             'instance_id': self.instance_id,
             'max_uses': self.max_uses,
             'use_count': self.use_count,
+            'last_used_at': self.last_used_at,
+            'last_used_ip': self.last_used_ip,
+            'last_connected_at': self.last_connected_at,
+            'last_disconnected_at': self.last_disconnected_at,
+            'connection_count': self.connection_count,
         }
 
     def to_persist_dict(self) -> dict:
@@ -349,6 +376,14 @@ class EphemeralSession:
         session.used = bool(data.get('used', False))
         session.revoked = bool(data.get('revoked', False))
         session.use_count = int(data.get('use_count', 0))
+        last_used_at = data.get('last_used_at')
+        session.last_used_at = (float(last_used_at)
+                                if last_used_at else None)
+        session.last_used_ip = data.get('last_used_ip')
+        for f in ('last_connected_at', 'last_disconnected_at'):
+            v = data.get(f)
+            setattr(session, f, float(v) if v else None)
+        session.connection_count = int(data.get('connection_count', 0))
         return session
 
 
@@ -639,6 +674,22 @@ class SessionStore:
             session.use_count = max(
                 session.use_count,
                 int(sdata.get('use_count', 0) or 0))
+            # Forensic fields: the freshest record wins so a use
+            # observed by another process survives our save.
+            other_used_at = sdata.get('last_used_at')
+            if (other_used_at
+                    and other_used_at > (session.last_used_at or 0)):
+                session.last_used_at = float(other_used_at)
+                session.last_used_ip = sdata.get('last_used_ip')
+            # Live-connection forensics merge the same way: freshest
+            # stamp wins, counts take the max.
+            for f in ('last_connected_at', 'last_disconnected_at'):
+                other_v = sdata.get(f)
+                if other_v and other_v > (getattr(session, f) or 0):
+                    setattr(session, f, float(other_v))
+            session.connection_count = max(
+                session.connection_count,
+                int(sdata.get('connection_count', 0) or 0))
 
     def _save(self, raise_on_error: bool = False):
         """Persist sessions to disk.
@@ -845,6 +896,41 @@ class SessionStore:
         """Every retained session: active, revoked, and expired records
         not yet reaped by ``cleanup()`` — the session-center history."""
         return [s.to_dict() for s in self._sessions.values()]
+
+    def find_by_token_id(self, token_id: str):
+        """Return the live session object for a public ``token_id``.
+
+        The public id is ``sha256(internal_token)[:12]`` — callers
+        holding only the fingerprint (the detail API, the WebSocket
+        registry) resolve the internal token here without it ever
+        leaving the store. Returns None for unknown/reaped ids.
+        """
+        import hashlib
+        self._load()
+        for token, session in self._sessions.items():
+            digest = hashlib.sha256(token.encode()).hexdigest()[:12]
+            if hmac.compare_digest(digest, token_id):
+                return session
+        return None
+
+    def note_connection(self, internal_token: str,
+                        connected: bool = True):
+        """Forensic hook called by the WebSocket registry on the
+        last-connect / last-disconnect edges of a session's live
+        sockets. Persists immediately — a disconnect that is only
+        in-memory is invisible to the detail view of another process.
+        """
+        session = self._sessions.get(internal_token)
+        if session is None:
+            self._load()
+            session = self._sessions.get(internal_token)
+        if session is None:
+            return
+        if connected:
+            session.note_connected()
+        else:
+            session.note_disconnected()
+        self._save()
 
     def cleanup(self):
         """Remove expired sessions."""
@@ -1189,6 +1275,11 @@ def consume_ephemeral_session(signed_token: str) -> bool:
             if not _claim_consumed(token, session.expires_at):
                 return False
             session.revoke()
+            # Consumption forensics: bearer-path burns never ran
+            # activate(), so without this the link's only use is
+            # invisible in the detail view.
+            session.used = True
+            session.last_used_at = time.time()
             store._save()
             _metric('exhausted')
             return True  # Return inside lock to prevent race.
@@ -1233,7 +1324,7 @@ def activate_ephemeral_session(signed_token: str,
         if not session or _activation_denied(
                 session, token, client_ip):
             return None
-        session.mark_used()
+        session.mark_used(client_ip)
         store._save()
         _metric('activated')
         if (session.single_use

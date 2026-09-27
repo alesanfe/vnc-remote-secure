@@ -29,12 +29,26 @@ ADMINISH_PERMS = {
 }
 
 # Resources a share link may be scoped to.
-RESOURCES = {'desktop', 'terminal', 'audio', 'gamepad'}
+RESOURCES = {'desktop', 'terminal', 'audio', 'gamepad', 'files'}
 
 
 def _audit(event: str, actor: str, detail: str,
            result: str = '') -> None:
     stores.audit(event, actor, detail, result=result)
+
+
+def _notify(title: str, message: str, severity: str = 'info') -> None:
+    """Best-effort alert-channel notification (Discord/webhook/email).
+
+    Session lifecycle events are worth paging about — a share link
+    activating means an external party just gained remote access.
+    Never raises: alerting must not break the mutation it follows.
+    """
+    try:
+        from vnc_remote_secure.monitoring.alerts import notify
+        notify(title, message, severity)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def create_share_link(actor: str, actor_perms: set, *,
@@ -58,7 +72,7 @@ def create_share_link(actor: str, actor_perms: set, *,
             ERR_PERMISSION,
             'admin-granting share links require admin:*')
     # Store failures propagate — the transport maps them to 500.
-    return stores.session_store().create(
+    session, signed = stores.session_store().create(
         expires_in=ttl,
         role=role,
         single_use=single_use,
@@ -70,6 +84,10 @@ def create_share_link(actor: str, actor_perms: set, *,
         max_uses=max_uses,
         permissions=permissions,
     )
+    _notify('Share link created',
+            f'actor={actor} role={role} resource={resource or "*"} '
+            f'ttl={ttl}s single_use={single_use}')
+    return session, signed
 
 
 def revoke_share_link(actor: str, token_id: str) -> bool:
@@ -78,6 +96,9 @@ def revoke_share_link(actor: str, token_id: str) -> bool:
     revoked = stores.revoke_ephemeral_token(token_id)
     _audit('portal_session_revoke', actor, f'token_id={token_id}',
            result='success' if revoked else 'failure')
+    if revoked:
+        _notify('Share link revoked', f'actor={actor} id={token_id}',
+                'warning')
     return bool(revoked)
 
 
@@ -90,6 +111,9 @@ def revoke_all_share_links(actor: str) -> int:
         if stores.revoke_ephemeral_token(s['token_id']):
             count += 1
     _audit('portal_session_revoke_all', actor, f'count={count}')
+    if count:
+        _notify('All share links revoked',
+                f'actor={actor} count={count}', 'error')
     return count
 
 
@@ -106,6 +130,41 @@ def revoke_share_links_by(actor: str, created_by: str) -> int:
     _audit('portal_session_revoke_user', actor,
            f'target={created_by} count={count}')
     return count
+
+
+def get_share_link(token_id: str) -> dict | None:
+    """Resolve one share-link record by its public ``token_id``.
+
+    Returns the serialized session dict (the same shape the inventory
+    emits) or None when no retained session carries that id —
+    expired-and-reaped records look identical to unknown ids, so the
+    transport answers a plain 404 without disclosing which.
+    """
+    store = stores.session_store()
+    stores.session_refresh(store)
+    for s in store.list_all():
+        if s.get('token_id') == token_id:
+            return s
+    return None
+
+
+def share_link_connections(token_id: str) -> list:
+    """Live WebSocket connections carrying this share link.
+
+    Resolves the public fingerprint to the internal token (kept
+    inside the store) and reads the process-local registry — the
+    answer is live data, not the persisted forensic stamps."""
+    store = stores.session_store()
+    session = store.find_by_token_id(token_id)
+    if session is None:
+        return []
+    try:
+        from vnc_remote_secure.security.websocket_registry import (
+            get_registry,
+        )
+        return get_registry().get_connection_info(session.token)
+    except Exception:  # noqa: BLE001 - live data is best-effort
+        return []
 
 
 # Session-center inventory filters.

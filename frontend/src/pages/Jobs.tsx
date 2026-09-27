@@ -1,13 +1,14 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { api, type JobSummary } from '../api';
 import { useI18n } from '../i18n';
-import { useState } from 'react';
 
-function fmtWhen(ts: number): string {
+export function fmtWhen(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
-function ProgressBar({ job }: { job: JobSummary }) {
+export function ProgressBar({ job }: { job: JobSummary }) {
   const pct = job.percent ?? (job.state === 'done' ? 100 : 0);
   if (job.state === 'done' || job.state === 'failed') {
     return <span className={`badge ${job.state === 'done' ? 'ok' : 'fail'}`}>
@@ -31,7 +32,6 @@ function ProgressBar({ job }: { job: JobSummary }) {
     where a runner died). */
 export default function Jobs() {
   const { t } = useI18n();
-  const [detail, setDetail] = useState<string | null>(null);
   const jobs = useQuery({
     queryKey: ['jobs'],
     queryFn: () => api.jobs(100),
@@ -42,21 +42,26 @@ export default function Jobs() {
         || j.state === 'running') ? 2000 : 15000;
     },
   });
-  const jobDetail = useQuery({
-    queryKey: ['job', detail],
-    queryFn: () => api.job(detail!),
-    enabled: detail !== null,
-    refetchInterval: (q) => {
-      const st = q.state.data?.job.state;
-      return st === 'queued' || st === 'claimed' || st === 'running'
-        ? 2000 : false;
-    },
-  });
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const list = (jobs.data?.jobs ?? []).filter((j) =>
+    !q ||
+    [j.id, j.kind, j.target ?? '', j.actor, j.state]
+      .some((v) => String(v).toLowerCase().includes(q)));
 
   return (
     <>
       <h1 className="page-title">{t('jobs.title')}</h1>
       <p className="muted">{t('jobs.subtitle')}</p>
+      <div className="toolbar">
+        <input
+          style={{ maxWidth: 220 }}
+          aria-label={t('common.search')}
+          placeholder={t('common.search')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
 
       {jobs.isError && (
         <div className="error-box" role="alert">
@@ -67,7 +72,7 @@ export default function Jobs() {
       {jobs.data && jobs.data.jobs.length === 0 && (
         <p className="muted">{t('jobs.empty')}</p>
       )}
-      {(jobs.data?.jobs?.length ?? 0) > 0 && (
+      {list.length > 0 && (
         <table className="data">
           <thead>
             <tr>
@@ -81,19 +86,20 @@ export default function Jobs() {
             </tr>
           </thead>
           <tbody>
-            {jobs.data!.jobs.map((j) => (
+            {list.map((j) => (
               <tr key={j.id}>
-                <td className="mono">{j.id.slice(0, 8)}</td>
+                <td className="mono">
+                  <Link to={`/operations/jobs/${j.id}`}>{j.id.slice(0, 8)}</Link>
+                </td>
                 <td>{j.kind}</td>
                 <td className="mono">{j.target || '—'}</td>
                 <td>{j.actor}</td>
                 <td>{fmtWhen(j.started_at)}</td>
                 <td><ProgressBar job={j} /></td>
                 <td>
-                  <button type="button" className="ghost"
-                          onClick={() => setDetail(j.id)}>
+                  <Link to={`/operations/jobs/${j.id}`}>
                     {t('common.detail')}
-                  </button>
+                  </Link>
                 </td>
               </tr>
             ))}
@@ -101,28 +107,6 @@ export default function Jobs() {
         </table>
       )}
 
-      {detail && jobDetail.data && (
-        <section className="card">
-          <h2>{t('jobs.col.job')} <code>{jobDetail.data.job.id.slice(0, 8)}</code></h2>
-          <dl className="kv">
-            <dt>{t('jobs.col.op')}</dt><dd>{jobDetail.data.job.kind}</dd>
-            <dt>{t('jobs.state')}</dt><dd>{jobDetail.data.job.state}</dd>
-            <dt>{t('jobs.col.actor')}</dt><dd>{jobDetail.data.job.actor}</dd>
-            <dt>{t('jobs.col.resource')}</dt>
-            <dd>{jobDetail.data.job.target || '—'}</dd>
-            <dt>{t('jobs.progress')}</dt>
-            <dd>{jobDetail.data.job.progress ?? '—'}</dd>
-            <dt>{t('jobs.detailLabel')}</dt>
-            <dd>{jobDetail.data.job.detail ?? '—'}</dd>
-            <dt>{t('jobs.error')}</dt>
-            <dd>{jobDetail.data.job.error ?? '—'}</dd>
-          </dl>
-          <button type="button" className="ghost"
-                  onClick={() => setDetail(null)}>
-            {t('common.close')}
-          </button>
-        </section>
-      )}
     </>
   );
 }

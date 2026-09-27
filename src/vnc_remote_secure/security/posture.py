@@ -29,19 +29,41 @@ def _is_tls_enabled() -> bool:
     return _is_tls_enabled_env()
 
 
-def _add_finding(findings, name, ok, warn_msg='', fail_msg='', points=10):
+def _severity(status: str, points: int) -> str:
+    """Deterministic severity for a finding — derived from the
+    status and the score weight so the UI can sort critical issues
+    without a second opinion about the deduction maths."""
+    if status == 'ok':
+        return 'info'
+    if status == 'fail':
+        return 'critical' if points >= 10 else 'high'
+    return 'high' if points >= 10 else 'medium' if points >= 5 else 'low'
+
+
+def _add_finding(findings, name, ok, warn_msg='', fail_msg='',
+                 points=10, evidence=''):
     """Append a posture finding to the findings list.
 
-    A finding records its name, status (ok/warn/fail), detail text, and
-    the point value used to compute the final score. Status is 'ok' when
-    ``ok`` is true, 'warn' when a ``warn_msg`` is provided, otherwise 'fail'.
+    A finding records its name, status (ok/warn/fail), severity,
+    detail text, observed ``evidence`` (never a secret value) and the
+    point value used to compute the final score. Status is 'ok' when
+    ``ok`` is true, 'warn' when a ``warn_msg`` is provided, otherwise
+    'fail'.
     """
     if ok:
-        findings.append({'name': name, 'status': 'ok', 'detail': '', 'points': points})
+        findings.append({'name': name, 'status': 'ok',
+                         'severity': 'info', 'detail': '',
+                         'evidence': evidence, 'points': points})
     elif warn_msg:
-        findings.append({'name': name, 'status': 'warn', 'detail': warn_msg, 'points': points})
+        findings.append({'name': name, 'status': 'warn',
+                         'severity': _severity('warn', points),
+                         'detail': warn_msg, 'evidence': evidence,
+                         'points': points})
     else:
-        findings.append({'name': name, 'status': 'fail', 'detail': fail_msg, 'points': points})
+        findings.append({'name': name, 'status': 'fail',
+                         'severity': _severity('fail', points),
+                         'detail': fail_msg, 'evidence': evidence,
+                         'points': points})
 
 
 def _check_tls_posture(findings):
@@ -55,6 +77,7 @@ def _check_tls_posture(findings):
         warn_msg='TLS disabled — traffic is unencrypted',
         fail_msg='TLS disabled — all traffic is unencrypted',
         points=15,
+        evidence=f'TLS enabled={tls}',
     )
 
     # SSL certificate: the services resolve a cert/key pair via
@@ -83,6 +106,8 @@ def _check_tls_posture(findings):
         bool(tls and cert and key),
         warn_msg='TLS disabled or no SSL certificate path configured',
         points=5,
+        evidence='cert/key pair ' + ('resolved' if cert and key
+                                     else 'missing'),
     )
 
 
@@ -96,6 +121,7 @@ def _check_auth_posture(findings):
         mfa,
         warn_msg='MFA not configured — single-factor auth only',
         points=10,
+        evidence=f'MFA_REQUIRED/TOTP_SECRET configured={mfa}',
     )
 
     # Strong passwords: validate all configured credentials, not just TTYD.
@@ -137,6 +163,8 @@ def _check_auth_posture(findings):
         warn_msg='Credentials may be weak or missing',
         fail_msg='No credentials configured',
         points=10,
+        # Count only — credential values never become evidence.
+        evidence=f'{sum(1 for c in creds if c)} credential(s) set',
     )
 
     # Rate limiting
@@ -147,6 +175,7 @@ def _check_auth_posture(findings):
         bool(max_attempts),
         warn_msg='No rate limiting configured',
         points=5,
+        evidence=f'AUTH_MAX_ATTEMPTS={max_attempts}',
     )
 
     # Persistent session secret (FLASK_SECRET_KEY)
@@ -160,13 +189,16 @@ def _check_auth_posture(findings):
             bool(flask_secret),
             warn_msg='FLASK_SECRET_KEY not set — sessions invalidated on restart',
             points=5,
+            evidence=f'profile={profile}, secret set={bool(flask_secret)}',
         )
     else:
         # In development, ephemeral secret is acceptable.
         findings.append({
             'name': 'Persistent session secret (FLASK_SECRET_KEY)',
             'status': 'ok',
+            'severity': 'info',
             'detail': 'Development profile — ephemeral secret acceptable',
+            'evidence': f'profile={profile}',
             'points': 0,
         })
 
@@ -193,6 +225,8 @@ def _check_auth_posture(findings):
             'Health endpoint has no auth token (loopback-only — '
             'acceptable but set HEALTH_AUTH_TOKEN before exposing)'),
         points=5 if health_public else 0,
+        evidence=(f'HEALTH_AUTH_TOKEN set={health_auth}, '
+                  f'public_bind={health_public}'),
     )
 
     # Discord webhook (should not have placeholder)
@@ -203,6 +237,8 @@ def _check_auth_posture(findings):
         'YOUR_WEBHOOK_URL' not in webhook,
         warn_msg='Placeholder value in DISCORD_WEBHOOK_URL',
         points=5,
+        evidence='DISCORD_WEBHOOK_URL ' + ('unset'
+                 if not webhook else 'set'),
     )
 
 
@@ -216,6 +252,7 @@ def _check_network_posture(findings):
         bind == '127.0.0.1',
         warn_msg=f'Services bind to {bind} (exposed to network)',
         points=10,
+        evidence=f'BIND_HOST={bind}',
     )
 
     # nginx reverse proxy
@@ -226,6 +263,7 @@ def _check_network_posture(findings):
         nginx,
         warn_msg='No reverse proxy — services exposed directly',
         points=5,
+        evidence=f'NGINX_ENABLED={nginx}',
     )
 
     # DuckDNS / domain
@@ -236,6 +274,7 @@ def _check_network_posture(findings):
         bool(domain),
         warn_msg='No domain configured — local access only',
         points=5,
+        evidence=f'DUCK_DOMAIN configured={bool(domain)}',
     )
 
 
@@ -251,9 +290,13 @@ def _check_session_posture(findings):
             idle <= 1800,
             warn_msg=f'Session idle timeout is {idle}s (consider ≤1800s)',
             points=5,
+            evidence=f'SESSION_IDLE_TIMEOUT={idle}s',
         )
     except (ValueError, TypeError):
-        findings.append({'name': 'Session idle timeout', 'status': 'warn', 'detail': 'Not configured', 'points': 0})
+        findings.append({'name': 'Session idle timeout',
+                         'status': 'warn', 'severity': 'medium',
+                         'detail': 'Not configured', 'evidence': '',
+                         'points': 0})
 
 
 def _check_temp_user_posture(findings):
@@ -266,6 +309,7 @@ def _check_temp_user_posture(findings):
         not keep_user,
         warn_msg='KEEP_TEMP_USER=true — temp user persists after exit',
         points=5,
+        evidence=f'KEEP_TEMP_USER={keep_user}',
     )
 
 
@@ -288,6 +332,8 @@ def _check_shared_state_posture(findings):
                   + ' — revocation/single-use/rate-limit guarantees '
                   'are per-process only'),
         points=8,
+        evidence=(f'SHARED_STATE_BACKEND={backend}, '
+                  f'degraded={degraded}'),
     )
 
 
@@ -322,8 +368,13 @@ def calculate_posture() -> dict:
     score = max(0, min(100, score))
     summary = _summarize(score)
 
-    # Checks exposed to callers exclude the internal 'points' field.
-    checks = [{'name': f['name'], 'status': f['status'], 'detail': f['detail']} for f in findings]
+    # Checks exposed to callers exclude the internal 'points' field;
+    # severity + evidence make a critical finding self-describing in
+    # the UI without reverse-engineering the score maths.
+    checks = [{'name': f['name'], 'status': f['status'],
+               'severity': f['severity'], 'detail': f['detail'],
+               'evidence': f.get('evidence', '')}
+              for f in findings]
 
     # Blocking findings from profiles (hard blockers, not just score deductions)
     from vnc_remote_secure.security.profiles import get_blocking_findings

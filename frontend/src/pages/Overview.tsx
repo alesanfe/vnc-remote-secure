@@ -247,6 +247,103 @@ function LifecyclePanel() {
   );
 }
 
+/** Host power + Wake-on-LAN — MeshCentral/RustDesk device-power parity.
+    Server gates: admin:* + step-up for power actions, admin:* for WoL.
+    The confirm dialog mirrors the lifecycle pattern. */
+function PowerPanel() {
+  const stepUp = useStepUp();
+  const { t } = useI18n();
+  const [pending, setPending] =
+    useState<'shutdown' | 'restart' | 'sleep' | null>(null);
+  const [mac, setMac] = useState('');
+  const [flash, setFlash] = useState('');
+  const [err, setErr] = useState('');
+
+  const power = useMutation({
+    mutationFn: (action: 'shutdown' | 'restart' | 'sleep') =>
+      api.hostPower(action),
+    onSuccess: (d) => {
+      setPending(null);
+      setErr('');
+      setFlash(t('overview.power.accepted', { action: d.action }));
+    },
+    onError: (e) => {
+      // Keep pending so the step-up retry replays the same action.
+      stepUp.gate(e, t('overview.power.stepup'),
+                  () => { if (pending) power.mutate(pending); });
+      if (!(e instanceof ApiError) || e.code !== 'STEP_UP_REQUIRED') {
+        setPending(null);
+        setErr(e instanceof ApiError
+          ? `${e.status}: ${e.message}` : t('common.error'));
+      }
+    },
+  });
+
+  const wol = useMutation({
+    mutationFn: () => api.wakeOnLan(mac.trim()),
+    onSuccess: (d) => {
+      setErr('');
+      setFlash(t('overview.power.wolSent', { mac: d.mac }));
+    },
+    onError: (e) => setErr(e instanceof ApiError
+      ? `${e.status}: ${e.message}` : t('common.error')),
+  });
+
+  const MAC_RE = /^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/;
+
+  return (
+    <>
+      <h2 className="section">{t('overview.power.title')}</h2>
+      <p>
+        <button type="button" className="danger" disabled={power.isPending}
+                onClick={() => setPending('shutdown')}>
+          {t('overview.power.shutdown')}
+        </button>{' '}
+        <button type="button" className="danger" disabled={power.isPending}
+                onClick={() => setPending('restart')}>
+          {t('overview.power.restart')}
+        </button>{' '}
+        <button type="button" disabled={power.isPending}
+                onClick={() => setPending('sleep')}>
+          {t('overview.power.sleep')}
+        </button>
+      </p>
+      <p>
+        <input
+          style={{ maxWidth: 220 }}
+          className="mono"
+          placeholder="AA:BB:CC:DD:EE:FF"
+          aria-label={t('overview.power.wolMac')}
+          value={mac}
+          onChange={(e) => setMac(e.target.value)}
+        />{' '}
+        <button type="button"
+                disabled={wol.isPending || !MAC_RE.test(mac.trim())}
+                onClick={() => wol.mutate()}>
+          {t('overview.power.wolSend')}
+        </button>
+      </p>
+      {flash && <div className="info-box">{flash}</div>}
+      {err && <div className="error-box" role="alert">{err}</div>}
+
+      <ConfirmDialog
+        open={pending !== null}
+        title={t('overview.power.confirmTitle', { action: pending ?? '' })}
+        danger={pending !== 'sleep'}
+        confirmText={(pending ?? '').toUpperCase()}
+        confirmLabel={t('overview.power.confirmLabel')}
+        busy={power.isPending}
+        onCancel={() => setPending(null)}
+        onConfirm={() => { if (pending) power.mutate(pending); }}
+      >
+        <p>{t('overview.power.confirmBody', { action: pending ?? '' })}</p>
+      </ConfirmDialog>
+
+      {stepUp.dialog}
+    </>
+  );
+}
+
 export default function Overview() {
   const { t } = useI18n();
   const status = useQuery({
@@ -348,6 +445,7 @@ export default function Overview() {
       )}
 
       <LifecyclePanel />
+      <PowerPanel />
     </>
   );
 }

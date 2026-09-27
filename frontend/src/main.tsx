@@ -1,14 +1,18 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import SharePage from './pages/SharePage';
+import GuestPage from './pages/GuestPage';
+import RecoveryPage from './pages/RecoveryPage';
 import PortalPage from './pages/PortalPage';
 import AudioPage from './pages/AudioPage';
 import GamepadPage from './pages/GamepadPage';
 import TerminalPage from './pages/TerminalPage';
-import { I18nProvider } from './i18n';
+import FilesPage from './pages/FilesPage';
+import { I18nProvider, useI18n } from './i18n';
+import { GuestLayout } from './components/GuestShell';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -27,15 +31,30 @@ const queryClient = new QueryClient({
 // basename; the public paths mount the recipient-facing pages. All
 // of them need a router context (PortalPage reads ?session= via
 // useSearchParams), so the public surface gets a bare BrowserRouter.
+/** Public 404 — unknown paths used to fall through to the portal;
+    now they get an explicit not-found view (the admin SPA has its
+    own). */
+function PublicNotFound() {
+  const { t } = useI18n();
+  return (
+    <main className="share-wrap">
+      <div className="card share-card">
+        <h1>🔒 VNC Remote Secure</h1>
+        <p className="muted">{t('nav.notFound')}</p>
+        <p>
+          <a href="/">{t('guest.portalLink')}</a>
+        </p>
+      </div>
+    </main>
+  );
+}
+
+// The admin SPA keeps its own basename router (its NavLinks are
+// relative to /admin); every other surface shares one Routes tree
+// with layout nesting — GuestLayout mounts the session bar around
+// the in-app resources.
 const path = window.location.pathname;
 const isAdmin = path === '/admin' || path.startsWith('/admin/');
-const isShare = path === '/share' || path === '/share/';
-const isAudio = path === '/audio' || path === '/audio/' ||
-  path === '/audio_receiver.html';
-const isGamepad = path === '/gamepad' || path === '/gamepad/' ||
-  path === '/gamepad.html';
-const isTerminal = path === '/terminal' || path === '/terminal/' ||
-  path === '/terminal.html';
 
 const surface = isAdmin ? (
   <BrowserRouter basename="/admin">
@@ -43,17 +62,22 @@ const surface = isAdmin ? (
   </BrowserRouter>
 ) : (
   <BrowserRouter>
-    {isShare ? (
-      <SharePage />
-    ) : isAudio ? (
-      <AudioPage />
-    ) : isGamepad ? (
-      <GamepadPage />
-    ) : isTerminal ? (
-      <TerminalPage />
-    ) : (
-      <PortalPage />
-    )}
+    <Routes>
+      <Route path="/" element={<PortalPage />} />
+      <Route path="/share" element={<SharePage />} />
+      <Route path="/guest" element={<GuestPage />} />
+      <Route path="/recovery" element={<RecoveryPage />} />
+      <Route element={<GuestLayout />}>
+        <Route path="/terminal" element={<TerminalPage />} />
+        <Route path="/terminal.html" element={<TerminalPage />} />
+        <Route path="/audio" element={<AudioPage />} />
+        <Route path="/audio_receiver.html" element={<AudioPage />} />
+        <Route path="/gamepad" element={<GamepadPage />} />
+        <Route path="/gamepad.html" element={<GamepadPage />} />
+        <Route path="/files" element={<FilesPage />} />
+      </Route>
+      <Route path="*" element={<PublicNotFound />} />
+    </Routes>
   </BrowserRouter>
 );
 

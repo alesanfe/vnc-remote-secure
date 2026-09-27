@@ -121,11 +121,19 @@ def _post_json(url, payload):
         return False
 
 
-def send_email_alert(title, message):
-    """Send an alert email via the configured SMTP server."""
-    to_addr = os.environ.get('ALERT_EMAIL_TO', '')
+def send_email_alert(title, message, to_addr=None):
+    """Send an alert email via the configured SMTP server.
+
+    ``to_addr`` defaults to ALERT_EMAIL_TO — the operator's alert
+    mailbox. Share-link delivery passes the recipient explicitly; the
+    sender is always the configured ALERT_EMAIL_FROM so a caller cannot
+    forge the origin."""
+    to_addr = (to_addr or os.environ.get('ALERT_EMAIL_TO', '')).strip()
     smtp_server = os.environ.get('ALERT_SMTP_SERVER', '')
     if not to_addr or not smtp_server:
+        return False
+    # CR/LF in the recipient would forge headers — reject early.
+    if '\r' in to_addr or '\n' in to_addr:
         return False
 
     host, _, port = smtp_server.partition(':')

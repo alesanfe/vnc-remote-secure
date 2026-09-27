@@ -21,6 +21,10 @@
   --warn-text: #f2c063;
   --fail-text: #ff9d9d;
   --radius: 10px;
+  /* Aliases referenced by wizard-steps, dl.kv and job-progress —
+     they were undeclared and silently fell back to inherited color. */
+  --muted: var(--text-dim);
+  --fg: var(--text);
 }
 
 * { box-sizing: border-box; }
@@ -63,6 +67,46 @@ a { color: var(--accent-text); }
   border-left-color: var(--accent);
   background: var(--surface-2);
 }
+.nav-group-label {
+  padding: 0.9rem 1.25rem 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+}
+
+/* Shared guest session bar — wraps /terminal, /audio, /gamepad so
+   every resource page shows grant context, resource switching and
+   the end-session action. */
+.guest-shell { display: flex; flex-direction: column; min-height: 100vh; }
+.guest-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 1rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.25));
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.guest-bar-home { font-size: 1.1rem; text-decoration: none; }
+.guest-bar-link {
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.4rem;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.guest-bar-link:hover { color: var(--text); background: var(--surface); }
+.guest-bar-link.active {
+  color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+}
+.guest-bar-expires { font-size: 0.85rem; }
+.guest-shell > main, .guest-shell > section { flex: 1; }
 .logout-btn {
   display: block;
   width: calc(100% - 2.5rem);
@@ -334,3 +378,17 @@ dl.kv dd { margin: 0; }
   border: 1px solid var(--border); border-radius: 6px;
   padding: .2rem .4rem; font-size: .8rem;
 }
+
+/* --- Session chat ------------------------------------------------ */
+.chat-log { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem 0; }
+.chat-msg { padding: 0.35rem 0.6rem; border-radius: 8px; background: var(--surface); }
+.chat-msg.chat-guest { background: var(--surface-alt, var(--surface)); border-left: 3px solid var(--accent, #4a9eff); }
+.chat-author { font-weight: 600; font-size: 0.85rem; }
+
+/* --- Drag & drop file upload ------------------------------------------- */
+.dropzone-active {
+  outline: 2px dashed var(--accent, #4a9eff);
+  outline-offset: -6px;
+  background: color-mix(in srgb, var(--accent, #4a9eff) 6%, transparent);
+}
+.chat-text { white-space: pre-wrap; word-break: break-word; }

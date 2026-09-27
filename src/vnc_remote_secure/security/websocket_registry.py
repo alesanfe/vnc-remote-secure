@@ -181,6 +181,10 @@ class WebSocketRegistry:
         if close_now is not None:
             self._fire_close(conn_id, close_now)
             return None
+        # Forensics: the grant went live. session_id is the internal
+        # ephemeral token for share links; operator cookie sessions
+        # ('session:...') simply do not match a store record.
+        _note_session_connect(session_id)
         return conn_id
 
     def _emit_active_gauges(self):
@@ -204,6 +208,7 @@ class WebSocketRegistry:
 
     def unregister(self, conn_id: str):
         """Unregister a connection (called when it closes normally)."""
+        drained = False
         with self._lock:
             entry = self._connections.pop(conn_id, None)
             if entry is None:
@@ -213,11 +218,14 @@ class WebSocketRegistry:
                 session_set.discard(conn_id)
                 if not session_set:
                     del self._by_session[entry.session_id]
+                    drained = True
             self._emit_active_gauges()
             logger.debug(
                 'Unregistered WebSocket connection %s for session %s',
                 conn_id, entry.session_id,
             )
+        if drained:
+            _note_session_disconnect(entry.session_id)
 
     def revoke_session(self, session_id: str) -> int:
         """Force-close all WebSocket connections for a session.
@@ -289,6 +297,8 @@ class WebSocketRegistry:
                 continue
             if self._fire_close(conn_id, entry):
                 closed += 1
+        if conn_ids:
+            _note_session_disconnect(session_id)
         logger.info(
             'Revoked %d WebSocket connection(s) for session %s',
             closed, _redact(session_id),
@@ -357,6 +367,7 @@ class WebSocketRegistry:
                         'session_id': entry.session_id,
                         'resource': entry.resource,
                         'created_at': entry.created_at,
+                        'client_ip': entry.client_ip,
                     })
             return result
 
@@ -377,6 +388,29 @@ def reset_registry():
     """Reset the global registry (for testing only)."""
     global _registry
     _registry = WebSocketRegistry()
+
+
+def _note_session_connect(session_id: str):
+    """Forensic stamp: an ephemeral grant opened a live socket.
+
+    Best-effort — a forensics write must never break the connection
+    path, and non-ephemeral session ids (operator cookies) silently
+    match nothing in the session store.
+    """
+    try:
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+        get_session_store().note_connection(session_id, connected=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _note_session_disconnect(session_id: str):
+    """Forensic stamp: the last live socket for a session closed."""
+    try:
+        from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+        get_session_store().note_connection(session_id, connected=False)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def register_connection(session_id: str, close_callback: CloseCallback,

@@ -250,6 +250,346 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One share-link session by its public fingerprint */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description sha256 fingerprint shown by the inventory — never the token */
+                    token_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDetailResponse"];
+                    };
+                };
+                /** @description Operator access required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown or reaped id */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List one directory inside the file-share root
+         * @description Operator sessions get the share outright; ephemeral sessions need the file_transfer permission and a grant unbound or bound to the 'files' resource. Paths are relative to FILE_SHARE_ROOT and confined to it after realpath resolution.
+         *
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Relative directory path ('' = share root) */
+                    path?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Directory listing */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid or escaping path */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description file_transfer permission required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download one file from the share root */
+        get: {
+            parameters: {
+                query: {
+                    path: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Raw bytes, Content-Disposition attachment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": string;
+                    };
+                };
+                /** @description Not a regular file */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload a file (base64 JSON body, tmp+rename write) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description Target relative path; parent must exist */
+                        path: string;
+                        /** @description Base64 payload, ≤32 MiB decoded */
+                        content_b64: string;
+                        /** @default false */
+                        overwrite?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Written */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid path/payload */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description file_transfer permission required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description File exists (overwrite=false) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/mkdir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create one directory inside the share root */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        path: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid/existing path */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Session chat history (guest and operator share one channel)
+         * @description Operators pass ?session=<token_id>; guests always read their own grant's channel (the id is derived server-side from the ephemeral cookie).
+         *
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description token_id — operator-only parameter */
+                    session?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Channel history */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /** Append a chat message (audited, ≤500 chars) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        text: string;
+                        /** @description token_id — operator only */
+                        session?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Posted */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Empty text or inactive session */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/revoke": {
         parameters: {
             query?: never;
@@ -2791,6 +3131,16 @@ export interface components {
             resource?: string | null;
             max_uses: number;
             use_count: number;
+            /** @description Epoch of the last activation/consumption */
+            last_used_at?: number | null;
+            /** @description Client IP of the last activation */
+            last_used_ip?: string | null;
+            /** @description Epoch when a live socket last attached */
+            last_connected_at?: number | null;
+            /** @description Epoch when the last live socket closed */
+            last_disconnected_at?: number | null;
+            /** @description Cumulative live connections the grant carried */
+            connection_count?: number;
         };
         AuditEntry: {
             seq: number;
@@ -2913,13 +3263,99 @@ export interface components {
             error: unknown;
             request_id: string;
         };
+        SessionDetailResponse: {
+            data: {
+                session: components["schemas"]["SessionSummary"];
+                /** @description Live WebSocket sockets carrying this grant */
+                connections?: components["schemas"]["SessionConnection"][];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SessionConnection: {
+            conn_id?: string;
+            resource?: string | null;
+            client_ip?: string;
+            /** @description Epoch the socket attached (duration = now - this) */
+            created_at?: number;
+        };
+        FileEntry: {
+            name: string;
+            /** @description Relative path inside the share root */
+            path: string;
+            is_dir: boolean;
+            size: number;
+            mtime: number;
+        };
+        FileListResponse: {
+            data: {
+                path: string;
+                entries: components["schemas"]["FileEntry"][];
+                truncated: boolean;
+                max_file_bytes?: number;
+                max_list_entries?: number;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        FileWriteResponse: {
+            data: {
+                path?: string;
+                size?: number;
+                mtime?: number;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        ChatMessage: {
+            /** @description Operator username or 'guest:<token_id>' */
+            author: string;
+            at: number;
+            text: string;
+        };
+        ChatResponse: {
+            data: {
+                /** @description The channel's token_id */
+                session: string;
+                messages: components["schemas"]["ChatMessage"][];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        ChatPostResponse: {
+            data: {
+                message?: components["schemas"]["ChatMessage"];
+            };
+            error: unknown;
+            request_id: string;
+        };
         HealthResponse: {
             data: Record<string, never>;
             error: unknown;
             request_id: string;
         };
+        PostureCheck: {
+            name: string;
+            /** @enum {string} */
+            status: "ok" | "warn" | "fail";
+            /**
+             * @description Derived from status + score weight
+             * @enum {string}
+             */
+            severity: "info" | "low" | "medium" | "high" | "critical";
+            detail: string;
+            /** @description Observed value backing the check — never a secret */
+            evidence: string;
+        };
         PostureResponse: {
-            data: Record<string, never>;
+            data: {
+                score: number;
+                checks: components["schemas"]["PostureCheck"][];
+                summary: string;
+                /** @enum {string} */
+                deployment_decision: "allowed" | "blocked";
+                blocking_findings: string[];
+            };
             error: unknown;
             request_id: string;
         };

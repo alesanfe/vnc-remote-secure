@@ -68,6 +68,25 @@ components:
         resource: { type: string, nullable: true }
         max_uses: { type: integer }
         use_count: { type: integer }
+        last_used_at:
+          type: number
+          nullable: true
+          description: Epoch of the last activation/consumption
+        last_used_ip:
+          type: string
+          nullable: true
+          description: Client IP of the last activation
+        last_connected_at:
+          type: number
+          nullable: true
+          description: Epoch when a live socket last attached
+        last_disconnected_at:
+          type: number
+          nullable: true
+          description: Epoch when the last live socket closed
+        connection_count:
+          type: integer
+          description: Cumulative live connections the grant carried
     AuditEntry:
       type: object
       required: [seq, timestamp, event, user, result, detail]
@@ -210,6 +229,7 @@ components:
             max_uses: { type: integer }
             resource: { type: string, nullable: true }
             allowed_ip: { type: string, nullable: true }
+            emailed: { type: boolean, description: 'True when email_to was supplied and the link was delivered via ALERT_SMTP_*' }
         error: { nullable: true }
         request_id: { type: string }
     SessionRevokeResponse:
@@ -222,6 +242,97 @@ components:
             revoked: { description: 'bool (single) or count (revoke-all)' }
         error: { nullable: true }
         request_id: { type: string }
+    SessionDetailResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [session]
+          properties:
+            session: { $ref: '#/components/schemas/SessionSummary' }
+            connections:
+              type: array
+              description: Live WebSocket sockets carrying this grant
+              items: { $ref: '#/components/schemas/SessionConnection' }
+        error: { nullable: true }
+        request_id: { type: string }
+    SessionConnection:
+      type: object
+      properties:
+        conn_id: { type: string }
+        resource: { type: string, nullable: true }
+        client_ip: { type: string }
+        created_at:
+          type: number
+          description: Epoch the socket attached (duration = now - this)
+    FileEntry:
+      type: object
+      required: [name, path, is_dir, size, mtime]
+      properties:
+        name: { type: string }
+        path: { type: string, description: Relative path inside the share root }
+        is_dir: { type: boolean }
+        size: { type: integer }
+        mtime: { type: number }
+    FileListResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [path, entries, truncated]
+          properties:
+            path: { type: string }
+            entries: { type: array, items: { $ref: '#/components/schemas/FileEntry' } }
+            truncated: { type: boolean }
+            max_file_bytes: { type: integer }
+            max_list_entries: { type: integer }
+        error: { nullable: true }
+        request_id: { type: string }
+    FileWriteResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            path: { type: string }
+            size: { type: integer }
+            mtime: { type: number }
+        error: { nullable: true }
+        request_id: { type: string }
+    ChatMessage:
+      type: object
+      required: [author, at, text]
+      properties:
+        author:
+          type: string
+          description: Operator username or 'guest:<token_id>'
+        at: { type: number }
+        text: { type: string }
+    ChatResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [session, messages]
+          properties:
+            session: { type: string, description: The channel's token_id }
+            messages: { type: array, items: { $ref: '#/components/schemas/ChatMessage' } }
+        error: { nullable: true }
+        request_id: { type: string }
+    ChatPostResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            message: { $ref: '#/components/schemas/ChatMessage' }
+        error: { nullable: true }
+        request_id: { type: string }
     HealthResponse:
       type: object
       required: [data, error, request_id]
@@ -229,11 +340,36 @@ components:
         data: { type: object }
         error: { nullable: true }
         request_id: { type: string }
+    PostureCheck:
+      type: object
+      required: [name, status, severity, detail, evidence]
+      properties:
+        name: { type: string }
+        status: { type: string, enum: [ok, warn, fail] }
+        severity:
+          type: string
+          enum: [info, low, medium, high, critical]
+          description: Derived from status + score weight
+        detail: { type: string }
+        evidence:
+          type: string
+          description: Observed value backing the check — never a secret
     PostureResponse:
       type: object
       required: [data, error, request_id]
       properties:
-        data: { type: object }
+        data:
+          type: object
+          required:
+            [score, checks, summary, deployment_decision, blocking_findings]
+          properties:
+            score: { type: integer, minimum: 0, maximum: 100 }
+            checks:
+              type: array
+              items: { $ref: '#/components/schemas/PostureCheck' }
+            summary: { type: string }
+            deployment_decision: { type: string, enum: [allowed, blocked] }
+            blocking_findings: { type: array, items: { type: string } }
         error: { nullable: true }
         request_id: { type: string }
     DoctorResponse:
@@ -921,7 +1057,8 @@ components:
         no_terminal: { type: boolean, default: false }
         max_uses: { type: integer, minimum: 0, maximum: 1000, default: 0 }
         allowed_ip: { type: string, maxLength: 64, description: 'IP, CIDR or first-observed' }
-        resource: { type: string, enum: [desktop, terminal, audio, gamepad], nullable: true }
+        resource: { type: string, enum: [desktop, terminal, audio, gamepad, files], nullable: true }
+        email_to: { type: string, maxLength: 254, nullable: true, description: 'Optional recipient — the share link is emailed via ALERT_SMTP_*' }
   parameters:
     csrfHeader:
       name: X-CSRF-Token
@@ -1042,6 +1179,196 @@ paths:
         '400': { description: Schema violation }
         '403': { description: CSRF or capability failure }
         '429': { description: Rate limited }
+  /sessions/{token_id}:
+    get:
+      summary: One share-link session by its public fingerprint
+      x-required-permission: admin_sessions
+      x-rate-limit-scope: default
+      x-response-schema: SessionDetailResponse
+      parameters:
+        - name: token_id
+          in: path
+          required: true
+          description: sha256 fingerprint shown by the inventory — never the token
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetailResponse'
+        '403': { description: Operator access required }
+        '404': { description: Unknown or reaped id }
+  /power:
+    post:
+      summary: Host power action (shutdown/restart/sleep)
+      description: >
+        admin:* + step-up. The action runs on a ~1s grace delay in the
+        backend so the 200 is delivered before the host drops. Each
+        call is audited as power_action.
+      x-required-permission: admin:*
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: power
+      x-audit-event: power_action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action]
+              properties:
+                action: { type: string, enum: [shutdown, restart, sleep] }
+      responses:
+        '200': { description: Action accepted }
+        '400': { description: Unknown action }
+        '403': { description: admin:* + step-up required }
+        '429': { description: Rate limited }
+  /power/wol:
+    post:
+      summary: Wake-on-LAN magic packet
+      description: >
+        admin:*. Sends a WoL packet to the broadcast address (default
+        255.255.255.255:9). Target is restricted to broadcast addresses.
+      x-required-permission: admin:*
+      x-csrf-required: true
+      x-rate-limit-scope: power
+      x-audit-event: power_wol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mac]
+              properties:
+                mac: { type: string, description: 'AA:BB:CC:DD:EE:FF' }
+                broadcast: { type: string, default: '255.255.255.255' }
+                port: { type: integer, default: 9 }
+      responses:
+        '200': { description: Packet sent }
+        '400': { description: Invalid MAC or non-broadcast target }
+        '403': { description: admin:* required }
+        '429': { description: Rate limited }
+  /files:
+    get:
+      summary: List one directory inside the file-share root
+      description: >
+        Operator sessions get the share outright; ephemeral sessions
+        need the file_transfer permission and a grant unbound or bound
+        to the 'files' resource. Paths are relative to FILE_SHARE_ROOT
+        and confined to it after realpath resolution.
+      x-required-permission: session (file_transfer for guests)
+      x-rate-limit-scope: files.list
+      x-response-schema: FileListResponse
+      parameters:
+        - name: path
+          in: query
+          description: Relative directory path ('' = share root)
+          schema: { type: string }
+      responses:
+        '200': { description: Directory listing }
+        '400': { description: Invalid or escaping path }
+        '403': { description: file_transfer permission required }
+  /files/download:
+    get:
+      summary: Download one file from the share root
+      x-required-permission: session (file_transfer for guests)
+      x-rate-limit-scope: files.download
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Raw bytes, Content-Disposition attachment
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '400': { description: Not a regular file, or over the size cap }
+  /files/upload:
+    post:
+      summary: Upload a file (base64 JSON body, tmp+rename write)
+      x-required-permission: session (file_transfer for guests)
+      x-rate-limit-scope: files.write
+      x-response-schema: FileWriteResponse
+      x-audit-event: file_transfer_upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content_b64]
+              properties:
+                path: { type: string, description: 'Target relative path; parent must exist' }
+                content_b64: { type: string, description: 'Base64 payload, ≤32 MiB decoded' }
+                overwrite: { type: boolean, default: false }
+      responses:
+        '201': { description: Written }
+        '400': { description: Invalid path/payload }
+        '403': { description: file_transfer permission required }
+        '409': { description: File exists (overwrite=false) }
+  /files/mkdir:
+    post:
+      summary: Create one directory inside the share root
+      x-required-permission: session (file_transfer for guests)
+      x-rate-limit-scope: files.write
+      x-response-schema: FileWriteResponse
+      x-audit-event: file_transfer_mkdir
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        '201': { description: Created }
+        '400': { description: Invalid/existing path }
+  /chat:
+    get:
+      summary: Session chat history (guest and operator share one channel)
+      description: >
+        Operators pass ?session=<token_id>; guests always read their
+        own grant's channel (the id is derived server-side from the
+        ephemeral cookie).
+      x-required-permission: session
+      x-rate-limit-scope: chat
+      x-response-schema: ChatResponse
+      parameters:
+        - name: session
+          in: query
+          description: token_id — operator-only parameter
+          schema: { type: string }
+      responses:
+        '200': { description: Channel history }
+    post:
+      summary: Append a chat message (audited, ≤500 chars)
+      x-required-permission: session
+      x-rate-limit-scope: chat
+      x-response-schema: ChatPostResponse
+      x-audit-event: session_chat_message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 500 }
+                session: { type: string, description: token_id — operator only }
+      responses:
+        '201': { description: Posted }
+        '400': { description: Empty text or inactive session }
   /sessions/revoke:
     post:
       summary: Revoke one share-link session (uniform 200)

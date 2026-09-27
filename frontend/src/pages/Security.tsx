@@ -15,6 +15,24 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${cls}`}>{status.toUpperCase()}</span>;
 }
 
+// Findings render worst-first — a high overall score must never
+// visually bury a critical failure underneath healthy checks.
+// Primary rank is the backend-derived severity (status + score
+// weight); status breaks ties, name keeps the order stable.
+const SEVERITY_RANK: Record<string, number> = {
+  critical: 0, high: 1, medium: 2, low: 3, info: 4,
+};
+const STATUS_RANK: Record<string, number> = { fail: 0, warn: 1 };
+const severityRank = (s?: string) => SEVERITY_RANK[s ?? ''] ?? 4;
+const statusRank = (s: string) => STATUS_RANK[s] ?? 2;
+
+// Severity badge: critical/high share the fail styling, medium/low
+// warn, info is a plain dim chip — the color vocabulary stays the
+// existing ok/warn/fail palette.
+const SEVERITY_CLS: Record<string, string> = {
+  critical: 'fail', high: 'fail', medium: 'warn', low: 'warn',
+};
+
 /** Secrets section — parity with `vnc-remote secrets *` (admin:* +
     step-up on rotations). Values are never shown; only fingerprints. */
 function SecretsPanel() {
@@ -252,6 +270,58 @@ export default function Security() {
       )}
       {p && (
         <>
+          {p.blocking_findings.length > 0 && (
+            <div className="error-box section">
+              <strong>{t('security.blockingFindings')}</strong>
+              <ul>
+                {p.blocking_findings.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <h2 className="section">{t('security.findings')}</h2>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>{t('security.col.check')}</th>
+                <th>{t('security.col.severity')}</th>
+                <th>{t('security.col.status')}</th>
+                <th>{t('common.detail')}</th>
+                <th>{t('security.col.evidence')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...p.checks]
+                .sort(
+                  (a, b) =>
+                    severityRank(a.severity) -
+                      severityRank(b.severity) ||
+                    statusRank(a.status) - statusRank(b.status) ||
+                    a.name.localeCompare(b.name))
+                .map((c) => (
+                  <tr key={c.name}>
+                    <td className="mono">{c.name}</td>
+                    <td>
+                      <span
+                        className={`badge ${SEVERITY_CLS[c.severity] ?? 'dim'}`}
+                      >
+                        {c.severity.toUpperCase()}
+                      </span>
+                    </td>
+                    <td>
+                      <StatusBadge status={c.status} />
+                    </td>
+                    <td>{c.detail}</td>
+                    <td className="mono muted">
+                      {c.evidence || '—'}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+
           <div className="cards">
             <div className="card">
               <h3>{t('security.score')}</h3>
@@ -285,39 +355,6 @@ export default function Security() {
               </div>
             </div>
           </div>
-
-          {p.blocking_findings.length > 0 && (
-            <div className="error-box section">
-              <strong>{t('security.blockingFindings')}</strong>
-              <ul>
-                {p.blocking_findings.map((f) => (
-                  <li key={f}>{f}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <h2 className="section">{t('security.findings')}</h2>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>{t('security.col.check')}</th>
-                <th>{t('security.col.status')}</th>
-                <th>{t('common.detail')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.checks.map((c) => (
-                <tr key={c.name}>
-                  <td className="mono">{c.name}</td>
-                  <td>
-                    <StatusBadge status={c.status} />
-                  </td>
-                  <td>{c.detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </>
       )}
 
