@@ -3245,6 +3245,266 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/desktop/screenshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One PNG frame of the live host desktop
+         * @description Opens a short shared RFB session against the loopback VNC server, captures a full framebuffer update and closes. Existing viewers are not disturbed. Audited as desktop_screenshot.
+         *
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description PNG image bytes */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/png": string;
+                    };
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description VNC server unreachable or auth failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List desktop recordings (newest first)
+         * @description Metadata for every .vrsrec in the run dir.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {recordings: [RecordingMeta]} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Start a background desktop recording
+         * @description Spawns a recorder thread bound to a shared RFB session; raw rect stream lands in <run_dir>/recordings/<id>.vrsrec. Capped by VRS_RECORD_MAX_SECONDS / VRS_RECORD_MAX_BYTES.
+         *
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {id, running: true} */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description admin:* required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description VNC server unreachable or auth failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download/replay one .vrsrec recording blob */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Raw .vrsrec stream (rect records for the player) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": string;
+                    };
+                };
+                /** @description Unknown recording id */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Delete a finished recording (step-up bound)
+         * @description Forensic data destruction — requires a step-up grant bound to recording.delete and the recording id.
+         *
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {deleted: id} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description admin:* + step-up required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown recording id */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Recording still running */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a live recording cleanly */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {id, running: false} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Recording not running */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4020,6 +4280,49 @@ export interface components {
             resource?: "desktop" | "terminal" | "audio" | "gamepad" | "files" | null;
             /** @description Optional recipient — the share link is emailed via ALERT_SMTP_* */
             email_to?: string | null;
+        };
+        /** @description Raw binary body (PNG image or .vrsrec stream) — no JSON envelope. */
+        BinaryResponse: Record<string, never>;
+        RecordingMeta: {
+            id: string;
+            created: number;
+            operator: string;
+            width?: number;
+            height?: number;
+            name?: string;
+            size: number;
+            running: boolean;
+            ended: boolean;
+        };
+        RecordingListResponse: {
+            data: {
+                recordings?: components["schemas"]["RecordingMeta"][];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        RecordingStartResponse: {
+            data: {
+                id?: string;
+                running?: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        RecordingStopResponse: {
+            data: {
+                id?: string;
+                running?: boolean;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        RecordingDeleteResponse: {
+            data: {
+                deleted?: string;
+            };
+            error: unknown;
+            request_id: string;
         };
     };
     responses: never;

@@ -107,6 +107,14 @@ from vnc_remote_secure.backend.handlers.power import (
     _post_power,
     _post_power_wol,
 )
+from vnc_remote_secure.backend.handlers.recordings import (
+    _delete_recording,
+    _get_recording,
+    _get_recordings,
+    _get_screenshot,
+    _post_recording_stop,
+    _post_recordings,
+)
 from vnc_remote_secure.backend.handlers.sessions import (
     _get_session_detail,
     _get_sessions,
@@ -335,6 +343,28 @@ _ROUTES = {
     ('POST', 'power/wol'): _Route(
         _post_power_wol, 'admin:*', 'power', 'power_wol',
         'WolResponse'),
+    # Desktop capture — MeshCentral "Take screenshot"/recording parity.
+    # The RFB capture client opens its own shared session against the
+    # loopback VNC server; recordings are forensic material, so delete
+    # is step-up bound.
+    ('GET', 'desktop/screenshot'): _Route(
+        _get_screenshot, 'admin:*', 'power', 'desktop_screenshot',
+        'BinaryResponse'),
+    ('GET', 'recordings'): _Route(
+        _get_recordings, 'admin:*', 'default', None,
+        'RecordingListResponse'),
+    ('POST', 'recordings'): _Route(
+        _post_recordings, 'admin:*', 'power', 'recording_start',
+        'RecordingStartResponse'),
+    ('GET', 'recordings/{id}'): _Route(
+        _get_recording, 'admin:*', 'default', 'recording_download',
+        'BinaryResponse'),
+    ('POST', 'recordings/{id}/stop'): _Route(
+        _post_recording_stop, 'admin:*', 'power', 'recording_stop',
+        'RecordingStopResponse'),
+    ('DELETE', 'recordings/{id}'): _Route(
+        _delete_recording, 'admin:*', 'power', 'recording_delete',
+        'RecordingDeleteResponse', True),
     ('POST', 'logout'): _Route(
         _post_logout, 'operator', 'default', 'portal_logout',
         'LogoutResponse'),

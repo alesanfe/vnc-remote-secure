@@ -88,7 +88,7 @@ Never hardcode the version string in more than `pyproject.toml` (the
     `services/api_v1.py` keeps the `_ROUTES` registry, rate limits
     and dispatch only
   - `cli/`  unified CLI package (canonical entry point: `commands/` per domain, `_parser.py` argparse wiring, `_app.py` `main()`, `_common.py` shared helpers)
-  - `core/` — backup, config, **config_inspector**, constants, **doctor**, errors, exceptions, logging, paths, processes, validation, lifecycle, **service_manager**, uninstall
+  - `core/` — backup, config, **config_inspector**, constants, **doctor**, errors, exceptions, logging, paths, processes, validation, lifecycle, **service_manager**, uninstall, **rfb_capture** (mini RFB client: screenshot + session recording → `.vrsrec`)
   - `platform/{linux,windows}/` — platform adapters (adapter, installer, services, users, permissions, metrics, gamepad; Windows also firewall + `_powershell`), plus shared `platform/{base,detection}.py`
   - `services/` — audio, gamepad, health, landing, novnc (static +
     `/websockify` proxy to the loopback websockify bridge), terminal, vnc,

@@ -650,3 +650,42 @@ def upgrade_rollback() -> dict:
     """Rollback to the pre-upgrade snapshot."""
     from vnc_remote_secure.core.upgrader import perform_rollback
     return perform_rollback()
+
+
+# --- Desktop capture (screenshot + session recordings) ------------------
+
+
+def desktop_screenshot() -> bytes:
+    """PNG of the current host framebuffer via the RFB capture client."""
+    from vnc_remote_secure.core.rfb_capture import capture_screenshot
+    return capture_screenshot()
+
+
+def recordings_list() -> list:
+    """Metadata for every .vrsrec on disk, newest first."""
+    from vnc_remote_secure.core.rfb_capture import list_recordings
+    return list_recordings()
+
+
+def recording_start(actor: str) -> dict:
+    """Spawn the background desktop recorder."""
+    from vnc_remote_secure.core.rfb_capture import start_recording
+    return start_recording(actor)
+
+
+def recording_stop(rec_id: str) -> bool:
+    """Signal a live recorder to finish cleanly."""
+    from vnc_remote_secure.core.rfb_capture import stop_recording
+    return stop_recording(rec_id)
+
+
+def recording_read(rec_id: str) -> tuple:
+    """(blob bytes, download filename) for one recording."""
+    from vnc_remote_secure.core.rfb_capture import recording_file
+    return recording_file(rec_id)
+
+
+def recording_delete(rec_id: str) -> bool:
+    """Remove a finished recording from the run dir."""
+    from vnc_remote_secure.core.rfb_capture import delete_recording
+    return delete_recording(rec_id)

@@ -203,6 +203,25 @@ export const api = {
       as an <a href> target (the cookie travels with the request). */
   filesDownloadUrl: (path: string) =>
     `/api/v1/files/download?path=${encodeURIComponent(path)}`,
+  /** Desktop capture - MeshCentral 'Take screenshot'/recording
+      parity: PNG snapshot of the host framebuffer (same-origin href;
+      the operator cookie travels) and .vrsrec session recordings.
+      admin:* only - recording delete is a bound step-up grant. */
+  desktopScreenshotUrl: () => '/api/v1/desktop/screenshot',
+  recordings: () =>
+    request<{ recordings: RecordingMeta[] }>('recordings'),
+  recordingStart: () =>
+    request<{ id: string; running: boolean }>('recordings',
+      { method: 'POST' }),
+  recordingStop: (id: string) =>
+    request<{ id: string; running: boolean }>(
+      `recordings/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
+  recordingDelete: (id: string) =>
+    request<{ deleted: string }>(`recordings/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }),
+  /** Raw .vrsrec blob for the in-app player / download. */
+  recordingUrl: (id: string) =>
+    `/api/v1/recordings/${encodeURIComponent(id)}`,
   /** Session chat — operators pass the token_id; guests omit it
       (the channel is derived from their cookie server-side). */
   chat: (session?: string) =>
@@ -645,4 +664,16 @@ export interface UpgradeRunResult {
   backup?: string;
   rolled_back?: boolean;
   error?: string;
+}
+
+export interface RecordingMeta {
+  id: string;
+  created: number;
+  operator: string;
+  width: number;
+  height: number;
+  name: string;
+  size: number;
+  running: boolean;
+  ended: boolean;
 }

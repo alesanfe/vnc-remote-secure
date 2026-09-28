@@ -1090,6 +1090,66 @@ components:
         allowed_ip: { type: string, maxLength: 64, description: 'IP, CIDR or first-observed' }
         resource: { type: string, enum: [desktop, terminal, audio, gamepad, files], nullable: true }
         email_to: { type: string, maxLength: 254, nullable: true, description: 'Optional recipient — the share link is emailed via ALERT_SMTP_*' }
+    BinaryResponse:
+      type: object
+      description: Raw binary body (PNG image or .vrsrec stream) — no JSON envelope.
+    RecordingMeta:
+      type: object
+      required: [id, created, operator, size, running, ended]
+      properties:
+        id: { type: string }
+        created: { type: number }
+        operator: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        name: { type: string }
+        size: { type: integer }
+        running: { type: boolean }
+        ended: { type: boolean }
+    RecordingListResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            recordings:
+              type: array
+              items: { $ref: '#/components/schemas/RecordingMeta' }
+        error: { nullable: true }
+        request_id: { type: string }
+    RecordingStartResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            id: { type: string }
+            running: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    RecordingStopResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            id: { type: string }
+            running: { type: boolean }
+        error: { nullable: true }
+        request_id: { type: string }
+    RecordingDeleteResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            deleted: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
   parameters:
     csrfHeader:
       name: X-CSRF-Token
@@ -2477,3 +2537,108 @@ paths:
       x-audit-event: upgrade_rollback
       responses:
         '202': { description: '{accepted, job_id}' }
+  /desktop/screenshot:
+    get:
+      summary: One PNG frame of the live host desktop
+      description: >
+        Opens a short shared RFB session against the loopback VNC
+        server, captures a full framebuffer update and closes. Existing
+        viewers are not disturbed. Audited as desktop_screenshot.
+      x-required-permission: 'admin:*'
+      x-operation-id: desktop.screenshot
+      x-rate-limit-scope: power
+      x-response-schema: BinaryResponse
+      x-audit-event: desktop_screenshot
+      responses:
+        '200':
+          description: PNG image bytes
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '502': { description: VNC server unreachable or auth failed }
+        '429': { description: Rate limited }
+  /recordings:
+    get:
+      summary: List desktop recordings (newest first)
+      description: Metadata for every .vrsrec in the run dir.
+      x-required-permission: 'admin:*'
+      x-operation-id: recording.list
+      x-rate-limit-scope: default
+      x-response-schema: RecordingListResponse
+      responses:
+        '200': { description: '{recordings: [RecordingMeta]}' }
+    post:
+      summary: Start a background desktop recording
+      description: >
+        Spawns a recorder thread bound to a shared RFB session; raw
+        rect stream lands in <run_dir>/recordings/<id>.vrsrec. Capped
+        by VRS_RECORD_MAX_SECONDS / VRS_RECORD_MAX_BYTES.
+      x-required-permission: 'admin:*'
+      x-operation-id: recording.start
+      x-csrf-required: true
+      x-rate-limit-scope: power
+      x-response-schema: RecordingStartResponse
+      x-audit-event: recording_start
+      responses:
+        '201': { description: '{id, running: true}' }
+        '403': { description: 'admin:* required' }
+        '502': { description: VNC server unreachable or auth failed }
+  /recordings/{id}:
+    get:
+      summary: Download/replay one .vrsrec recording blob
+      x-required-permission: 'admin:*'
+      x-operation-id: recording.get
+      x-rate-limit-scope: default
+      x-response-schema: BinaryResponse
+      x-audit-event: recording_download
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Raw .vrsrec stream (rect records for the player)
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404': { description: Unknown recording id }
+    delete:
+      summary: Delete a finished recording (step-up bound)
+      description: >
+        Forensic data destruction — requires a step-up grant bound to
+        recording.delete and the recording id.
+      x-required-permission: 'admin:*'
+      x-operation-id: recording.delete
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: power
+      x-response-schema: RecordingDeleteResponse
+      x-audit-event: recording_delete
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{deleted: id}' }
+        '403': { description: 'admin:* + step-up required' }
+        '404': { description: Unknown recording id }
+        '409': { description: Recording still running }
+  /recordings/{id}/stop:
+    post:
+      summary: Stop a live recording cleanly
+      x-required-permission: 'admin:*'
+      x-operation-id: recording.stop
+      x-csrf-required: true
+      x-rate-limit-scope: power
+      x-response-schema: RecordingStopResponse
+      x-audit-event: recording_stop
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{id, running: false}' }
+        '404': { description: Recording not running }

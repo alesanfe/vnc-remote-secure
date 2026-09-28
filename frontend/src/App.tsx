@@ -23,6 +23,7 @@ import Config from './pages/Config';
 import Jobs from './pages/Jobs';
 import JobDetail from './pages/JobDetail';
 import FilesPage from './pages/FilesPage';
+import Recordings from './pages/Recordings';
 
 /** /access/<segment> dispatcher: a lifecycle tab name renders the
     inventory view; anything else is treated as a token_id and
@@ -79,6 +80,7 @@ export default function App() {
       group: t('nav.group.security'),
       items: [
         { to: '/security', label: t('nav.security') },
+        { to: '/security/recordings', label: t('nav.recordings') },
         { to: '/security/audit', label: t('nav.audit') },
       ],
     },
@@ -197,6 +199,7 @@ export default function App() {
           <Route path="/identities" element={<Users />} />
           <Route path="/identities/:username" element={<UserDetail />} />
           <Route path="/security" element={<Security />} />
+          <Route path="/security/recordings" element={<Recordings />} />
           <Route path="/security/audit" element={<Audit />} />
           <Route path="/operations/doctor" element={<Doctor />} />
           <Route path="/operations/backups" element={<Backups />} />

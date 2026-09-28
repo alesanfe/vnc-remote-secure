@@ -298,6 +298,33 @@ OPERATIONS: dict[str, OperationSpec] = {
             'admin:*', audit_event='power_wol', supports_cli=False,
             api_route='POST /power/wol', reversible='no'),
 
+        # --- Desktop capture — MeshCentral screenshot/recording parity ------
+        # The RFB capture client opens its own shared session against the
+        # loopback VNC server, so a capture never disturbs connected
+        # viewers. Recordings are forensic material (full screen content)
+        # — deletion is a bound step-up grant.
+        _op('desktop.screenshot', 'Captura de pantalla del equipo',
+            'moderate', 'admin:*', supports_cli=False,
+            api_route='GET /desktop/screenshot',
+            audit_event='desktop_screenshot', reversible='no'),
+        _op('recording.list', 'Listar grabaciones', 'low', 'admin:*',
+            supports_cli=False, api_route='GET /recordings',
+            reversible='yes'),
+        _op('recording.get', 'Descargar grabación', 'moderate', 'admin:*',
+            supports_cli=False, api_route='GET /recordings/{id}',
+            audit_event='recording_download', reversible='yes'),
+        _op('recording.start', 'Grabar escritorio', 'high', 'admin:*',
+            supports_cli=False, api_route='POST /recordings',
+            audit_event='recording_start', reversible='no'),
+        _op('recording.stop', 'Detener grabación', 'moderate', 'admin:*',
+            supports_cli=False, api_route='POST /recordings/{id}/stop',
+            audit_event='recording_stop', reversible='yes'),
+        _op('recording.delete', 'Borrar grabación', 'high', 'admin:*',
+            authentication_policy='stepup-bound',
+            confirmation_type='simple', supports_cli=False,
+            api_route='DELETE /recordings/{id}',
+            audit_event='recording_delete', reversible='no'),
+
         # --- Host bootstrap — CLI-only BY DESIGN ----------------------------
         _op('host.install', 'Instalar y configurar', 'critical', '',
             supports_api=False, supports_ui=False,

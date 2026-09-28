@@ -50,6 +50,12 @@ deliberate `cli-only`/`api-only` cell).
 | `upgrade.rollback` | critical | `upgrade --rollback` | `POST /upgrade/rollback` | sí | `admin:*` | stepup-bound | job | `upgrade_rollback` | yes |
 | `power.action` | critical | — | `POST /power` | sí | `admin:*` | stepup-bound | sync | `power_action` | no |
 | `power.wol` | low | — | `POST /power/wol` | sí | `admin:*` | session | sync | `power_wol` | no |
+| `desktop.screenshot` | moderate | — | `GET /desktop/screenshot` | sí | `admin:*` | session | sync | `desktop_screenshot` | no |
+| `recording.list` | low | — | `GET /recordings` | sí | `admin:*` | session | sync | `-` | yes |
+| `recording.get` | moderate | — | `GET /recordings/{id}` | sí | `admin:*` | session | sync | `recording_download` | yes |
+| `recording.start` | high | — | `POST /recordings` | sí | `admin:*` | session | sync | `recording_start` | no |
+| `recording.stop` | moderate | — | `POST /recordings/{id}/stop` | sí | `admin:*` | session | sync | `recording_stop` | yes |
+| `recording.delete` | high | — | `DELETE /recordings/{id}` | sí | `admin:*` | stepup-bound | sync | `recording_delete` | no |
 | `host.install` | critical | `install` | — | — | `public` | session | sync | `-` | partially |
 | `host.uninstall` | critical | `uninstall` | — | — | `public` | session | sync | `-` | partially |
 | `host.service` | moderate | `service --run` | — | — | `public` | session | sync | `-` | yes |
