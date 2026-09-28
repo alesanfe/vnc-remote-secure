@@ -1001,6 +1001,12 @@ const es = {
   'table.emptyText': 'Sin datos que mostrar.',
   'bits.expired': 'expirado',
   'bits.copyRef': 'Copiar referencia {{id}}',
+  'bits.copied': 'Copiado al portapapeles.',
+  'keys.title': 'Atajos de teclado',
+  'keys.palette': 'Paleta de comandos — salta a cualquier sección',
+  'keys.this': 'Esta ayuda',
+  'keys.esc': 'Cierra diálogos, paneles y el modo inmersivo',
+  'keys.tab': 'Recorre los controles del diálogo',
 };
 
 const en: typeof es = {
@@ -1981,6 +1987,12 @@ const en: typeof es = {
   'table.emptyText': 'No data to show.',
   'bits.expired': 'expired',
   'bits.copyRef': 'Copy reference {{id}}',
+  'bits.copied': 'Copied to clipboard.',
+  'keys.title': 'Keyboard shortcuts',
+  'keys.palette': 'Command palette — jump to any section',
+  'keys.this': 'This help',
+  'keys.esc': 'Closes dialogs, panels and immersive mode',
+  'keys.tab': 'Cycles through dialog controls',
 };
 
 export type Lang = 'es' | 'en';

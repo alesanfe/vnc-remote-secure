@@ -1,4 +1,5 @@
 /** Small shared presentational components. */
+import { toast } from 'sonner';
 import { useI18n } from '../i18n';
 
 export function StatusBadge({
@@ -37,7 +38,11 @@ export function SessionReference({ id }: { id: string }) {
     <button
       className="link-btn mono"
       title={id}
-      onClick={() => navigator.clipboard.writeText(id)}
+      onClick={() => {
+        void navigator.clipboard.writeText(id)
+          .then(() => toast.success(t('bits.copied')))
+          .catch(() => {});
+      }}
       aria-label={t('bits.copyRef', { id })}
     >
       {id.slice(0, 12)}…

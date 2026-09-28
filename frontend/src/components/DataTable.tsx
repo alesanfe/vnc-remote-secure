@@ -13,6 +13,8 @@ interface Column<T> {
   title?: (row: T) => string | undefined;
   /** Opt-in sortable column: return the raw value to compare. */
   sortValue?: (row: T) => string | number | null;
+  /** Monospace cells (ids, hashes, timestamps). */
+  mono?: boolean;
 }
 
 interface Props<T> {
@@ -104,7 +106,8 @@ export default function DataTable<T>({
         {(sorted ?? []).map((r) => (
           <tr key={rowKey(r)}>
             {columns.map((c) => (
-              <td key={c.key} title={c.title?.(r)}>
+              <td key={c.key} title={c.title?.(r)}
+                  className={c.mono ? 'mono' : undefined}>
                 {c.render(r)}
               </td>
             ))}

@@ -339,6 +339,17 @@ a { color: var(--accent-text); }
 }
 .jobs-badge:hover { color: var(--text); }
 
+/* Keyboard-key pill in the shortcuts sheet. */
+kbd {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.8em;
+}
+
 /* Sortable header button inside table.data — invisible chrome until
    interaction, keeps the column label as the click target. */
 .th-sort {

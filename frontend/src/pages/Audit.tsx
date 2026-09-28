@@ -4,6 +4,7 @@ import {
   useQuery,
 } from '@tanstack/react-query';
 import { api, type AuditEntry, type AuditPage } from '../api';
+import DataTable from '../components/DataTable';
 import { useI18n } from '../i18n';
 
 export default function Audit() {
@@ -102,42 +103,29 @@ export default function Audit() {
         </button>
       </div>
 
-      {entries.isError && (
-        <div className="error-box" role="alert">
-          {t('audit.loadError')}
-        </div>
-      )}
       <div style={{ overflowX: 'auto' }}>
-        <table className="data">
-          <caption className="muted" style={{ textAlign: 'left', padding: 4 }}>
-            {t('audit.caption')}
-          </caption>
-          <thead>
-            <tr>
-              {cols.map((c) => (
-                <th key={c} scope="col">{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.seq ?? i}>
-                {cols.map((c) => (
-                  <td key={c} className="mono">
-                    {String(r[c] ?? '')}
-                  </td>
-                ))}
-              </tr>
-            ))}
-            {entries.data && rows.length === 0 && (
-              <tr>
-                <td colSpan={Math.max(cols.length, 1)} className="muted">
-                  {t('audit.empty')}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <p className="muted" style={{ margin: '0.25rem 0' }}>
+          {t('audit.caption')}
+        </p>
+        <DataTable<AuditEntry>
+          loading={entries.isLoading}
+          error={entries.isError}
+          errorText={t('audit.loadError')}
+          emptyText={t('audit.empty')}
+          rows={rows}
+          rowKey={(r) => String(r.seq ?? JSON.stringify(r))}
+          columns={cols.map((c) => ({
+            key: c,
+            header: c,
+            mono: true,
+            sortValue: (r: AuditEntry) => {
+              const v = r[c];
+              return typeof v === 'number' ? v
+                : v == null ? null : String(v);
+            },
+            render: (r: AuditEntry) => String(r[c] ?? ''),
+          }))}
+        />
       </div>
       {entries.hasNextPage && (
         <div className="toolbar" style={{ marginTop: '1rem' }}>

@@ -505,7 +505,11 @@ export default function Sessions() {
             <button
               className="ghost"
               style={{ marginTop: 8 }}
-              onClick={() => navigator.clipboard.writeText(created.url)}
+              onClick={() => {
+                void navigator.clipboard.writeText(created.url)
+                  .then(() => toast.success(t('bits.copied')))
+                  .catch(() => {});
+              }}
             >
               {t('sessions.copy')}
             </button>

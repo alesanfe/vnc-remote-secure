@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import CommandPalette from './components/CommandPalette';
 import Boundary from './components/ErrorBoundary';
+import ShortcutsDialog from './components/ShortcutsDialog';
 import { api, ApiError, type Me } from './api';
 import { LangSwitch, useI18n } from './i18n';
 import LoginPage from './pages/LoginPage';
@@ -199,6 +200,7 @@ export default function App() {
         }}
       />
       <CommandPalette items={paletteItems} />
+      <ShortcutsDialog />
       <header className="topbar">
         <button
           type="button"
