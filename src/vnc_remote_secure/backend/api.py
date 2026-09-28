@@ -6,9 +6,9 @@ module is free to be reorganized internally without breaking callers.
 """
 from __future__ import annotations
 
+from vnc_remote_secure.backend.handlers.common import _csrf_token
 from vnc_remote_secure.services.api_v1 import (
     _ROUTES,
-    _csrf_token,
     _dispatch,
     _rate_limit,
     handle_get,

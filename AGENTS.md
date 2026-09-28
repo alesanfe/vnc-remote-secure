@@ -82,9 +82,11 @@ Never hardcode the version string in more than `pyproject.toml` (the
     - `infrastructure/stores.py` — the ONLY engine module allowed to
       touch `security/*`/`platform/*`; narrow delegation functions
   - `backend/` — transport namespace for the versioned JSON API;
-    `backend/api.py` is the stable facade consumers import
-    (implementation still in `services/api_v1.py` while the migration
-    proceeds)
+    `backend/handlers/*` holds the route handlers grouped by domain
+    (`common.py` has the shared envelope/identity/body plumbing);
+    `backend/api.py` is the stable facade consumers import.
+    `services/api_v1.py` keeps the `_ROUTES` registry, rate limits
+    and dispatch only
   - `cli/`  unified CLI package (canonical entry point: `commands/` per domain, `_parser.py` argparse wiring, `_app.py` `main()`, `_common.py` shared helpers)
   - `core/` — backup, config, **config_inspector**, constants, **doctor**, errors, exceptions, logging, paths, processes, validation, lifecycle, **service_manager**, uninstall
   - `platform/{linux,windows}/` — platform adapters (adapter, installer, services, users, permissions, metrics, gamepad; Windows also firewall + `_powershell`), plus shared `platform/{base,detection}.py`

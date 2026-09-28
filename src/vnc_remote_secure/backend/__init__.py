@@ -6,11 +6,11 @@
                  serialization, OpenAPI parity
     Engine    →  domain rules and use cases (engine/application)
 
-This package is the *namespace* for backend concerns. The current
-implementation still lives in ``services/api_v1.py`` and
-``services/landing.py`` (the landing process hosts the API); modules
-here re-export those entry points so consumers can depend on the
-``backend`` namespace while the migration proceeds file by file —
+This package is the *namespace* for backend concerns. Route handlers
+live in ``backend/handlers/*`` grouped by domain; the declarative
+``_ROUTES`` registry, rate limits and dispatch still live in
+``services/api_v1.py`` (the landing process hosts the API) — the
+registry is the contract, not the implementation.
 ``vnc_remote_secure.backend.api`` is the stable import path for the
 versioned JSON API.
 

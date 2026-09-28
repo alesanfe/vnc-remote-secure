@@ -467,7 +467,7 @@ def _portal_csrf(port):
     nonce = re.search(r'vnc_csrf=([^;\s]+)', joined)
     assert op and nonce
     sid = op.group(1).split('.')[0]
-    from vnc_remote_secure.services.api_v1 import _csrf_token
+    from vnc_remote_secure.backend.api import _csrf_token
     cookie = f'vnc_op={op.group(1)}; vnc_csrf={nonce.group(1)}'
     return cookie, _csrf_token(sid, nonce.group(1))
 
