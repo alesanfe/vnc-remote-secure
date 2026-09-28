@@ -27,6 +27,7 @@ import JobDetail from './pages/JobDetail';
 import FilesPage from './pages/FilesPage';
 import Recordings from './pages/Recordings';
 import RemoteConsole from './pages/RemoteConsole';
+import Help from './pages/Help';
 import ThemeSwitch, { DensitySwitch } from './components/ThemeSwitch';
 import JobsBadge from './components/JobsBadge';
 
@@ -233,6 +234,9 @@ export default function App() {
           ))}
         </nav>
         <nav>
+          <NavLink to="/help" onClick={() => setNavOpen(false)}>
+            {t('nav.help')}
+          </NavLink>
           <a href="/">{t('nav.backToPortal')}</a>
           <JobsBadge />
           <LangSwitch />
@@ -270,6 +274,7 @@ export default function App() {
           <Route path="/operations/jobs" element={<Jobs />} />
           <Route path="/operations/jobs/:jobId" element={<JobDetail />} />
           <Route path="/config" element={<Config />} />
+          <Route path="/help" element={<Help />} />
           {/* Legacy flat paths — kept so existing links/bookmarks
               still land on the deep routes. */}
           <Route path="/sessions"

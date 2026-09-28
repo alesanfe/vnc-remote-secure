@@ -81,13 +81,47 @@ async function parseVrsrec(buf: ArrayBuffer): Promise<ParsedRecording> {
 
 /** Canvas player for a decoded recording. Seek repaints from scratch —
     every rect carries full pixels so any position is reconstructable. */
-function RecordingPlayer({ rec }: { rec: ParsedRecording }) {
+function RecordingPlayer({ rec, recId }: {
+  rec: ParsedRecording;
+  recId: string;
+}) {
   const { t } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pos, setPos] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const state = useRef({ idx: 0, pos: 0 });
+  // Operator bookmarks — forensic annotations kept per recording in
+  // localStorage; exportable as JSON for the evidence bundle.
+  const marksKey = `vrsrec-marks:${recId}`;
+  const [marks, setMarks] = useState<number[]>(() => {
+    try {
+      const raw = localStorage.getItem(marksKey);
+      return raw ? JSON.parse(raw).filter(
+        (x: unknown) => typeof x === 'number') : [];
+    } catch { return []; }
+  });
+  const saveMarks = (next: number[]) => {
+    setMarks(next);
+    localStorage.setItem(marksKey, JSON.stringify(next));
+  };
+  const addMark = () => {
+    const at = Math.round(pos);
+    if (!marks.includes(at)) {
+      saveMarks([...marks, at].sort((a, b) => a - b));
+    }
+  };
+  const exportMarks = () => {
+    const blob = new Blob(
+      [JSON.stringify({ recording_id: recId, markers_ms: marks },
+                      null, 2)],
+      { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${recId}-markers.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   const paintTo = (upto: number) => {
     const ctx = canvasRef.current?.getContext('2d');
@@ -167,7 +201,30 @@ function RecordingPlayer({ rec }: { rec: ParsedRecording }) {
             <option key={s} value={s}>{s}×</option>
           ))}
         </select>
+        <button type="button" className="ghost" onClick={addMark}>
+          {t('rec.mark')}
+        </button>
       </div>
+      {marks.length > 0 && (
+        <div className="toolbar" style={{ alignItems: 'center' }}>
+          <span className="muted">{t('rec.marks')}:</span>
+          {marks.map((m) => (
+            <button key={m} type="button" className="chip"
+                    onClick={() => seek(m)}
+                    title={t('rec.markSeek')}>
+              {fmtClock(m)}
+            </button>
+          ))}
+          <span className="spacer" />
+          <button type="button" className="ghost" onClick={exportMarks}>
+            {t('rec.marksExport')}
+          </button>
+          <button type="button" className="ghost"
+                  onClick={() => saveMarks([])}>
+            {t('rec.marksClear')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -329,7 +386,8 @@ export default function Recordings() {
                 {playingId === r.id && parsed && (
                   <tr>
                     <td colSpan={6}>
-                      <RecordingPlayer rec={parsed} />
+                      <RecordingPlayer key={playingId} rec={parsed}
+                         recId={playingId ?? ''} />
                     </td>
                   </tr>
                 )}

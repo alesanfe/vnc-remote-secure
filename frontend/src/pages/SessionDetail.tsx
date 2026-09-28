@@ -5,6 +5,7 @@ import { api, ApiError, type AuditPage } from '../api';
 import ChatPanel from '../components/ChatPanel';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { RelativeTime, StatusBadge } from '../components/bits';
+import { desktopUrl } from './GuestPage';
 import { useI18n } from '../i18n';
 
 /** Human-readable duration (seconds → '1 h 05 m' style). */
@@ -27,7 +28,16 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
   // the operator↔guest chat live under one tab bar instead of three
   // stacked cards competing for the same scroll.
   const [tab, setTab] =
-    useState<'summary' | 'activity' | 'chat'>('summary');
+    useState<'summary' | 'desktop' | 'activity' | 'chat'>('summary');
+  // Desktop tab embeds the host noVNC — the session is a grant on
+  // this single host, so 'watch while they connect' maps 1:1 to the
+  // shared console view.
+  const portal = useQuery({
+    queryKey: ['portal'],
+    queryFn: () => api.portal(),
+    retry: false,
+    enabled: tab === 'desktop',
+  });
 
   const detail = useQuery({
     queryKey: ['session', tokenId],
@@ -123,7 +133,8 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
       {s && (
         <div role="tablist" aria-label={t('sessions.detail.tabsAria')}
              className="toolbar">
-          {(['summary', 'activity', 'chat'] as const).map((k) => (
+          {(['summary', 'desktop', 'activity', 'chat'] as const)
+            .map((k) => (
             <button
               key={k}
               type="button"
@@ -313,6 +324,17 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
       {s && tab === 'activity' &&
        (detail.data?.connections?.length ?? 0) === 0 && (
         <p className="muted">{t('sessions.detail.noActivity')}</p>
+      )}
+
+      {s && tab === 'desktop' && (
+        <iframe
+          src={desktopUrl(portal.data)}
+          title={t('nav.remote')}
+          className="desktop-frame"
+          style={{ width: '100%', height: '70vh',
+                   border: '1px solid var(--border)',
+                   borderRadius: 'var(--radius)' }}
+        />
       )}
 
       {s && tab === 'chat' && live && <ChatPanel session={tokenId} />}

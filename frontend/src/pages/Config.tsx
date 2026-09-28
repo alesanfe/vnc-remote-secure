@@ -155,6 +155,10 @@ function ConfigOps() {
 export default function Config() {
   const { t } = useI18n();
   const [filter, setFilter] = useState('');
+  // Two disclosure levels: 'Básica' is the guided surface (validate /
+  // profile diff / migrate), 'Avanzada' is the raw effective-vars
+  // table for operators who know the variable names.
+  const [level, setLevel] = useState<'basic' | 'advanced'>('basic');
   // '' = the live environment; a profile name previews the values that
   // profile resolves (GET config/effective?profile=<name>).
   const [profile, setProfile] = useState('');
@@ -180,6 +184,27 @@ export default function Config() {
         {t('config.page.subtitle')}
       </p>
 
+      <div role="tablist" aria-label={t('config.levels')}
+           className="toolbar">
+        {(['basic', 'advanced'] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={level === k}
+            className={level === k ? '' : 'ghost'}
+            onClick={() => setLevel(k)}
+          >
+            {t(`config.level.${k}`)}
+          </button>
+        ))}
+      </div>
+
+      {level === 'basic' && (
+        <ConfigOps />
+      )}
+      {level === 'advanced' && (
+      <>
       <div className="toolbar">
         <input
           style={{ maxWidth: 320 }}
@@ -230,8 +255,8 @@ export default function Config() {
           ))}
         </tbody>
       </table>
-
-      <ConfigOps />
+      </>
+      )}
     </>
   );
 }
