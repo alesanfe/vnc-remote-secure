@@ -26,6 +26,15 @@ function toBase64(file: File): Promise<string> {
 /** File share — the 'files' resource. Operators always reach it;
     guests only when their grant carries file_transfer (the server
     enforces both). Paths stay inside FILE_SHARE_ROOT server-side. */
+interface Transfer {
+  id: number;
+  name: string;
+  size: number;
+  status: 'queued' | 'uploading' | 'done' | 'error';
+  error?: string;
+}
+let transferSeq = 0;
+
 export default function FilesPage() {
   const { t } = useI18n();
   const qc = useQueryClient();
@@ -33,6 +42,10 @@ export default function FilesPage() {
   const [error, setError] = useState('');
   const [newDir, setNewDir] = useState('');
   const [dragging, setDragging] = useState(false);
+  // Persistent visual queue — each upload reports its own state so a
+  // batch doesn't collapse into a single opaque spinner.
+  const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const list = useQuery({
@@ -40,24 +53,49 @@ export default function FilesPage() {
     queryFn: () => api.filesList(path),
     retry: false,
   });
-  const upload = useMutation({
-    mutationFn: async (files: FileList) => {
+
+  const patch = (id: number, p: Partial<Transfer>) =>
+    setTransfers((ts) => ts.map((x) => x.id === id ? { ...x, ...p } : x));
+
+  const runUploads = async (files: FileList) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
       for (const f of Array.from(files)) {
-        if (list.data?.max_file_bytes && f.size > list.data.max_file_bytes) {
-          throw new ApiError(400, t('files.tooBig'));
+        const id = ++transferSeq;
+        const item: Transfer = {
+          id, name: f.name, size: f.size, status: 'queued',
+        };
+        setTransfers((ts) => [...ts, item]);
+        if (list.data?.max_file_bytes &&
+            f.size > list.data.max_file_bytes) {
+          patch(id, { status: 'error', error: t('files.tooBig') });
+          continue;
         }
-        const b64 = await toBase64(f);
-        await api.filesUpload(
-          path ? `${path}/${f.name}` : f.name, b64);
+        patch(id, { status: 'uploading' });
+        try {
+          const b64 = await toBase64(f);
+          await api.filesUpload(
+            path ? `${path}/${f.name}` : f.name, b64);
+          patch(id, { status: 'done' });
+        } catch (e) {
+          patch(id, {
+            status: 'error',
+            error: e instanceof ApiError ? e.message
+                                       : t('files.uploadError'),
+          });
+        }
       }
-    },
-    onSuccess: () => {
-      setError('');
       void qc.invalidateQueries({ queryKey: ['files'] });
-    },
-    onError: (e) =>
-      setError(e instanceof ApiError ? e.message : t('files.uploadError')),
-  });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearDone = () =>
+    setTransfers((ts) => ts.filter((x) => x.status !== 'done'));
+
   const mkdir = useMutation({
     mutationFn: (name: string) =>
       api.filesMkdir(path ? `${path}/${name}` : name),
@@ -91,7 +129,7 @@ export default function FilesPage() {
         e.preventDefault();
         setDragging(false);
         if (e.dataTransfer.files.length) {
-          upload.mutate(e.dataTransfer.files);
+          void runUploads(e.dataTransfer.files);
         }
       }}
     >
@@ -127,7 +165,7 @@ export default function FilesPage() {
           style={{ display: 'none' }}
           onChange={(e) => {
             if (e.target.files?.length) {
-              upload.mutate(e.target.files);
+              void runUploads(e.target.files);
               e.target.value = '';
             }
           }}
@@ -135,10 +173,10 @@ export default function FilesPage() {
         <button
           type="button"
           className="ghost"
-          disabled={upload.isPending}
+          disabled={busy}
           onClick={() => fileInput.current?.click()}
         >
-          {upload.isPending ? t('common.loading') : t('files.upload')}
+          {busy ? t('common.loading') : t('files.upload')}
         </button>
         <input
           style={{ maxWidth: 140 }}
@@ -161,6 +199,38 @@ export default function FilesPage() {
         </button>
       </div>
 
+      {transfers.length > 0 && (
+        <div className="card transfer-queue" role="status"
+             aria-label={t('files.queue')}>
+          <div className="toolbar" style={{ marginBottom: '0.4rem' }}>
+            <strong>{t('files.queue')}</strong>
+            <span className="spacer" />
+            {transfers.some((x) => x.status === 'done') && (
+              <button type="button" className="ghost"
+                      onClick={clearDone}>
+                {t('files.clearDone')}
+              </button>
+            )}
+          </div>
+          <ul className="cap-list">
+            {transfers.map((x) => (
+              <li key={x.id}
+                  className={
+                    x.status === 'error' ? 'cap-no'
+                    : x.status === 'done' ? 'cap-yes' : ''}>
+                {x.status === 'done' ? '✓'
+                  : x.status === 'error' ? '✕'
+                  : x.status === 'uploading' ? '↥' : '·'}{' '}
+                {x.name}{' '}
+                <span className="muted">
+                  {fmtSize(x.size)} · {t(`files.st.${x.status}`)}
+                  {x.error ? ` — ${x.error}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {error && <div className="error-box" role="alert">{error}</div>}
       {list.isError && (
         <div className="error-box" role="alert">

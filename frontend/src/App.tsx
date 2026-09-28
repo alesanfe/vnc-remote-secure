@@ -3,6 +3,7 @@ import {
   NavLink,
   Route,
   Routes,
+  useNavigate,
   useParams,
 } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,7 +27,8 @@ import JobDetail from './pages/JobDetail';
 import FilesPage from './pages/FilesPage';
 import Recordings from './pages/Recordings';
 import RemoteConsole from './pages/RemoteConsole';
-import ThemeSwitch from './components/ThemeSwitch';
+import ThemeSwitch, { DensitySwitch } from './components/ThemeSwitch';
+import JobsBadge from './components/JobsBadge';
 
 /** /access/<segment> dispatcher: a lifecycle tab name renders the
     inventory view; anything else is treated as a token_id and
@@ -56,6 +58,10 @@ export default function App() {
   // Drawer state only matters ≤860px — on desktop the sidebar is
   // always visible and the toggle is display:none.
   const [navOpen, setNavOpen] = useState(false);
+  // Sidebar command-filter: typing narrows nav entries, Enter jumps
+  // to the first match — the lightweight launcher for wide consoles.
+  const [navQuery, setNavQuery] = useState('');
+  const nav = useNavigate();
   const me = useQuery({
     queryKey: ['me'],
     queryFn: () => api.get<Me>('me'),
@@ -177,7 +183,35 @@ export default function App() {
           </small>
         </div>
         <nav aria-label="Admin">
-          {NAV_GROUPS.map((g) => (
+          <input
+            className="nav-filter"
+            type="search"
+            aria-label={t('nav.filter')}
+            placeholder={t('nav.filter')}
+            value={navQuery}
+            onChange={(e) => setNavQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              const first = NAV_GROUPS
+                .flatMap((g) => g.items)
+                .find((n) =>
+                  n.label.toLowerCase().includes(
+                    navQuery.trim().toLowerCase()));
+              if (first) {
+                setNavOpen(false);
+                nav(first.to);
+              }
+            }}
+          />
+          {NAV_GROUPS.map((g) => ({
+            ...g,
+            items: g.items.filter((n) =>
+              !navQuery.trim() ||
+              n.label.toLowerCase().includes(
+                navQuery.trim().toLowerCase())),
+          }))
+            .filter((g) => g.items.length)
+            .map((g) => (
             <div key={g.group ?? 'home'} className="nav-group">
               {g.group && (
                 <div className="nav-group-label" aria-hidden="true">
@@ -200,8 +234,10 @@ export default function App() {
         </nav>
         <nav>
           <a href="/">{t('nav.backToPortal')}</a>
+          <JobsBadge />
           <LangSwitch />
           <ThemeSwitch />
+          <DensitySwitch />
           {me.data?.operator ? (
             <button
               type="button"

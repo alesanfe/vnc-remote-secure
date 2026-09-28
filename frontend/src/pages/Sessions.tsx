@@ -220,17 +220,21 @@ export default function Sessions() {
     onSettled: () => setConfirmRevokeAll(false),
   });
 
-  const flagBadges = (s: EphemeralSessionInfo) => (
-    <>
-      {s.view_only && <StatusBadge status="dim" label="view-only" />}{' '}
-      {s.single_use && <StatusBadge status="warn" label="single-use" />}{' '}
-      {s.no_terminal && <StatusBadge status="dim" label="no-terminal" />}{' '}
-      {s.allowed_ip && (
-        <StatusBadge status="warn" label={`ip:${s.allowed_ip}`} />
-      )}
-      {!s.view_only && !s.single_use && !s.no_terminal && !s.allowed_ip && '—'}
-    </>
-  );
+  // Restrictions render as muted metadata, not badges — the row keeps
+  // one real badge (state) so it stands out instead of drowning in
+  // same-weight capsules.
+  const flagBadges = (s: EphemeralSessionInfo) => {
+    const flags: string[] = [];
+    if (s.view_only) flags.push('view-only');
+    if (s.single_use) flags.push('single-use');
+    if (s.no_terminal) flags.push('no-terminal');
+    if (s.allowed_ip) flags.push(`ip:${s.allowed_ip}`);
+    return flags.length
+      ? <span className="muted mono" style={{ fontSize: '0.8rem' }}>
+          {flags.join(' · ')}
+        </span>
+      : '—';
+  };
 
   return (
     <>

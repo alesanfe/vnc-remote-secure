@@ -17,6 +17,37 @@ export function initTheme() {
   apply((localStorage.getItem(KEY) as Theme) || 'auto');
 }
 
+const DKEY = 'vnc-density';
+type Density = 'normal' | 'compact';
+
+/** Cycle normal → compact — compact tightens paddings for
+    operational tables without changing semantics. */
+export function DensitySwitch() {
+  const { t } = useI18n();
+  const [density, setDensity] = useState<Density>(
+    () => (localStorage.getItem(DKEY) as Density) || 'normal');
+
+  useEffect(() => {
+    const el = document.documentElement;
+    if (density === 'compact') el.setAttribute('data-density', 'compact');
+    else el.removeAttribute('data-density');
+    localStorage.setItem(DKEY, density);
+  }, [density]);
+
+  return (
+    <button
+      type="button"
+      className="logout-btn"
+      onClick={() =>
+        setDensity((d) => (d === 'normal' ? 'compact' : 'normal'))}
+      aria-label={t('density.switch')}
+      title={t('density.switch')}
+    >
+      {t(`density.${density}`)}
+    </button>
+  );
+}
+
 /** Cycle auto → dark → light. 'auto' defers to prefers-color-scheme;
     prefers-contrast: more is honoured in CSS regardless. */
 export default function ThemeSwitch() {

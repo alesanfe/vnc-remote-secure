@@ -23,6 +23,11 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
   const qc = useQueryClient();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [mutError, setMutError] = useState('');
+  // The session is the working context: summary, live activity and
+  // the operator↔guest chat live under one tab bar instead of three
+  // stacked cards competing for the same scroll.
+  const [tab, setTab] =
+    useState<'summary' | 'activity' | 'chat'>('summary');
 
   const detail = useQuery({
     queryKey: ['session', tokenId],
@@ -116,6 +121,24 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
       )}
 
       {s && (
+        <div role="tablist" aria-label={t('sessions.detail.tabsAria')}
+             className="toolbar">
+          {(['summary', 'activity', 'chat'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              className={tab === k ? '' : 'ghost'}
+              onClick={() => setTab(k)}
+            >
+              {t(`sessions.detail.tab.${k}`)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {s && tab === 'summary' && (
         <div className="card">
           <div className="toolbar">
             <StatusBadge
@@ -252,7 +275,8 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
         </div>
       )}
 
-      {s && (detail.data?.connections?.length ?? 0) > 0 && (
+      {s && tab === 'activity' &&
+       (detail.data?.connections?.length ?? 0) > 0 && (
         <div className="card">
           <h3 style={{ marginTop: 0 }}>
             {t('sessions.detail.liveConnections')}
@@ -286,7 +310,15 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
         </div>
       )}
 
-      {s && live && <ChatPanel session={tokenId} />}
+      {s && tab === 'activity' &&
+       (detail.data?.connections?.length ?? 0) === 0 && (
+        <p className="muted">{t('sessions.detail.noActivity')}</p>
+      )}
+
+      {s && tab === 'chat' && live && <ChatPanel session={tokenId} />}
+      {s && tab === 'chat' && !live && (
+        <p className="muted">{t('sessions.detail.chatEnded')}</p>
+      )}
 
       <ConfirmDialog
         open={confirmRevoke}
