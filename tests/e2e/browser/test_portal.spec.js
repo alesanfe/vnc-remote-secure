@@ -54,14 +54,17 @@ test.describe('Portal Landing Page', () => {
 
   test('shows service links', async ({ page }) => {
     await page.goto(LANDING_URL);
-    // The portal should contain links to services (case-insensitive)
+    // The portal is a React SPA — wait for the client to mount and
+    // render service data before asserting on the body text.
+    await page.waitForSelector('a[href*="/health"]');
     const body = (await page.textContent('body')).toLowerCase();
     expect(body).toContain('health');
   });
 
-  test('includes health/all aggregate link', async ({ page }) => {
+  test('includes per-service health link', async ({ page }) => {
     await page.goto(LANDING_URL);
-    const links = await page.$$eval('a[href*="/health/all"]', els =>
+    await page.waitForSelector('a[href*="/health"]');
+    const links = await page.$$eval('a[href*="/health"]', els =>
       els.map(el => el.href)
     );
     expect(links.length).toBeGreaterThan(0);
@@ -69,6 +72,8 @@ test.describe('Portal Landing Page', () => {
 
   test('shows LAN access information', async ({ page }) => {
     await page.goto(LANDING_URL);
+    // LAN IPs render after the SPA fetches /status.json.
+    await page.waitForSelector('a[href*="/health"]');
     const body = await page.textContent('body');
     // Should contain some IP address or localhost reference
     expect(body).toMatch(/(localhost|127\.0\.0\.1|192\.168)/);
