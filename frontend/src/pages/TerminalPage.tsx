@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { api, type PortalData } from '../api';
 import { useI18n } from '../i18n';
@@ -25,6 +26,10 @@ export default function TerminalPage() {
   // after a 1008 policy close, where automatic retry is refused.
   const [retryNonce, setRetryNonce] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState('');
+  const findInputRef = useRef<HTMLInputElement>(null);
   const termObj = useRef<{
     term: Terminal;
     busy: boolean;
@@ -60,6 +65,9 @@ export default function TerminalPage() {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    searchRef.current = search;
     term.open(termRef.current);
     fit.fit();
 
@@ -218,8 +226,29 @@ export default function TerminalPage() {
       wsRef.current = null;
       term.dispose();
       termObj.current = null;
+      searchRef.current = null;
     };
   }, [wsUrl, retryNonce]);
+
+  // Ctrl+F opens the scrollback find bar (xterm SearchAddon).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFindOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    if (findOpen) findInputRef.current?.focus();
+    else {
+      searchRef.current?.clearDecorations();
+      termObj.current?.term.focus();
+    }
+  }, [findOpen]);
 
   const label =
     state === 'connected'
@@ -255,6 +284,48 @@ export default function TerminalPage() {
         >
           {t('terminal.reconnect')}
         </button>
+      )}
+      {findOpen && (
+        <div className="term-find" role="search">
+          <input
+            ref={findInputRef}
+            value={findText}
+            placeholder={t('terminal.find')}
+            aria-label={t('terminal.find')}
+            onChange={(e) => {
+              setFindText(e.target.value);
+              if (e.target.value)
+                searchRef.current?.findNext(e.target.value);
+              else searchRef.current?.clearDecorations();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && findText) {
+                e.preventDefault();
+                if (e.shiftKey)
+                  searchRef.current?.findPrevious(findText);
+                else searchRef.current?.findNext(findText);
+              }
+              if (e.key === 'Escape') setFindOpen(false);
+            }}
+          />
+          <button type="button" className="ghost icon-btn"
+                  aria-label={t('terminal.findPrev')}
+                  onClick={() => findText &&
+                    searchRef.current?.findPrevious(findText)}>
+            ↑
+          </button>
+          <button type="button" className="ghost icon-btn"
+                  aria-label={t('terminal.findNext')}
+                  onClick={() => findText &&
+                    searchRef.current?.findNext(findText)}>
+            ↓
+          </button>
+          <button type="button" className="ghost icon-btn"
+                  aria-label={t('common.close')}
+                  onClick={() => setFindOpen(false)}>
+            ×
+          </button>
+        </div>
       )}
       <div ref={termRef} className="term-host" />
     </main>

@@ -657,6 +657,9 @@ const es = {
   // --- Terminal -------------------------------------------------------------------
   'terminal.unauthorized': 'Sesión no autorizada para el terminal.',
   'terminal.reconnect': 'Reconectar',
+  'terminal.find': 'Buscar en el historial (Enter: siguiente, Shift+Enter: anterior)',
+  'terminal.findPrev': 'Coincidencia anterior',
+  'terminal.findNext': 'Coincidencia siguiente',
   'terminal.state.connected': 'conectado',
   'terminal.state.connecting': 'conectando',
   'terminal.state.error': 'error',
@@ -1652,6 +1655,9 @@ const en: typeof es = {
   // --- Terminal -------------------------------------------------------------------
   'terminal.unauthorized': 'Session is not authorized for the terminal.',
   'terminal.reconnect': 'Reconnect',
+  'terminal.find': 'Search the scrollback (Enter: next, Shift+Enter: previous)',
+  'terminal.findPrev': 'Previous match',
+  'terminal.findNext': 'Next match',
   'terminal.state.connected': 'connected',
   'terminal.state.connecting': 'connecting',
   'terminal.state.error': 'error',

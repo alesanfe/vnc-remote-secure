@@ -31,6 +31,16 @@ export function RelativeTime({ epoch }: { epoch: number }) {
   return <span>{m}m{String(s).padStart(2, '0')}s</span>;
 }
 
+/** Clipboard write + success toast — shared by every copy action so
+    none of them silently swallows a rejection or duplicates the
+    promise plumbing. */
+export function copyText(text: string, done: string): void {
+  void navigator.clipboard
+    .writeText(text)
+    .then(() => toast.success(done))
+    .catch(() => {});
+}
+
 /** Short, copyable session reference (token fingerprint). */
 export function SessionReference({ id }: { id: string }) {
   const { t } = useI18n();
@@ -38,11 +48,7 @@ export function SessionReference({ id }: { id: string }) {
     <button
       className="link-btn mono"
       title={id}
-      onClick={() => {
-        void navigator.clipboard.writeText(id)
-          .then(() => toast.success(t('bits.copied')))
-          .catch(() => {});
-      }}
+      onClick={() => copyText(id, t('bits.copied'))}
       aria-label={t('bits.copyRef', { id })}
     >
       {id.slice(0, 12)}…

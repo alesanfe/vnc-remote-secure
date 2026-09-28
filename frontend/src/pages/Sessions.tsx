@@ -20,6 +20,7 @@ import {
   RelativeTime,
   SessionReference,
   StatusBadge,
+  copyText,
 } from '../components/bits';
 import { useI18n } from '../i18n';
 
@@ -505,11 +506,7 @@ export default function Sessions() {
             <button
               className="ghost"
               style={{ marginTop: 8 }}
-              onClick={() => {
-                void navigator.clipboard.writeText(created.url)
-                  .then(() => toast.success(t('bits.copied')))
-                  .catch(() => {});
-              }}
+              onClick={() => copyText(created.url, t('bits.copied'))}
             >
               {t('sessions.copy')}
             </button>
