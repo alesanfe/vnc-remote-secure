@@ -15,6 +15,8 @@ ephemeral tokens and persistent session cookies share a single
 signing mechanism while remaining type-separated.
 """
 import contextlib
+import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -318,7 +320,6 @@ class EphemeralSession:
 
     def to_dict(self) -> dict:
         """Serialize to dict (for logging/API, no secrets)."""
-        import hashlib
         return {
             # Public identifier: sha256 of the internal token. Lets an
             # operator reference a session (revoke by id) without the
@@ -905,7 +906,6 @@ class SessionStore:
         registry) resolve the internal token here without it ever
         leaving the store. Returns None for unknown/reaped ids.
         """
-        import hashlib
         self._load()
         for token, session in self._sessions.items():
             digest = hashlib.sha256(token.encode()).hexdigest()[:12]
