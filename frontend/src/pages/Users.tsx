@@ -476,7 +476,7 @@ export function OperatorDetailPanel({ username }: { username: string }) {
           <thead>
             <tr><th>Ref</th><th>{t('users.passkeyName')}</th>
                 <th>{t('users.passkeyRegistered')}</th>
-                <th>Sign count</th><th /></tr>
+                <th>{t('users.passkeySigns')}</th><th /></tr>
           </thead>
           <tbody>
             {keys.data.passkeys.map((k) => (

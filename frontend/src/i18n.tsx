@@ -393,6 +393,7 @@ const es = {
   'security.secrets.recovery': 'Códigos de recuperación',
   'security.secrets.codesOnce':
     'Códigos nuevos (se muestran UNA vez — guárdalos fuera):',
+  'security.secrets.copyCodes': 'Copiar todos los códigos',
   'security.secrets.fixPerms': 'Revisar y corregir permisos',
   'security.secrets.permsFixed':
     'Permisos corregidos en {{count}} archivo(s).',
@@ -948,6 +949,7 @@ const es = {
   'users.noPasskeys': 'Sin passkeys registradas.',
   'users.passkeyName': 'Nombre',
   'users.passkeyRegistered': 'Passkey registrada.',
+  'users.passkeySigns': 'Firmas',
   'users.passkeyRenameAria': 'Renombrar passkey',
   'users.rename': 'Renombrar',
   'users.revoke': 'Revocar',
@@ -1388,6 +1390,7 @@ const en: typeof es = {
   'security.secrets.recovery': 'Recovery codes',
   'security.secrets.codesOnce':
     'New codes (shown ONCE — store them offline):',
+  'security.secrets.copyCodes': 'Copy all codes',
   'security.secrets.fixPerms': 'Check and fix permissions',
   'security.secrets.permsFixed':
     'Permissions fixed on {{count}} file(s).',
@@ -1935,6 +1938,7 @@ const en: typeof es = {
   'users.noPasskeys': 'No passkeys registered.',
   'users.passkeyName': 'Name',
   'users.passkeyRegistered': 'Passkey registered.',
+  'users.passkeySigns': 'Sign count',
   'users.passkeyRenameAria': 'Rename passkey',
   'users.rename': 'Rename',
   'users.revoke': 'Revoke',

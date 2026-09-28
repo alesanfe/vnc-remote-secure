@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { api, ApiError, type Posture } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useStepUp } from '../components/useStepUp';
@@ -219,6 +220,17 @@ function SecretsPanel() {
           <ul>
             {codes.map(c => <li key={c} className="mono">{c}</li>)}
           </ul>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              void navigator.clipboard.writeText(codes.join('\n'))
+                .then(() => toast.success(t('bits.copied')))
+                .catch(() => {});
+            }}
+          >
+            {t('security.secrets.copyCodes')}
+          </button>
         </div>
       )}
       {flash && <div className="info-box">{flash}</div>}
