@@ -173,7 +173,7 @@ function LifecyclePanel() {
           </button>{' '}
           <button type="button" disabled={rollback.isPending}
                   onClick={() => rollback.mutate()}>
-            Rollback
+            {t('overview.upgrade.rollback')}
           </button>
         </p>
       )}
@@ -435,19 +435,19 @@ export default function Overview() {
 
       <div className="cards">
         <div className="card">
-          <h3>Uptime</h3>
+          <h3>{t('portal.metrics.uptime')}</h3>
           <div className="metric-value">{sys?.uptime ?? '—'}</div>
         </div>
         <div className="card">
-          <h3>CPU</h3>
+          <h3>{t('portal.metrics.cpu')}</h3>
           <div className="metric-value">{sys?.cpu ?? '—'}</div>
         </div>
         <div className="card">
-          <h3>RAM</h3>
+          <h3>{t('portal.metrics.ram')}</h3>
           <div className="metric-value">{sys?.memory ?? '—'}</div>
         </div>
         <div className="card">
-          <h3>Disco</h3>
+          <h3>{t('portal.metrics.disk')}</h3>
           <div className="metric-value">{sys?.disk ?? '—'}</div>
         </div>
       </div>

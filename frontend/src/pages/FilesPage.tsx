@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, type FileEntry } from '../api';
+import {
+  Check, Clock, File as FileIcon, Folder, Loader2, X,
+} from 'lucide-react';
+import { api, ApiError } from '../api';
 import { useI18n } from '../i18n';
 import { RelativeTime } from '../components/bits';
 
@@ -117,10 +120,6 @@ export default function FilesPage() {
   });
 
   const crumbs = path ? path.split('/') : [];
-  const open = (e: FileEntry) => {
-    if (e.is_dir) setPath(e.path);
-    else window.location.assign(api.filesDownloadUrl(e.path));
-  };
 
   return (
     <main
@@ -226,9 +225,14 @@ export default function FilesPage() {
                   className={
                     x.status === 'error' ? 'cap-no'
                     : x.status === 'done' ? 'cap-yes' : ''}>
-                {x.status === 'done' ? '✓'
-                  : x.status === 'error' ? '✕'
-                  : x.status === 'uploading' ? '↥' : '·'}{' '}
+                {x.status === 'done'
+                  ? <Check size={13} aria-hidden="true" />
+                  : x.status === 'error'
+                    ? <X size={13} aria-hidden="true" />
+                    : x.status === 'uploading'
+                      ? <Loader2 size={13} className="spin"
+                                 aria-hidden="true" />
+                      : <Clock size={13} aria-hidden="true" />}{' '}
                 {x.name}{' '}
                 <span className="muted">
                   {fmtSize(x.size)} · {t(`files.st.${x.status}`)}
@@ -263,16 +267,24 @@ export default function FilesPage() {
             {list.data.entries.map((e) => (
               <tr key={e.path}>
                 <td>
-                  {e.is_dir ? '📁' : '📄'}{' '}
-                  <a
-                    href={e.is_dir ? '#' : api.filesDownloadUrl(e.path)}
-                    onClick={(ev) => {
-                      if (e.is_dir) ev.preventDefault();
-                      open(e);
-                    }}
-                  >
-                    {e.name}
-                  </a>
+                  {e.is_dir
+                    ? <Folder size={14} aria-hidden="true"
+                              style={{ verticalAlign: '-2px' }} />
+                    : <FileIcon size={14} aria-hidden="true"
+                                style={{ verticalAlign: '-2px' }} />}{' '}
+                  {e.is_dir ? (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => setPath(e.path)}
+                    >
+                      {e.name}
+                    </button>
+                  ) : (
+                    <a href={api.filesDownloadUrl(e.path)}>
+                      {e.name}
+                    </a>
+                  )}
                 </td>
                 <td className="mono">{e.is_dir ? '—' : fmtSize(e.size)}</td>
                 <td><RelativeTime epoch={e.mtime} /></td>

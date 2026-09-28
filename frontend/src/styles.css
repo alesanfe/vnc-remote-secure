@@ -339,6 +339,10 @@ a { color: var(--accent-text); }
 }
 .jobs-badge:hover { color: var(--text); }
 
+/* Spinner for in-flight work (transfer queue, connect buttons). */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
+
 /* Screen-reader-only text (skip to content, hidden column labels). */
 .sr-only {
   position: absolute;
