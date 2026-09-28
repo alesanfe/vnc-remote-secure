@@ -477,7 +477,7 @@ export default function Overview() {
               )}
               {s.url2 && s.running && (
                 <a className="btn ghost" href={s.url2} target="_blank" rel="noreferrer">
-                  {s.url2_label ?? 'Más'}
+                  {s.url2_label ?? t('common.more')}
                 </a>
               )}
             </div>

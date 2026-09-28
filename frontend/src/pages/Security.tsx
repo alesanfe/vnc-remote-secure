@@ -43,6 +43,17 @@ function SecretsPanel() {
   const [codes, setCodes] = useState<string[] | null>(null);
   const [confirmRotate, setConfirmRotate] = useState<string | null>(null);
   const [confirmSigning, setConfirmSigning] = useState(false);
+  // Redacted values fetched on demand (secrets/status returns state
+  // only — 'Ver ofuscado' calls secrets/{name} and renders the
+  // server-side mask, never the secret itself).
+  const [redacted, setRedacted] = useState<Record<string, string>>({});
+  const redact = useMutation({
+    mutationFn: (name: string) => api.secretRedact(name),
+    onSuccess: (d) =>
+      setRedacted((r) => ({ ...r, [d.name]: d.redacted })),
+    onError: (e) =>
+      setFlash(e instanceof ApiError ? e.message : t('common.error')),
+  });
 
   const secrets = useQuery({
     queryKey: ['secrets'],
@@ -151,6 +162,15 @@ function SecretsPanel() {
                   <td className="mono">{name}</td>
                   <td><StatusBadge status={st} /></td>
                   <td>
+                    {redacted[name] ? (
+                      <code className="mono">{redacted[name]}</code>
+                    ) : (
+                      <button type="button" className="ghost"
+                              disabled={redact.isPending}
+                              onClick={() => redact.mutate(name)}>
+                        {t('security.secrets.showMasked')}
+                      </button>
+                    )}{' '}
                     <button type="button" disabled={rotate.isPending}
                             onClick={() => setConfirmRotate(name)}>
                       {t('security.secrets.rotate')}

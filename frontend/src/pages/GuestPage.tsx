@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Navigate } from 'react-router-dom';
 import { api, type PortalData, type SessionContext } from '../api';
@@ -25,10 +25,7 @@ export interface GuestResource {
 
 /** Which resource tiles this grant allows — bound sessions see only
     their resource; unbound sessions see all (minus no_terminal). */
-export function resourcesFor(
-  ctx: SessionContext,
-  _portal: PortalData | undefined,
-): GuestResource[] {
+export function resourcesFor(ctx: SessionContext): GuestResource[] {
   const bound = ctx.resource ?? null;
   const allowed = (r: string) => !bound || bound === r;
   const items: GuestResource[] = [];
@@ -64,12 +61,6 @@ export default function GuestPage() {
     queryKey: ['session-context'],
     queryFn: () => api.sessionContext(),
     retry: false,
-  });
-  const portal = useQuery({
-    queryKey: ['portal'],
-    queryFn: () => api.portal(),
-    retry: false,
-    enabled: ctx.isSuccess && !!ctx.data.ephemeral,
   });
   const logout = useMutation({
     mutationFn: () => api.logout(),
@@ -126,7 +117,7 @@ export default function GuestPage() {
   if (c.view_only) flags.push(t('share.flag.viewOnly'));
   if (c.single_use) flags.push(t('share.flag.singleUse'));
   if (c.no_terminal) flags.push(t('share.flag.noTerminal'));
-  const items = resourcesFor(c, portal.data);
+  const items = resourcesFor(c);
 
   // Single-resource grants skip the hub — the tile grid adds a step
   // with no choice to make; land on the resource directly.

@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+﻿import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Outlet } from 'react-router-dom';
 import { api } from '../api';
@@ -38,12 +38,6 @@ export default function GuestShell({ children }: { children: ReactNode }) {
     // the resource's own websocket to fail.
     refetchInterval: 10_000,
   });
-  const portal = useQuery({
-    queryKey: ['portal'],
-    queryFn: () => api.portal(),
-    retry: false,
-    enabled: ctx.isSuccess && !!ctx.data.ephemeral,
-  });
   const logout = useMutation({
     mutationFn: () => api.logout(),
     onSettled: () => {
@@ -76,7 +70,7 @@ export default function GuestShell({ children }: { children: ReactNode }) {
   if (c.view_only) flags.push(t('share.flag.viewOnly'));
   if (c.single_use) flags.push(t('share.flag.singleUse'));
   if (c.no_terminal) flags.push(t('share.flag.noTerminal'));
-  const items = resourcesFor(c, portal.data);
+  const items = resourcesFor(c);
   const current = window.location.pathname;
 
   return (

@@ -53,6 +53,14 @@ export default function FilesPage() {
     queryFn: () => api.filesList(path),
     retry: false,
   });
+  // The 'volver al portal' link only makes sense for an ephemeral
+  // guest — operators have the sidebar; sending them to /guest lands
+  // on the 'not a guest session' dead end.
+  const sctx = useQuery({
+    queryKey: ['session-context'],
+    queryFn: () => api.sessionContext(),
+    retry: false,
+  });
 
   const patch = (id: number, p: Partial<Transfer>) =>
     setTransfers((ts) => ts.map((x) => x.id === id ? { ...x, ...p } : x));
@@ -288,9 +296,11 @@ export default function FilesPage() {
       {list.data?.truncated && (
         <p className="muted">{t('files.truncated')}</p>
       )}
-      <p className="muted">
-        <a href="/guest">{t('guest.portalLink')}</a>
-      </p>
+      {sctx.data?.ephemeral && (
+        <p className="muted">
+          <a href="/guest">{t('guest.portalLink')}</a>
+        </p>
+      )}
     </main>
   );
 }
