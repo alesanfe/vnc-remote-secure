@@ -27,6 +27,82 @@
   --fg: var(--text);
 }
 
+/* Light theme — same semantic tokens, inverted palette. Selected via
+   [data-theme='light'] on <html>; 'auto' follows prefers-color-scheme. */
+:root[data-theme='light'] {
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #eceff6;
+  --border: #d4dbe7;
+  --text: #1c2434;
+  --text-dim: #55627a;
+  --accent: #245bcc;
+  --accent-hover: #1d4bb0;
+  --accent-text: #245bcc;
+  --ok: #1e7e34;
+  --warn: #9c6500;
+  --fail: #b3261e;
+  --ok-text: #155724;
+  --warn-text: #6f4e00;
+  --fail-text: #84231c;
+}
+
+/* Light badges need opaque tints — a 22 % alpha over white plus the
+   light text variants drops below WCAG AA. */
+:root[data-theme='light'] .badge.ok { background: #cfecd8; }
+:root[data-theme='light'] .badge.warn { background: #f7e3b3; }
+:root[data-theme='light'] .badge.fail { background: #f5d2cf; }
+:root[data-theme='light'] .badge.dim { background: #dfe5ef; color: #37455c; }
+:root[data-theme='light'] .notice { background: #fdf3dd; }
+:root[data-theme='light'] .error-box { background: #fbe7e5; }
+:root[data-theme='light'] .status-connected { background: #cfecd8; }
+:root[data-theme='light'] .status-disconnected,
+:root[data-theme='light'] .status-error { background: #f5d2cf; }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #eceff6;
+    --border: #d4dbe7;
+    --text: #1c2434;
+    --text-dim: #55627a;
+    --accent: #245bcc;
+    --accent-hover: #1d4bb0;
+    --accent-text: #245bcc;
+    --ok: #1e7e34;
+    --warn: #9c6500;
+    --fail: #b3261e;
+    --ok-text: #155724;
+    --warn-text: #6f4e00;
+    --fail-text: #84231c;
+  }
+  :root:not([data-theme='dark']) .badge.ok { background: #cfecd8; }
+  :root:not([data-theme='dark']) .badge.warn { background: #f7e3b3; }
+  :root:not([data-theme='dark']) .badge.fail { background: #f5d2cf; }
+  :root:not([data-theme='dark']) .badge.dim { background: #dfe5ef; color: #37455c; }
+  :root:not([data-theme='dark']) .notice { background: #fdf3dd; }
+  :root:not([data-theme='dark']) .error-box { background: #fbe7e5; }
+  :root:not([data-theme='dark']) .status-connected { background: #cfecd8; }
+  :root:not([data-theme='dark']) .status-disconnected,
+  :root:not([data-theme='dark']) .status-error { background: #f5d2cf; }
+}
+
+/* High contrast (prefers-contrast: more) — harder borders and dim
+   text pushed closer to primary on both themes. */
+@media (prefers-contrast: more) {
+  :root {
+    --border: #55627a;
+    --text-dim: #c6cfdd;
+  }
+  :root[data-theme='light'],
+  :root:not([data-theme='dark']) {
+    --border: #7c8aa5;
+    --text-dim: #3d4a61;
+  }
+  .badge { border: 1px solid currentColor; }
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -120,6 +196,122 @@ a { color: var(--accent-text); }
 }
 .logout-btn:hover { color: var(--fail); border-color: var(--fail); }
 .main { flex: 1; padding: 1.5rem 2rem; min-width: 0; }
+
+/* Mobile shell — ≤860px the sidebar becomes an overlay drawer behind
+   a sticky top bar; the desktop layout is untouched. */
+.topbar { display: none; }
+.nav-backdrop { display: none; }
+@media (max-width: 860px) {
+  .layout { flex-direction: column; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(82vw, 280px);
+    overflow-y: auto;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease-out;
+    padding-top: 0;
+  }
+  .sidebar.open { transform: none; box-shadow: 0 0 40px rgba(0,0,0,0.5); }
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    border: 0;
+    z-index: 35;
+    cursor: default;
+  }
+  .main { padding: 1rem; overflow-x: auto; }
+  table.data { min-width: 560px; }
+  .cards { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}
+
+/* Consent card — human capability list (✓/✕) over the technical
+   grant table; the symbol and wording carry meaning, not colour. */
+.cap-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+.cap-list li {
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed var(--border);
+}
+.cap-list li:last-child { border-bottom: 0; }
+.cap-yes { color: var(--text); }
+.cap-yes::first-letter { color: var(--ok-text); }
+.cap-no { color: var(--text-dim); }
+.cap-strong { font-weight: 600; }
+.cap-warn { font-size: 0.85rem; }
+.share-details { margin: 0.75rem 0 1rem; }
+.share-details summary {
+  cursor: pointer;
+  color: var(--accent-text);
+  font-size: 0.85rem;
+}
+.share-details[open] summary { margin-bottom: 0.5rem; }
+
+/* Remote console — action groups separated by a subtle divider so the
+   toolbar reads as sections (capture | navigate | view), and an
+   immersive mode that hides the chrome entirely. */
+.toolbar-group { display: inline-flex; gap: 0.35rem; align-items: center; }
+.toolbar-sep {
+  display: inline-block;
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 0.35rem;
+}
+.remote-console { position: relative; }
+.console-immersive .console-toolbar { display: none; }
+.immersive-exit {
+  position: fixed;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 60;
+  opacity: 0.55;
+}
+.immersive-exit:hover, .immersive-exit:focus { opacity: 1; }
+
+/* Session forensic timeline — thin left rail, mono timestamps. */
+.timeline {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0 0 0 1rem;
+  border-left: 2px solid var(--border);
+}
+.timeline li {
+  padding: 0.3rem 0 0.3rem 0.6rem;
+  position: relative;
+}
+.timeline li::before {
+  content: '';
+  position: absolute;
+  left: -1.06rem;
+  top: 0.7em;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
 .page-title { margin-top: 0; }
 
 /* Cards & tables */

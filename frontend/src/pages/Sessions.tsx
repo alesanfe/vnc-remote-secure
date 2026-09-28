@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   useInfiniteQuery,
@@ -134,6 +134,13 @@ export default function Sessions() {
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
   const [stepUp, setStepUp] = useState<(() => void) | null>(null);
   const [mutError, setMutError] = useState('');
+  // Undo window: revoking an invitation is reversible-looking, so the
+  // call is deferred 10 s behind a toast with "Deshacer" — the token
+  // is only revoked if the timer actually fires. The timer survives
+  // unmount so a navigation can't silently cancel the revocation.
+  const [pendingRevoke, setPendingRevoke] =
+    useState<EphemeralSessionInfo | null>(null);
+  const revokeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const create = useMutation({
     mutationFn: () =>
@@ -172,8 +179,27 @@ export default function Sessions() {
     onError: (e) =>
       setMutError(
         e instanceof ApiError ? e.message : t('sessions.revokeError')),
-    onSettled: () => setRevokeTarget(null),
+    onSettled: () => {
+      setRevokeTarget(null);
+      setPendingRevoke(null);
+    },
   });
+
+  const scheduleRevoke = (target: EphemeralSessionInfo) => {
+    setRevokeTarget(null);
+    if (revokeTimer.current) clearTimeout(revokeTimer.current);
+    setPendingRevoke(target);
+    revokeTimer.current = setTimeout(() => {
+      revokeTimer.current = null;
+      revoke.mutate(target.token_id);
+    }, 10_000);
+  };
+
+  const undoRevoke = () => {
+    if (revokeTimer.current) clearTimeout(revokeTimer.current);
+    revokeTimer.current = null;
+    setPendingRevoke(null);
+  };
 
   const revokeAll = useMutation({
     mutationFn: () => api.post<{ revoked: number }>('sessions/revoke-all'),
@@ -482,6 +508,17 @@ export default function Sessions() {
       {mutError && (
         <div className="error-box" role="alert">{mutError}</div>
       )}
+      {pendingRevoke && (
+        <div className="info-box" role="status">
+          {t('sessions.revokeUndo', {
+            id: pendingRevoke.token_id.slice(0, 8),
+          })}{' '}
+          <button type="button" className="ghost"
+                  onClick={undoRevoke}>
+            {t('common.undo')}
+          </button>
+        </div>
+      )}
 
       <div className="toolbar section">
         <h2 style={{ margin: 0 }} id="sessions-heading">
@@ -607,7 +644,7 @@ export default function Sessions() {
         confirmLabel={t('sessions.revoke')}
         onCancel={() => setRevokeTarget(null)}
         onConfirm={() =>
-          revokeTarget && revoke.mutate(revokeTarget.token_id)}
+          revokeTarget && scheduleRevoke(revokeTarget)}
       >
         {revokeTarget && (
           <p>

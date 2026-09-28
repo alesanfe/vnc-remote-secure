@@ -58,6 +58,19 @@ export function ShareAccept({ token }: { token: string }) {
 
   const mins = preview ? Math.floor(preview.expires_in_seconds / 60) : 0;
   const secs = preview ? preview.expires_in_seconds % 60 : 0;
+  const allowed = (r: string) =>
+    !preview?.resource || preview.resource === r;
+  const caps: { key: string; ok: boolean; strong?: boolean }[] = [
+    { key: 'viewDesktop', ok: allowed('desktop') },
+    { key: 'controlDesktop', ok: allowed('desktop') && !preview?.view_only,
+      strong: true },
+    { key: 'terminal',
+      ok: allowed('terminal') && !preview?.no_terminal },
+    { key: 'audio', ok: allowed('audio') },
+    { key: 'gamepad', ok: allowed('gamepad') },
+    { key: 'files', ok: allowed('files') },
+    { key: 'chat', ok: true },
+  ];
   const flags: string[] = [];
   if (preview?.view_only) flags.push(t('share.flag.viewOnly'));
   if (preview?.single_use) flags.push(t('share.flag.singleUse'));
@@ -91,26 +104,56 @@ export function ShareAccept({ token }: { token: string }) {
               </strong>{' '}
               {t('share.grantPost')}
             </p>
-            <table className="data">
-              <tbody>
-                <tr>
-                  <td>{t('share.role')}</td>
-                  <td className="mono">{preview.role}</td>
-                </tr>
-                <tr>
-                  <td>{t('share.expiresIn')}</td>
-                  <td>
-                    {mins}m{String(secs).padStart(2, '0')}s
-                  </td>
-                </tr>
-                {flags.length > 0 && (
+            {/* Progressive disclosure: the capability list answers
+                "what can they do to my machine" in plain language;
+                the technical grant lives in the collapsed details. */}
+            <p className="muted">{t('share.capTitle')}</p>
+            <ul className="cap-list">
+              {caps.map((c) => (
+                <li key={c.key}
+                    className={c.ok
+                      ? (c.strong ? 'cap-yes cap-strong' : 'cap-yes')
+                      : 'cap-no'}>
+                  {c.ok ? '✓' : '✕'} {t(`share.cap.${c.key}`)}
+                </li>
+              ))}
+            </ul>
+            {!preview.view_only && allowed('desktop') && (
+              <p className="muted cap-warn">{t('share.cap.controlWarn')}</p>
+            )}
+            <p className="muted">
+              {t('share.expiresAuto', {
+                time: `${mins}m${String(secs).padStart(2, '0')}s`,
+              })}
+              {' '}{t('share.endAnytime')}
+            </p>
+            <details className="share-details">
+              <summary>{t('share.details')}</summary>
+              <table className="data">
+                <tbody>
                   <tr>
-                    <td>{t('share.restrictions')}</td>
-                    <td>{flags.join(', ')}</td>
+                    <td>{t('share.role')}</td>
+                    <td className="mono">{preview.role}</td>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                  <tr>
+                    <td>{t('share.expiresIn')}</td>
+                    <td>{mins}m{String(secs).padStart(2, '0')}s</td>
+                  </tr>
+                  {preview.resource && (
+                    <tr>
+                      <td>{t('share.boundResource')}</td>
+                      <td className="mono">{preview.resource}</td>
+                    </tr>
+                  )}
+                  {flags.length > 0 && (
+                    <tr>
+                      <td>{t('share.restrictions')}</td>
+                      <td>{flags.join(', ')}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </details>
             <div className="row">
               <button disabled={busy} onClick={activate}>
                 {busy ? t('share.activating') : t('share.accept')}

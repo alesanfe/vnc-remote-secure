@@ -37,7 +37,8 @@ test.describe('session center UI', () => {
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Revocar' }).click();
-    await expect(row).not.toBeVisible();
+    // Revoke carries a 10 s undo window before the call lands.
+    await expect(row).not.toBeVisible({ timeout: 20_000 });
 
     // The history tab lists it with the revoked badge.
     await page.getByRole('tab', { name: 'Historial' }).click();

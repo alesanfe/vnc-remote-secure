@@ -207,6 +207,33 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
                 : t('sessions.wizard.restrictionsNone')}
             </dd>
           </dl>
+          {/* Forensic timeline — the lifecycle events the session
+              record already tracks, rendered chronologically. */}
+          <h3 style={{ marginTop: '1rem' }}>
+            {t('sessions.tl.title')}
+          </h3>
+          <ol className="timeline">
+            {([
+              [s.created_at, t('sessions.tl.created')],
+              [s.last_used_at, t('sessions.tl.activated')],
+              [s.last_connected_at, t('sessions.tl.connected')],
+              [s.last_disconnected_at,
+               t('sessions.tl.disconnected')],
+            ] as Array<[number | null | undefined, string]>)
+              .filter((e): e is [number, string] => e[0] != null)
+              .sort((a, b) => a[0] - b[0])
+              .map(([ts, label]) => (
+                <li key={label}>
+                  <span className="muted mono">
+                    {new Date(ts * 1000).toLocaleString()}
+                  </span>{' '}
+                  {label}
+                </li>
+              ))}
+            {s.revoked && (
+              <li>{t('sessions.tl.revoked')}</li>
+            )}
+          </ol>
           <p className="muted">
             <Link to="/access">{t('sessions.detail.back')}</Link>
             {' · '}

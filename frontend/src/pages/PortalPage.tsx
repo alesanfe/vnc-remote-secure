@@ -443,6 +443,44 @@ export default function PortalPage() {
 
         <ServiceCards p={p} />
 
+        {/* Operator-only internals — the portal's public role is
+            identity + status; services, LAN addresses, firewall rules
+            and credential hints collapse behind this disclosure so the
+            page doesn't read as a diagnostic dump. */}
+        <details className="share-details">
+          <summary>{t('portal.sysinfo')}</summary>
+
+        <LanLinks p={p} />
+
+        <section className="section">
+          <h2>🔐 {t('portal.creds.title')}</h2>
+          <p className="muted">
+            {t('portal.creds.desc1')} <code>.env</code>
+            {t('portal.creds.desc2')}{' '}
+            <code>generated_credentials.env</code>{' '}
+            {t('portal.creds.desc3')}
+          </p>
+        </section>
+
+        <div className="notice">
+          <strong>
+            ⚠️ {t('portal.firewall.title', { os: osLabel })}
+          </strong>{' '}
+          {t('portal.firewall.desc')}{' '}
+          <code>
+            {isWindows
+              ? `New-NetFirewallRule -DisplayName "VncRemoteSecure-Portal" -Direction Inbound -LocalPort ${p.ports?.landing} -Protocol TCP -Action Allow`
+              : `sudo ufw allow ${p.ports?.landing}/tcp`}
+          </code>
+        </div>
+        {p.use_ssl && (
+          <div className="notice">
+            <strong>🔒 {t('portal.ssl.title')}</strong>{' '}
+            {t('portal.ssl.desc')}
+          </div>
+        )}
+        </details>
+
         <section className="section">
           <h2>✨ {t('portal.features.title')}</h2>
           <div className="cards">
@@ -491,38 +529,8 @@ export default function PortalPage() {
           </div>
         </section>
 
-        <LanLinks p={p} />
-
-        <section className="section">
-          <h2>🔐 {t('portal.creds.title')}</h2>
-          <p className="muted">
-            {t('portal.creds.desc1')} <code>.env</code>
-            {t('portal.creds.desc2')}{' '}
-            <code>generated_credentials.env</code>{' '}
-            {t('portal.creds.desc3')}
-          </p>
-        </section>
-
         {p.is_operator && <OperatorSessions p={p} />}
         {p.is_operator && <GamepadSwitch p={p} />}
-
-        <div className="notice">
-          <strong>
-            ⚠️ {t('portal.firewall.title', { os: osLabel })}
-          </strong>{' '}
-          {t('portal.firewall.desc')}{' '}
-          <code>
-            {isWindows
-              ? `New-NetFirewallRule -DisplayName "VncRemoteSecure-Portal" -Direction Inbound -LocalPort ${p.ports?.landing} -Protocol TCP -Action Allow`
-              : `sudo ufw allow ${p.ports?.landing}/tcp`}
-          </code>
-        </div>
-        {p.use_ssl && (
-          <div className="notice">
-            <strong>🔒 {t('portal.ssl.title')}</strong>{' '}
-            {t('portal.ssl.desc')}
-          </div>
-        )}
 
         <footer className="muted portal-footer">
           VNC Remote Secure | {p.metrics?.hostname} | {p.metrics?.os} |

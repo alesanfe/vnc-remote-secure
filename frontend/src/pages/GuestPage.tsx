@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Navigate } from 'react-router-dom';
 import { api, type PortalData, type SessionContext } from '../api';
 import ChatPanel from '../components/ChatPanel';
 import { RelativeTime } from '../components/bits';
@@ -75,6 +77,13 @@ export default function GuestPage() {
       window.location.href = '/';
     },
   });
+  // Low-frequency clock for the expiry warning banner — 30 s ticks,
+  // not per-second, so aria-live doesn't spam screen readers.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   if (ctx.isLoading) {
     return (
@@ -119,6 +128,17 @@ export default function GuestPage() {
   if (c.no_terminal) flags.push(t('share.flag.noTerminal'));
   const items = resourcesFor(c, portal.data);
 
+  // Single-resource grants skip the hub — the tile grid adds a step
+  // with no choice to make; land on the resource directly.
+  if (items.length === 1 && items[0].url.startsWith('/')) {
+    return <Navigate to={items[0].url} replace />;
+  }
+
+  const secsLeft = c.expires_at
+    ? Math.max(0, Math.floor(c.expires_at - now / 1000))
+    : null;
+  const expiringSoon = secsLeft !== null && secsLeft <= 600;
+
   return (
     <main className="portal">
       <div className="header" role="banner">
@@ -126,6 +146,11 @@ export default function GuestPage() {
         <p className="muted">{t('guest.subtitle')}</p>
       </div>
       <div id="main">
+        {expiringSoon && (
+          <div className="notice" role="alert" aria-live="polite">
+            ⚠️ {t('guest.expiringSoon')}
+          </div>
+        )}
         <div className="notice">
           <strong>{t('guest.role')}:</strong> <code>{c.role}</code>
           {c.expires_at ? (

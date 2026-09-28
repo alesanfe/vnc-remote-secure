@@ -14,7 +14,10 @@ import FilesPage from './pages/FilesPage';
 import RemoteConsole from './pages/RemoteConsole';
 import { I18nProvider, useI18n } from './i18n';
 import { GuestLayout } from './components/GuestShell';
+import { initTheme } from './components/ThemeSwitch';
 import './styles.css';
+
+initTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: {

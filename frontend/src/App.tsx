@@ -6,6 +6,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { api, ApiError, type Me } from './api';
 import { LangSwitch, useI18n } from './i18n';
 import LoginPage from './pages/LoginPage';
@@ -25,6 +26,7 @@ import JobDetail from './pages/JobDetail';
 import FilesPage from './pages/FilesPage';
 import Recordings from './pages/Recordings';
 import RemoteConsole from './pages/RemoteConsole';
+import ThemeSwitch from './components/ThemeSwitch';
 
 /** /access/<segment> dispatcher: a lifecycle tab name renders the
     inventory view; anything else is treated as a token_id and
@@ -51,6 +53,9 @@ function LegacyRedirect({ base }: { base: string }) {
 export default function App() {
   const qc = useQueryClient();
   const { t } = useI18n();
+  // Drawer state only matters ≤860px — on desktop the sidebar is
+  // always visible and the toggle is display:none.
+  const [navOpen, setNavOpen] = useState(false);
   const me = useQuery({
     queryKey: ['me'],
     queryFn: () => api.get<Me>('me'),
@@ -66,23 +71,22 @@ export default function App() {
   }[] = [
     { group: null, items: [{ to: '/', label: t('nav.summary'), end: true }] },
     {
+      // Task-oriented grouping: remote sessions first (the daily
+      // workflow), then administration, then the system surface.
       group: t('nav.group.access'),
       items: [
         { to: '/access', label: t('nav.sessions') },
-        { to: '/connect', label: t('nav.connect') },
         { to: '/remote', label: t('nav.remote') },
+        { to: '/connect', label: t('nav.connect') },
         { to: '/files', label: t('nav.files') },
+        { to: '/security/recordings', label: t('nav.recordings') },
       ],
     },
     {
       group: t('nav.group.identities'),
-      items: [{ to: '/identities', label: t('nav.users') }],
-    },
-    {
-      group: t('nav.group.security'),
       items: [
+        { to: '/identities', label: t('nav.users') },
         { to: '/security', label: t('nav.security') },
-        { to: '/security/recordings', label: t('nav.recordings') },
         { to: '/security/audit', label: t('nav.audit') },
       ],
     },
@@ -92,11 +96,8 @@ export default function App() {
         { to: '/operations/doctor', label: t('nav.doctor') },
         { to: '/operations/backups', label: t('nav.backups') },
         { to: '/operations/jobs', label: t('nav.jobs') },
+        { to: '/config', label: t('nav.config') },
       ],
-    },
-    {
-      group: t('nav.group.settings'),
-      items: [{ to: '/config', label: t('nav.config') }],
     },
   ];
 
@@ -144,7 +145,29 @@ export default function App() {
 
   return (
     <div className="layout">
-      <aside className="sidebar">
+      <header className="topbar">
+        <button
+          type="button"
+          className="ghost"
+          aria-expanded={navOpen}
+          aria-controls="admin-nav"
+          aria-label={t('nav.menu')}
+          onClick={() => setNavOpen((o) => !o)}
+        >
+          ☰
+        </button>
+        <strong>VNC Remote Secure</strong>
+      </header>
+      {navOpen && (
+        <button
+          type="button"
+          className="nav-backdrop"
+          aria-label={t('common.close')}
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+      <aside className={`sidebar${navOpen ? ' open' : ''}`}
+             id="admin-nav">
         <div className="brand">
           VNC Remote Secure
           <small>
@@ -166,6 +189,7 @@ export default function App() {
                   key={n.to}
                   to={n.to}
                   end={n.end}
+                  onClick={() => setNavOpen(false)}
                   className={({ isActive }) => (isActive ? 'active' : '')}
                 >
                   {n.label}
@@ -177,6 +201,7 @@ export default function App() {
         <nav>
           <a href="/">{t('nav.backToPortal')}</a>
           <LangSwitch />
+          <ThemeSwitch />
           {me.data?.operator ? (
             <button
               type="button"

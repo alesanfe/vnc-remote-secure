@@ -46,6 +46,9 @@ export default function RemoteConsole({ guest = false }: {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [error, setError] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
+  // Immersive mode: chrome collapses to a floating restore button so
+  // the desktop owns the viewport (MeshCentral's "fullscreen" feel).
+  const [immersive, setImmersive] = useState(false);
 
   const portal = useQuery({
     queryKey: ['portal'],
@@ -101,10 +104,13 @@ export default function RemoteConsole({ guest = false }: {
   }
 
   return (
-    <main className="portal" style={{ maxWidth: '100%' }}>
-      <div className="toolbar" style={{ alignItems: 'center' }}>
-        <strong>{guest ? `🖥️ ${t('guest.console')}`
-          : `🖥️ ${t('remote.title')}`}</strong>
+    <main className={`portal remote-console${immersive
+      ? ' console-immersive' : ''}`}
+          style={{ maxWidth: '100%' }}>
+      <div className="toolbar console-toolbar"
+           style={{ alignItems: 'center' }}>
+        <strong>{guest ? t('guest.console')
+          : t('remote.title')}</strong>
         {guest && gctx?.expires_at ? (
           <span className="muted">
             {t('guest.expires')}{' '}
@@ -115,35 +121,40 @@ export default function RemoteConsole({ guest = false }: {
           <span key={f} className="badge warn">{f}</span>
         ))}
         {running && (
-          <StatusBadge status="warn"
-                       label={`● ${t('rec.live')}`} />
+          <StatusBadge status="warn" label={t('rec.live')} />
         )}
         <span className="spacer" />
+        {/* Action groups: View | Capture | Communicate | More — flat
+            same-weight buttons would bury the important actions. */}
         {!guest && (
           <>
-            <a className="ghost" href={api.desktopScreenshotUrl()}
-               download="screenshot.png" role="button">
-              📷 {t('rec.screenshot')}
-            </a>
-            {running ? (
-              <button type="button" className="ghost"
-                      onClick={() => stopRec.mutate(running.id)}
-                      disabled={stopRec.isPending}>
-                ■ {t('rec.stop')}
-              </button>
-            ) : (
-              <button type="button" className="ghost"
-                      onClick={() => startRec.mutate()}
-                      disabled={startRec.isPending}>
-                ● {t('rec.record')}
-              </button>
-            )}
+            <span className="toolbar-group"
+                  aria-label={t('remote.group.capture')}>
+              <a className="ghost" href={api.desktopScreenshotUrl()}
+                 download="screenshot.png" role="button">
+                {t('rec.screenshot')}
+              </a>
+              {running ? (
+                <button type="button" className="ghost"
+                        onClick={() => stopRec.mutate(running.id)}
+                        disabled={stopRec.isPending}>
+                  {t('rec.stop')}
+                </button>
+              ) : (
+                <button type="button" className="ghost"
+                        onClick={() => startRec.mutate()}
+                        disabled={startRec.isPending}>
+                  {t('rec.record')}
+                </button>
+              )}
+              <Link to="/security/recordings" className="ghost"
+                    role="button">
+                {t('nav.recordings')}
+              </Link>
+            </span>
+            <span className="toolbar-sep" aria-hidden="true" />
             <Link to="/files" className="ghost" role="button">
-              📁 {t('nav.files')}
-            </Link>
-            <Link to="/security/recordings" className="ghost"
-                  role="button">
-              {t('nav.recordings')}
+              {t('nav.files')}
             </Link>
           </>
         )}
@@ -151,18 +162,35 @@ export default function RemoteConsole({ guest = false }: {
           <button type="button" className="ghost"
                   aria-pressed={chatOpen}
                   onClick={() => setChatOpen((o) => !o)}>
-            💬 {t('remote.chat')}
+            {t('remote.chat')}
           </button>
         )}
-        <button type="button" className="ghost" onClick={fullscreen}
-                aria-label={t('remote.fullscreen')}>
-          ⛶ {t('remote.fullscreen')}
-        </button>
-        <a className="ghost" href={url} target="_blank" rel="noreferrer">
-          {t('remote.popout')} ↗
-        </a>
+        <span className="toolbar-sep" aria-hidden="true" />
+        <span className="toolbar-group"
+              aria-label={t('remote.group.view')}>
+          <button type="button" className="ghost" onClick={fullscreen}
+                  aria-label={t('remote.fullscreen')}>
+            {t('remote.fullscreen')}
+          </button>
+          <button type="button" className="ghost"
+                  onClick={() => setImmersive(true)}
+                  aria-label={t('remote.immersive')}>
+            {t('remote.immersive')}
+          </button>
+          <a className="ghost" href={url} target="_blank"
+             rel="noreferrer">
+            {t('remote.popout')}
+          </a>
+        </span>
       </div>
       {error && <div className="error-box" role="alert">{error}</div>}
+      {immersive && (
+        <button type="button" className="immersive-exit"
+                onClick={() => setImmersive(false)}
+                aria-label={t('remote.immersiveExit')}>
+          {t('remote.immersiveExit')}
+        </button>
+      )}
 
       <div style={{ display: 'flex', gap: '0.75rem',
                     alignItems: 'stretch' }}>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   api,
@@ -409,6 +410,29 @@ export default function Overview() {
         </div>
       )}
 
+      {/* Frequent actions — one primary (new invite) plus the
+          day-to-day jumps; system-level controls stay folded below. */}
+      <div className="toolbar">
+        <Link to="/access">
+          <button type="button">{t('overview.actions.newInvite')}</button>
+        </Link>
+        <Link to="/remote">
+          <button type="button" className="ghost">
+            {t('overview.actions.console')}
+          </button>
+        </Link>
+        <Link to="/security/audit">
+          <button type="button" className="ghost">
+            {t('overview.actions.activity')}
+          </button>
+        </Link>
+        <Link to="/operations/doctor">
+          <button type="button" className="ghost">
+            {t('overview.actions.diag')}
+          </button>
+        </Link>
+      </div>
+
       <div className="cards">
         <div className="card">
           <h3>Uptime</h3>
@@ -474,8 +498,14 @@ export default function Overview() {
         </>
       )}
 
-      <LifecyclePanel />
-      <PowerPanel />
+      {/* Destructive system control folds behind a disclosure — the
+          overview's daily job is situational awareness, not power
+          buttons competing with routine actions. */}
+      <details className="share-details">
+        <summary>{t('overview.systemControl')}</summary>
+        <LifecyclePanel />
+        <PowerPanel />
+      </details>
     </>
   );
 }
