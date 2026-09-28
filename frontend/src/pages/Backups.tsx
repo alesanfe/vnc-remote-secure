@@ -16,7 +16,7 @@ const IMPACT_KEYS = [
   'wizard.impact.data', 'wizard.impact.run',
 ];
 
-type WizardStep = 'verify' | 'impact' | 'confirm' | 'queued';
+type WizardStep = 'verify' | 'impact' | 'confirm';
 
 /** Restore wizard — selection (row) → verify → impact → typed
     confirmation → step-up grant → queued job. The restore itself

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   useMutation,
   useQuery,
@@ -17,14 +18,6 @@ interface MaintenanceState {
 
 interface JobRecord {
   id: string;
-  kind: string;
-  actor: string;
-  target?: string;
-  state: 'running' | 'done' | 'failed';
-  started_at: number;
-  finished_at?: number | null;
-  detail?: string | null;
-  error?: string | null;
 }
 
 export default function Doctor() {
@@ -188,43 +181,12 @@ export default function Doctor() {
       {(jobs.data?.jobs.length ?? 0) > 0 && (
         <div className="card section">
           <h3>{t('doctor.jobs.title')}</h3>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>{t('doctor.jobs.col.time')}</th>
-                <th>{t('doctor.jobs.col.op')}</th>
-                <th>{t('doctor.jobs.col.actor')}</th>
-                <th>{t('doctor.jobs.col.target')}</th>
-                <th>{t('doctor.jobs.col.state')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.data?.jobs.map((j) => (
-                <tr key={j.id}>
-                  <td className="muted">
-                    {new Date(j.started_at * 1000).toLocaleString()}
-                  </td>
-                  <td className="mono">{j.kind}</td>
-                  <td>{j.actor}</td>
-                  <td className="muted">{j.target || '—'}</td>
-                  <td>
-                    <span
-                      className={`badge ${
-                        j.state === 'done'
-                          ? 'ok'
-                          : j.state === 'failed'
-                            ? 'fail'
-                            : 'warn'
-                      }`}
-                      title={j.error ?? j.detail ?? ''}
-                    >
-                      {j.state.toUpperCase()}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p className="muted">
+            {t('doctor.jobs.recent', {
+              count: jobs.data?.jobs.length ?? 0,
+            })}{' '}
+            <Link to="/operations/jobs">{t('doctor.jobs.open')}</Link>
+          </p>
         </div>
       )}
 

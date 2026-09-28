@@ -271,17 +271,16 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
           <p className="muted">
             <Link to="/access">{t('sessions.detail.back')}</Link>
             {' · '}
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                if (!exporting) void exportAudit();
-              }}
+            <button
+              type="button"
+              className="link-btn"
+              disabled={exporting}
+              onClick={() => void exportAudit()}
             >
               {exporting
                 ? t('common.loading')
                 : t('sessions.detail.exportAudit')}
-            </a>
+            </button>
           </p>
         </div>
       )}

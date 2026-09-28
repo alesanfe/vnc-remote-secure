@@ -438,11 +438,8 @@ const es = {
   'doctor.col.status': 'Estado',
   'doctor.col.message': 'Mensaje',
   'doctor.jobs.title': 'Jobs recientes',
-  'doctor.jobs.col.time': 'Hora',
-  'doctor.jobs.col.op': 'Operación',
-  'doctor.jobs.col.actor': 'Actor',
-  'doctor.jobs.col.target': 'Recurso',
-  'doctor.jobs.col.state': 'Estado',
+  'doctor.jobs.recent': '{{count}} operación(es) registradas.',
+  'doctor.jobs.open': 'Abrir en Tareas',
   'doctor.stepup.maintenance': 'cambio del modo mantenimiento',
 
   // --- Config page --------------------------------------------------------------
@@ -1436,11 +1433,8 @@ const en: typeof es = {
   'doctor.col.status': 'Status',
   'doctor.col.message': 'Message',
   'doctor.jobs.title': 'Recent jobs',
-  'doctor.jobs.col.time': 'Time',
-  'doctor.jobs.col.op': 'Operation',
-  'doctor.jobs.col.actor': 'Actor',
-  'doctor.jobs.col.target': 'Resource',
-  'doctor.jobs.col.state': 'State',
+  'doctor.jobs.recent': '{{count}} recorded operation(s).',
+  'doctor.jobs.open': 'Open in Jobs',
   'doctor.stepup.maintenance': 'changing maintenance mode',
 
   // --- Config page --------------------------------------------------------------
