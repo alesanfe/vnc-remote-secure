@@ -17,18 +17,13 @@ const es = {
   'common.error': 'Operación fallida',
   'common.delete': 'Eliminar',
   'common.create': 'Crear',
-  'common.save': 'Guardar',
   'common.close': 'Cerrar',
   'common.more': 'Más',
   'common.undo': 'Deshacer',
   'common.enabled': 'activo',
   'common.disabled': 'inactivo',
-  'common.yes': 'sí',
-  'common.no': 'no',
   'common.detail': 'Detalle',
   'common.search': 'Buscar…',
-  'common.errorBox': 'No se pudo cargar la información.',
-  'lang.label': 'Idioma',
 
   'nav.summary': 'Resumen',
   'nav.sessions': 'Sesiones e invitaciones',
@@ -44,7 +39,6 @@ const es = {
   'nav.adminPanel': 'panel de administración',
   'nav.group.access': 'Sesiones remotas',
   'nav.group.identities': 'Administración',
-    'nav.group.security': 'Administración',
   'nav.group.operations': 'Sistema',
   'nav.connect': 'Centro de conexión',
   'nav.files': 'Archivos',
@@ -55,17 +49,12 @@ const es = {
   'common.open': 'Abrir',
 
   'login.title': 'Panel del operador',
-  'login.subtitle':
-    'Acceso de administración. Esta área queda registrada.',
   'login.username': 'Usuario',
   'login.password': 'Contraseña',
   'login.totp': 'Código MFA',
-  'login.totpHint':
-    '6 dígitos del autenticador o un código de recuperación.',
   'login.submit': 'Entrar',
   'login.submitting': 'Entrando…',
   'login.passkey': 'Entrar con passkey',
-  'login.failed': 'Inicio de sesión fallido',
   'login.mfaRequired': 'MFA requerido — introduce tu código.',
 
   'stepup.title': 'Confirmación reforzada',
@@ -80,7 +69,6 @@ const es = {
   'stepup.genericNote':
     'La verificación queda vinculada a tu sesión durante ~5 minutos.',
 
-  'confirm.confirming': 'Confirmando…',
   'confirm.typeToConfirm': 'Escribe {{name}} para confirmar',
 
   'jobs.title': 'Jobs',
@@ -89,7 +77,6 @@ const es = {
     'upgrades ejecutados por el runner — sobreviven al reinicio del ' +
     'portal.',
   'jobs.loadError': 'No se pudo cargar el registro de jobs.',
-  'jobs.loading': 'Cargando…',
   'jobs.empty': 'Sin operaciones registradas todavía.',
   'jobs.col.job': 'Job',
   'jobs.col.op': 'Operación',
@@ -97,7 +84,6 @@ const es = {
   'jobs.col.actor': 'Actor',
   'jobs.col.start': 'Inicio',
   'jobs.col.state': 'Estado',
-  'jobs.col.detail': 'Detalle',
   'jobs.state': 'Estado',
   'jobs.progress': 'Progreso',
   'jobs.detailLabel': 'Detalle',
@@ -244,7 +230,6 @@ const es = {
   'overview.lifecycle.confirm.stop': 'parada de todos los servicios',
   'overview.lifecycle.confirm.restart': 'reinicio de todos los servicios',
   'overview.lifecycle.confirm.start': 'arranque de servicios',
-  'overview.upgrade.check': 'Buscar actualización',
   'overview.upgrade.run': 'Actualizar',
   'overview.upgrade.rollback': 'Rollback',
   'overview.upgrade.queued':
@@ -302,7 +287,6 @@ const es = {
   'backups.encrypted': 'CIFRADO',
   'backups.plain': 'PLANO',
   'backups.restore': 'Restaurar…',
-  'backups.restoring': 'Encolando…',
   'backups.empty':
     'No hay backups. Usa «Nuevo backup» o vnc-remote backup.',
   'backups.stepup.create': 'creación de un backup',
@@ -340,7 +324,6 @@ const es = {
   'wizard.impact.run':
     'run/ — secretos firmados, sesiones efímeras y shared_state.db',
 
-  'config.title': 'Configuración',
   'config.migrate.dry': 'vista previa de migración de configuración',
   'config.migrate.apply': 'migración del .env',
 
@@ -349,8 +332,6 @@ const es = {
   'security.stepup.recovery':
     'generación de códigos de recuperación MFA',
 
-  'portal.title': 'VNC Remote Secure',
-  'portal.subtitle': 'Acceso remoto seguro desde el navegador.',
 
   // --- Security ---------------------------------------------------------------
   'security.title': 'Seguridad',
@@ -591,13 +572,6 @@ const es = {
   'audio.volume': 'Volumen',
   'audio.info.initial':
     'Pulsa Conectar para recibir el audio del equipo remoto.',
-  'audio.info.unauthorized': 'Sesión no autorizada para audio.',
-  'audio.info.connectingTo': 'Conectando a {{url}}…',
-  'audio.info.receiving': 'Recibiendo audio…',
-  'audio.info.status':
-    '{{clients}} oyente(s) · dispositivo {{device}} · {{bitrate}} kbps',
-  'audio.info.closed': 'Conexión cerrada por el servidor.',
-  'audio.info.error': 'Error: {{msg}}',
   'audio.error.conn': 'No se pudo conectar el audio.',
   'audio.state.streaming': 'emitiendo',
   'audio.state.connecting': 'conectando',
@@ -617,10 +591,6 @@ const es = {
     'Pulsa Conectar y después Buscar mandos para vincular tu gamepad ' +
     'local al juego remoto.',
   'gamepad.info.connected': 'Canal de gamepad abierto.',
-  'gamepad.info.unauthorized': 'Sesión no autorizada para gamepad.',
-  'gamepad.info.closed': 'Conexión cerrada por el servidor.',
-  'gamepad.info.revoked': 'Sesión revocada.',
-  'gamepad.info.error': 'Error: {{msg}}',
   'gamepad.error.conn': 'No se pudo conectar el canal de gamepad.',
   'gamepad.pad.none': 'Ningún mando detectado.',
   'gamepad.pad.connected': 'Mando {{id}} enviando.',
@@ -680,7 +650,6 @@ const es = {
   'sessions.ttl': 'Duración (TTL)',
   'sessions.maxUses': 'Usos máximos',
   'sessions.resource': 'Recurso',
-  'sessions.allResources': 'Todos los recursos',
   'sessions.ipRestriction': 'Restricción por IP',
   'sessions.ipPlaceholder': 'p. ej. 192.168.1.10',
   'sessions.viewOnly': 'Solo visualización',
@@ -696,12 +665,8 @@ const es = {
   'sessions.revokeAllError': 'No se pudieron revocar todas las sesiones.',
   'sessions.inventory': 'Inventario de sesiones',
   'sessions.viewsAria': 'Vista de sesiones',
-  'sessions.tabActive': 'Activas',
-  'sessions.tabRevoked': 'Revocadas/expiradas',
   'sessions.revokeAll': 'Cerrar todo',
   'sessions.loadError': 'No se pudieron cargar las sesiones.',
-  'sessions.emptyActive': 'No hay sesiones activas.',
-  'sessions.emptyRevoked': 'No hay sesiones revocadas o expiradas.',
   'sessions.col.ref': 'Ref',
   'sessions.col.state': 'Estado',
   'sessions.col.role': 'Permiso',
@@ -1024,17 +989,12 @@ const en: typeof es = {
   'common.search': 'Search…',
   'common.delete': 'Delete',
   'common.create': 'Create',
-  'common.save': 'Save',
   'common.close': 'Close',
   'common.more': 'More',
   'common.undo': 'Undo',
   'common.enabled': 'enabled',
   'common.disabled': 'disabled',
-  'common.yes': 'yes',
-  'common.no': 'no',
   'common.detail': 'Detail',
-  'common.errorBox': 'Could not load the information.',
-  'lang.label': 'Language',
 
   'nav.summary': 'Summary',
   'nav.sessions': 'Sessions & invites',
@@ -1050,7 +1010,6 @@ const en: typeof es = {
   'nav.adminPanel': 'administration panel',
   'nav.group.access': 'Remote sessions',
   'nav.group.identities': 'Administration',
-    'nav.group.security': 'Administration',
   'nav.group.operations': 'System',
   'nav.connect': 'Connection center',
   'nav.files': 'Files',
@@ -1061,16 +1020,12 @@ const en: typeof es = {
   'common.open': 'Open',
 
   'login.title': 'Operator console',
-  'login.subtitle':
-    'Administrative access. This area is fully audited.',
   'login.username': 'Username',
   'login.password': 'Password',
   'login.totp': 'MFA code',
-  'login.totpHint': '6 digits from your authenticator or a recovery code.',
   'login.submit': 'Sign in',
   'login.submitting': 'Signing in…',
   'login.passkey': 'Sign in with passkey',
-  'login.failed': 'Sign-in failed',
   'login.mfaRequired': 'MFA required — enter your code.',
 
   'stepup.title': 'Elevated confirmation',
@@ -1085,7 +1040,6 @@ const en: typeof es = {
   'stepup.genericNote':
     'Verification stays linked to your session for ~5 minutes.',
 
-  'confirm.confirming': 'Confirming…',
   'confirm.typeToConfirm': 'Type {{name}} to confirm',
 
   'jobs.title': 'Jobs',
@@ -1093,7 +1047,6 @@ const en: typeof es = {
     'Persistent operation ledger: lifecycle, restores and upgrades ' +
     'executed by the runner — they survive a portal restart.',
   'jobs.loadError': 'Could not load the job ledger.',
-  'jobs.loading': 'Loading…',
   'jobs.empty': 'No operations recorded yet.',
   'jobs.col.job': 'Job',
   'jobs.col.op': 'Operation',
@@ -1101,7 +1054,6 @@ const en: typeof es = {
   'jobs.col.actor': 'Actor',
   'jobs.col.start': 'Started',
   'jobs.col.state': 'State',
-  'jobs.col.detail': 'Detail',
   'jobs.state': 'State',
   'jobs.progress': 'Progress',
   'jobs.detailLabel': 'Detail',
@@ -1247,7 +1199,6 @@ const en: typeof es = {
   'overview.lifecycle.confirm.stop': 'stopping all services',
   'overview.lifecycle.confirm.restart': 'restarting all services',
   'overview.lifecycle.confirm.start': 'starting services',
-  'overview.upgrade.check': 'Check for update',
   'overview.upgrade.run': 'Upgrade',
   'overview.upgrade.rollback': 'Rollback',
   'overview.upgrade.queued':
@@ -1305,7 +1256,6 @@ const en: typeof es = {
   'backups.encrypted': 'ENCRYPTED',
   'backups.plain': 'PLAINTEXT',
   'backups.restore': 'Restore…',
-  'backups.restoring': 'Queueing…',
   'backups.empty':
     'No backups. Use "New backup" or vnc-remote backup.',
   'backups.stepup.create': 'backup creation',
@@ -1342,7 +1292,6 @@ const en: typeof es = {
   'wizard.impact.run':
     'run/ — signing secrets, ephemeral sessions and shared_state.db',
 
-  'config.title': 'Configuration',
   'config.migrate.dry': 'config migration preview',
   'config.migrate.apply': 'migrating the .env file',
 
@@ -1350,8 +1299,6 @@ const en: typeof es = {
   'security.stepup.signing': 'signing key rotation',
   'security.stepup.recovery': 'MFA recovery-code generation',
 
-  'portal.title': 'VNC Remote Secure',
-  'portal.subtitle': 'Secure remote access from your browser.',
 
   // --- Security ---------------------------------------------------------------
   'security.title': 'Security',
@@ -1592,13 +1539,6 @@ const en: typeof es = {
   'audio.volume': 'Volume',
   'audio.info.initial':
     'Press Connect to receive audio from the remote machine.',
-  'audio.info.unauthorized': 'Session is not authorized for audio.',
-  'audio.info.connectingTo': 'Connecting to {{url}}…',
-  'audio.info.receiving': 'Receiving audio…',
-  'audio.info.status':
-    '{{clients}} listener(s) · device {{device}} · {{bitrate}} kbps',
-  'audio.info.closed': 'Connection closed by the server.',
-  'audio.info.error': 'Error: {{msg}}',
   'audio.error.conn': 'Could not connect the audio.',
   'audio.state.streaming': 'streaming',
   'audio.state.connecting': 'connecting',
@@ -1617,10 +1557,6 @@ const en: typeof es = {
     'Press Connect then Scan for pads to bind your local gamepad ' +
     'to the remote game.',
   'gamepad.info.connected': 'Gamepad channel open.',
-  'gamepad.info.unauthorized': 'Session is not authorized for gamepad.',
-  'gamepad.info.closed': 'Connection closed by the server.',
-  'gamepad.info.revoked': 'Session revoked.',
-  'gamepad.info.error': 'Error: {{msg}}',
   'gamepad.error.conn': 'Could not connect the gamepad channel.',
   'gamepad.pad.none': 'No gamepad detected.',
   'gamepad.pad.connected': 'Pad {{id}} sending.',
@@ -1679,7 +1615,6 @@ const en: typeof es = {
   'sessions.ttl': 'Duration (TTL)',
   'sessions.maxUses': 'Max uses',
   'sessions.resource': 'Resource',
-  'sessions.allResources': 'All resources',
   'sessions.ipRestriction': 'IP restriction',
   'sessions.ipPlaceholder': 'e.g. 192.168.1.10',
   'sessions.viewOnly': 'View only',
@@ -1695,12 +1630,8 @@ const en: typeof es = {
   'sessions.revokeAllError': 'Could not revoke all sessions.',
   'sessions.inventory': 'Session inventory',
   'sessions.viewsAria': 'Session views',
-  'sessions.tabActive': 'Active',
-  'sessions.tabRevoked': 'Revoked/expired',
   'sessions.revokeAll': 'Close all',
   'sessions.loadError': 'Could not load sessions.',
-  'sessions.emptyActive': 'No active sessions.',
-  'sessions.emptyRevoked': 'No revoked or expired sessions.',
   'sessions.col.ref': 'Ref',
   'sessions.col.state': 'State',
   'sessions.col.role': 'Permission',
