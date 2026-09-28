@@ -364,8 +364,17 @@ export default function Overview() {
     queryFn: () => api.get<Posture>('security/posture'),
     refetchInterval: 60_000,
   });
+  // Aggregated health-monitor verdict (healthy/degraded/down) — the
+  // /api/v1/health read-model: services_up/total + per-service map.
+  const health = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api.health(),
+    refetchInterval: 30_000,
+    retry: false,
+  });
 
   const sys = status.data?.system;
+  const hs = health.data?.services;
 
   return (
     <>
@@ -379,6 +388,24 @@ export default function Overview() {
             {t('overview.security.score', { score: posture.data.score })}
           </span>
           <span className="muted">{posture.data.summary}</span>
+        </div>
+      )}
+
+      {hs && (
+        <div className="toolbar">
+          <span
+            className={`badge ${
+              hs.status === 'healthy' ? 'ok'
+              : hs.status === 'degraded' ? 'warn'
+              : 'fail'}`}
+            title={`${health.data?.system.hostname ?? ''} · ${
+              health.data?.system.os ?? ''}`}
+          >
+            {t(`overview.health.${hs.status}`)}
+            {' · '}
+            {hs.services_up}/{hs.services_total}
+          </span>
+          <span className="muted">{health.data?.system.hostname}</span>
         </div>
       )}
 

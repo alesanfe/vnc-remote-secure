@@ -169,6 +169,11 @@ export const api = {
       session or activated share-link cookie). Anonymous callers get
       401 and the portal page renders its restricted view. */
   portal: () => request<PortalData>('portal'),
+  /** Aggregated host health — the health monitor's own roll-up
+      (status + services_up/total + per-service map + system metrics),
+      operator-only. Distinct from `status`: that one answers "is the
+      port listening", this one is the monitor's verdict. */
+  health: () => request<HealthSnapshot>('health'),
   /** One share-link record by its public fingerprint — 404 on
       unknown or reaped ids. Includes the live sockets currently
       carrying the grant. */
@@ -385,6 +390,26 @@ export interface PortalData {
   ports?: Record<string, number>;
   sessions?: EphemeralSessionInfo[];
   gamepad_stopped?: boolean;
+}
+
+export interface HealthSnapshot {
+  system: {
+    cpu?: string;
+    memory?: string;
+    disk?: string;
+    uptime?: string;
+    hostname?: string;
+    os?: string;
+  };
+  services: {
+    status: 'healthy' | 'degraded' | 'down' | 'unknown';
+    services_up: number;
+    services_total: number;
+    services: Record<string, boolean>;
+  };
+  /** Best-effort posture roll-up embedded by the monitor — the SPA
+      reads posture from `security/posture` instead. */
+  posture?: Record<string, unknown>;
 }
 
 export interface SessionPreview {
