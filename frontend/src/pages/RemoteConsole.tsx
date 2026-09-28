@@ -5,6 +5,17 @@ import { api, ApiError, type RecordingMeta } from '../api';
 import { useI18n } from '../i18n';
 import { RelativeTime, StatusBadge } from '../components/bits';
 import ChatPanel from '../components/ChatPanel';
+import {
+  Camera,
+  CircleStop,
+  Disc,
+  Expand,
+  Film,
+  FolderOpen,
+  Maximize2,
+  MessageSquare,
+  PictureInPicture2,
+} from 'lucide-react';
 import { desktopUrl } from './GuestPage';
 
 /** Embedded noVNC frame — cookie auth ignores the port, so the
@@ -132,28 +143,33 @@ export default function RemoteConsole({ guest = false }: {
                   aria-label={t('remote.group.capture')}>
               <a className="ghost" href={api.desktopScreenshotUrl()}
                  download="screenshot.png" role="button">
+                <Camera size={14} aria-hidden="true" />
                 {t('rec.screenshot')}
               </a>
               {running ? (
                 <button type="button" className="ghost"
                         onClick={() => stopRec.mutate(running.id)}
                         disabled={stopRec.isPending}>
+                  <CircleStop size={14} aria-hidden="true" />
                   {t('rec.stop')}
                 </button>
               ) : (
-                <button type="button" className="ghost"
+                <button type="button" className="ghost rec-arm"
                         onClick={() => startRec.mutate()}
                         disabled={startRec.isPending}>
+                  <Disc size={14} aria-hidden="true" />
                   {t('rec.record')}
                 </button>
               )}
               <Link to="/security/recordings" className="ghost"
                     role="button">
+                <Film size={14} aria-hidden="true" />
                 {t('nav.recordings')}
               </Link>
             </span>
             <span className="toolbar-sep" aria-hidden="true" />
             <Link to="/files" className="ghost" role="button">
+              <FolderOpen size={14} aria-hidden="true" />
               {t('nav.files')}
             </Link>
           </>
@@ -162,6 +178,7 @@ export default function RemoteConsole({ guest = false }: {
           <button type="button" className="ghost"
                   aria-pressed={chatOpen}
                   onClick={() => setChatOpen((o) => !o)}>
+            <MessageSquare size={14} aria-hidden="true" />
             {t('remote.chat')}
           </button>
         )}
@@ -170,15 +187,18 @@ export default function RemoteConsole({ guest = false }: {
               aria-label={t('remote.group.view')}>
           <button type="button" className="ghost" onClick={fullscreen}
                   aria-label={t('remote.fullscreen')}>
+            <Maximize2 size={14} aria-hidden="true" />
             {t('remote.fullscreen')}
           </button>
           <button type="button" className="ghost"
                   onClick={() => setImmersive(true)}
                   aria-label={t('remote.immersive')}>
+            <Expand size={14} aria-hidden="true" />
             {t('remote.immersive')}
           </button>
           <a className="ghost" href={url} target="_blank"
              rel="noreferrer">
+            <PictureInPicture2 size={14} aria-hidden="true" />
             {t('remote.popout')}
           </a>
         </span>

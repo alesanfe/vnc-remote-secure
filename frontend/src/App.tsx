@@ -8,6 +8,25 @@ import {
 } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Toaster } from 'sonner';
+import {
+  DatabaseBackup,
+  Film,
+  FolderOpen,
+  KeyRound,
+  LayoutDashboard,
+  LifeBuoy,
+  ListTodo,
+  MonitorPlay,
+  Plug,
+  ScrollText,
+  Settings2,
+  ShieldCheck,
+  Stethoscope,
+  Users as UsersIcon,
+  type LucideIcon,
+} from 'lucide-react';
+import CommandPalette from './components/CommandPalette';
 import { api, ApiError, type Me } from './api';
 import { LangSwitch, useI18n } from './i18n';
 import LoginPage from './pages/LoginPage';
@@ -74,36 +93,46 @@ export default function App() {
   // settings) instead of exposing one item per module.
   const NAV_GROUPS: {
     group: string | null;
-    items: { to: string; label: string; end?: boolean }[];
+    items: { to: string; label: string; icon: LucideIcon;
+             end?: boolean }[];
   }[] = [
-    { group: null, items: [{ to: '/', label: t('nav.summary'), end: true }] },
+    { group: null, items: [
+      { to: '/', label: t('nav.summary'), icon: LayoutDashboard,
+        end: true }] },
     {
       // Task-oriented grouping: remote sessions first (the daily
       // workflow), then administration, then the system surface.
       group: t('nav.group.access'),
       items: [
-        { to: '/access', label: t('nav.sessions') },
-        { to: '/remote', label: t('nav.remote') },
-        { to: '/connect', label: t('nav.connect') },
-        { to: '/files', label: t('nav.files') },
-        { to: '/security/recordings', label: t('nav.recordings') },
+        { to: '/access', label: t('nav.sessions'), icon: KeyRound },
+        { to: '/remote', label: t('nav.remote'), icon: MonitorPlay },
+        { to: '/connect', label: t('nav.connect'), icon: Plug },
+        { to: '/files', label: t('nav.files'), icon: FolderOpen },
+        { to: '/security/recordings', label: t('nav.recordings'),
+          icon: Film },
       ],
     },
     {
       group: t('nav.group.identities'),
       items: [
-        { to: '/identities', label: t('nav.users') },
-        { to: '/security', label: t('nav.security') },
-        { to: '/security/audit', label: t('nav.audit') },
+        { to: '/identities', label: t('nav.users'),
+          icon: UsersIcon },
+        { to: '/security', label: t('nav.security'),
+          icon: ShieldCheck },
+        { to: '/security/audit', label: t('nav.audit'),
+          icon: ScrollText },
       ],
     },
     {
       group: t('nav.group.operations'),
       items: [
-        { to: '/operations/doctor', label: t('nav.doctor') },
-        { to: '/operations/backups', label: t('nav.backups') },
-        { to: '/operations/jobs', label: t('nav.jobs') },
-        { to: '/config', label: t('nav.config') },
+        { to: '/operations/doctor', label: t('nav.doctor'),
+          icon: Stethoscope },
+        { to: '/operations/backups', label: t('nav.backups'),
+          icon: DatabaseBackup },
+        { to: '/operations/jobs', label: t('nav.jobs'),
+          icon: ListTodo },
+        { to: '/config', label: t('nav.config'), icon: Settings2 },
       ],
     },
   ];
@@ -150,8 +179,25 @@ export default function App() {
     );
   }
 
+  const paletteItems = NAV_GROUPS
+    .flatMap((g) => g.items)
+    .map((n) => ({ to: n.to, label: n.label, icon: <n.icon size={14} /> }));
+  paletteItems.push({ to: '/help', label: t('nav.help'),
+                      icon: <LifeBuoy size={14} /> });
+
   return (
     <div className="layout">
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: 'var(--surface-2)',
+            color: 'var(--text)',
+            border: '1px solid var(--border)',
+          },
+        }}
+      />
+      <CommandPalette items={paletteItems} />
       <header className="topbar">
         <button
           type="button"
@@ -227,6 +273,8 @@ export default function App() {
                   onClick={() => setNavOpen(false)}
                   className={({ isActive }) => (isActive ? 'active' : '')}
                 >
+                  <n.icon size={15} strokeWidth={1.8}
+                          aria-hidden="true" />
                   {n.label}
                 </NavLink>
               ))}
@@ -235,6 +283,7 @@ export default function App() {
         </nav>
         <nav>
           <NavLink to="/help" onClick={() => setNavOpen(false)}>
+            <LifeBuoy size={15} strokeWidth={1.8} aria-hidden="true" />
             {t('nav.help')}
           </NavLink>
           <a href="/">{t('nav.backToPortal')}</a>

@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState } from 'react';
 import { api, ApiError, type SessionPreview } from '../api';
+import { Check, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 /** Map the API failure to a user-facing reason — a 403 means the
@@ -114,7 +115,10 @@ export function ShareAccept({ token }: { token: string }) {
                     className={c.ok
                       ? (c.strong ? 'cap-yes cap-strong' : 'cap-yes')
                       : 'cap-no'}>
-                  {c.ok ? '✓' : '✕'} {t(`share.cap.${c.key}`)}
+                  {c.ok
+                    ? <Check size={14} aria-hidden="true" />
+                    : <X size={14} aria-hidden="true" />}
+                  {t(`share.cap.${c.key}`)}
                 </li>
               ))}
             </ul>

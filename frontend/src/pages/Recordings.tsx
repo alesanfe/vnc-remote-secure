@@ -1,6 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+﻿import { Fragment, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type RecordingMeta } from '../api';
+import { Bookmark, Pause, Play } from 'lucide-react';
+import { toast } from 'sonner';
 import { useI18n } from '../i18n';
 import { useStepUp } from '../components/useStepUp';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -183,7 +185,9 @@ function RecordingPlayer({ rec, recId }: {
         <button type="button"
                 onClick={() => setPlaying((p) => !p)}
                 aria-label={playing ? t('rec.pause') : t('rec.play')}>
-          {playing ? '⏸' : '▶'}
+          {playing
+            ? <Pause size={14} aria-hidden="true" />
+            : <Play size={14} aria-hidden="true" />}
         </button>
         <input
           type="range" min={0} max={rec.duration} step={100}
@@ -202,7 +206,7 @@ function RecordingPlayer({ rec, recId }: {
           ))}
         </select>
         <button type="button" className="ghost" onClick={addMark}>
-          {t('rec.mark')}
+          <Bookmark size={14} aria-hidden="true" /> {t('rec.mark')}
         </button>
       </div>
       {marks.length > 0 && (
@@ -237,7 +241,7 @@ export default function Recordings() {
   const { t } = useI18n();
   const qc = useQueryClient();
   const stepUp = useStepUp();
-  const [flash, setFlash] = useState('');
+  
   const [error, setError] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ParsedRecording | null>(null);
@@ -254,13 +258,13 @@ export default function Recordings() {
 
   const start = useMutation({
     mutationFn: () => api.recordingStart(),
-    onSuccess: () => { setFlash(t('rec.started')); setError(''); invalidate(); },
+    onSuccess: () => { toast.success(t('rec.started')); setError(''); invalidate(); },
     onError: (e) => setError(
       e instanceof ApiError ? e.message : t('rec.startError')),
   });
   const stop = useMutation({
     mutationFn: (id: string) => api.recordingStop(id),
-    onSuccess: () => { setFlash(t('rec.stopped')); setError(''); invalidate(); },
+    onSuccess: () => { toast.success(t('rec.stopped')); setError(''); invalidate(); },
     onError: (e) => setError(
       e instanceof ApiError ? e.message : t('rec.stopError')),
   });
@@ -268,7 +272,7 @@ export default function Recordings() {
     mutationFn: (id: string) => api.recordingDelete(id),
     onSuccess: () => {
       setConfirmDelete(null);
-      setFlash(t('rec.deleted'));
+      toast.success(t('rec.deleted'));
       setError('');
       invalidate();
     },
@@ -317,7 +321,6 @@ export default function Recordings() {
           ● {t('rec.record')}
         </button>
       </div>
-      {flash && <div className="info-box" role="status">{flash}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
       {list.isError && (
