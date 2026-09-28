@@ -12,8 +12,10 @@ Two use cases:
   would swallow the API reply).
 
 Security: both paths are operator-side primitives — the API routes gate
-them behind ``admin:*`` + step-up; there is deliberately no guest path
-(halting the host cannot be a share-link capability).
+them behind ``admin:*`` and ``host_power`` additionally consumes a
+single-use step-up grant bound to the exact action (``power.action``);
+there is deliberately no guest path (halting the host cannot be a
+share-link capability).
 """
 from __future__ import annotations
 
@@ -24,6 +26,9 @@ import re
 import socket
 import threading
 
+from vnc_remote_secure.engine.application.ops import (
+    require_bound_step_up,
+)
 from vnc_remote_secure.engine.infrastructure import stores
 
 POWER_ACTIONS = ('shutdown', 'restart', 'sleep')
@@ -35,7 +40,7 @@ _GRACE_SECONDS = 1.0
 
 
 def wake_on_lan(mac: str, broadcast: str = '255.255.255.255',
-                port: int = 9) -> dict:
+                port: int = 9, actor: str = 'operator') -> dict:
     """Send a WoL magic packet. Returns {sent, mac, broadcast, port}.
 
     ``broadcast`` is restricted to broadcast/unspecified targets —
@@ -57,7 +62,7 @@ def wake_on_lan(mac: str, broadcast: str = '255.255.255.255',
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.sendto(packet, (broadcast, port))
-    stores.audit('power_wol', 'operator', f'mac={mac} bcast={broadcast}')
+    stores.audit('power_wol', actor, f'mac={mac} bcast={broadcast}')
     return {'sent': True, 'mac': mac, 'broadcast': broadcast,
             'port': port}
 
@@ -79,7 +84,8 @@ def _power_cmd(action: str) -> list[str]:
     return ['systemctl', 'suspend']
 
 
-def host_power(action: str, actor: str) -> dict:
+def host_power(action: str, actor: str,
+               auth_ctx: dict | None = None) -> dict:
     """Schedule a host power action after a short grace delay.
 
     The command runs in a daemon thread: shutdown/restart kill the
@@ -89,6 +95,7 @@ def host_power(action: str, actor: str) -> dict:
     """
     if action not in POWER_ACTIONS:
         raise ValueError(f'action must be one of {POWER_ACTIONS}')
+    require_bound_step_up(actor, 'power.action', action, auth_ctx)
     cmd = _power_cmd(action)
 
     def _run() -> None:

@@ -952,7 +952,13 @@ def _post_power(handler, query):
     action = str(body.get('action') or '').strip()
     try:
         from vnc_remote_secure.engine.application.power import host_power
-        _ok(handler, host_power(action, operator.get('username', '?')))
+        from vnc_remote_secure.engine.domain.decision import UseCaseError
+        try:
+            _ok(handler, host_power(
+                action, operator.get('username', '?'),
+                _auth_ctx(handler)))
+        except UseCaseError as exc:
+            _uc_err(handler, exc)
     except ValueError as exc:
         _err(handler, str(exc), 400)
     except Exception as e:  # noqa: BLE001
@@ -976,7 +982,8 @@ def _post_power_wol(handler, query):
         return
     try:
         from vnc_remote_secure.engine.application.power import wake_on_lan
-        _ok(handler, wake_on_lan(mac, broadcast, port))
+        _ok(handler, wake_on_lan(
+            mac, broadcast, port, actor=operator.get('username', '?')))
     except ValueError as exc:
         _err(handler, str(exc), 400)
     except Exception as e:  # noqa: BLE001
@@ -2250,18 +2257,20 @@ _ROUTES = {
     ('GET', 'files'): _Route(
         _get_files, 'session', 'files.list', None, 'FileListResponse'),
     ('GET', 'files/download'): _Route(
-        _get_files_download, 'session', 'files.download', None, None),
+        _get_files_download, 'session', 'files.download', None,
+        'FileDownloadResponse'),
     ('POST', 'files/upload'): _Route(
-        _post_files_upload, 'session', 'files.write', None,
-        'FileWriteResponse'),
+        _post_files_upload, 'session', 'files.write',
+        'file_transfer_upload', 'FileWriteResponse'),
     ('POST', 'files/mkdir'): _Route(
-        _post_files_mkdir, 'session', 'files.write', None,
-        'FileWriteResponse'),
+        _post_files_mkdir, 'session', 'files.write',
+        'file_transfer_mkdir', 'FileWriteResponse'),
     # Session-scoped chat — both parties reach the same channel.
     ('GET', 'chat'): _Route(
         _get_chat, 'session', 'chat', None, 'ChatResponse'),
     ('POST', 'chat'): _Route(
-        _post_chat, 'session', 'chat', None, 'ChatPostResponse'),
+        _post_chat, 'session', 'chat', 'session_chat_message',
+        'ChatPostResponse'),
     ('GET', 'health'): _Route(
         _get_health, 'operator', 'default', None, 'HealthResponse'),
     ('GET', 'security/posture'): _Route(

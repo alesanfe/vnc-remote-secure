@@ -269,8 +269,11 @@ function PowerPanel() {
     },
     onError: (e) => {
       // Keep pending so the step-up retry replays the same action.
+      // The grant is bound to power.action + the action name — a grant
+      // minted for 'sleep' can never fire 'shutdown'.
       stepUp.gate(e, t('overview.power.stepup'),
-                  () => { if (pending) power.mutate(pending); });
+                  () => { if (pending) power.mutate(pending); },
+                  { opId: 'power.action', resource: pending ?? '' });
       if (!(e instanceof ApiError) || e.code !== 'STEP_UP_REQUIRED') {
         setPending(null);
         setErr(e instanceof ApiError

@@ -48,6 +48,8 @@ deliberate `cli-only`/`api-only` cell).
 | `upgrade.check` | low | `upgrade --check` | `GET /upgrade` | sí | `operator` | session | sync | `-` | yes |
 | `upgrade.run` | critical | `upgrade` | `POST /upgrade` | sí | `admin:*` | stepup-bound | job | `upgrade_run` | partially |
 | `upgrade.rollback` | critical | `upgrade --rollback` | `POST /upgrade/rollback` | sí | `admin:*` | stepup-bound | job | `upgrade_rollback` | yes |
+| `power.action` | critical | — | `POST /power` | sí | `admin:*` | stepup-bound | sync | `power_action` | no |
+| `power.wol` | low | — | `POST /power/wol` | sí | `admin:*` | session | sync | `power_wol` | no |
 | `host.install` | critical | `install` | — | — | `public` | session | sync | `-` | partially |
 | `host.uninstall` | critical | `uninstall` | — | — | `public` | session | sync | `-` | partially |
 | `host.service` | moderate | `service --run` | — | — | `public` | session | sync | `-` | yes |

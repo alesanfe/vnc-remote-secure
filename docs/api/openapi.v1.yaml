@@ -333,6 +333,37 @@ components:
             message: { $ref: '#/components/schemas/ChatMessage' }
         error: { nullable: true }
         request_id: { type: string }
+    FileDownloadResponse:
+      type: string
+      format: binary
+      description: >
+        Raw file bytes with Content-Disposition attachment — the one
+        endpoint that does NOT answer with the {data, error} envelope.
+    PowerActionResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            action: { type: string, enum: [shutdown, restart, sleep] }
+            accepted: { type: boolean }
+            effective_in_seconds: { type: number }
+        error: { nullable: true }
+        request_id: { type: string }
+    WolResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            sent: { type: boolean }
+            mac: { type: string }
+            broadcast: { type: string }
+            port: { type: integer }
+        error: { nullable: true }
+        request_id: { type: string }
     HealthResponse:
       type: object
       required: [data, error, request_id]
@@ -1204,13 +1235,16 @@ paths:
     post:
       summary: Host power action (shutdown/restart/sleep)
       description: >
-        admin:* + step-up. The action runs on a ~1s grace delay in the
-        backend so the 200 is delivered before the host drops. Each
+        admin:* + a step-up grant bound to power.action and the
+        requested action name. The action runs on a ~1s grace delay in
+        the backend so the 200 is delivered before the host drops. Each
         call is audited as power_action.
       x-required-permission: admin:*
+      x-operation-id: power.action
       x-step-up-required: true
       x-csrf-required: true
       x-rate-limit-scope: power
+      x-response-schema: PowerActionResponse
       x-audit-event: power_action
       requestBody:
         required: true
@@ -1234,8 +1268,10 @@ paths:
         admin:*. Sends a WoL packet to the broadcast address (default
         255.255.255.255:9). Target is restricted to broadcast addresses.
       x-required-permission: admin:*
+      x-operation-id: power.wol
       x-csrf-required: true
       x-rate-limit-scope: power
+      x-response-schema: WolResponse
       x-audit-event: power_wol
       requestBody:
         required: true
@@ -1262,7 +1298,7 @@ paths:
         need the file_transfer permission and a grant unbound or bound
         to the 'files' resource. Paths are relative to FILE_SHARE_ROOT
         and confined to it after realpath resolution.
-      x-required-permission: session (file_transfer for guests)
+      x-required-permission: session
       x-rate-limit-scope: files.list
       x-response-schema: FileListResponse
       parameters:
@@ -1277,8 +1313,10 @@ paths:
   /files/download:
     get:
       summary: Download one file from the share root
-      x-required-permission: session (file_transfer for guests)
+      description: Guests need the file_transfer permission.
+      x-required-permission: session
       x-rate-limit-scope: files.download
+      x-response-schema: FileDownloadResponse
       parameters:
         - name: path
           in: query
@@ -1290,11 +1328,13 @@ paths:
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
-        '400': { description: Not a regular file, or over the size cap }
+        '400': { description: 'Not a regular file, or over the size cap' }
   /files/upload:
     post:
       summary: Upload a file (base64 JSON body, tmp+rename write)
-      x-required-permission: session (file_transfer for guests)
+      description: Guests need the file_transfer permission.
+      x-required-permission: session
+      x-csrf-required: true
       x-rate-limit-scope: files.write
       x-response-schema: FileWriteResponse
       x-audit-event: file_transfer_upload
@@ -1317,7 +1357,9 @@ paths:
   /files/mkdir:
     post:
       summary: Create one directory inside the share root
-      x-required-permission: session (file_transfer for guests)
+      description: Guests need the file_transfer permission.
+      x-required-permission: session
+      x-csrf-required: true
       x-rate-limit-scope: files.write
       x-response-schema: FileWriteResponse
       x-audit-event: file_transfer_mkdir
@@ -1353,6 +1395,7 @@ paths:
     post:
       summary: Append a chat message (audited, ≤500 chars)
       x-required-permission: session
+      x-csrf-required: true
       x-rate-limit-scope: chat
       x-response-schema: ChatPostResponse
       x-audit-event: session_chat_message

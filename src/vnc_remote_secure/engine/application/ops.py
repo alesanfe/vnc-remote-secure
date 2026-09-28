@@ -40,7 +40,7 @@ from vnc_remote_secure.engine.infrastructure import stores
 _DESTRUCTIVE_LOCK = 'destructive'
 
 
-def _require_bound_step_up(actor: str, operation_id: str,
+def require_bound_step_up(actor: str, operation_id: str,
                            resource: str = '',
                            auth_ctx=None) -> None:
     """Consume a single-use grant bound to operation+resource+session.
@@ -122,7 +122,7 @@ def lifecycle_action(actor: str, action: str,
         raise UseCaseError(
             ERR_INVALID,
             f'action must be one of {list(_LIFECYCLE_ACTIONS)}')
-    _require_bound_step_up(actor, 'lifecycle.action', action, auth_ctx)
+    require_bound_step_up(actor, 'lifecycle.action', action, auth_ctx)
     jid = _queue_destructive(
         actor, 'lifecycle', action,
         payload={'op': 'lifecycle.action', 'action': action})
@@ -150,7 +150,7 @@ def _resolve_backup(name: str) -> str:
 
 def create_backup(actor: str, auth_ctx: dict | None = None) -> dict:
     """``vnc-remote backup`` — archive config + secrets + audit."""
-    _require_bound_step_up(actor, 'backup.create', '', auth_ctx)
+    require_bound_step_up(actor, 'backup.create', '', auth_ctx)
     jid = stores.job_start('backup', actor)
     try:
         path = stores.backup_create()
@@ -186,7 +186,7 @@ def restore_backup(actor: str, name: str,
     overwrites live config in the detached executor."""
     path = _resolve_backup(name)
     base = os.path.basename(path)
-    _require_bound_step_up(actor, 'backup.restore', base, auth_ctx)
+    require_bound_step_up(actor, 'backup.restore', base, auth_ctx)
     jid = _queue_destructive(
         actor, 'restore', base,
         payload={'op': 'backup.restore', 'path': path, 'name': base})
@@ -224,7 +224,7 @@ def rotate_secret(actor: str, name: str,
         raise UseCaseError(
             ERR_INVALID,
             f'unknown secret; allowed: {sorted(allowed)}')
-    _require_bound_step_up(actor, 'secrets.rotate', name, auth_ctx)
+    require_bound_step_up(actor, 'secrets.rotate', name, auth_ctx)
     jid = stores.job_start('secret_rotate', actor, name)
     try:
         result = stores.secret_rotate(name)
@@ -240,7 +240,7 @@ def rotate_secret(actor: str, name: str,
 def rotate_signing_key(actor: str,
                        auth_ctx: dict | None = None) -> dict:
     """``vnc-remote secrets rotate-signing`` — 7-day coexistence."""
-    _require_bound_step_up(actor, 'secrets.rotate_signing', '',
+    require_bound_step_up(actor, 'secrets.rotate_signing', '',
                            auth_ctx)
     try:
         result = stores.secret_rotate_signing()
@@ -267,7 +267,7 @@ def secrets_check(actor: str, fix: bool = False) -> dict:
 def recovery_codes(actor: str,
                    auth_ctx: dict | None = None) -> dict:
     """``vnc-remote secrets recovery-codes`` — shown once."""
-    _require_bound_step_up(actor, 'secrets.recovery_codes', '',
+    require_bound_step_up(actor, 'secrets.recovery_codes', '',
                            auth_ctx)
     try:
         codes = stores.recovery_codes_generate(8)
@@ -315,7 +315,7 @@ def config_migrate(actor: str, dry_run: bool = False,
     Dry-run is a read-only preview — no grant required; applying the
     migration consumes a bound grant."""
     if not dry_run:
-        _require_bound_step_up(actor, 'config.migrate', 'apply',
+        require_bound_step_up(actor, 'config.migrate', 'apply',
                                auth_ctx)
     try:
         result = stores.config_migrate(dry_run=dry_run)
@@ -344,7 +344,7 @@ def upgrade_run(actor: str, source: str | None = None,
     response carries ``job_id`` and the jobs panel shows
     backup → install → rollback status."""
     source = str(source or '').strip() or None
-    _require_bound_step_up(actor, 'upgrade.run',
+    require_bound_step_up(actor, 'upgrade.run',
                            source or 'latest', auth_ctx)
     jid = _queue_destructive(
         actor, 'upgrade', source or 'latest',
@@ -357,7 +357,7 @@ def upgrade_run(actor: str, source: str | None = None,
 def upgrade_rollback(actor: str,
                      auth_ctx: dict | None = None) -> dict:
     """``vnc-remote upgrade --rollback`` — claimed deferred job."""
-    _require_bound_step_up(actor, 'upgrade.rollback', '', auth_ctx)
+    require_bound_step_up(actor, 'upgrade.rollback', '', auth_ctx)
     jid = _queue_destructive(
         actor, 'upgrade_rollback', '',
         payload={'op': 'upgrade.rollback'})

@@ -281,6 +281,23 @@ OPERATIONS: dict[str, OperationSpec] = {
             cli_command='upgrade --rollback',
             api_route='POST /upgrade/rollback', reversible='yes'),
 
+        # --- Host power — MeshCentral/RustDesk parity -------------------------
+        # Halting the whole host kills the portal too — same destructive
+        # class as lifecycle.action, hence a bound step-up grant; the
+        # action itself runs on a grace-delay thread so the response is
+        # delivered first (not the deferred job runner).
+        _op('power.action', 'Apagar/reiniciar/suspender el equipo',
+            'critical', 'admin:*', authentication_policy='stepup-bound',
+            confirmation_type='typed', audit_event='power_action',
+            supports_cli=False, api_route='POST /power',
+            reversible='no'),
+        # WoL can only wake — a spoofed packet is harmless — so it stays
+        # admin:* without step-up; the broadcast target is restricted
+        # server-side.
+        _op('power.wol', 'Despertar equipo (Wake-on-LAN)', 'low',
+            'admin:*', audit_event='power_wol', supports_cli=False,
+            api_route='POST /power/wol', reversible='no'),
+
         # --- Host bootstrap — CLI-only BY DESIGN ----------------------------
         _op('host.install', 'Instalar y configurar', 'critical', '',
             supports_api=False, supports_ui=False,

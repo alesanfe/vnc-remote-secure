@@ -303,6 +303,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/power": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Host power action (shutdown/restart/sleep)
+         * @description admin:* + a step-up grant bound to power.action and the requested action name. The action runs on a ~1s grace delay in the backend so the 200 is delivered before the host drops. Each call is audited as power_action.
+         *
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        action: "shutdown" | "restart" | "sleep";
+                    };
+                };
+            };
+            responses: {
+                /** @description Action accepted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown action */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description admin:* + step-up required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/power/wol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Wake-on-LAN magic packet
+         * @description admin:*. Sends a WoL packet to the broadcast address (default 255.255.255.255:9). Target is restricted to broadcast addresses.
+         *
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description AA:BB:CC:DD:EE:FF */
+                        mac: string;
+                        /** @default 255.255.255.255 */
+                        broadcast?: string;
+                        /** @default 9 */
+                        port?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Packet sent */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid MAC or non-broadcast target */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description admin:* required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files": {
         parameters: {
             query?: never;
@@ -365,7 +501,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download one file from the share root */
+        /**
+         * Download one file from the share root
+         * @description Guests need the file_transfer permission.
+         */
         get: {
             parameters: {
                 query: {
@@ -386,7 +525,7 @@ export interface paths {
                         "application/octet-stream": string;
                     };
                 };
-                /** @description Not a regular file */
+                /** @description Not a regular file, or over the size cap */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -412,7 +551,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Upload a file (base64 JSON body, tmp+rename write) */
+        /**
+         * Upload a file (base64 JSON body, tmp+rename write)
+         * @description Guests need the file_transfer permission.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -478,7 +620,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create one directory inside the share root */
+        /**
+         * Create one directory inside the share root
+         * @description Guests need the file_transfer permission.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -3251,6 +3396,8 @@ export interface components {
                 max_uses?: number;
                 resource?: string | null;
                 allowed_ip?: string | null;
+                /** @description True when email_to was supplied and the link was delivered via ALERT_SMTP_* */
+                emailed?: boolean;
             };
             error: unknown;
             request_id: string;
@@ -3325,6 +3472,32 @@ export interface components {
         ChatPostResponse: {
             data: {
                 message?: components["schemas"]["ChatMessage"];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        /**
+         * Format: binary
+         * @description Raw file bytes with Content-Disposition attachment — the one endpoint that does NOT answer with the {data, error} envelope.
+         *
+         */
+        FileDownloadResponse: string;
+        PowerActionResponse: {
+            data: {
+                /** @enum {string} */
+                action?: "shutdown" | "restart" | "sleep";
+                accepted?: boolean;
+                effective_in_seconds?: number;
+            };
+            error: unknown;
+            request_id: string;
+        };
+        WolResponse: {
+            data: {
+                sent?: boolean;
+                mac?: string;
+                broadcast?: string;
+                port?: number;
             };
             error: unknown;
             request_id: string;
@@ -3844,7 +4017,9 @@ export interface components {
             /** @description IP, CIDR or first-observed */
             allowed_ip?: string;
             /** @enum {string|null} */
-            resource?: "desktop" | "terminal" | "audio" | "gamepad" | null;
+            resource?: "desktop" | "terminal" | "audio" | "gamepad" | "files" | null;
+            /** @description Optional recipient — the share link is emailed via ALERT_SMTP_* */
+            email_to?: string | null;
         };
     };
     responses: never;
