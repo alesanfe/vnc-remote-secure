@@ -3,6 +3,9 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
+import { SerializeAddon } from '@xterm/addon-serialize';
+import { Download } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { api, type PortalData } from '../api';
 import { useI18n } from '../i18n';
@@ -27,6 +30,7 @@ export default function TerminalPage() {
   const [retryNonce, setRetryNonce] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
+  const serializeRef = useRef<SerializeAddon | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
   const findInputRef = useRef<HTMLInputElement>(null);
@@ -68,6 +72,13 @@ export default function TerminalPage() {
     const search = new SearchAddon();
     term.loadAddon(search);
     searchRef.current = search;
+    // ClipboardAddon: Ctrl+C copies when text is selected and only
+    // interrupts when it isn't; Ctrl+V inserts the clipboard —
+    // without it every \x03 became a SIGINT and copy was impossible.
+    term.loadAddon(new ClipboardAddon());
+    const serialize = new SerializeAddon();
+    term.loadAddon(serialize);
+    serializeRef.current = serialize;
     term.open(termRef.current);
     fit.fit();
 
@@ -227,6 +238,7 @@ export default function TerminalPage() {
       term.dispose();
       termObj.current = null;
       searchRef.current = null;
+      serializeRef.current = null;
     };
   }, [wsUrl, retryNonce]);
 
@@ -326,6 +338,27 @@ export default function TerminalPage() {
             ×
           </button>
         </div>
+      )}
+      {state === 'connected' && (
+        <button
+          type="button"
+          className="ghost term-download"
+          aria-label={t('terminal.download')}
+          title={t('terminal.download')}
+          onClick={() => {
+            const text = serializeRef.current?.serialize();
+            if (!text) return;
+            const blob = new Blob([text], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `vnc-terminal-${new Date()
+              .toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}
+        >
+          <Download size={14} aria-hidden="true" />
+        </button>
       )}
       <div ref={termRef} className="term-host" />
     </main>
