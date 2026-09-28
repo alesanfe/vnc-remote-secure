@@ -1,6 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
+  Gamepad2,
+  Link2,
+  Monitor,
+  SquareTerminal,
+  Volume2,
+  type LucideIcon,
+} from 'lucide-react';
+import {
   api,
   type EphemeralSessionInfo,
   type PortalData,
@@ -19,7 +27,7 @@ interface ActivePage {
 
 interface DirectAccess {
   key: string;
-  icon: string;
+  icon: LucideIcon;
   url: string;
   available: boolean;
 }
@@ -37,18 +45,19 @@ function directAccesses(p?: PortalData): DirectAccess[] {
   return [
     {
       key: 'desktop',
-      icon: '🖥️',
+      icon: Monitor,
       url: novncUrl,
       available: p?.vnc_direct?.running ?? running('noVNC'),
     },
     {
       key: 'terminal',
-      icon: '⌨️',
+      icon: SquareTerminal,
       url: '/terminal',
       available: running('Web Terminal'),
     },
-    { key: 'audio', icon: '🔊', url: '/audio', available: true },
-    { key: 'gamepad', icon: '🎮', url: '/gamepad', available: true },
+    { key: 'audio', icon: Volume2, url: '/audio', available: true },
+    { key: 'gamepad', icon: Gamepad2, url: '/gamepad',
+      available: true },
   ];
 }
 
@@ -92,7 +101,9 @@ export default function ConnectPage() {
             style={{ opacity: a.available ? 1 : 0.55 }}
           >
             <h3>
-              {a.icon} {t(`sessions.res.${a.key}`)}
+              <a.icon size={16} aria-hidden="true"
+                      style={{ verticalAlign: '-2px' }} />{' '}
+              {t(`sessions.res.${a.key}`)}
             </h3>
             <p className="muted">{t(`guest.resDesc.${a.key}`)}</p>
             <div className="row">
@@ -112,7 +123,11 @@ export default function ConnectPage() {
           </div>
         ))}
         <div className="card">
-          <h3>🔗 {t('connect.guestView')}</h3>
+          <h3>
+            <Link2 size={16} aria-hidden="true"
+                   style={{ verticalAlign: '-2px' }} />{' '}
+            {t('connect.guestView')}
+          </h3>
           <p className="muted">{t('guest.subtitle')}</p>
           <div className="row">
             <a href="/guest">{t('common.open')}</a>
@@ -137,27 +152,32 @@ export default function ConnectPage() {
           {
             key: 'id',
             header: t('sessions.col.ref'),
+            sortValue: (s) => s.token_id,
             render: (s) => <SessionReference id={s.token_id} />,
           },
           {
             key: 'role',
             header: t('sessions.col.role'),
+            sortValue: (s) => s.role,
             render: (s) => s.role,
           },
           {
             key: 'resource',
             header: t('sessions.col.resource'),
+            sortValue: (s) => s.resource ?? null,
             render: (s) =>
               s.resource ? t(`sessions.res.${s.resource}`) : '—',
           },
           {
             key: 'exp',
             header: t('sessions.col.expires'),
+            sortValue: (s) => s.expires_at,
             render: (s) => <RelativeTime epoch={s.expires_at} />,
           },
           {
             key: 'by',
             header: t('sessions.col.creator'),
+            sortValue: (s) => s.created_by,
             render: (s) => s.created_by,
           },
         ]}

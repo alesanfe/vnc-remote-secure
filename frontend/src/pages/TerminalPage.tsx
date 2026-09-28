@@ -21,6 +21,9 @@ export default function TerminalPage() {
   const [state, setState] = useState<ConnState>('connecting');
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [authError, setAuthError] = useState(false);
+  // Bumping this re-runs the connection effect — the only way back
+  // after a 1008 policy close, where automatic retry is refused.
+  const [retryNonce, setRetryNonce] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const termObj = useRef<{
     term: Terminal;
@@ -187,6 +190,15 @@ export default function TerminalPage() {
         if (st.input) {
           ws.send(JSON.stringify({ type: 'complete', input: st.input }));
         }
+      } else if (data.length > 1) {
+        // Bracketed paste / multichar data arrives as one chunk —
+        // keep only printable chars so a pasted newline can't
+        // smuggle commands; single chars take the path below.
+        const text = data.replace(/[^\x20-\x7e]/g, '');
+        if (text) {
+          st.input += text;
+          term.write(text);
+        }
       } else if (data.charCodeAt(0) >= 32) {
         st.input += data;
         term.write(data);
@@ -207,7 +219,7 @@ export default function TerminalPage() {
       term.dispose();
       termObj.current = null;
     };
-  }, [wsUrl]);
+  }, [wsUrl, retryNonce]);
 
   const label =
     state === 'connected'
@@ -230,6 +242,20 @@ export default function TerminalPage() {
           ? t('terminal.unauthorized')
           : label}
       </div>
+      {(state === 'error' || state === 'disconnected') && (
+        <button
+          type="button"
+          className="ghost"
+          style={{ position: 'fixed', top: 30, right: 10,
+                   zIndex: 100 }}
+          onClick={() => {
+            setAuthError(false);
+            setRetryNonce((n) => n + 1);
+          }}
+        >
+          {t('terminal.reconnect')}
+        </button>
+      )}
       <div ref={termRef} className="term-host" />
     </main>
   );

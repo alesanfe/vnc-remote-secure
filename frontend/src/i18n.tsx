@@ -658,6 +658,7 @@ const es = {
 
   // --- Terminal -------------------------------------------------------------------
   'terminal.unauthorized': 'Sesión no autorizada para el terminal.',
+  'terminal.reconnect': 'Reconectar',
   'terminal.state.connected': 'conectado',
   'terminal.state.connecting': 'conectando',
   'terminal.state.error': 'error',
@@ -1653,6 +1654,7 @@ const en: typeof es = {
 
   // --- Terminal -------------------------------------------------------------------
   'terminal.unauthorized': 'Session is not authorized for the terminal.',
+  'terminal.reconnect': 'Reconnect',
   'terminal.state.connected': 'connected',
   'terminal.state.connecting': 'connecting',
   'terminal.state.error': 'error',
