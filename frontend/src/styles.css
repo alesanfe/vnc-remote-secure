@@ -339,6 +339,24 @@ a { color: var(--accent-text); }
 }
 .jobs-badge:hover { color: var(--text); }
 
+/* Sortable header button inside table.data — invisible chrome until
+   interaction, keeps the column label as the click target. */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.th-sort svg { color: var(--text-dim); }
+.th-sort:hover svg, .th-sort:focus-visible svg { color: var(--text); }
+
 /* Ctrl+K command palette (cmdk). */
 .palette-overlay {
   position: fixed;

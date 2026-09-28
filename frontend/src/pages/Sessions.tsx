@@ -569,6 +569,7 @@ export default function Sessions() {
           {
             key: 'id',
             header: t('sessions.col.ref'),
+            sortValue: (s) => s.token_id,
             render: (s) => (
               <Link to={`/access/${s.token_id}`}>
                 <SessionReference id={s.token_id} />
@@ -578,6 +579,7 @@ export default function Sessions() {
           {
             key: 'state',
             header: t('sessions.col.state'),
+            sortValue: (s) => (s.revoked ? 1 : 0),
             render: (s) =>
               s.revoked ? (
                 <StatusBadge status="fail" label={t('sessions.stateRevoked')} />
@@ -585,25 +587,30 @@ export default function Sessions() {
                 <StatusBadge status="ok" label={t('sessions.stateActive')} />
               ),
           },
-          { key: 'role', header: t('sessions.col.role'), render: (s) => s.role },
+          { key: 'role', header: t('sessions.col.role'), render: (s) => s.role,
+            sortValue: (s) => s.role },
           {
             key: 'perms',
             header: t('sessions.col.perms'),
             render: (s) => t('sessions.permCount', { count: s.permissions.length }),
+            sortValue: (s) => s.permissions.length,
             title: (s) => s.permissions.join(', '),
           },
           {
             key: 'resource',
             header: t('sessions.col.resource'),
             render: (s) => s.resource ?? '—',
+            sortValue: (s) => s.resource ?? null,
           },
           {
             key: 'exp',
             header: t('sessions.col.expires'),
             render: (s) => <RelativeTime epoch={s.expires_at} />,
+            sortValue: (s) => s.expires_at,
           },
           { key: 'flags', header: t('sessions.col.flags'), render: flagBadges },
-          { key: 'by', header: t('sessions.col.creator'), render: (s) => s.created_by },
+          { key: 'by', header: t('sessions.col.creator'), render: (s) => s.created_by,
+            sortValue: (s) => s.created_by },
           {
             key: 'actions',
             header: '',

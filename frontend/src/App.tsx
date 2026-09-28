@@ -27,6 +27,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import CommandPalette from './components/CommandPalette';
+import Boundary from './components/ErrorBoundary';
 import { api, ApiError, type Me } from './api';
 import { LangSwitch, useI18n } from './i18n';
 import LoginPage from './pages/LoginPage';
@@ -306,6 +307,7 @@ export default function App() {
         </nav>
       </aside>
       <main className="main">
+        <Boundary>
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/access" element={<Sessions />} />
@@ -353,6 +355,7 @@ export default function App() {
             }
           />
         </Routes>
+        </Boundary>
       </main>
     </div>
   );
