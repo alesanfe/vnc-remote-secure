@@ -125,7 +125,7 @@ export default function SystemUsersSection({
         title={t('systemUsers.deleteTitle')}
         danger
         confirmLabel={t('common.delete')}
-        confirmText="ELIMINAR"
+        confirmText={t('systemUsers.confirmWord')}
         onCancel={() => setDelTarget(null)}
         onConfirm={() => {
           const target = delTarget;
@@ -141,7 +141,8 @@ export default function SystemUsersSection({
           {t('systemUsers.deleteBody', { name: delTarget ?? '' })}
         </p>
         <p className="muted">
-          {t('confirm.typeToConfirm', { name: 'ELIMINAR' })}
+          {t('confirm.typeToConfirm',
+             { name: t('systemUsers.confirmWord') })}
         </p>
       </ConfirmDialog>
     </>

@@ -15,6 +15,7 @@ import RemoteConsole from './pages/RemoteConsole';
 import { I18nProvider, useI18n } from './i18n';
 import { GuestLayout } from './components/GuestShell';
 import { initTheme } from './components/ThemeSwitch';
+import { Lock } from 'lucide-react';
 import './styles.css';
 
 initTheme();
@@ -43,7 +44,7 @@ function PublicNotFound() {
   return (
     <main className="share-wrap">
       <div className="card share-card">
-        <h1>🔒 VNC Remote Secure</h1>
+        <h1><Lock size={20} aria-hidden="true" /> VNC Remote Secure</h1>
         <p className="muted">{t('nav.notFound')}</p>
         <p>
           <a href="/">{t('guest.portalLink')}</a>

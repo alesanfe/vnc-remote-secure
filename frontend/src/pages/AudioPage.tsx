@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react';
+import { Volume2 } from 'lucide-react';
 import { api, type PortalData } from '../api';
 import { useI18n } from '../i18n';
 
@@ -121,7 +122,7 @@ export default function AudioPage() {
   return (
     <main className="share-wrap">
       <div className="card share-card">
-        <h1>🔊 {t('audio.title')}</h1>
+        <h1><Volume2 size={20} aria-hidden="true" /> {t('audio.title')}</h1>
         <div
           className={`status status-${state}`}
           role="status"

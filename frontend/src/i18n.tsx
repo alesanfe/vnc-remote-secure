@@ -948,6 +948,7 @@ const es = {
   'systemUsers.actions': 'Acciones',
   'systemUsers.empty': 'No hay usuarios del sistema gestionados.',
   'systemUsers.deleteTitle': 'Eliminar usuario del sistema',
+  'systemUsers.confirmWord': 'ELIMINAR',
   'systemUsers.deleteBody':
     'El usuario {{name}} será eliminado del sistema. Esto no ' +
     'afecta a operadores del panel.',
@@ -1907,6 +1908,7 @@ const en: typeof es = {
   'systemUsers.actions': 'Actions',
   'systemUsers.empty': 'No managed system users.',
   'systemUsers.deleteTitle': 'Delete system user',
+  'systemUsers.confirmWord': 'DELETE',
   'systemUsers.deleteBody':
     'User {{name}} will be removed from the system. This does ' +
     'not affect panel operators.',

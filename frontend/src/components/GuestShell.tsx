@@ -1,6 +1,7 @@
 ﻿import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Outlet } from 'react-router-dom';
+import { Link2, Lock } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { RelativeTime } from './bits';
@@ -56,7 +57,9 @@ export default function GuestShell({ children }: { children: ReactNode }) {
     return (
       <main className="share-wrap">
         <div className="card share-card">
-          <h1>🔒 VNC Remote Secure</h1>
+          <h1><Lock size={20} aria-hidden="true"
+                    style={{ verticalAlign: '-3px' }} />{' '}
+            VNC Remote Secure</h1>
           <p className="muted">{t('guest.expired')}</p>
           <p>
             <a href="/">{t('guest.portalLink')}</a>
@@ -77,7 +80,7 @@ export default function GuestShell({ children }: { children: ReactNode }) {
     <div className="guest-shell">
       <nav className="guest-bar" aria-label={t('guest.title')}>
         <a className="guest-bar-home" href="/guest" title={t('guest.title')}>
-          🔗
+          <Link2 size={16} aria-hidden="true" />
         </a>
         {items.map((r) => (
           <a
@@ -86,7 +89,9 @@ export default function GuestShell({ children }: { children: ReactNode }) {
             className={`guest-bar-link${current === r.url ? ' active' : ''}`}
             aria-current={current === r.url ? 'page' : undefined}
           >
-            {r.icon} {t(`sessions.res.${r.key}`)}
+            <r.icon size={14} aria-hidden="true"
+                    style={{ verticalAlign: '-2px' }} />{' '}
+            {t(`sessions.res.${r.key}`)}
           </a>
         ))}
         <span className="spacer" />

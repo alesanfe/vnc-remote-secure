@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react';
+import { Gamepad2 } from 'lucide-react';
 import { api, type PortalData } from '../api';
 import { useI18n } from '../i18n';
 
@@ -179,7 +180,7 @@ export default function GamepadPage() {
   return (
     <main className="share-wrap">
       <div className="card share-card" style={{ maxWidth: 700 }}>
-        <h1>🎮 {t('gamepad.title')}</h1>
+        <h1><Gamepad2 size={20} aria-hidden="true" /> {t('gamepad.title')}</h1>
         <div
           className={`status status-${state}`}
           role="status"

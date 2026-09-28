@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { LifeBuoy } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 
@@ -35,7 +36,9 @@ export default function RecoveryPage() {
   return (
     <main className="share-wrap">
       <div className="card share-card">
-        <h1>🆘 {t('recovery.title')}</h1>
+        <h1><LifeBuoy size={20} aria-hidden="true"
+                      style={{ verticalAlign: '-3px' }} />{' '}
+          {t('recovery.title')}</h1>
         <p className="muted">{t('recovery.subtitle')}</p>
         <form onSubmit={submit}>
           <div className="row">

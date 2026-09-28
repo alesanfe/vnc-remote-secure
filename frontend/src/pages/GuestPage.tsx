@@ -1,6 +1,17 @@
 ﻿import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Navigate } from 'react-router-dom';
+import {
+  FolderOpen,
+  Gamepad2,
+  Link2,
+  Lock,
+  Monitor,
+  SquareTerminal,
+  TriangleAlert,
+  Volume2,
+  type LucideIcon,
+} from 'lucide-react';
 import { api, type PortalData, type SessionContext } from '../api';
 import ChatPanel from '../components/ChatPanel';
 import { RelativeTime } from '../components/bits';
@@ -18,7 +29,7 @@ export function desktopUrl(p?: PortalData): string {
 
 export interface GuestResource {
   key: string;
-  icon: string;
+  icon: LucideIcon;
   url: string;
   external?: boolean;
 }
@@ -32,22 +43,24 @@ export function resourcesFor(ctx: SessionContext): GuestResource[] {
   if (allowed('desktop')) {
     // The unified console (/desktop) embeds noVNC with chat +
     // expiry chrome; the popout link inside reaches raw vnc.html.
-    items.push({ key: 'desktop', icon: '🖥️', url: '/desktop' });
+    items.push({ key: 'desktop', icon: Monitor, url: '/desktop' });
   }
   if (allowed('terminal') && !ctx.no_terminal) {
-    items.push({ key: 'terminal', icon: '⌨️', url: '/terminal' });
+    items.push({
+      key: 'terminal', icon: SquareTerminal, url: '/terminal',
+    });
   }
   if (allowed('audio')) {
-    items.push({ key: 'audio', icon: '🔊', url: '/audio' });
+    items.push({ key: 'audio', icon: Volume2, url: '/audio' });
   }
   if (allowed('gamepad')) {
-    items.push({ key: 'gamepad', icon: '🎮', url: '/gamepad' });
+    items.push({ key: 'gamepad', icon: Gamepad2, url: '/gamepad' });
   }
   // The share needs an explicit file_transfer grant — an unbound
   // link alone doesn't expose the filesystem tile.
   if (allowed('files') &&
       (ctx.permissions ?? []).includes('file_transfer')) {
-    items.push({ key: 'files', icon: '📁', url: '/files' });
+    items.push({ key: 'files', icon: FolderOpen, url: '/files' });
   }
   return items;
 }
@@ -90,7 +103,7 @@ export default function GuestPage() {
     return (
       <main className="share-wrap">
         <div className="card share-card">
-          <h1>🔒 VNC Remote Secure</h1>
+          <h1><Lock size={20} aria-hidden="true" /> VNC Remote Secure</h1>
           <p className="muted">{t('guest.none')}</p>
           <p>
             <a href="/">{t('guest.portalLink')}</a>
@@ -103,7 +116,7 @@ export default function GuestPage() {
     return (
       <main className="share-wrap">
         <div className="card share-card">
-          <h1>🔒 VNC Remote Secure</h1>
+          <h1><Lock size={20} aria-hidden="true" /> VNC Remote Secure</h1>
           <p className="muted">{t('guest.expired')}</p>
           <p>
             <a href="/">{t('guest.portalLink')}</a>
@@ -133,13 +146,13 @@ export default function GuestPage() {
   return (
     <main className="portal">
       <div className="header" role="banner">
-        <h1>🔗 {t('guest.title')}</h1>
+        <h1><Link2 size={16} aria-hidden="true" /> {t('guest.title')}</h1>
         <p className="muted">{t('guest.subtitle')}</p>
       </div>
       <div id="main">
         {expiringSoon && (
           <div className="notice" role="alert" aria-live="polite">
-            ⚠️ {t('guest.expiringSoon')}
+            <TriangleAlert size={14} aria-hidden="true" /> {t('guest.expiringSoon')}
           </div>
         )}
         <div className="notice">
@@ -159,7 +172,9 @@ export default function GuestPage() {
             {items.map((r) => (
               <div className="card" key={r.key}>
                 <h3>
-                  {r.icon} {t(`sessions.res.${r.key}`)}
+                  <r.icon size={16} aria-hidden="true"
+                          style={{ verticalAlign: '-2px' }} />{' '}
+                  {t(`sessions.res.${r.key}`)}
                 </h3>
                 <p className="muted">{t(`guest.resDesc.${r.key}`)}</p>
                 <div className="row">

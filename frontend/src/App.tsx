@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   ListTodo,
+  Menu,
   MonitorPlay,
   Plug,
   ScrollText,
@@ -210,7 +211,7 @@ export default function App() {
           aria-label={t('nav.menu')}
           onClick={() => setNavOpen((o) => !o)}
         >
-          ☰
+          <Menu size={16} aria-hidden="true" />
         </button>
         <strong>VNC Remote Secure</strong>
       </header>

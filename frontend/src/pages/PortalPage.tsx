@@ -1,18 +1,39 @@
 ﻿import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
+import {
+  Activity,
+  Cpu,
+  Gamepad2,
+  Gauge,
+  Globe,
+  HardDrive,
+  House,
+  KeyRound,
+  Link2,
+  Lock,
+  MemoryStick,
+  Monitor,
+  Radio,
+  Sparkles,
+  SquareTerminal,
+  Timer,
+  TriangleAlert,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
 import { api, ApiError, type PortalData, type SessionContext } from '../api';
 import { RelativeTime } from '../components/bits';
 import { ShareAccept } from './SharePage';
 import { useI18n } from '../i18n';
 
-const METRICS: Array<[string, string, string]> = [
-  ['💻', 'portal.metrics.host', 'hostname'],
-  ['🖥️', 'portal.metrics.os', 'os'],
-  ['⏱️', 'portal.metrics.uptime', 'uptime'],
-  ['📊', 'portal.metrics.cpu', 'cpu'],
-  ['💾', 'portal.metrics.ram', 'memory'],
-  ['💿', 'portal.metrics.disk', 'disk'],
+const METRICS: Array<[LucideIcon, string, string]> = [
+  [Monitor, 'portal.metrics.host', 'hostname'],
+  [Cpu, 'portal.metrics.os', 'os'],
+  [Timer, 'portal.metrics.uptime', 'uptime'],
+  [Gauge, 'portal.metrics.cpu', 'cpu'],
+  [MemoryStick, 'portal.metrics.ram', 'memory'],
+  [HardDrive, 'portal.metrics.disk', 'disk'],
 ];
 
 function LanLinks({ p }: { p: PortalData }) {
@@ -23,7 +44,7 @@ function LanLinks({ p }: { p: PortalData }) {
   if (!ips.length) return null;
   return (
     <section className="section">
-      <h2>🌐 {t('portal.lan.title')}</h2>
+      <h2><Globe size={18} aria-hidden="true" /> {t('portal.lan.title')}</h2>
       <p className="muted">
         {t('portal.lan.desc')}
       </p>
@@ -38,36 +59,38 @@ function LanLinks({ p }: { p: PortalData }) {
                     httpsPort === 443 ? '' : `:${httpsPort}`
                   }/vnc/vnc.html`}
                 >
-                  🖥️ VNC Desktop
+                  <Monitor size={14} aria-hidden="true" /> VNC Desktop
                 </a>
                 <a
                   href={`https://${ip}${
                     httpsPort === 443 ? '' : `:${httpsPort}`
                   }/terminal/`}
                 >
-                  ⌨️ Web Terminal
+                  <SquareTerminal size={14} aria-hidden="true" />{' '}
+                  Web Terminal
                 </a>
                 <a
                   href={`https://${ip}${
                     httpsPort === 443 ? '' : `:${httpsPort}`
                   }/`}
                 >
-                  🏠 Portal
+                  <House size={14} aria-hidden="true" /> Portal
                 </a>
               </>
             ) : (
               <>
                 <a href={`${p.protocol}://${ip}:${ports.novnc}/vnc.html`}>
-                  🖥️ VNC Desktop
+                  <Monitor size={14} aria-hidden="true" /> VNC Desktop
                 </a>
                 <a href={`${p.protocol}://${ip}:${ports.ttyd}/`}>
-                  ⌨️ Web Terminal
+                  <SquareTerminal size={14} aria-hidden="true" />{' '}
+                  Web Terminal
                 </a>
                 <a href={`${p.protocol}://${ip}:${ports.health}/health`}>
-                  📊 Health
+                  <Activity size={14} aria-hidden="true" /> Health
                 </a>
                 <a href={`${p.protocol}://${ip}:${ports.landing}`}>
-                  🏠 Portal
+                  <House size={14} aria-hidden="true" /> Portal
                 </a>
               </>
             )}
@@ -82,7 +105,8 @@ function ServiceCards({ p }: { p: PortalData }) {
   const { t } = useI18n();
   return (
     <section className="section">
-      <h2>📡 {t('portal.services.title')}</h2>
+      <h2><Radio size={18} aria-hidden="true" />{' '}
+        {t('portal.services.title')}</h2>
       <div className="cards">
         {p.services.map((svc) => (
           <div
@@ -128,7 +152,8 @@ function ServiceCards({ p }: { p: PortalData }) {
             className="card"
             style={{ opacity: p.vnc_direct.running ? 1 : 0.55 }}
           >
-            <h3>📡 {t('portal.vncDirect.title')}</h3>
+            <h3><Radio size={16} aria-hidden="true" />{' '}
+              {t('portal.vncDirect.title')}</h3>
             <p className="muted">
               {t('portal.vncDirect.desc')}
             </p>
@@ -163,7 +188,8 @@ function EphemeralBanner({ ctx }: { ctx: SessionContext }) {
   if (ctx.single_use) flags.push(t('portal.banner.singleUse'));
   return (
     <div className="notice">
-      🔗 <strong>{t('portal.banner.title')}</strong> —{' '}
+      <Link2 size={14} aria-hidden="true" />{' '}
+      <strong>{t('portal.banner.title')}</strong> —{' '}
       {t('portal.banner.role')}{' '}
       <code>{ctx.role}</code>
       {ctx.expires_at ? (
@@ -192,7 +218,8 @@ function OperatorSessions({ p }: { p: PortalData }) {
   const sessions = p.sessions ?? [];
   return (
     <section className="section">
-      <h2>🔗 {t('portal.sessions.title')}</h2>
+      <h2><Link2 size={18} aria-hidden="true" />{' '}
+        {t('portal.sessions.title')}</h2>
       {err && (
         <div className="error-box" role="alert">
           {err}
@@ -262,7 +289,7 @@ function GamepadSwitch({ p }: { p: PortalData }) {
   if (!enabled) return null;
   return (
     <section className="section">
-      <h2>🎮 Gamepad</h2>
+      <h2><Gamepad2 size={18} aria-hidden="true" /> Gamepad</h2>
       {err && (
         <div className="error-box" role="alert">
           {err}
@@ -332,7 +359,7 @@ export default function PortalPage() {
     return (
       <main className="share-wrap">
         <div className="card share-card">
-          <h1>🔒 VNC Remote Secure</h1>
+          <h1><Lock size={20} aria-hidden="true" /> VNC Remote Secure</h1>
           <p className="muted">
             {status === 401 || status === 403
               ? t('portal.error.restricted')
@@ -363,7 +390,7 @@ export default function PortalPage() {
     return (
       <main className="portal">
         <div className="header" role="banner">
-          <h1>🔒 VNC Remote Secure</h1>
+          <h1><Lock size={20} aria-hidden="true" /> VNC Remote Secure</h1>
           <p className="muted">{t('portal.tagline')}</p>
         </div>
         <div id="main">
@@ -372,7 +399,8 @@ export default function PortalPage() {
           )}
           {p.maintenance && (
             <div className="notice" role="alert">
-              ⚠️ <strong>{t('portal.maintenance.title')}</strong> —{' '}
+              <TriangleAlert size={14} aria-hidden="true" />{' '}
+              <strong>{t('portal.maintenance.title')}</strong> —{' '}
               {t('portal.maintenance.desc')}
               {typeof p.maintenance.reason === 'string' &&
               p.maintenance.reason
@@ -382,7 +410,8 @@ export default function PortalPage() {
             </div>
           )}
           <div className="card" style={{ maxWidth: '30rem' }}>
-            <h3>🔗 {t('guest.title')}</h3>
+            <h3><Link2 size={16} aria-hidden="true" />{' '}
+              {t('guest.title')}</h3>
             <p className="muted">{t('guest.subtitle')}</p>
             <div className="row">
               <a href="/guest">{t('common.open')}</a>
@@ -403,11 +432,14 @@ export default function PortalPage() {
         {t('portal.skipLink')}
       </a>
       <div className="header" role="banner">
-        <h1>🔒 VNC Remote Secure</h1>
+        <h1><Lock size={20} aria-hidden="true" /> VNC Remote Secure</h1>
         <p className="muted">{t('portal.tagline')}</p>
         {p.is_operator && (
           <p>
-            <a href="/admin">🛠️ {t('portal.adminLink')}</a>
+            <a href="/admin">
+              <Wrench size={14} aria-hidden="true" />{' '}
+              {t('portal.adminLink')}
+            </a>
           </p>
         )}
       </div>
@@ -418,7 +450,8 @@ export default function PortalPage() {
         )}
         {p.maintenance && (
           <div className="notice" role="alert">
-            ⚠️ <strong>{t('portal.maintenance.title')}</strong> —{' '}
+            <TriangleAlert size={14} aria-hidden="true" />{' '}
+            <strong>{t('portal.maintenance.title')}</strong> —{' '}
             {t('portal.maintenance.desc')}
             {typeof p.maintenance.reason === 'string' &&
             p.maintenance.reason
@@ -429,10 +462,12 @@ export default function PortalPage() {
         )}
 
         <div className="cards portal-metrics">
-          {METRICS.map(([icon, label, key]) => (
+          {METRICS.map(([Icon, label, key]) => (
             <div className="card" key={key}>
               <span className="muted">
-                {icon} {t(label)}
+                <Icon size={13} aria-hidden="true"
+                      style={{ verticalAlign: '-2px' }} />{' '}
+                {t(label)}
               </span>
               <div className="metric-value" style={{ fontSize: '1rem' }}>
                 {p.metrics?.[key] ?? 'N/A'}
@@ -453,7 +488,8 @@ export default function PortalPage() {
         <LanLinks p={p} />
 
         <section className="section">
-          <h2>🔐 {t('portal.creds.title')}</h2>
+          <h2><KeyRound size={18} aria-hidden="true" />{' '}
+            {t('portal.creds.title')}</h2>
           <p className="muted">
             {t('portal.creds.desc1')} <code>.env</code>
             {t('portal.creds.desc2')}{' '}
@@ -464,7 +500,8 @@ export default function PortalPage() {
 
         <div className="notice">
           <strong>
-            ⚠️ {t('portal.firewall.title', { os: osLabel })}
+            <TriangleAlert size={14} aria-hidden="true" />{' '}
+            {t('portal.firewall.title', { os: osLabel })}
           </strong>{' '}
           {t('portal.firewall.desc')}{' '}
           <code>
@@ -475,36 +512,44 @@ export default function PortalPage() {
         </div>
         {p.use_ssl && (
           <div className="notice">
-            <strong>🔒 {t('portal.ssl.title')}</strong>{' '}
+            <strong>
+              <Lock size={14} aria-hidden="true" />{' '}
+              {t('portal.ssl.title')}
+            </strong>{' '}
             {t('portal.ssl.desc')}
           </div>
         )}
         </details>
 
         <section className="section">
-          <h2>✨ {t('portal.features.title')}</h2>
+          <h2><Sparkles size={18} aria-hidden="true" />{' '}
+            {t('portal.features.title')}</h2>
           <div className="cards">
             <div className="card">
-              <h3>🖥️ {t('portal.features.desktop.title')}</h3>
+              <h3><Monitor size={16} aria-hidden="true" />{' '}
+                {t('portal.features.desktop.title')}</h3>
               <p className="muted">
                 {t('portal.features.desktop.desc', { os: osLabel })}
               </p>
             </div>
             <div className="card">
-              <h3>⌨️ {t('portal.features.terminal.title')}</h3>
+              <h3><SquareTerminal size={16} aria-hidden="true" />{' '}
+                {t('portal.features.terminal.title')}</h3>
               <p className="muted">
                 {t('portal.features.terminal.desc',
                    { os: osLabel, shell })}
               </p>
             </div>
             <div className="card">
-              <h3>📊 {t('portal.features.monitoring.title')}</h3>
+              <h3><Activity size={16} aria-hidden="true" />{' '}
+                {t('portal.features.monitoring.title')}</h3>
               <p className="muted">
                 {t('portal.features.monitoring.desc')}
               </p>
             </div>
             <div className="card">
-              <h3>📡 {t('portal.features.vnc.title')}</h3>
+              <h3><Radio size={16} aria-hidden="true" />{' '}
+                {t('portal.features.vnc.title')}</h3>
               <p className="muted">
                 {t('portal.features.vnc.desc',
                    { port: p.vnc_direct?.port ?? '' })}
@@ -512,7 +557,10 @@ export default function PortalPage() {
             </div>
             <div className="card">
               <h3>
-                {p.use_ssl ? '🔒' : '⚠️'} {t('portal.features.tls.title')}
+                {p.use_ssl
+                  ? <Lock size={16} aria-hidden="true" />
+                  : <TriangleAlert size={16} aria-hidden="true" />}{' '}
+                {t('portal.features.tls.title')}
               </h3>
               <p className="muted">
                 {p.use_ssl
@@ -521,7 +569,8 @@ export default function PortalPage() {
               </p>
             </div>
             <div className="card">
-              <h3>🌐 {t('portal.features.lan.title')}</h3>
+              <h3><Globe size={16} aria-hidden="true" />{' '}
+                {t('portal.features.lan.title')}</h3>
               <p className="muted">
                 {t('portal.features.lan.desc')}
               </p>

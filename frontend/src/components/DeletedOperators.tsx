@@ -50,7 +50,13 @@ export default function DeletedOperatorsSection({
     },
   });
 
-  if (deleted.isError || (deleted.data && !deleted.data.deleted.length)) {
+  // 403 → the operator lacks admin rights; hiding is intentional.
+  // Any other error is rendered — a silent null would look like an
+  // empty tombstone list while the endpoint is actually failing.
+  const forbidden = deleted.error instanceof ApiError &&
+    deleted.error.status === 403;
+  if ((deleted.isError && forbidden) ||
+      (deleted.data && !deleted.data.deleted.length)) {
     return null;
   }
 
@@ -61,6 +67,11 @@ export default function DeletedOperatorsSection({
         {t('deletedOps.subtitle')}
       </p>
       {error && <div className="error-box" role="alert">{error}</div>}
+      {deleted.isError && (
+        <div className="error-box" role="alert">
+          {t('deletedOps.loadError')}
+        </div>
+      )}
       <table className="data">
         <thead>
           <tr>
