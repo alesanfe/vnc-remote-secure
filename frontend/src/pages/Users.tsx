@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   api,
   ApiError,
@@ -27,7 +29,6 @@ export default function Users() {
   });
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [flash, setFlash] = useState('');
   const [query, setQuery] = useState('');
   // Pending destructive confirmation: which operator + which action.
   const [pending, setPending] = useState<{
@@ -61,8 +62,7 @@ export default function Users() {
       invalidate();
       if (a.kind === 'patch' && 'sessions_revoked' in data &&
           data.sessions_revoked)
-        setFlash(t('users.sessionsRevoked', { name: a.username }));
-      else setFlash('');
+        toast.success(t('users.sessionsRevoked', { name: a.username }));
     },
     onError: (e, a) => {
       // Operator lifecycle ops are step-up gated: offer re-auth and
@@ -84,7 +84,6 @@ export default function Users() {
         {t('users.subtitle')}
       </p>
 
-      {flash && <div className="info-box">{flash}</div>}
       {ops.isError && (
         <div className="error-box" role="alert">
           {t('users.loadError')}
@@ -320,7 +319,10 @@ function OperatorRow({
       <tr>
         <td>
           <button type="button" className="link-btn" onClick={onToggle}>
-            {expanded ? '▾' : '▸'} {u.username}
+            {expanded
+              ? <ChevronDown size={14} aria-hidden="true" />
+              : <ChevronRight size={14} aria-hidden="true" />}
+            {' '}{u.username}
           </button>
         </td>
         <td>{u.role}</td>

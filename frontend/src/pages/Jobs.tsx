@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, type JobSummary } from '../api';
+import DataTable from '../components/DataTable';
 import { useI18n } from '../i18n';
 
 export function fmtWhen(ts: number): string {
@@ -63,49 +64,44 @@ export default function Jobs() {
         />
       </div>
 
-      {jobs.isError && (
-        <div className="error-box" role="alert">
-          {t('jobs.loadError')}
-        </div>
-      )}
-      {jobs.isLoading && <p className="muted">{t('jobs.loading')}</p>}
-      {jobs.data && jobs.data.jobs.length === 0 && (
-        <p className="muted">{t('jobs.empty')}</p>
-      )}
-      {list.length > 0 && (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>{t('jobs.col.job')}</th>
-              <th>{t('jobs.col.op')}</th>
-              <th>{t('jobs.col.resource')}</th>
-              <th>{t('jobs.col.actor')}</th>
-              <th>{t('jobs.col.start')}</th>
-              <th>{t('jobs.col.state')}</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((j) => (
-              <tr key={j.id}>
-                <td className="mono">
-                  <Link to={`/operations/jobs/${j.id}`}>{j.id.slice(0, 8)}</Link>
-                </td>
-                <td>{j.kind}</td>
-                <td className="mono">{j.target || '—'}</td>
-                <td>{j.actor}</td>
-                <td>{fmtWhen(j.started_at)}</td>
-                <td><ProgressBar job={j} /></td>
-                <td>
-                  <Link to={`/operations/jobs/${j.id}`}>
-                    {t('common.detail')}
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <DataTable<JobSummary>
+        loading={jobs.isLoading}
+        error={jobs.isError}
+        errorText={t('jobs.loadError')}
+        emptyText={t('jobs.empty')}
+        rows={jobs.data ? list : undefined}
+        rowKey={(j) => j.id}
+        columns={[
+          { key: 'id', header: t('jobs.col.job'), mono: true,
+            sortValue: (j) => j.id,
+            render: (j) => (
+              <Link to={`/operations/jobs/${j.id}`}>
+                {j.id.slice(0, 8)}
+              </Link>
+            ) },
+          { key: 'kind', header: t('jobs.col.op'),
+            sortValue: (j) => j.kind,
+            render: (j) => j.kind },
+          { key: 'target', header: t('jobs.col.resource'), mono: true,
+            sortValue: (j) => j.target ?? null,
+            render: (j) => j.target || '—' },
+          { key: 'actor', header: t('jobs.col.actor'),
+            sortValue: (j) => j.actor,
+            render: (j) => j.actor },
+          { key: 'start', header: t('jobs.col.start'),
+            sortValue: (j) => j.started_at,
+            render: (j) => fmtWhen(j.started_at) },
+          { key: 'state', header: t('jobs.col.state'),
+            sortValue: (j) => j.state,
+            render: (j) => <ProgressBar job={j} /> },
+          { key: 'open', header: '',
+            render: (j) => (
+              <Link to={`/operations/jobs/${j.id}`}>
+                {t('common.detail')}
+              </Link>
+            ) },
+        ]}
+      />
 
     </>
   );

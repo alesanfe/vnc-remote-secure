@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Bell, BellOff } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useI18n } from '../i18n';
 import { RelativeTime } from './bits';
@@ -34,6 +35,15 @@ export default function ChatPanel({ session }: { session?: string }) {
   });
 
   const messages = channel.data?.messages ?? [];
+
+  // Auto-scroll: keep the log pinned to the newest message unless the
+  // user scrolled up to read history (threshold ~one row).
+  const logRef = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
 
   // Browser notifications — opt-in bell; fires only for messages from
   // the other party while the tab is hidden. The first poll seeds the
@@ -86,11 +96,19 @@ export default function ChatPanel({ session }: { session?: string }) {
             title={t('chat.notify')}
             onClick={toggleNotify}
           >
-            {notify ? '🔔' : '🔕'}
+            {notify
+              ? <Bell size={14} aria-hidden="true" />
+              : <BellOff size={14} aria-hidden="true" />}
           </button>
         )}
       </h3>
-      <div className="chat-log" role="log" aria-live="polite">
+      <div className="chat-log" role="log" aria-live="polite"
+           ref={logRef}
+           onScroll={(e) => {
+             const el = e.currentTarget;
+             pinned.current =
+               el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+           }}>
         {channel.isError && (
           <p className="muted">{t('chat.unavailable')}</p>
         )}
