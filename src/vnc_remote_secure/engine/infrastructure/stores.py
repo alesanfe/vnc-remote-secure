@@ -1,5 +1,5 @@
 """Infrastructure adapters — the ONLY place engine code may touch
-``security/*``.
+``security/*``, ``monitoring/*`` and ``platform/*``.
 
 Application use cases depend on these narrow accessors; when the
 persistence layer moves (SQLite store, secret backend, remote audit
@@ -273,6 +273,34 @@ def system_current_user() -> str:
     return getpass.getuser()
 
 
+# --- Host power -------------------------------------------------------------
+# OS command selection lives here — the use case schedules/audits the
+# action, it does not know what ``shutdown`` means on Windows.
+
+def power_command(action: str) -> list[str]:
+    """Platform command for 'shutdown'/'restart'/'sleep'."""
+    import os as _os
+    if _os.name == 'nt':
+        if action == 'shutdown':
+            return ['shutdown', '/s', '/t', '0']
+        if action == 'restart':
+            return ['shutdown', '/r', '/t', '0']
+        return ['rundll32.exe', 'powrprof.dll,SetSuspendState',
+                '0,1,0']
+    if action == 'shutdown':
+        return ['systemctl', 'poweroff']
+    if action == 'restart':
+        return ['systemctl', 'reboot']
+    return ['systemctl', 'suspend']
+
+
+def run_command(cmd: list[str], timeout: int = 15) -> None:
+    """Run a platform command — the seam tests patch so no real OS
+    call is ever made."""
+    import subprocess
+    subprocess.run(cmd, check=False, timeout=timeout)
+
+
 # --- Read-model backing -------------------------------------------------
 # Pure reads the admin views consume — the application layer shapes
 # them; transport stays out of the store details.
@@ -317,6 +345,19 @@ def doctor_report() -> dict:
 def health_report() -> dict:
     from vnc_remote_secure.monitoring.health import get_all_health
     return get_all_health()
+
+
+def alert_notify(title: str, message: str,
+                 severity: str = 'info') -> None:
+    """Alert-channel dispatch (Discord/webhook/email)."""
+    from vnc_remote_secure.monitoring.alerts import notify
+    return notify(title, message, severity)
+
+
+def ws_connection_info(session_id: str) -> list:
+    """Live WebSocket connections carrying a session's grant."""
+    from vnc_remote_secure.security.websocket_registry import get_registry
+    return get_registry().get_connection_info(session_id)
 
 
 # --- Job tracking + operator tombstones ---------------------------------

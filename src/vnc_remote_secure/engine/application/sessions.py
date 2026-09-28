@@ -45,8 +45,7 @@ def _notify(title: str, message: str, severity: str = 'info') -> None:
     Never raises: alerting must not break the mutation it follows.
     """
     try:
-        from vnc_remote_secure.monitoring.alerts import notify
-        notify(title, message, severity)
+        stores.alert_notify(title, message, severity)
     except Exception:  # noqa: BLE001
         pass
 
@@ -159,10 +158,7 @@ def share_link_connections(token_id: str) -> list:
     if session is None:
         return []
     try:
-        from vnc_remote_secure.security.websocket_registry import (
-            get_registry,
-        )
-        return get_registry().get_connection_info(session.token)
+        return stores.ws_connection_info(session.token)
     except Exception:  # noqa: BLE001 - live data is best-effort
         return []
 

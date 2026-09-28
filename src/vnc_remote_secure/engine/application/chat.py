@@ -47,8 +47,7 @@ def list_messages(token_id: str) -> list:
     """The channel's message history ([] when the session is gone)."""
     if _session_for_key(token_id) is None:
         return []
-    from vnc_remote_secure.security.shared_state import get_backend
-    raw = get_backend().get(_NS, token_id)
+    raw = stores.shared_backend().get(_NS, token_id)
     return raw if isinstance(raw, list) else []
 
 
@@ -70,8 +69,7 @@ def post_message(token_id: str, author: str, text: str) -> dict:
     text = text[:_MAX_TEXT]
     author = (author or '?')[:64]
 
-    from vnc_remote_secure.security.shared_state import get_backend
-    be = get_backend()
+    be = stores.shared_backend()
     messages = be.get(_NS, token_id)
     messages = messages if isinstance(messages, list) else []
     record = {'author': author, 'at': time.time(), 'text': text}

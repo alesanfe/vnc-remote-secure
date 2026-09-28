@@ -76,3 +76,39 @@ def test_no_credentials_flagged(monkeypatch, clear_env):
     r = posture.calculate_posture()
     f = _by_name(r)
     assert f['Strong credentials configured']['status'] != 'ok'
+
+
+def test_findings_carry_severity_and_evidence(clear_env):
+    """Every finding carries a deterministic severity (derived from
+    status × points) and an evidence string — the UI sorts on these."""
+    clear_env(*ENV_KEYS, set={
+        'TLS_ENABLED': 'false', 'DISABLE_SSL': 'true', **_STRONG_CREDS})
+    r = posture.calculate_posture()
+    for f in r['checks']:
+        assert f['severity'] in (
+            'info', 'low', 'medium', 'high', 'critical'), f['name']
+        assert 'evidence' in f, f['name']
+    tls = _by_name(r)['HTTPS/TLS enabled']
+    assert tls['status'] != 'ok' and tls['severity'] != 'info'
+    assert 'TLS enabled=False' in tls['evidence']
+
+
+def test_severity_mapping():
+    assert posture._severity('ok', 99) == 'info'
+    assert posture._severity('fail', 10) == 'critical'
+    assert posture._severity('fail', 9) == 'high'
+    assert posture._severity('warn', 10) == 'high'
+    assert posture._severity('warn', 5) == 'medium'
+    assert posture._severity('warn', 4) == 'low'
+
+
+def test_evidence_never_leaks_credential_values(clear_env):
+    """Evidence strings carry counts and flags only — a credential
+    value must never be observable through the posture endpoint."""
+    clear_env(*ENV_KEYS, set={
+        'TLS_ENABLED': 'false', 'DISABLE_SSL': 'true',
+        'VNC_PASSWORD': _STRONG})
+    r = posture.calculate_posture()
+    for f in r['checks']:
+        assert _STRONG not in str(f.get('evidence', ''))
+        assert _STRONG not in f['detail']

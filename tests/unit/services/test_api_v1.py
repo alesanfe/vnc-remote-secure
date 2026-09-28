@@ -502,6 +502,32 @@ def test_session_preview_invalid_403(server, monkeypatch):
     assert status == 403
 
 
+def test_session_detail_by_public_fingerprint(server):
+    """GET /sessions/{token_id} resolves the sha256 fingerprint to the
+    share-link record — the detail page drives this path, and it must
+    never expose the internal token."""
+    from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+    session, _signed = get_session_store().create(
+        expires_in=3600, resource='desktop')
+    tid = session.to_dict()['token_id']
+    status, _, body = _req(
+        server, f'/api/v1/sessions/{tid}', headers=_auth_headers())
+    assert status == 200
+    data = json.loads(body)['data']
+    assert data['session']['token_id'] == tid
+    assert data['connections'] == []
+    # The internal token is the credential — it must not leak in any
+    # serialized field.
+    assert session.token not in body.decode()
+
+
+def test_session_detail_unknown_404(server):
+    status, _, _ = _req(
+        server, '/api/v1/sessions/0000000000ff',
+        headers=_auth_headers())
+    assert status == 404
+
+
 # ---------------------------------------------------------------------------
 # Session-bound CSRF
 # ---------------------------------------------------------------------------

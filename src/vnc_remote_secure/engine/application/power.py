@@ -20,7 +20,6 @@ share-link capability).
 from __future__ import annotations
 
 import ipaddress
-import os
 import platform
 import re
 import socket
@@ -67,23 +66,6 @@ def wake_on_lan(mac: str, broadcast: str = '255.255.255.255',
             'port': port}
 
 
-def _power_cmd(action: str) -> list[str]:
-    """Platform power command. Sleep maps to suspend/standby. """
-    if os.name == 'nt':
-        if action == 'shutdown':
-            return ['shutdown', '/s', '/t', '0']
-        if action == 'restart':
-            return ['shutdown', '/r', '/t', '0']
-        return ['rundll32.exe', 'powrprof.dll,SetSuspendState',
-                '0,1,0']
-    # POSIX: prefer systemctl when present, fall back to classic tools.
-    if action == 'shutdown':
-        return ['systemctl', 'poweroff']
-    if action == 'restart':
-        return ['systemctl', 'reboot']
-    return ['systemctl', 'suspend']
-
-
 def host_power(action: str, actor: str,
                auth_ctx: dict | None = None) -> dict:
     """Schedule a host power action after a short grace delay.
@@ -96,12 +78,11 @@ def host_power(action: str, actor: str,
     if action not in POWER_ACTIONS:
         raise ValueError(f'action must be one of {POWER_ACTIONS}')
     require_bound_step_up(actor, 'power.action', action, auth_ctx)
-    cmd = _power_cmd(action)
+    cmd = stores.power_command(action)
 
     def _run() -> None:
-        import subprocess
         try:
-            subprocess.run(cmd, check=False, timeout=15)
+            stores.run_command(cmd)
         except Exception as exc:  # noqa: BLE001 - thread: log only
             import logging
             logging.getLogger(__name__).warning(
