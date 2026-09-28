@@ -17,12 +17,12 @@ test.describe('share link', () => {
       // page — waiting for #info also gives React time to wipe the
       // fragment via history.replaceState before we assert on it.
       await expect(page.locator('#info')).toContainText(
-        'forma remota');
+        'te concede acceso');
       // The token must be gone from the address bar.
       expect(page.url()).not.toContain('t=');
       expect(page.url()).not.toContain('#');
       const accept = page.getByRole('button', {
-        name: /Aceptar y abrir sesi/,
+        name: /Aceptar y entrar/,
       });
       await expect(accept).toBeVisible();
       await accept.click();
@@ -39,13 +39,13 @@ test.describe('share link', () => {
     const { url } = await createShareLink();
     await page.goto(url);
     await page.getByRole('button', { name: 'Cancelar' }).click();
-    await expect(page.locator('#info')).toContainText('descartado');
+    await expect(page.locator('#info')).toContainText('eliminó de la barra');
 
     // Re-opening the same link still previews (not consumed). Leave
     // the page first — goto() to the same URL is a no-op.
     await page.goto('about:blank');
     await page.goto(url);
-    await expect(page.locator('#info')).toContainText('forma remota');
+    await expect(page.locator('#info')).toContainText('te concede acceso');
   });
 
   test('malformed token shows the expired/used error', async ({
@@ -53,7 +53,7 @@ test.describe('share link', () => {
   }) => {
     await page.goto(`${serverInfo().base}/share#t=forged.token.value`);
     await expect(page.locator('#info')).toContainText(
-      'caducado o ya ha sido utilizado');
+      'Enlace expirado o ya utilizado');
   });
 
   test('a consumed single-use link fails on second activation',
@@ -61,7 +61,7 @@ test.describe('share link', () => {
       const { url } = await createShareLink({ single_use: true });
       await page.goto(url);
       await page.getByRole('button', {
-        name: /Aceptar y abrir sesi/,
+        name: /Aceptar y entrar/,
       }).click();
       await page.waitForURL(/\/$/);
 
@@ -70,10 +70,10 @@ test.describe('share link', () => {
       const p2 = await ctx2.newPage();
       await p2.goto(url);
       await p2.getByRole('button', {
-        name: /Aceptar y abrir sesi/,
+        name: /Aceptar y entrar/,
       }).click();
       await expect(p2.locator('#info')).toContainText(
-        'caducado o ya ha sido utilizado');
+        'Enlace expirado o ya utilizado');
       await ctx2.close();
     });
 
@@ -84,6 +84,6 @@ test.describe('share link', () => {
     expect(r.status()).toBe(200);
     await page.goto(url);
     await expect(page.locator('#info')).toContainText(
-      'caducado o ya ha sido utilizado');
+      'Enlace expirado o ya utilizado');
   });
 });

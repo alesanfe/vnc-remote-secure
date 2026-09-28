@@ -39,8 +39,8 @@ test.describe('session center UI', () => {
     await dialog.getByRole('button', { name: 'Revocar' }).click();
     await expect(row).not.toBeVisible();
 
-    // The revoked tab lists it with the revoked badge.
-    await page.getByRole('tab', { name: 'Revocadas' }).click();
+    // The history tab lists it with the revoked badge.
+    await page.getByRole('tab', { name: 'Historial' }).click();
     await expect(
       page.locator('tr', { hasText: ref }),
     ).toContainText('revocada');
@@ -57,12 +57,12 @@ test.describe('session center UI', () => {
     await expect(
       page.locator('tr', { hasText: ref }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Cerrar todas' }).click();
+    await page.getByRole('button', { name: 'Cerrar todo' }).click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toBeVisible();
     // Confirm stays disabled until the exact text is typed.
     const confirm = dialog.getByRole('button', {
-      name: 'Cerrar todas',
+      name: 'Cerrar todo',
     });
     await expect(confirm).toBeDisabled();
     await dialog.getByRole('textbox').fill('CERRAR TODO');

@@ -24,6 +24,7 @@ import Jobs from './pages/Jobs';
 import JobDetail from './pages/JobDetail';
 import FilesPage from './pages/FilesPage';
 import Recordings from './pages/Recordings';
+import RemoteConsole from './pages/RemoteConsole';
 
 /** /access/<segment> dispatcher: a lifecycle tab name renders the
     inventory view; anything else is treated as a token_id and
@@ -69,6 +70,7 @@ export default function App() {
       items: [
         { to: '/access', label: t('nav.sessions') },
         { to: '/connect', label: t('nav.connect') },
+        { to: '/remote', label: t('nav.remote') },
         { to: '/files', label: t('nav.files') },
       ],
     },
@@ -195,6 +197,7 @@ export default function App() {
           <Route path="/access" element={<Sessions />} />
           <Route path="/access/:segment" element={<AccessSegment />} />
           <Route path="/connect" element={<ConnectPage />} />
+          <Route path="/remote" element={<RemoteConsole />} />
           <Route path="/files" element={<FilesPage />} />
           <Route path="/identities" element={<Users />} />
           <Route path="/identities/:username" element={<UserDetail />} />

@@ -33,7 +33,7 @@ test.describe('public react surfaces', () => {
     // Wait for the share flow's first render — by then React has
     // wiped the token from the address bar via history.replaceState.
     await expect(page.locator('#info')).toContainText(
-      'caducado o ya ha sido utilizado');
+      'Enlace expirado o ya utilizado');
     expect(page.url()).not.toContain('session=');
   });
 
@@ -48,19 +48,19 @@ test.describe('public react surfaces', () => {
   for (const path of ['/audio', '/audio_receiver.html']) {
     test(`audio receiver page ${path} renders`, async ({ page }) => {
       await page.goto(`${serverInfo().base}${path}`);
-      await expect(page.locator('h1')).toContainText('Audio Receiver');
+      await expect(page.locator('h1')).toContainText('Audio remoto');
       await expect(
-        page.getByRole('button', { name: 'Connect', exact: true }),
+        page.getByRole('button', { name: 'Conectar', exact: true }),
       ).toBeDisabled();
-      await expect(page.locator('main')).toContainText('No autorizado');
+      await expect(page.locator('main')).toContainText('no autorizada para audio');
     });
   }
 
   for (const path of ['/gamepad', '/gamepad.html']) {
     test(`gamepad page ${path} renders`, async ({ page }) => {
       await page.goto(`${serverInfo().base}${path}`);
-      await expect(page.locator('h1')).toContainText('Gamepad Forwarding');
-      await expect(page.locator('main')).toContainText('No autorizado');
+      await expect(page.locator('h1')).toContainText('Gamepad remoto');
+      await expect(page.locator('main')).toContainText('no autorizada para gamepad');
     });
   }
 
@@ -69,7 +69,7 @@ test.describe('public react surfaces', () => {
       await page.goto(`${serverInfo().base}${path}`);
       await expect(page.locator('.term-page')).toBeVisible();
       await expect(page.getByRole('status')).toContainText(
-        'No autorizado');
+        'no autorizada para el terminal');
     });
   }
 });

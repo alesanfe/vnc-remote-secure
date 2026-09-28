@@ -11,7 +11,7 @@ test('unauthenticated /admin shows the login page', async ({
   const { base } = serverInfo();
   await page.goto(`${base}/admin/`);
   await expect(
-    page.getByRole('heading', { name: 'Acceso de operador' }),
+    page.getByRole('heading', { name: 'Panel del operador' }),
   ).toBeVisible();
 });
 
@@ -46,6 +46,6 @@ test('logout returns to the login page', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Acceso de operador' }),
+    page.getByRole('heading', { name: 'Panel del operador' }),
   ).toBeVisible();
 });

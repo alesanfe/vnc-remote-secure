@@ -25,13 +25,15 @@ export interface GuestResource {
     their resource; unbound sessions see all (minus no_terminal). */
 export function resourcesFor(
   ctx: SessionContext,
-  portal: PortalData | undefined,
+  _portal: PortalData | undefined,
 ): GuestResource[] {
   const bound = ctx.resource ?? null;
   const allowed = (r: string) => !bound || bound === r;
   const items: GuestResource[] = [];
   if (allowed('desktop')) {
-    items.push({ key: 'desktop', icon: '🖥️', url: desktopUrl(portal) });
+    // The unified console (/desktop) embeds noVNC with chat +
+    // expiry chrome; the popout link inside reaches raw vnc.html.
+    items.push({ key: 'desktop', icon: '🖥️', url: '/desktop' });
   }
   if (allowed('terminal') && !ctx.no_terminal) {
     items.push({ key: 'terminal', icon: '⌨️', url: '/terminal' });

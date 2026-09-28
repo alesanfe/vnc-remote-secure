@@ -12,6 +12,9 @@ export default defineConfig({
   workers: 1, // shared server + shared-state backend: keep serial
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
+    // Specs assert Spanish copy — pin the browser locale so
+    // navigator.language detection is deterministic on any host.
+    locale: 'es-ES',
     screenshot: 'only-on-failure',
     trace: 'on-first-retry',
   },

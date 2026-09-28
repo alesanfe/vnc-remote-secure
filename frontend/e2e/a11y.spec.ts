@@ -9,7 +9,8 @@ test.describe('accessibility', () => {
   }) => {
     const { url } = await createShareLink();
     await page.goto(url);
-    await expect(page.locator('#info')).toContainText('forma remota');
+    await expect(page.locator('#info')).toContainText(
+      'te concede acceso');
     const results = await new AxeBuilder({ page }).analyze();
     const serious = results.violations.filter((v) =>
       ['serious', 'critical'].includes(v.impact ?? ''));

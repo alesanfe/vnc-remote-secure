@@ -104,6 +104,12 @@ const es = {
   'jobs.error': 'Error',
 
   'nav.recordings': 'Grabaciones',
+  'nav.remote': 'Consola remota',
+  'remote.title': 'Consola remota',
+  'remote.chat': 'Chat',
+  'remote.fullscreen': 'Pantalla completa',
+  'remote.popout': 'Abrir aparte',
+  'guest.console': 'Escritorio remoto',
   'rec.title': 'Grabaciones de escritorio',
   'rec.subtitle':
     'Captura forense del escritorio: foto instantánea en PNG o ' +
@@ -989,6 +995,12 @@ const en: typeof es = {
   'jobs.error': 'Error',
 
   'nav.recordings': 'Recordings',
+  'nav.remote': 'Remote console',
+  'remote.title': 'Remote console',
+  'remote.chat': 'Chat',
+  'remote.fullscreen': 'Fullscreen',
+  'remote.popout': 'Pop out',
+  'guest.console': 'Remote desktop',
   'rec.title': 'Desktop recordings',
   'rec.subtitle':
     'Forensic desktop capture: one-shot PNG screenshots or a ' +

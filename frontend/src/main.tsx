@@ -11,6 +11,7 @@ import AudioPage from './pages/AudioPage';
 import GamepadPage from './pages/GamepadPage';
 import TerminalPage from './pages/TerminalPage';
 import FilesPage from './pages/FilesPage';
+import RemoteConsole from './pages/RemoteConsole';
 import { I18nProvider, useI18n } from './i18n';
 import { GuestLayout } from './components/GuestShell';
 import './styles.css';
@@ -68,6 +69,8 @@ const surface = isAdmin ? (
       <Route path="/guest" element={<GuestPage />} />
       <Route path="/recovery" element={<RecoveryPage />} />
       <Route element={<GuestLayout />}>
+        <Route path="/desktop"
+               element={<RemoteConsole guest />} />
         <Route path="/terminal" element={<TerminalPage />} />
         <Route path="/terminal.html" element={<TerminalPage />} />
         <Route path="/audio" element={<AudioPage />} />

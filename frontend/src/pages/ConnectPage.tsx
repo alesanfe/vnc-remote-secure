@@ -104,6 +104,9 @@ export default function ConnectPage() {
                     : t('portal.status.offline')
                 }
               />
+              {a.available && a.key === 'desktop' && (
+                <Link to="/remote">{t('nav.remote')}</Link>
+              )}
               {a.available && <a href={a.url}>{t('common.open')}</a>}
             </div>
           </div>
