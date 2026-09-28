@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Info } from 'lucide-react';
 import { api, ApiError, type ConfigVar } from '../api';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
@@ -177,6 +178,28 @@ export default function Config() {
       v.source.toLowerCase().includes(filter.toLowerCase()),
   );
 
+  // Row-level "why this value": GET config/explain/{name} resolves the
+  // LIVE environment's provenance — when a profile preview is shown the
+  // table holds profile values, so the live source is worth surfacing.
+  const [explain, setExplain] = useState<{
+    name: string;
+    entry?: ConfigVar;
+    error?: string;
+    loading?: boolean;
+  } | null>(null);
+  const explainVar = async (name: string) => {
+    setExplain((cur) => cur?.name === name ? null : { name, loading: true });
+    try {
+      const r = await api.configExplain(name);
+      setExplain({ name, entry: r.entry });
+    } catch (e) {
+      setExplain({
+        name,
+        error: e instanceof ApiError ? e.message : String(e),
+      });
+    }
+  };
+
   return (
     <>
       <h1 className="page-title">{t('config.page.title')}</h1>
@@ -239,23 +262,95 @@ export default function Config() {
             <th>{t('config.col.var')}</th>
             <th>{t('config.col.value')}</th>
             <th>{t('config.col.source')}</th>
+            <th><span className="sr-only">{t('config.col.actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {vars.map((v) => (
-            <tr key={v.name}>
-              <td className="mono">{v.name}</td>
-              <td className="mono">{v.value}</td>
-              <td>
-                <span className={`badge ${SOURCE_BADGE[v.source] ?? 'dim'}`}>
-                  {v.source}
-                </span>
-              </td>
-            </tr>
+            <ConfigRow
+              key={v.name}
+              v={v}
+              profile={profile}
+              open={explain?.name === v.name ? explain : null}
+              onToggle={explainVar}
+            />
           ))}
         </tbody>
       </table>
       </>
+      )}
+    </>
+  );
+}
+/** One effective-config row + its expandable "why this value" panel
+    (config explain parity). The panel notes when a profile preview is
+    active — in that case the table shows the profile value while
+    explain answers with the LIVE environment's provenance. */
+function ConfigRow({
+  v,
+  profile,
+  open,
+  onToggle,
+}: {
+  v: ConfigVar;
+  profile: string;
+  open: { entry?: ConfigVar; error?: string; loading?: boolean } | null;
+  onToggle: (name: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      <tr>
+        <td className="mono">{v.name}</td>
+        <td className="mono">{v.value}</td>
+        <td>
+          <span className={`badge ${SOURCE_BADGE[v.source] ?? 'dim'}`}>
+            {v.source}
+          </span>
+        </td>
+        <td>
+          <button
+            type="button"
+            className="ghost icon-btn"
+            aria-expanded={!!open}
+            aria-label={t('config.explain', { name: v.name })}
+            onClick={() => onToggle(v.name)}
+          >
+            <Info size={14} aria-hidden="true" />
+          </button>
+        </td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={4}>
+            <div className="info-box" role="status">
+              {open.loading && (
+                <span className="muted">{t('common.loading')}</span>
+              )}
+              {open.error && (
+                <span className="muted">{open.error}</span>
+              )}
+              {open.entry && (
+                <>
+                  <div>
+                    <strong className="mono">{open.entry.name}</strong> ={' '}
+                    <code className="mono">{open.entry.value ?? '—'}</code>{' '}
+                    <span
+                      className={`badge ${SOURCE_BADGE[open.entry.source] ?? 'dim'}`}
+                    >
+                      {open.entry.source}
+                    </span>
+                  </div>
+                  {profile && (
+                    <p className="muted" style={{ marginBottom: 0 }}>
+                      {t('config.explainLive', { profile })}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </td>
+        </tr>
       )}
     </>
   );

@@ -339,6 +339,21 @@ a { color: var(--accent-text); }
 }
 .jobs-badge:hover { color: var(--text); }
 
+/* Screen-reader-only text (skip to content, hidden column labels). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Icon-only ghost button — keeps padding compact inside table cells. */
+.icon-btn { padding: 0.15rem 0.35rem; }
+
 /* Keyboard-key pill in the shortcuts sheet. */
 kbd {
   background: var(--surface-2);
