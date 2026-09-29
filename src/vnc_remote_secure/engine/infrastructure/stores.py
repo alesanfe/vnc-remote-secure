@@ -540,11 +540,10 @@ def backup_verify(path: str) -> tuple[bool, str, int]:
     from vnc_remote_secure.core.backup import verify_backup
     return verify_backup(path)
 
-
-def backup_restore(path: str) -> bool:
-    """Restore a backup archive onto the live config."""
-    from vnc_remote_secure.core.backup import restore_backup
-    return restore_backup(path)
+# No backup_restore wrapper here: restores run inside the detached
+# job runner (core/deferred_lifecycle.py), which calls
+# core.backup.restore_backup directly — engine must not depend on
+# the runner process.
 
 
 def secret_status_map() -> dict:

@@ -180,12 +180,14 @@ _RATE_LIMITS = {
 _RATE_NS = 'api_rate'
 
 
-def _rate_limit(handler, scope: str) -> bool:
+def _rate_limit(handler, scope: str, mutating: bool) -> bool:
     """Fixed-window per-IP-per-scope limiter over the shared backend.
 
-    Fails closed on backend errors for mutating scopes and open for
+    Fails closed on backend errors for mutating routes and open for
     reads — a redis/sqlite hiccup must not blind the operator, but a
-    mutation flood must not sail through either.
+    mutation flood must not sail through either. ``mutating`` comes
+    from the route's audit declaration: every mutating route names
+    its audit event, so the fail-closed set can never go stale.
     """
     from vnc_remote_secure.security.http_auth import client_ip_from
     ip = client_ip_from(handler.headers, handler.peer_ip()) or 'unknown'
@@ -198,8 +200,7 @@ def _rate_limit(handler, scope: str) -> bool:
         allowed = int(count) <= max_req
     except Exception:  # noqa: BLE001 - degraded, not silent
         logger.warning('API rate limiter unavailable (scope=%s)', scope)
-        allowed = scope not in ('sessions.create', 'sessions.revoke',
-                                'sessions.revoke-all')
+        allowed = not mutating
     if not allowed:
         _err(handler, 'Too many requests', 429)
     return allowed
@@ -584,7 +585,8 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
     spec, params = _match_route(method, rel)
     if spec is None:
         return False
-    if not _rate_limit(handler, spec.scope):
+    if not _rate_limit(handler, spec.scope,
+                       mutating=spec.audit is not None):
         return True
     if spec.perm == 'public':
         # Unauthenticated surface (login ceremonies): no operator
