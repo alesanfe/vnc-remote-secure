@@ -588,6 +588,14 @@ def _copy_restored_tree(temp_dir, project_root):
     """Copy the extracted backup tree into its live destinations."""
     from vnc_remote_secure.core.test_isolation import guard_write
     guard_write(os.path.join(project_root, '.env'), 'backup restore')
+    # Snapshot the live .env before overwriting — a restore to the
+    # wrong backup stays recoverable via ``config rollback``.
+    try:
+        from vnc_remote_secure.core import config_history
+        config_history.snapshot(
+            os.path.join(project_root, '.env'), reason='backup restore')
+    except OSError:
+        pass  # history is best-effort
     # Restore .env
     env_src = os.path.join(temp_dir, '.env')
     if os.path.isfile(env_src):

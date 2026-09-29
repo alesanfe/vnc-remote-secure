@@ -58,7 +58,8 @@ def _migrate_env_line(ln, var_migrations, value_migrations, changes,
     return ln
 
 
-def migrate_env(env_path: str | None = None, dry_run: bool = False):
+def migrate_env(env_path: str | None = None, dry_run: bool = False,
+                actor: str = ''):
     """Migrate legacy variable names/values in the project .env.
 
     Returns ``{'changes': [...], 'applied': bool, 'env_path': str}``.
@@ -95,6 +96,15 @@ def migrate_env(env_path: str | None = None, dry_run: bool = False):
 
     applied = bool(changes) and not dry_run
     if applied:
+        # History snapshot before the mutation lands — a bad rename is
+        # recoverable via ``config rollback`` instead of a full backup
+        # restore.
+        try:
+            from vnc_remote_secure.core import config_history
+            config_history.snapshot(env_path, actor or '?',
+                                    'config migrate')
+        except OSError:
+            pass  # history is best-effort — the migration still applies
         content = '\n'.join(out_lines) + '\n'
         # Atomic write: a crash mid-write of the .env in place would
         # lose every other variable — same treatment as

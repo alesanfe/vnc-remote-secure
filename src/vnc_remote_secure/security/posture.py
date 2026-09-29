@@ -345,8 +345,8 @@ def _check_attack_surface(findings):
     try:
         import platform as _pf
 
-        from vnc_remote_secure.core.plugins import attack_surface
         from vnc_remote_secure.core.config import get_config
+        from vnc_remote_secure.core.plugins import attack_surface
         cfg = get_config()
         surface = attack_surface(cfg, _pf.system() == 'Windows')
     except Exception:  # noqa: BLE001 - posture must never fail on this

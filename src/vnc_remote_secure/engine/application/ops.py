@@ -318,12 +318,39 @@ def config_migrate(actor: str, dry_run: bool = False,
         require_bound_step_up(actor, 'config.migrate', 'apply',
                                auth_ctx)
     try:
-        result = stores.config_migrate(dry_run=dry_run)
+        result = stores.config_migrate(dry_run=dry_run, actor=actor)
     except FileNotFoundError:
         raise UseCaseError(ERR_NOT_FOUND, 'no .env file found')
     if result['applied']:
         stores.audit('config_migrate', actor,
                      f"changes={len(result['changes'])}")
+    return result
+
+
+def config_history() -> dict:
+    """``vnc-remote config history`` — env snapshots, newest first."""
+    return {'snapshots': stores.config_history()}
+
+
+def config_rollback(actor: str, snapshot_id: str,
+                    auth_ctx: dict | None = None) -> dict:
+    """``vnc-remote config rollback <id>`` — restore an env snapshot.
+
+    Overwrites the live env file, so it consumes a bound step-up grant
+    tied to the snapshot id; the live file is snapshotted first, which
+    keeps the rollback reversible.
+    """
+    sid = str(snapshot_id or '').strip()
+    if not sid:
+        raise UseCaseError(ERR_INVALID, 'snapshot id required')
+    require_bound_step_up(actor, 'config.rollback', sid, auth_ctx)
+    try:
+        result = stores.config_rollback(sid, actor=actor)
+    except FileNotFoundError:
+        raise UseCaseError(ERR_NOT_FOUND, f'unknown snapshot: {sid}')
+    except ValueError as exc:
+        raise UseCaseError(ERR_INVALID, str(exc))
+    stores.audit('config_rollback', actor, f'snapshot={sid}')
     return result
 
 

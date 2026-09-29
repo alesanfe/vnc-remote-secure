@@ -31,6 +31,8 @@ deliberate `cli-only`/`api-only` cell).
 | `config.validate` | low | `config validate` | `GET /config/validate` | sí | `admin_config` | session | sync | `-` | yes |
 | `config.diff` | low | `config diff` | `GET /config/diff` | sí | `admin_config` | session | sync | `-` | yes |
 | `config.migrate` | high | `config migrate` | `POST /config/migrate` | sí | `admin_config` | stepup-bound | sync | `config_migrate` | yes |
+| `config.history` | low | `config history` | `GET /config/history` | sí | `admin_config` | session | sync | `-` | yes |
+| `config.rollback` | high | `config rollback` | `POST /config/rollback` | sí | `admin_config` | stepup-bound | sync | `config_rollback` | yes |
 | `session.create` | high | `session create` | `POST /sessions` | sí | `admin_sessions` | session | sync | `ephemeral_session_create` | no |
 | `session.revoke` | moderate | `session revoke` | `POST /sessions/revoke` | sí | `admin_sessions` | session | sync | `portal_session_revoke` | no |
 | `session.revoke_all` | high | `session revoke --all` | `POST /sessions/revoke-all` | sí | `admin_sessions` | stepup | sync | `portal_session_revoke_all` | no |

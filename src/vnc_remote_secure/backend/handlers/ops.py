@@ -294,6 +294,35 @@ def _post_config_migrate(handler, query):
         _uc_err(handler, exc)
 
 
+def _get_config_history(handler, query):
+    """GET /api/v1/config/history — env snapshots (metadata only)."""
+    try:
+        from vnc_remote_secure.engine.application import ops
+        _ok(handler, ops.config_history())
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /config/history')
+        _err(handler, 'Config history read failed', 500)
+
+
+def _post_config_rollback(handler, query):
+    """POST /api/v1/config/rollback — {snapshot} restores .env."""
+    operator = handler._api_operator
+    from vnc_remote_secure.backend.schemas import ConfigRollbackRequest
+    body, error = _read_typed_body(handler, ConfigRollbackRequest,
+                                   limit=1024)
+    if error:
+        _err(handler, *error)
+        return
+    from vnc_remote_secure.engine.application import ops
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        _ok(handler, ops.config_rollback(
+            operator.get('username', '?'), body.snapshot,
+            auth_ctx=_auth_ctx(handler)))
+    except UseCaseError as exc:
+        _uc_err(handler, exc)
+
+
 def _get_upgrade(handler, query):
     """GET /api/v1/upgrade — installed vs available version."""
     try:

@@ -61,6 +61,11 @@ components:
         view_only: { type: boolean }
         no_terminal: { type: boolean }
         allowed_ip: { type: string, nullable: true }
+        label:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: Operator-assigned inventory tag
         created_by: { type: string }
         created_at: { type: number }
         used: { type: boolean }
@@ -229,6 +234,7 @@ components:
             max_uses: { type: integer }
             resource: { type: string, nullable: true }
             allowed_ip: { type: string, nullable: true }
+            label: { type: string, nullable: true }
             emailed: { type: boolean, description: 'True when email_to was supplied and the link was delivered via ALERT_SMTP_*' }
         error: { nullable: true }
         request_id: { type: string }
@@ -401,6 +407,37 @@ components:
             summary: { type: string }
             deployment_decision: { type: string, enum: [allowed, blocked] }
             blocking_findings: { type: array, items: { type: string } }
+        error: { nullable: true }
+        request_id: { type: string }
+    SecurityOverviewResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            posture:
+              type: object
+              properties:
+                score: { type: integer, nullable: true }
+                summary: { type: string, nullable: true }
+                blocking_findings:
+                  type: array
+                  items: { type: string }
+            signals:
+              type: object
+              properties:
+                failed_auth_24h: { type: integer }
+                denied_24h: { type: integer }
+                actors_with_failures:
+                  type: array
+                  items: { type: string }
+            recent_failures:
+              type: array
+              items: { type: object, additionalProperties: true }
+            active_sessions: { type: integer, nullable: true }
+            running_jobs: { type: integer }
+            maintenance: { type: boolean }
         error: { nullable: true }
         request_id: { type: string }
     DoctorResponse:
@@ -964,6 +1001,42 @@ components:
             env_path: { type: string }
         error: { nullable: true }
         request_id: { type: string }
+    ConfigHistoryResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [snapshots]
+          properties:
+            snapshots:
+              type: array
+              items:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: string }
+                  ts: { type: number }
+                  actor: { type: string }
+                  reason: { type: string }
+                  size: { type: integer }
+                  sha256: { type: string }
+                  source: { type: string }
+        error: { nullable: true }
+        request_id: { type: string }
+    ConfigRollbackResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          required: [restored]
+          properties:
+            restored: { type: string }
+            target: { type: string }
+            size: { type: integer }
+        error: { nullable: true }
+        request_id: { type: string }
     UpgradeResponse:
       type: object
       required: [data, error, request_id]
@@ -1090,6 +1163,7 @@ components:
         allowed_ip: { type: string, maxLength: 64, description: 'IP, CIDR or first-observed' }
         resource: { type: string, enum: [desktop, terminal, audio, gamepad, files], nullable: true }
         email_to: { type: string, maxLength: 254, nullable: true, description: 'Optional recipient — the share link is emailed via ALERT_SMTP_*' }
+        label: { type: string, maxLength: 64, nullable: true, description: 'Operator tag for inventory grouping' }
     BinaryResponse:
       type: object
       description: Raw binary body (PNG image or .vrsrec stream) — no JSON envelope.
@@ -1577,6 +1651,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PostureResponse'
+  /security/overview:
+    get:
+      summary: >-
+        Security-center rollup: posture score + 24h auth/deny signals +
+        live sessions + running jobs + maintenance (operator).
+      x-required-permission: operator
+      x-rate-limit-scope: default
+      x-response-schema: SecurityOverviewResponse
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityOverviewResponse'
   /doctor:
     get:
       summary: Doctor checks (operator, rate limited)
@@ -2497,6 +2586,38 @@ paths:
                 dry_run: { type: boolean }
       responses:
         '200': { description: '{changes, applied, env_path}' }
+  /config/history:
+    get:
+      summary: Env-file snapshots taken before every mutation (config history parity).
+      x-required-permission: admin_config
+      x-operation-id: config.history
+      x-rate-limit-scope: default
+      x-response-schema: ConfigHistoryResponse
+      responses:
+        '200': { description: '{snapshots: [{id, ts, actor, reason, size, sha256, source}]}' }
+  /config/rollback:
+    post:
+      summary: >-
+        Restore an env-file snapshot over its recorded source
+        (config rollback parity); the live file is snapshotted first.
+      x-required-permission: admin_config
+      x-operation-id: config.rollback
+      x-step-up-required: true
+      x-csrf-required: true
+      x-rate-limit-scope: config.write
+      x-response-schema: ConfigRollbackResponse
+      x-audit-event: config_rollback
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [snapshot]
+              additionalProperties: false
+              properties:
+                snapshot: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200': { description: '{restored, target, size}' }
   /upgrade:
     get:
       summary: Installed vs available version (upgrade --check parity).

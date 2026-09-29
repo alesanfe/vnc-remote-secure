@@ -94,6 +94,74 @@ def posture() -> dict:
     return stores.posture_report()
 
 
+def security_overview() -> dict:
+    """Security-center rollup — one read for the dashboard the
+    operator checks first: posture score, recent auth/deny signals,
+    live sessions and running destructive jobs.
+
+    Composes existing reads — no new authority is created here.
+    """
+    import datetime
+    import time
+
+    report = stores.posture_report()
+    entries = stores.audit_read(limit=500)
+    cutoff = time.time() - 86400
+    failed_auth = 0
+    denied = 0
+    locked_actors: set = set()
+    recent_events: list = []
+    for e in entries:
+        raw = e.get('timestamp') or ''
+        try:
+            ts = datetime.datetime.strptime(
+                raw, '%Y-%m-%dT%H:%M:%SZ').replace(
+                tzinfo=datetime.timezone.utc).timestamp()
+        except (ValueError, TypeError):
+            ts = 0.0
+        res = e.get('result')
+        ev = str(e.get('event') or '')
+        if res in ('failure', 'denied') and ts >= cutoff:
+            if any(k in ev for k in ('login', 'auth', 'step_up')):
+                failed_auth += 1
+                user = str(e.get('user') or '')
+                if user and user != 'anonymous':
+                    locked_actors.add(user)
+            else:
+                denied += 1
+            if len(recent_events) < 10:
+                recent_events.append({
+                    'event': ev, 'user': e.get('user'),
+                    'result': res, 'timestamp': raw})
+    try:
+        from vnc_remote_secure.engine.application.sessions import (
+            list_share_links,
+        )
+        active_sessions = len(list_share_links('active'))
+    except Exception:  # noqa: BLE001 - rollup is best-effort
+        active_sessions = None
+    running_jobs = sum(
+        1 for j in stores.jobs_list(50)
+        if j.get('state') not in ('done', 'failed'))
+    maint = stores.maintenance_info()
+    return {
+        'posture': {
+            'score': report.get('score'),
+            'summary': report.get('summary'),
+            'blocking_findings': report.get('blocking_findings', []),
+        },
+        'signals': {
+            'failed_auth_24h': failed_auth,
+            'denied_24h': denied,
+            'actors_with_failures': sorted(locked_actors)[:20],
+        },
+        'recent_failures': recent_events,
+        'active_sessions': active_sessions,
+        'running_jobs': running_jobs,
+        'maintenance': maint is not None,
+    }
+
+
 def doctor() -> dict:
     return stores.doctor_report()
 

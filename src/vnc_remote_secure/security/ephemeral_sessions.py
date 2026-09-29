@@ -207,6 +207,7 @@ class EphemeralSession:
         instance_id: str | None = None,
         nonce: str | None = None,
         max_uses: int = 0,
+        label: str | None = None,
     ):
         self.token = token
         self.role = role
@@ -242,6 +243,9 @@ class EphemeralSession:
         self.nonce = nonce or secrets.token_hex(8)
         self.max_uses = max_uses  # 0 = unlimited
         self.use_count = 0
+        # Operator-assigned tag (e.g. "soporte Juan", "demo Q3") —
+        # inventory metadata only; never part of auth decisions.
+        self.label = label
 
     def is_valid(self, client_ip: str | None = None,
                  resource: str | None = None) -> bool:
@@ -346,6 +350,7 @@ class EphemeralSession:
             'last_connected_at': self.last_connected_at,
             'last_disconnected_at': self.last_disconnected_at,
             'connection_count': self.connection_count,
+            'label': self.label,
         }
 
     def to_persist_dict(self) -> dict:
@@ -370,6 +375,7 @@ class EphemeralSession:
             resource=data.get('resource'),
             instance_id=data.get('instance_id'),
             max_uses=int(data.get('max_uses', 0)),
+            label=data.get('label'),
         )
         session.created_at = float(data.get('created_at', time.time()))
         session.created_monotonic = float(
@@ -759,6 +765,7 @@ class SessionStore:
         resource: str | None = None,
         max_uses: int = 0,
         permissions: set | None = None,
+        label: str | None = None,
     ) -> tuple:
         """Create a new ephemeral session.
 
@@ -796,6 +803,7 @@ class SessionStore:
             created_by=created_by,
             resource=resource,
             max_uses=max_uses if max_uses > 0 else (1 if single_use else 0),
+            label=label,
         )
         self._sessions[token] = session
         signed = create_ephemeral_token(session)

@@ -54,6 +54,7 @@ from vnc_remote_secure.backend.handlers.monitoring import (
     _get_job_detail,
     _get_jobs,
     _get_posture,
+    _get_security_overview,
 )
 from vnc_remote_secure.backend.handlers.operators import (
     _delete_operator,
@@ -76,6 +77,7 @@ from vnc_remote_secure.backend.handlers.ops import (
     _get_config_diff,
     _get_config_effective,
     _get_config_explain,
+    _get_config_history,
     _get_config_validate,
     _get_lifecycle,
     _get_secret_redact,
@@ -86,6 +88,7 @@ from vnc_remote_secure.backend.handlers.ops import (
     _post_backup_restore,
     _post_backup_verify,
     _post_config_migrate,
+    _post_config_rollback,
     _post_lifecycle,
     _post_recovery_codes,
     _post_secret_rotate,
@@ -272,6 +275,9 @@ _ROUTES = {
         _get_health, 'operator', 'default', None, 'HealthResponse'),
     ('GET', 'security/posture'): _Route(
         _get_posture, 'operator', 'default', None, 'PostureResponse'),
+    ('GET', 'security/overview'): _Route(
+        _get_security_overview, 'operator', 'default', None,
+        'SecurityOverviewResponse'),
     ('GET', 'doctor'): _Route(
         _get_doctor, 'operator', 'doctor', None, 'DoctorResponse'),
     ('GET', 'audit'): _Route(
@@ -486,6 +492,12 @@ _ROUTES = {
     ('POST', 'config/migrate'): _Route(
         _post_config_migrate, 'admin_config', 'config.write',
         'config_migrate', 'ConfigMigrateResponse', True),
+    ('GET', 'config/history'): _Route(
+        _get_config_history, 'admin_config', 'default', None,
+        'ConfigHistoryResponse'),
+    ('POST', 'config/rollback'): _Route(
+        _post_config_rollback, 'admin_config', 'config.write',
+        'config_rollback', 'ConfigRollbackResponse', True),
     # Self-upgrade — long-running pip work under a job-ledger entry.
     ('GET', 'upgrade'): _Route(
         _get_upgrade, 'operator', 'default', None, 'UpgradeResponse'),

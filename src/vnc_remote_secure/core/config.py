@@ -224,6 +224,11 @@ def set_env_persistent(name: str, value: str) -> bool:
         logger.error("Refusing to persist invalid env var name %r", name)
         return False
     env_path = _env_file_for(name)
+    try:
+        from vnc_remote_secure.core import config_history
+        config_history.snapshot(env_path, reason=f'env persist {name}')
+    except OSError:
+        pass  # history is best-effort — never blocks the write
     from vnc_remote_secure.core.test_isolation import guard_write
     guard_write(env_path, 'env persist')
     if not _rewrite_env_key(env_path, name, value):

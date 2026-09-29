@@ -182,6 +182,14 @@ OPERATIONS: dict[str, OperationSpec] = {
             confirmation_type='simple', audit_event='config_migrate',
             cli_command='config migrate',
             api_route='POST /config/migrate', reversible='yes'),
+        _op('config.history', 'Historial de config', 'low',
+            'admin_config', cli_command='config history',
+            api_route='GET /config/history', reversible='yes'),
+        _op('config.rollback', 'Restaurar snapshot de config', 'high',
+            'admin_config', authentication_policy='stepup-bound',
+            confirmation_type='simple', audit_event='config_rollback',
+            cli_command='config rollback',
+            api_route='POST /config/rollback', reversible='yes'),
 
         # --- Sessions / share links ---------------------------------------
         _op('session.create', 'Crear acceso temporal', 'high',

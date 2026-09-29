@@ -113,6 +113,8 @@ class SessionCreateRequest(StrictBody):
     # finished share link is delivered to this address through the
     # configured SMTP relay. Optional — empty means "copy link only".
     email_to: str | None = Field(default=None, max_length=254)
+    # Operator tag for inventory grouping — free text, single line.
+    label: str | None = Field(default=None, max_length=64)
 
     @field_validator('email_to')
     @classmethod
@@ -129,6 +131,18 @@ class SessionCreateRequest(StrictBody):
         local, _, domain = v.partition('@')
         if not local or '.' not in domain or len(v) > 254:
             raise ValueError('invalid email address')
+        return v
+
+    @field_validator('label')
+    @classmethod
+    def _label_safe(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if any(ord(c) < 32 or c == '\x7f' for c in v):
+            raise ValueError('label must not contain control characters')
         return v
 
     @field_validator('role')
@@ -245,6 +259,12 @@ class ConfigMigrateRequest(StrictBody):
     # Empty body = real apply (non-dry-run) — matches the documented
     # POST /config/migrate semantics.
     dry_run: bool = False
+
+
+class ConfigRollbackRequest(StrictBody):
+    # Snapshot id from GET /config/history — <epoch_ms>_<digest8>;
+    # re-validated by the use case against the id scheme.
+    snapshot: str = Field(min_length=1, max_length=64)
 
 
 class LifecycleRequest(StrictBody):

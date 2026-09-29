@@ -105,6 +105,7 @@ def _post_session_create(handler, query):
         'allowed_ip': body.allowed_ip,
         'resource': body.resource,
         'max_uses': body.max_uses,
+        'label': body.label,
     }
 
     # Delegation + creation are domain rules — the use case owns them.
@@ -159,6 +160,7 @@ def _post_session_create(handler, query):
         'max_uses': session.max_uses,
         'resource': session.resource,
         'allowed_ip': session.allowed_ip,
+        'label': session.label,
     }, status=201)
 
 

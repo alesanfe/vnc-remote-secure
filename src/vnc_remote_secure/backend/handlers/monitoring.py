@@ -30,6 +30,16 @@ def _get_posture(handler, query):
         _err(handler, 'Posture calculation failed', 500)
 
 
+def _get_security_overview(handler, query):
+    """GET /api/v1/security/overview — security-center rollup."""
+    try:
+        from vnc_remote_secure.engine.application import read_models
+        _ok(handler, read_models.security_overview())
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, 'api /security/overview')
+        _err(handler, 'Security overview failed', 500)
+
+
 def _get_doctor(handler, query):
     try:
         from vnc_remote_secure.engine.application import read_models

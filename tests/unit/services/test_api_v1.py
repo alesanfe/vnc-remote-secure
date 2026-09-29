@@ -234,6 +234,7 @@ class _FakeSession:
     max_uses = 1
     resource = None
     allowed_ip = None
+    label = None
 
     def to_dict(self):
         return {'token_id': self.token_id}

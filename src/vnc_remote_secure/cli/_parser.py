@@ -83,6 +83,9 @@ def _add_session_args(subparsers):
                           help='Bind the token to a single resource '
                                '(RECOMMENDED — unbound tokens reach '
                                'every resource their permissions allow)')
+    p_create.add_argument('--label', default=None,
+                          help='Free-text tag shown in the session '
+                               'inventory (e.g. "soporte Juan")')
     _add_common_args(p_create, suppress_defaults=True)
     p_list = p_session_sub.add_parser('list', help='List active sessions')
     _add_common_args(p_list, suppress_defaults=True)
@@ -191,6 +194,13 @@ def _add_config_args(subparsers):
     _add_common_args(p_cdiff, suppress_defaults=True)
     p_cmig = p_config_sub.add_parser('migrate', help='Migrate config to current version format')
     _add_common_args(p_cmig, suppress_defaults=True)
+    p_chist = p_config_sub.add_parser(
+        'history', help='List env-file snapshots (auto-saved before mutations)')
+    _add_common_args(p_chist, suppress_defaults=True)
+    p_crb = p_config_sub.add_parser(
+        'rollback', help='Restore .env from a history snapshot')
+    p_crb.add_argument('snapshot', help='Snapshot id from `config history`')
+    _add_common_args(p_crb, suppress_defaults=True)
     p_config.set_defaults(func=cmd_config)
 
 

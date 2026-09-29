@@ -50,11 +50,37 @@ def _notify(title: str, message: str, severity: str = 'info') -> None:
         pass
 
 
+_LABEL_MAX = 64
+
+
+def _validate_label(label: str | None) -> str | None:
+    """Normalize an operator tag — bounded, printable, single-line.
+
+    Labels are inventory metadata: they ride along in session records
+    so the admin list can group "soporte Juan" links, but they never
+    influence authorization. Anything else is an injection surface
+    (CR/LF into logs, markup into tooltips), so it's rejected here.
+    """
+    if label is None:
+        return None
+    label = str(label).strip()
+    if not label:
+        return None
+    if len(label) > _LABEL_MAX:
+        raise UseCaseError(
+            ERR_INVALID, f'label must be ≤ {_LABEL_MAX} chars')
+    if any(ord(c) < 32 or c == '\x7f' for c in label):
+        raise UseCaseError(
+            ERR_INVALID, 'label must not contain control characters')
+    return label
+
+
 def create_share_link(actor: str, actor_perms: set, *,
                       role: str, permissions: set | None,
                       ttl: int, single_use: bool, view_only: bool,
                       no_terminal: bool, allowed_ip: str | None,
-                      resource: str | None, max_uses: int) -> tuple:
+                      resource: str | None, max_uses: int,
+                      label: str | None = None) -> tuple:
     """Create an ephemeral share-link session.
 
     Returns ``(session, signed_token)``; raises ``UseCaseError`` on a
@@ -82,6 +108,7 @@ def create_share_link(actor: str, actor_perms: set, *,
         resource=resource,
         max_uses=max_uses,
         permissions=permissions,
+        label=_validate_label(label),
     )
     _notify('Share link created',
             f'actor={actor} role={role} resource={resource or "*"} '

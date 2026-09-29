@@ -225,7 +225,7 @@ def test_config_diff_requires_both(stores):
 
 def test_config_migrate_dry_run_no_audit(stores, monkeypatch):
     monkeypatch.setattr(stores, 'config_migrate',
-                        lambda dry_run=False: {
+                        lambda dry_run=False, actor='': {
                             'changes': [{'old': 'CERT_FILE',
                                          'new': 'SSL_CERT'}],
                             'applied': False})

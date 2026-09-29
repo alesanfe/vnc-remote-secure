@@ -610,10 +610,22 @@ def config_diff(profile_a: str, profile_b: str) -> list:
                         compute_effective_config(profile_name=profile_b))
 
 
-def config_migrate(dry_run: bool = False) -> dict:
+def config_migrate(dry_run: bool = False, actor: str = '') -> dict:
     """Legacy .env migration (names + profile-value renames)."""
     from vnc_remote_secure.core.config_migration import migrate_env
-    return migrate_env(dry_run=dry_run)
+    return migrate_env(dry_run=dry_run, actor=actor)
+
+
+def config_history() -> list:
+    """Env-file snapshot records, newest first (no contents)."""
+    from vnc_remote_secure.core.config_history import list_history
+    return list_history()
+
+
+def config_rollback(snapshot_id: str, actor: str = '') -> dict:
+    """Restore a config snapshot over the env file it came from."""
+    from vnc_remote_secure.core.config_history import rollback
+    return rollback(snapshot_id, actor=actor)
 
 
 def service_status() -> dict:

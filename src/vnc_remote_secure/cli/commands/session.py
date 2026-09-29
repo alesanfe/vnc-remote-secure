@@ -157,7 +157,8 @@ def _session_create(store, args):
             role=role, permissions=permissions, ttl=expires_in,
             single_use=args.single_use, view_only=args.view_only,
             no_terminal=args.no_terminal, allowed_ip=args.allowed_ip,
-            resource=args.resource, max_uses=args.max_uses)
+            resource=args.resource, max_uses=args.max_uses,
+            label=getattr(args, 'label', None))
     except (UseCaseError, ValueError) as e:
         # e.g. EPHEMERAL_REQUIRE_RESOURCE rejects unbound tokens.
         print(f"Error: {e}")
@@ -186,7 +187,9 @@ def _session_list(store, args):
             for s in sessions:
                 remaining = int(s['expires_at'] - time.time())
                 perms = ','.join(s.get('permissions') or []) or '-'
-                print(f"  id={s.get('token_id', '?')} role={s['role']} "
+                label = f" label={s['label']}" if s.get('label') else ''
+                print(f"  id={s.get('token_id', '?')}{label} "
+                      f"role={s['role']} "
                       f"expires_in={max(remaining, 0)}s "
                       f"view_only={s['view_only']} single_use={s['single_use']} "
                       f"resource={s.get('resource') or '*'} "

@@ -110,6 +110,48 @@ def _config_migrate(args):
     return 0
 
 
+def _config_history(args):
+    """List env-file snapshots — every mutation checkpoints first."""
+    from vnc_remote_secure.engine.application import ops
+    result = ops.config_history()
+    snaps = result['snapshots']
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    if not snaps:
+        print("No config snapshots yet — history starts at the "
+              "first mutation.")
+        return 0
+    import datetime
+    print(f"{'Snapshot':<26} {'When':<20} {'Actor':<14} Reason")
+    for s in snaps:
+        when = datetime.datetime.fromtimestamp(
+            s.get('ts', 0)).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"{s['id']:<26} {when:<20} "
+              f"{s.get('actor', '?'):<14} {s.get('reason', '')}")
+    return 0
+
+
+def _config_rollback(args):
+    """Restore .env from a history snapshot via the shared use case."""
+    import os
+
+    from vnc_remote_secure.engine.application.ops import config_rollback
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    actor = ('cli:'
+             + (os.environ.get('USERNAME') or os.environ.get('USER')
+                or 'admin'))
+    try:
+        result = config_rollback(actor, args.snapshot)
+    except (UseCaseError, ValueError, FileNotFoundError) as e:
+        print(f"Error: {e}")
+        return 1
+    print(f"Restored snapshot {result['restored']} "
+          f"({result.get('size', '?')} bytes) — "
+          "restart services to apply.")
+    return 0
+
+
 def cmd_config(args):
     """Manage configuration (show-effective, validate, diff, migrate)."""
     from vnc_remote_secure.core.config import load_env_file
@@ -122,6 +164,8 @@ def cmd_config(args):
         'validate': _config_validate,
         'diff': _config_diff,
         'migrate': _config_migrate,
+        'history': _config_history,
+        'rollback': _config_rollback,
     }
     handler = actions.get(args.config_action)
     if handler is None:
