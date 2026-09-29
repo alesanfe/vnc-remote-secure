@@ -147,3 +147,32 @@ def test_power_schedules_and_audits(stores, no_power_action):
     assert no_power_action == ['host-power']
     ev, detail = stores.calls['audit'][0]
     assert ev == 'power_action' and 'action=shutdown' in detail
+
+
+def test_power_grace_delay_precedes_command(stores, monkeypatch):
+    """effective_in_seconds must be true: the worker sleeps the
+    declared grace BEFORE running the platform command — a zero-delay
+    poweroff would race the HTTP response."""
+    import types
+    order = []
+
+    class _FakeThread:
+        def __init__(self, target=None, daemon=None, name=None, **kw):
+            order.append(('spawn', name))
+            self.target = target
+
+        def start(self):
+            self.target()  # drive the worker inline for the test
+
+    monkeypatch.setattr(
+        power, 'threading', types.SimpleNamespace(Thread=_FakeThread))
+    import time as _time
+    monkeypatch.setattr(
+        _time, 'sleep', lambda s: order.append(('sleep', s)))
+    monkeypatch.setattr(
+        stores, 'run_command', lambda c: order.append(('run', c)))
+    power.host_power('shutdown', 'op')
+    runs = [e for e in order if e[0] == 'run']
+    assert runs
+    assert order.index(('sleep', power._GRACE_SECONDS)) < \
+        order.index(runs[0])

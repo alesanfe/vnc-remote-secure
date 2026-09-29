@@ -81,6 +81,10 @@ def host_power(action: str, actor: str,
     cmd = stores.power_command(action)
 
     def _run() -> None:
+        # The declared grace delay — without it effective_in_seconds
+        # lies: the OS command would race the HTTP response.
+        import time
+        time.sleep(_GRACE_SECONDS)
         try:
             stores.run_command(cmd)
         except Exception as exc:  # noqa: BLE001 - thread: log only
