@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { ListTodo } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 
@@ -19,7 +20,9 @@ export default function JobsBadge() {
   if (!active.length) return null;
   return (
     <Link to="/operations/jobs" className="jobs-badge" role="status">
-      ● {t('jobs.badge', { count: active.length })}
+      <ListTodo size={12} aria-hidden="true"
+                style={{ verticalAlign: '-1px' }} />{' '}
+      {t('jobs.badge', { count: active.length })}
       {active[0]?.progress ? ` · ${active[0].progress}` : ''}
     </Link>
   );

@@ -1,7 +1,7 @@
 ﻿import { Fragment, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type RecordingMeta } from '../api';
-import { Bookmark, Pause, Play } from 'lucide-react';
+import { Bookmark, CircleStop, Disc, Pause, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '../i18n';
 import { useStepUp } from '../components/useStepUp';
@@ -318,7 +318,7 @@ export default function Recordings() {
         </a>
         <button type="button" onClick={() => start.mutate()}
                 disabled={start.isPending || rows.some((r) => r.running)}>
-          ● {t('rec.record')}
+          <Disc size={14} aria-hidden="true" /> {t('rec.record')}
         </button>
       </div>
       {error && <div className="error-box" role="alert">{error}</div>}
@@ -363,14 +363,18 @@ export default function Recordings() {
                     <div className="toolbar" style={{ gap: 6 }}>
                       {r.running ? (
                         <button type="button" className="ghost"
+                                disabled={stop.isPending}
                                 onClick={() => stop.mutate(r.id)}>
-                          ■ {t('rec.stop')}
+                          <CircleStop size={14} aria-hidden="true" />{' '}
+                          {t('rec.stop')}
                         </button>
                       ) : (
                         <button type="button" className="ghost"
                                 onClick={() => openPlayer(r)}>
-                          {playingId === r.id ? t('rec.close')
-                            : t('rec.play')}
+                          {playingId === r.id
+                            ? t('rec.close')
+                            : <><Play size={14} aria-hidden="true" />{' '}
+                                {t('rec.play')}</>}
                         </button>
                       )}
                       <a className="ghost" href={api.recordingUrl(r.id)}
