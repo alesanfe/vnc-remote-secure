@@ -47,6 +47,20 @@ def test_consume_rejects_foreign_session():
         'op', 'lifecycle.action', 'restart', sid='session-A')
 
 
+def test_consume_rejects_missing_sid_on_bound_grant():
+    """A grant minted for session A must not be consumable by a caller
+    that presents no session id — the binding is only meaningful when
+    equality is required, not just non-mismatch."""
+    step_up_auth.grant_step_up('op', 'lifecycle.action', 'restart',
+                               sid='session-A')
+    assert not step_up_auth.consume_step_up(
+        'op', 'lifecycle.action', 'restart', sid='')
+    # The grant survives the rejected consume — the real session can
+    # still use it.
+    assert step_up_auth.consume_step_up(
+        'op', 'lifecycle.action', 'restart', sid='session-A')
+
+
 def test_grants_are_per_user():
     step_up_auth.grant_step_up('alice', 'backup.restore', 'b.tar')
     assert not step_up_auth.consume_step_up(

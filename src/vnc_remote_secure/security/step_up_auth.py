@@ -246,8 +246,11 @@ def consume_step_up(username: str, operation: str, resource: str = '',
             return False
         payload = json.loads(raw)
         grant_sid = payload.get('sid')
-        if grant_sid and sid and grant_sid != sid:
-            # Bound to a different operator session — deny.
+        if grant_sid is not None and grant_sid != sid:
+            # Bound to a different operator session — deny. A caller
+            # presenting NO sid must not satisfy a bound grant either:
+            # requiring equality keeps the binding meaningful when a
+            # transport fails to resolve the cookie.
             return False
         nonce = payload.get('nonce', '')
         if not be.set_if_absent(_CONSUMED_NS, nonce, username,
