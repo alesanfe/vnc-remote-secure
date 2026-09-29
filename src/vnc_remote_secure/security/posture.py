@@ -337,6 +337,37 @@ def _check_shared_state_posture(findings):
     )
 
 
+def _check_attack_surface(findings):
+    """Enumerate the enabled optional services — the plugin registry
+    (core.plugins) is the declared contract; the posture is where the
+    operator sees which optional surfaces are live and which
+    capability each one requires."""
+    try:
+        import platform as _pf
+
+        from vnc_remote_secure.core.plugins import attack_surface
+        from vnc_remote_secure.core.config import get_config
+        cfg = get_config()
+        surface = attack_surface(cfg, _pf.system() == 'Windows')
+    except Exception:  # noqa: BLE001 - posture must never fail on this
+        return
+    enabled = sorted(surface)
+    # Informational only (points=0): enabling an optional service is a
+    # legitimate deployment choice — the finding exists so the attack
+    # surface is enumerated next to the other findings, not to deduct.
+    findings.append({
+        'name': 'Optional services (attack surface)',
+        'status': 'ok',
+        'severity': 'info',
+        'detail': '',
+        'evidence': (f'{len(enabled)} enabled: '
+                     + ', '.join(
+                         f"{n}({surface[n] or 'no-session-surface'})"
+                         for n in enabled)) if enabled else 'none',
+        'points': 0,
+    })
+
+
 def calculate_posture() -> dict:
     """Calculate the security posture score and individual checks.
 
@@ -357,6 +388,7 @@ def calculate_posture() -> dict:
     _check_session_posture(findings)
     _check_temp_user_posture(findings)
     _check_shared_state_posture(findings)
+    _check_attack_surface(findings)
 
     # Compute the score from the collected findings.
     score = 100
