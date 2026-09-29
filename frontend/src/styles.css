@@ -529,13 +529,6 @@ button.danger:hover { background: #a02e22; }
 button.ghost { background: var(--surface-2); color: var(--text); }
 
 /* Forms */
-form.inline-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 0.75rem;
-  align-items: end;
-}
-form.inline-grid label { display: block; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.25rem; }
 input, select, textarea {
   width: 100%;
   padding: 0.5rem;
