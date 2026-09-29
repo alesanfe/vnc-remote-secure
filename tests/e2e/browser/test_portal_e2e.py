@@ -105,11 +105,12 @@ def test_share_link_fragment_flow(portal_server, browser_ctx):
               wait_until='domcontentloaded')
     # Fragment wiped from the address bar; wait for the preview fetch
     # to resolve (React starts on 'Comprobando enlace…' first).
-    page.wait_for_selector('.data', timeout=10000)
+    page.wait_for_selector('button:not(:disabled):has-text("Aceptar")',
+                           timeout=10000)
     assert 't=' not in page.url
-    assert 'forma remota' in page.locator('#info').inner_text()
+    assert 'acceso' in page.locator('#info').inner_text()
     with page.expect_response('**/api/v1/session/activate') as r:
-        page.get_by_role('button', name='Aceptar y abrir sesión').click()
+        page.get_by_role('button', name='Aceptar y entrar').click()
     assert r.value.status == 200
     cookies = {c['name']: c for c in ctx.cookies()}
     assert 'vnc_ephemeral' in cookies
@@ -126,8 +127,7 @@ def test_share_link_invalid_token_shows_error(portal_server,
               wait_until='domcontentloaded')
     # Wait for the preview POST to resolve into the error box.
     page.wait_for_selector('.error-box', timeout=10000)
-    assert 'caducado o ya ha sido utilizado' in \
-        page.locator('#info').inner_text()
+    assert 'expirado' in page.locator('#info').inner_text()
     page.close()
     ctx.close()
 

@@ -345,6 +345,14 @@ export const api = {
     request<ConfigMigrateResult>(
       'config/migrate',
       { method: 'POST', body: JSON.stringify({ dry_run: dryRun }) }),
+  /** `vnc-remote config history` (admin_config) — env snapshots. */
+  configHistory: () =>
+    request<{ snapshots: ConfigSnapshot[] }>('config/history'),
+  /** `vnc-remote config rollback <id>` (admin_config + step-up). */
+  configRollback: (snapshot: string) =>
+    request<{ restored: string; target: string; size: number }>(
+      'config/rollback',
+      { method: 'POST', body: JSON.stringify({ snapshot }) }),
   /** `vnc-remote upgrade --check` (operator). */
   upgradeStatus: () =>
     request<UpgradeStatus>('upgrade'),
@@ -359,6 +367,16 @@ export const api = {
     request<{ accepted: boolean; job_id: string }>(
       'upgrade/rollback', { method: 'POST', body: '{}' }),
 };
+
+export interface ConfigSnapshot {
+  id: string;
+  ts: number;
+  actor: string;
+  reason: string;
+  size: number;
+  sha256: string;
+  source: string;
+}
 
 // ---- Types ----
 
@@ -524,6 +542,29 @@ export interface Posture {
   summary: string;
   deployment_decision: string;
   blocking_findings: string[];
+}
+
+/** GET /security/overview — the security-center rollup read model. */
+export interface SecurityOverview {
+  posture: {
+    score: number | null;
+    summary: string | null;
+    blocking_findings: string[];
+  };
+  signals: {
+    failed_auth_24h: number;
+    denied_24h: number;
+    actors_with_failures: string[];
+  };
+  recent_failures: {
+    event: string;
+    user: string | null;
+    result: string;
+    timestamp: string;
+  }[];
+  active_sessions: number | null;
+  running_jobs: number;
+  maintenance: boolean;
 }
 
 export interface DoctorCheck {

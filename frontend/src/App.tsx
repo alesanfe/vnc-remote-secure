@@ -3,6 +3,7 @@ import {
   NavLink,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from 'react-router-dom';
@@ -10,6 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Toaster } from 'sonner';
 import {
+  Activity as ActivityIcon,
   DatabaseBackup,
   Film,
   FolderOpen,
@@ -49,9 +51,11 @@ import JobDetail from './pages/JobDetail';
 import FilesPage from './pages/FilesPage';
 import Recordings from './pages/Recordings';
 import RemoteConsole from './pages/RemoteConsole';
+import Activity from './pages/Activity';
 import Help from './pages/Help';
 import ThemeSwitch, { DensitySwitch } from './components/ThemeSwitch';
 import JobsBadge from './components/JobsBadge';
+import StatusStrip from './components/StatusStrip';
 
 /** /access/<segment> dispatcher: a lifecycle tab name renders the
     inventory view; anything else is treated as a token_id and
@@ -70,6 +74,41 @@ function LegacyRedirect({ base }: { base: string }) {
   const params = useParams();
   const id = Object.values(params)[0] ?? '';
   return <Navigate to={id ? `${base}/${id}` : base} replace />;
+}
+
+/** Contextual subheader — "Group / Page (/detail)" breadcrumb resolved
+    from the nav tree, so every page carries its place without each
+    page re-implementing a crumb line. */
+function PageCrumbs({ groups }: {
+  groups: { group: string | null;
+            items: { to: string; label: string }[] }[];
+}) {
+  const { pathname } = useLocation();
+  let best: { group: string | null; label: string; to: string } | null =
+    null;
+  for (const g of groups) {
+    for (const n of g.items) {
+      const exact = n.to === '/'
+        ? pathname === '/'
+        : pathname === n.to || pathname.startsWith(`${n.to}/`);
+      if (exact && (!best || n.to.length > best.to.length)) {
+        best = { group: g.group, label: n.label, to: n.to };
+      }
+    }
+  }
+  if (!best) return null;
+  const tail = pathname === best.to || best.to === '/'
+    ? ''
+    : pathname.slice(best.to.length).replace(/^\//, '');
+  return (
+    <div className="page-crumbs" aria-hidden="true">
+      {best.group && <span>{best.group}</span>}
+      {best.group && <span className="crumb-sep">›</span>}
+      <span className="crumb-page">{best.label}</span>
+      {tail && <span className="crumb-sep">›</span>}
+      {tail && <span className="mono">{decodeURIComponent(tail)}</span>}
+    </div>
+  );
 }
 
 /** Admin shell — mounted by main.tsx under basename="/admin". Gates
@@ -101,7 +140,9 @@ export default function App() {
   }[] = [
     { group: null, items: [
       { to: '/', label: t('nav.summary'), icon: LayoutDashboard,
-        end: true }] },
+        end: true },
+      { to: '/activity', label: t('nav.activity'),
+        icon: ActivityIcon }] },
     {
       // Task-oriented grouping: remote sessions first (the daily
       // workflow), then administration, then the system surface.
@@ -310,9 +351,12 @@ export default function App() {
         </nav>
       </aside>
       <main className="main">
+        <PageCrumbs groups={NAV_GROUPS} />
+        <StatusStrip />
         <Boundary>
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/activity" element={<Activity />} />
           <Route path="/access" element={<Sessions />} />
           <Route path="/access/:segment" element={<AccessSegment />} />
           <Route path="/connect" element={<ConnectPage />} />

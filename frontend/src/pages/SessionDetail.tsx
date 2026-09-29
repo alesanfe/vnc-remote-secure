@@ -199,6 +199,12 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
                 ? t(`sessions.res.${s.resource}`)
                 : t('sessions.res.all')}
             </dd>
+            <dt>{t('sessions.col.label')}</dt>
+            <dd>
+              {s.label
+                ? <span className="badge dim">{s.label}</span>
+                : '—'}
+            </dd>
             <dt>{t('sessions.detail.created')}</dt>
             <dd><RelativeTime epoch={s.created_at} kind="since" /></dd>
             <dt>{t('sessions.detail.createdBy')}</dt>

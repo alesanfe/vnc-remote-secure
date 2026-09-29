@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient }
+  from '@tanstack/react-query';
 import { Info } from 'lucide-react';
-import { api, ApiError, type ConfigVar } from '../api';
+import { api, ApiError, type ConfigSnapshot, type ConfigVar }
+  from '../api';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { RelativeTime } from '../components/bits';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
 
@@ -140,6 +144,8 @@ function ConfigOps() {
           )}
         </div>
       )}
+      <ConfigHistory />
+
       {migrate.error && !(migrate.error instanceof ApiError &&
           migrate.error.code === 'STEP_UP_REQUIRED') && (
         <div className="error-box" role="alert">
@@ -148,6 +154,108 @@ function ConfigOps() {
             : t('config.ops.migrateFailed')}
         </div>
       )}
+      {stepUp.dialog}
+    </>
+  );
+}
+
+/** Env-file snapshots — every mutating config path checkpoints the
+    file first, so this list is the "who/when" journal plus a one-click
+    undo (config.rollback, step-up bound to the snapshot id). */
+function ConfigHistory() {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const stepUp = useStepUp();
+  const [target, setTarget] = useState<ConfigSnapshot | null>(null);
+  const [flash, setFlash] = useState('');
+
+  const history = useQuery({
+    queryKey: ['config-history'],
+    queryFn: () => api.configHistory(),
+    retry: false,
+  });
+  const rollback = useMutation({
+    mutationFn: (id: string) => api.configRollback(id),
+    onSuccess: (d) => {
+      setTarget(null);
+      setFlash(t('config.history.restored', { id: d.restored }));
+      qc.invalidateQueries({ queryKey: ['config'] });
+      qc.invalidateQueries({ queryKey: ['config-history'] });
+      qc.invalidateQueries({ queryKey: ['config-validate'] });
+    },
+    onError: (e, id) => {
+      if (stepUp.gate(
+        e, t('config.history.stepup'),
+        () => rollback.mutate(id),
+        { opId: 'config.rollback', resource: id })) return;
+      setTarget(null);
+      setFlash(
+        e instanceof ApiError
+          ? `${e.status}: ${e.message}`
+          : t('config.history.error'));
+    },
+  });
+
+  return (
+    <>
+      <h2 className="section">{t('config.history.title')}</h2>
+      {history.isError && (
+        <p className="muted">{t('config.history.unavailable')}</p>
+      )}
+      {history.data && history.data.snapshots.length === 0 && (
+        <p className="muted">{t('config.history.empty')}</p>
+      )}
+      {history.data && history.data.snapshots.length > 0 && (
+        <table className="data">
+          <thead>
+            <tr>
+              <th>{t('config.history.col.when')}</th>
+              <th>{t('config.history.col.snapshot')}</th>
+              <th>{t('config.history.col.actor')}</th>
+              <th>{t('config.history.col.reason')}</th>
+              <th>{t('config.history.col.file')}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {history.data.snapshots.map((s) => (
+              <tr key={s.id}>
+                <td><RelativeTime epoch={s.ts} kind="since" /></td>
+                <td className="mono">{s.id}</td>
+                <td>{s.actor}</td>
+                <td>{s.reason || '—'}</td>
+                <td className="mono muted">{s.source}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={rollback.isPending}
+                    onClick={() => setTarget(s)}
+                  >
+                    {t('config.history.restore')}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {flash && <div className="info-box">{flash}</div>}
+
+      <ConfirmDialog
+        open={target !== null}
+        title={t('config.history.confirmTitle')}
+        danger
+        confirmLabel={t('config.history.restore')}
+        busy={rollback.isPending}
+        onCancel={() => setTarget(null)}
+        onConfirm={() => target && rollback.mutate(target.id)}
+      >
+        <p>
+          {t('config.history.confirmBody',
+             { id: target?.id ?? '', source: target?.source ?? '' })}
+        </p>
+      </ConfirmDialog>
       {stepUp.dialog}
     </>
   );

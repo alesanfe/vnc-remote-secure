@@ -986,6 +986,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/security/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Security-center rollup: posture score + 24h auth/deny signals + live sessions + running jobs + maintenance (operator). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SecurityOverviewResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/doctor": {
         parameters: {
             query?: never;
@@ -3152,6 +3188,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/config/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Env-file snapshots taken before every mutation (config history parity). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {snapshots: [{id, ts, actor, reason, size, sha256, source}]} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore an env-file snapshot over its recorded source (config rollback parity); the live file is snapshotted first. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        snapshot: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description {restored, target, size} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/upgrade": {
         parameters: {
             query?: never;
@@ -3529,6 +3639,8 @@ export interface components {
             view_only: boolean;
             no_terminal: boolean;
             allowed_ip?: string | null;
+            /** @description Operator-assigned inventory tag */
+            label?: string | null;
             created_by: string;
             created_at: number;
             used: boolean;
@@ -3656,6 +3768,7 @@ export interface components {
                 max_uses?: number;
                 resource?: string | null;
                 allowed_ip?: string | null;
+                label?: string | null;
                 /** @description True when email_to was supplied and the link was delivered via ALERT_SMTP_* */
                 emailed?: boolean;
             };
@@ -3788,6 +3901,28 @@ export interface components {
                 /** @enum {string} */
                 deployment_decision: "allowed" | "blocked";
                 blocking_findings: string[];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        SecurityOverviewResponse: {
+            data: {
+                posture?: {
+                    score?: number | null;
+                    summary?: string | null;
+                    blocking_findings?: string[];
+                };
+                signals?: {
+                    failed_auth_24h?: number;
+                    denied_24h?: number;
+                    actors_with_failures?: string[];
+                };
+                recent_failures?: {
+                    [key: string]: unknown;
+                }[];
+                active_sessions?: number | null;
+                running_jobs?: number;
+                maintenance?: boolean;
             };
             error: unknown;
             request_id: string;
@@ -4187,6 +4322,30 @@ export interface components {
             error: unknown;
             request_id: string;
         };
+        ConfigHistoryResponse: {
+            data: {
+                snapshots: {
+                    id: string;
+                    ts?: number;
+                    actor?: string;
+                    reason?: string;
+                    size?: number;
+                    sha256?: string;
+                    source?: string;
+                }[];
+            };
+            error: unknown;
+            request_id: string;
+        };
+        ConfigRollbackResponse: {
+            data: {
+                restored: string;
+                target?: string;
+                size?: number;
+            };
+            error: unknown;
+            request_id: string;
+        };
         UpgradeResponse: {
             data: {
                 current?: string;
@@ -4280,6 +4439,8 @@ export interface components {
             resource?: "desktop" | "terminal" | "audio" | "gamepad" | "files" | null;
             /** @description Optional recipient — the share link is emailed via ALERT_SMTP_* */
             email_to?: string | null;
+            /** @description Operator tag for inventory grouping */
+            label?: string | null;
         };
         /** @description Raw binary body (PNG image or .vrsrec stream) — no JSON envelope. */
         BinaryResponse: Record<string, never>;

@@ -110,7 +110,7 @@ export default function Sessions() {
   const filtered = q
     ? rows.filter((s) =>
         [s.token_id, s.role, s.created_by, s.resource ?? '',
-         ...s.permissions]
+         s.label ?? '', ...s.permissions]
           .some((v) => String(v).toLowerCase().includes(q)))
     : rows;
 
@@ -127,6 +127,8 @@ export default function Sessions() {
     resource: '',
     // Optional TeamViewer-style invite: empty = copy-link only.
     email_to: '',
+    // Optional inventory tag — groups links by purpose/support case.
+    label: '',
   });
   const [step, setStep] = useState(0);
   const [created, setCreated] = useState<CreateResult | null>(null);
@@ -154,6 +156,7 @@ export default function Sessions() {
         allowed_ip: form.allowed_ip || null,
         resource: (form.resource || null) as SessionCreateRequest['resource'],
         email_to: form.email_to.trim() || null,
+        label: form.label.trim() || null,
       }),
     onSuccess: (data) => {
       setCreated(data);
@@ -380,6 +383,17 @@ export default function Sessions() {
               />
             </div>
             <div className="row">
+              <label htmlFor="sesslabel">{t('sessions.label')}</label>
+              <input
+                id="sesslabel"
+                maxLength={64}
+                placeholder={t('sessions.labelPh')}
+                value={form.label}
+                onChange={(e) =>
+                  setForm({ ...form, label: e.target.value })}
+              />
+            </div>
+            <div className="row">
               <label htmlFor="emailto">{t('sessions.emailTo')}</label>
               <input
                 id="emailto"
@@ -598,6 +612,14 @@ export default function Sessions() {
             render: (s) => t('sessions.permCount', { count: s.permissions.length }),
             sortValue: (s) => s.permissions.length,
             title: (s) => s.permissions.join(', '),
+          },
+          {
+            key: 'label',
+            header: t('sessions.col.label'),
+            render: (s) =>
+              s.label ? <span className="badge dim">{s.label}</span>
+                      : '—',
+            sortValue: (s) => s.label ?? null,
           },
           {
             key: 'resource',

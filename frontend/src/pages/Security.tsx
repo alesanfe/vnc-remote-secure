@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, type Posture } from '../api';
+import { api, ApiError, type Posture, type SecurityOverview }
+  from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { copyText } from '../components/bits';
 import { useStepUp } from '../components/useStepUp';
@@ -276,6 +277,100 @@ function SecretsPanel() {
   );
 }
 
+/** Consolidated security-center head — score, 24h auth/deny signals,
+    live sessions and maintenance, all from GET /security/overview. */
+function OverviewStrip() {
+  const { t } = useI18n();
+  const ov = useQuery({
+    queryKey: ['security-overview'],
+    queryFn: () => api.get<SecurityOverview>('security/overview'),
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  if (ov.isError) {
+    return (
+      <div className="error-box" role="alert">
+        {t('security.overview.error')}
+      </div>
+    );
+  }
+  const d = ov.data;
+  if (!d) return null;
+  const sig = d.signals;
+  const hot = d.posture.blocking_findings.length > 0 ||
+    sig.failed_auth_24h > 0 || sig.denied_24h > 0 || d.maintenance;
+  return (
+    <div className={`cards${hot ? '' : ' quiet'}`}>
+      <div className="card">
+        <h3>{t('security.overview.score')}</h3>
+        <div
+          className="metric-value"
+          style={{
+            color:
+              (d.posture.score ?? 0) >= 75
+                ? 'var(--ok-text)'
+                : (d.posture.score ?? 0) >= 50
+                  ? 'var(--warn-text)'
+                  : 'var(--fail-text)',
+          }}
+        >
+          {d.posture.score ?? '—'}/100
+        </div>
+        <div className="muted">
+          {d.posture.blocking_findings.length > 0
+            ? t('security.overview.blocking',
+                { count: d.posture.blocking_findings.length })
+            : t('security.overview.noBlocking')}
+        </div>
+      </div>
+      <div className="card">
+        <h3>{t('security.overview.authFails')}</h3>
+        <div className="metric-value">{sig.failed_auth_24h}</div>
+        <div className="muted">
+          {sig.actors_with_failures.length > 0
+            ? t('security.overview.actors', {
+                list: sig.actors_with_failures.slice(0, 4).join(', ') })
+            : t('security.overview.none')}
+        </div>
+      </div>
+      <div className="card">
+        <h3>{t('security.overview.denied')}</h3>
+        <div className="metric-value">{sig.denied_24h}</div>
+        <div className="muted">
+          {t('security.overview.sessions',
+             { count: d.active_sessions ?? 0 })}
+        </div>
+      </div>
+      <div className="card">
+        <h3>{t('security.overview.state')}</h3>
+        <div className="metric-value">
+          <span className={`badge ${d.maintenance ? 'warn' : 'ok'}`}>
+            {d.maintenance
+              ? t('security.overview.maint')
+              : t('security.overview.normal')}
+          </span>
+        </div>
+        <div className="muted">
+          {t('security.overview.jobs', { count: d.running_jobs })}
+        </div>
+      </div>
+      {d.recent_failures.length > 0 && (
+        <div className="card" style={{ gridColumn: '1 / -1' }}>
+          <h3>{t('security.overview.recent')}</h3>
+          <ul className="muted" style={{ margin: 0, paddingLeft: '1rem' }}>
+            {d.recent_failures.slice(0, 5).map((f, i) => (
+              <li key={i}>
+                <code className="mono">{f.event}</code>{' '}
+                {f.user ? `· ${f.user}` : ''} · {f.timestamp}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Security() {
   const { t } = useI18n();
   const posture = useQuery({
@@ -289,6 +384,8 @@ export default function Security() {
   return (
     <>
       <h1 className="page-title">{t('security.title')}</h1>
+
+      <OverviewStrip />
 
       {posture.isError && (
         <div className="error-box" role="alert">

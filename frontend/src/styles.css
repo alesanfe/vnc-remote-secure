@@ -20,6 +20,10 @@
   --ok-text: #7bd88f;
   --warn-text: #f2c063;
   --fail-text: #ff9d9d;
+  /* In-progress work (jobs, drains) — purple reads "active" without
+     colliding with ok/warn/fail semantics. */
+  --job: #8b5cf6;
+  --job-text: #b79cff;
   --radius: 10px;
   /* Aliases referenced by wizard-steps, dl.kv and job-progress —
      they were undeclared and silently fell back to inherited color. */
@@ -45,6 +49,8 @@
   --ok-text: #155724;
   --warn-text: #6f4e00;
   --fail-text: #84231c;
+  --job: #6d28d9;
+  --job-text: #5b21b6;
 }
 
 /* Light badges need opaque tints — a 22 % alpha over white plus the
@@ -52,12 +58,14 @@
 :root[data-theme='light'] .badge.ok { background: #cfecd8; }
 :root[data-theme='light'] .badge.warn { background: #f7e3b3; }
 :root[data-theme='light'] .badge.fail { background: #f5d2cf; }
+:root[data-theme='light'] .badge.job { background: #e4d9fb; }
 :root[data-theme='light'] .badge.dim { background: #dfe5ef; color: #37455c; }
 :root[data-theme='light'] .notice { background: #fdf3dd; }
 :root[data-theme='light'] .error-box { background: #fbe7e5; }
 :root[data-theme='light'] .status-connected { background: #cfecd8; }
 :root[data-theme='light'] .status-disconnected,
 :root[data-theme='light'] .status-error { background: #f5d2cf; }
+:root[data-theme='light'] .status-cell.job { background: #e4d9fb; }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
@@ -86,6 +94,8 @@
   :root:not([data-theme='dark']) .status-connected { background: #cfecd8; }
   :root:not([data-theme='dark']) .status-disconnected,
   :root:not([data-theme='dark']) .status-error { background: #f5d2cf; }
+  :root:not([data-theme='dark']) .badge.job { background: #e4d9fb; }
+  :root:not([data-theme='dark']) .status-cell.job { background: #e4d9fb; }
 }
 
 /* High contrast (prefers-contrast: more) — harder borders and dim
@@ -326,6 +336,49 @@ a { color: var(--accent-text); }
   background: var(--accent);
 }
 
+/* Contextual breadcrumb — the "Group / Page / detail" line above the
+   status strip that orients the operator without reading the title. */
+.page-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.page-crumbs .crumb-page { color: var(--text); font-weight: 600; }
+.page-crumbs .crumb-sep { opacity: 0.5; }
+
+/* Global status strip — one-line host health pinned above the page
+   content (Kubernetes-dashboard style). Cells hide when idle. */
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: -0.5rem 0 1rem;
+  font-size: 0.8rem;
+}
+.status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.status-cell.ok { color: var(--ok-text); }
+.status-cell.warn { color: var(--warn-text); }
+.status-cell.fail { color: var(--fail-text); }
+.status-cell.job { background: rgba(139, 92, 246, 0.22);
+                   color: var(--job-text); }
+a.status-cell:hover { color: var(--text); border-color: var(--accent); }
+
 /* Live jobs indicator in the sidebar footer. */
 .jobs-badge {
   display: block;
@@ -333,7 +386,7 @@ a { color: var(--accent-text); }
   padding: 0.45rem 0.6rem;
   border-radius: 6px;
   background: var(--surface-2);
-  color: var(--warn-text);
+  color: var(--job-text);
   text-decoration: none;
   font-size: 0.85rem;
 }
@@ -510,6 +563,7 @@ table.data tr:last-child td { border-bottom: 0; }
 .badge.warn { background: rgba(230, 162, 60, 0.22); color: var(--warn-text); }
 .badge.fail { background: rgba(224, 91, 91, 0.22); color: var(--fail-text); }
 .badge.dim { background: var(--surface-2); color: var(--text-dim); }
+.badge.job { background: rgba(139, 92, 246, 0.22); color: var(--job-text); }
 
 button, .btn {
   padding: 0.5rem 1rem;
