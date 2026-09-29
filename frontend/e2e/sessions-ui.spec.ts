@@ -40,11 +40,14 @@ test.describe('session center UI', () => {
     // Revoke carries a 10 s undo window before the call lands.
     await expect(row).not.toBeVisible({ timeout: 20_000 });
 
-    // The history tab lists it with the revoked badge.
+    // The history tab lists it with the revoked badge. The revoke
+    // only lands after the 10 s undo window, so give the assert
+    // more than the default 5 s (the history list also refetches
+    // on a 15 s interval under load).
     await page.getByRole('tab', { name: 'Historial' }).click();
     await expect(
       page.locator('tr', { hasText: ref }),
-    ).toContainText('revocada');
+    ).toContainText('revocada', { timeout: 25_000 });
     await ctx.close();
   });
 

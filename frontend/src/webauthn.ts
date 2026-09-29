@@ -12,6 +12,20 @@ export function webauthnSupported(): boolean {
     typeof window.PublicKeyCredential !== 'undefined';
 }
 
+/** User dismissed the authenticator prompt (or the call returned
+    null). Callers translate via t('webauthn.cancelled') instead of
+    ever showing the browser's locale-dependent DOMException text. */
+export class WebAuthnCancelled extends Error {
+  constructor() {
+    super('webauthn.cancelled');
+    this.name = 'WebAuthnCancelled';
+  }
+}
+
+function isCancel(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'NotAllowedError';
+}
+
 function b64d(s: string): ArrayBuffer {
   const pad = '='.repeat((-s.length) % 4);
   const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad);
@@ -57,11 +71,16 @@ function decodeOptions(opts: Record<string, unknown>):
 export async function registerPasskey(
   options: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const cred = (await navigator.credentials.create({
-    publicKey: decodeOptions(options) as unknown as
-      PublicKeyCredentialCreationOptions,
-  })) as PublicKeyCredential | null;
-  if (!cred) throw new Error('La ceremonia fue cancelada');
+  let cred: PublicKeyCredential | null;
+  try {
+    cred = (await navigator.credentials.create({
+      publicKey: decodeOptions(options) as unknown as
+        PublicKeyCredentialCreationOptions,
+    })) as PublicKeyCredential | null;
+  } catch (e) {
+    throw isCancel(e) ? new WebAuthnCancelled() : e;
+  }
+  if (!cred) throw new WebAuthnCancelled();
   const resp = cred.response as AuthenticatorAttestationResponse;
   return {
     id: cred.id,
@@ -81,10 +100,16 @@ export async function assertPasskey(
   options: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const decoded = decodeOptions(options);
-  const cred = (await navigator.credentials.get({
-    publicKey: decoded as unknown as PublicKeyCredentialRequestOptions,
-  })) as PublicKeyCredential | null;
-  if (!cred) throw new Error('La ceremonia fue cancelada');
+  let cred: PublicKeyCredential | null;
+  try {
+    cred = (await navigator.credentials.get({
+      publicKey: decoded as unknown as
+        PublicKeyCredentialRequestOptions,
+    })) as PublicKeyCredential | null;
+  } catch (e) {
+    throw isCancel(e) ? new WebAuthnCancelled() : e;
+  }
+  if (!cred) throw new WebAuthnCancelled();
   const resp = cred.response as AuthenticatorAssertionResponse;
   return {
     id: cred.id,

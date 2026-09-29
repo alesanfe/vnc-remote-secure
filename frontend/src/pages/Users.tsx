@@ -15,7 +15,11 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import StepUpDialog from '../components/StepUpDialog';
 import SystemUsersSection from '../components/SystemUsers';
 import DeletedOperatorsSection from '../components/DeletedOperators';
-import { registerPasskey, webauthnSupported } from '../webauthn';
+import {
+  registerPasskey,
+  WebAuthnCancelled,
+  webauthnSupported,
+} from '../webauthn';
 import { useI18n } from '../i18n';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
@@ -434,7 +438,12 @@ export function OperatorDetailPanel({ username }: { username: string }) {
     } catch (e) {
       if (e instanceof ApiError && e.code === 'STEP_UP_REQUIRED')
         throw e;
-      setRegErr(e instanceof Error ? e.message : t('users.registerFailed'));
+      setRegErr(
+        e instanceof WebAuthnCancelled
+          ? t('webauthn.cancelled')
+          : e instanceof ApiError
+            ? e.message
+            : t('users.registerFailed'));
     } finally {
       setRegBusy(false);
     }

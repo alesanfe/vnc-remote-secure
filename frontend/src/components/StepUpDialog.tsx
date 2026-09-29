@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 import { api, ApiError } from '../api';
 import { useI18n } from '../i18n';
@@ -35,6 +35,15 @@ export default function StepUpDialog({
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // The component stays mounted between opens — a cancelled attempt
+  // must not leave a half-typed password waiting in the field.
+  useEffect(() => {
+    if (open) {
+      setPassword('');
+      setError('');
+    }
+  }, [open]);
 
   const submit = async () => {
     setBusy(true);

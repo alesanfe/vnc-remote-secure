@@ -673,7 +673,7 @@ export default function Sessions() {
         danger
         busy={revokeAll.isPending}
         confirmLabel={t('sessions.revokeAll')}
-        confirmText="CERRAR TODO"
+        confirmText={t('sessions.revokeAllConfirm')}
         onCancel={() => setConfirmRevokeAll(false)}
         onConfirm={() => revokeAll.mutate()}
       >
@@ -681,7 +681,8 @@ export default function Sessions() {
           {t('sessions.revokeAllBody', { count: allRows.length })}
         </p>
         <p className="muted">
-          {t('confirm.typeToConfirm', { name: 'CERRAR TODO' })}
+          {t('confirm.typeToConfirm',
+             { name: t('sessions.revokeAllConfirm') })}
         </p>
       </ConfirmDialog>
 

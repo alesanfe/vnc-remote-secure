@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError, setCsrfToken } from '../api';
-import { assertPasskey, webauthnSupported } from '../webauthn';
+import {
+  assertPasskey,
+  WebAuthnCancelled,
+  webauthnSupported,
+} from '../webauthn';
 import { useI18n } from '../i18n';
 
 /**
@@ -70,7 +74,9 @@ export default function LoginPage({
       setError(
         e instanceof ApiError
           ? e.message
-          : t('login.passkeyFailed'));
+          : e instanceof WebAuthnCancelled
+            ? t('webauthn.cancelled')
+            : t('login.passkeyFailed'));
     } finally {
       setBusy(null);
     }

@@ -639,6 +639,7 @@ const es = {
   // --- Login (extra) ----------------------------------------------------------------
   'login.networkError': 'Error de red — el servicio puede estar caído.',
   'login.passkeyFailed': 'Falló la autenticación con passkey.',
+  'webauthn.cancelled': 'Ceremonia cancelada.',
   'login.passkeyWaiting': 'Esperando el dispositivo…',
   'login.auditNote':
     'Los intentos de acceso quedan registrados en la auditoría.',
@@ -666,6 +667,7 @@ const es = {
   'sessions.inventory': 'Inventario de sesiones',
   'sessions.viewsAria': 'Vista de sesiones',
   'sessions.revokeAll': 'Cerrar todo',
+  'sessions.revokeAllConfirm': 'CERRAR TODO',
   'sessions.loadError': 'No se pudieron cargar las sesiones.',
   'sessions.col.ref': 'Ref',
   'sessions.col.state': 'Estado',
@@ -1605,6 +1607,7 @@ const en: typeof es = {
   // --- Login (extra) ----------------------------------------------------------------
   'login.networkError': 'Network error — the service may be down.',
   'login.passkeyFailed': 'Passkey authentication failed.',
+  'webauthn.cancelled': 'Ceremony cancelled.',
   'login.passkeyWaiting': 'Waiting for your device…',
   'login.auditNote':
     'Sign-in attempts are recorded in the audit log.',
@@ -1632,6 +1635,7 @@ const en: typeof es = {
   'sessions.inventory': 'Session inventory',
   'sessions.viewsAria': 'Session views',
   'sessions.revokeAll': 'Close all',
+  'sessions.revokeAllConfirm': 'CLOSE ALL',
   'sessions.loadError': 'Could not load sessions.',
   'sessions.col.ref': 'Ref',
   'sessions.col.state': 'State',
