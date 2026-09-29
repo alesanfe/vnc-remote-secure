@@ -200,7 +200,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
                 : t('sessions.res.all')}
             </dd>
             <dt>{t('sessions.detail.created')}</dt>
-            <dd><RelativeTime epoch={s.created_at} /></dd>
+            <dd><RelativeTime epoch={s.created_at} kind="since" /></dd>
             <dt>{t('sessions.detail.createdBy')}</dt>
             <dd>{s.created_by}</dd>
             <dt>{t('sessions.col.expires')}</dt>
@@ -213,7 +213,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
             <dt>{t('sessions.detail.lastUsed')}</dt>
             <dd>
               {s.last_used_at
-                ? <RelativeTime epoch={s.last_used_at} />
+                ? <RelativeTime epoch={s.last_used_at} kind="since" />
                 : '—'}
             </dd>
             <dt>{t('sessions.detail.lastIp')}</dt>
@@ -221,13 +221,15 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
             <dt>{t('sessions.detail.lastConnected')}</dt>
             <dd>
               {s.last_connected_at
-                ? <RelativeTime epoch={s.last_connected_at} />
+                ? <RelativeTime epoch={s.last_connected_at}
+                                kind="since" />
                 : '—'}
             </dd>
             <dt>{t('sessions.detail.lastDisconnected')}</dt>
             <dd>
               {s.last_disconnected_at
-                ? <RelativeTime epoch={s.last_disconnected_at} />
+                ? <RelativeTime epoch={s.last_disconnected_at}
+                                kind="since" />
                 : '—'}
             </dd>
             <dt>{t('sessions.detail.connectionCount')}</dt>

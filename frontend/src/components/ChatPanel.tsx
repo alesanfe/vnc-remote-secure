@@ -124,7 +124,9 @@ export default function ChatPanel({ session }: { session?: string }) {
             }
           >
             <span className="chat-author">{m.author}</span>{' '}
-            <span className="muted"><RelativeTime epoch={m.at} /></span>
+            <span className="muted">
+              <RelativeTime epoch={m.at} kind="since" />
+            </span>
             <div className="chat-text">{m.text}</div>
           </div>
         ))}

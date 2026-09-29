@@ -224,7 +224,8 @@ function SecretsPanel() {
             type="button"
             className="ghost"
             onClick={() =>
-              copyText(codes.join('\n'), t('bits.copied'))}
+              copyText(codes.join('\n'), t('bits.copied'),
+                       t('bits.copyFail'))}
           >
             {t('security.secrets.copyCodes')}
           </button>

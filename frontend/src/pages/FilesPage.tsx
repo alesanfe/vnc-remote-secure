@@ -287,7 +287,7 @@ export default function FilesPage() {
                   )}
                 </td>
                 <td className="mono">{e.is_dir ? '—' : fmtSize(e.size)}</td>
-                <td><RelativeTime epoch={e.mtime} /></td>
+                <td><RelativeTime epoch={e.mtime} kind="since" /></td>
                 <td>
                   {!e.is_dir && (
                     <a href={api.filesDownloadUrl(e.path)}>

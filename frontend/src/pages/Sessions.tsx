@@ -506,7 +506,9 @@ export default function Sessions() {
             <button
               className="ghost"
               style={{ marginTop: 8 }}
-              onClick={() => copyText(created.url, t('bits.copied'))}
+              onClick={() =>
+                copyText(created.url, t('bits.copied'),
+                         t('bits.copyFail'))}
             >
               {t('sessions.copy')}
             </button>
