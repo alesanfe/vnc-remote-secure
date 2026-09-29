@@ -782,7 +782,7 @@ class SessionStore:
             raise ValueError(
                 'resource binding required: '
                 'EPHEMERAL_REQUIRE_RESOURCE=true is set — pass '
-                '--resource (desktop|terminal|audio|gamepad)')
+                '--resource (desktop|terminal|audio|gamepad|files)')
         token = secrets.token_urlsafe(32)
         session = EphemeralSession(
             token=token,

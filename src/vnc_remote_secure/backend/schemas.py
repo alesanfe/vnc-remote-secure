@@ -22,7 +22,8 @@ from pydantic import (
 # Resources a share link may be bound to (validation surface; the
 # domain rule that requires admin:* for admin-granting links lives in
 # engine.application.sessions.ADMINISH_PERMS).
-_RESOURCES = frozenset({'desktop', 'terminal', 'audio', 'gamepad'})
+_RESOURCES = frozenset(
+    {'desktop', 'terminal', 'audio', 'gamepad', 'files'})
 
 
 def _resources() -> frozenset:

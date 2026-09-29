@@ -78,7 +78,8 @@ def _add_session_args(subparsers):
         help="Restrict to an IP, CIDR range, or 'first-observed' "
              "(pins to whoever activates the link first)")
     p_create.add_argument('--resource', default=None,
-                          choices=['desktop', 'terminal', 'audio', 'gamepad'],
+                          choices=['desktop', 'terminal', 'audio',
+                                   'gamepad', 'files'],
                           help='Bind the token to a single resource '
                                '(RECOMMENDED — unbound tokens reach '
                                'every resource their permissions allow)')
