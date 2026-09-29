@@ -40,14 +40,17 @@ function directAccesses(p?: PortalData): DirectAccess[] {
   const novncUrl = p?.nginx_enabled
     ? '/vnc/vnc.html'
     : `${proto}://${window.location.hostname}:${novnc}/vnc.html`;
+  // A missing service card means the feature is disabled or not
+  // reported — never claim it is online.
   const running = (name: string) =>
-    p?.services.find((s) => s.name === name)?.running ?? true;
+    p?.services.find((s) => s.name === name)?.running ?? false;
   return [
     {
       key: 'desktop',
       icon: Monitor,
       url: novncUrl,
-      available: p?.vnc_direct?.running ?? running('noVNC'),
+      available: p?.vnc_direct?.running
+        ?? running('VNC Desktop (noVNC)'),
     },
     {
       key: 'terminal',
@@ -55,9 +58,10 @@ function directAccesses(p?: PortalData): DirectAccess[] {
       url: '/terminal',
       available: running('Web Terminal'),
     },
-    { key: 'audio', icon: Volume2, url: '/audio', available: true },
+    { key: 'audio', icon: Volume2, url: '/audio',
+      available: running('Audio Stream') },
     { key: 'gamepad', icon: Gamepad2, url: '/gamepad',
-      available: true },
+      available: running('Gamepad Forwarding') },
   ];
 }
 

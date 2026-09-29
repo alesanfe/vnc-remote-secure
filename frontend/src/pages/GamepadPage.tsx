@@ -119,8 +119,9 @@ export default function GamepadPage() {
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === 'connected') setInfo(msg.message);
-          else if (msg.type === 'error') {
+          // 'connected' carries a fixed English server string — the
+          // localized status set in onopen stays.
+          if (msg.type === 'error') {
             setInfo(t('gamepad.error', { msg: msg.message }));
           }
         } catch {
