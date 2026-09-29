@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -1983,6 +1984,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     _setLang(l);
     try { localStorage.setItem(STORAGE_KEY, l); } catch { /* ignore */ }
   };
+  // Keep <html lang> in sync — index.html ships a fixed lang="es" and
+  // screen readers mispronounce an English UI inside it otherwise.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
   const value = useMemo<I18nCtx>(() => ({
     lang,
     setLang,
