@@ -1194,6 +1194,41 @@ components:
             label: { type: string, nullable: true }
         error: { nullable: true }
         request_id: { type: string }
+    SessionRevokeRequest:
+      type: object
+      required: [token_id]
+      additionalProperties: false
+      properties:
+        token_id: { type: string, minLength: 1, maxLength: 128 }
+    OperatorCreateRequest:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username: { type: string, minLength: 1, maxLength: 64, description: '[a-zA-Z0-9._-@]' }
+        password: { type: string, minLength: 1, maxLength: 256 }
+        role: { type: string, enum: [viewer, support, operator, administrator], default: viewer }
+        enabled: { type: boolean, default: true }
+    OperatorUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        role: { type: string, enum: [viewer, support, operator, administrator], nullable: true }
+        disabled: { type: boolean, nullable: true }
+        password: { type: string, minLength: 1, maxLength: 256, nullable: true }
+    PasskeyRegisterRequest:
+      type: object
+      required: [credential]
+      additionalProperties: false
+      properties:
+        credential: { type: object, description: 'WebAuthn attestation response' }
+        name: { type: string, maxLength: 128, default: '' }
+    PasskeyRenameRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 128 }
     BinaryResponse:
       type: object
       description: Raw binary body (PNG image or .vrsrec stream) — no JSON envelope.
@@ -1619,10 +1654,16 @@ paths:
       x-operation-id: session.revoke
       x-csrf-required: true
       x-rate-limit-scope: sessions.revoke
+      x-request-schema: SessionRevokeRequest
       x-response-schema: SessionRevokeResponse
       x-audit-event: portal_session_revoke
       parameters:
         - $ref: '#/components/parameters/csrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionRevokeRequest' }
       responses:
         '200':
           description: '{revoked: bool} — existence is never disclosed'
@@ -1853,10 +1894,16 @@ paths:
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: operators.create
+      x-request-schema: OperatorCreateRequest
       x-response-schema: OperatorResponse
       x-audit-event: operator_created
       parameters:
         - $ref: '#/components/parameters/csrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OperatorCreateRequest' }
       responses:
         '201': { description: Created }
         '400': { description: 'Validation failure (unknown field, weak password, bad role)' }
@@ -1887,6 +1934,7 @@ paths:
       x-operation-id: operator.update
       x-csrf-required: true
       x-rate-limit-scope: operators.update
+      x-request-schema: OperatorUpdateRequest
       x-response-schema: OperatorResponse
       x-audit-event: operator_updated
       parameters:
@@ -1895,6 +1943,11 @@ paths:
           in: path
           required: true
           schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OperatorUpdateRequest' }
       responses:
         '200':
           description: '{operator, changed, sessions_revoked}'
@@ -1974,6 +2027,7 @@ paths:
       x-csrf-required: true
       x-step-up-required: true
       x-rate-limit-scope: passkeys.register
+      x-request-schema: PasskeyRegisterRequest
       x-response-schema: PasskeyRegisteredResponse
       x-audit-event: passkey_registered
       parameters:
@@ -1982,6 +2036,11 @@ paths:
           in: path
           required: true
           schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasskeyRegisterRequest' }
       responses:
         '201': { description: '{registered: true}' }
         '400': { description: 'Invalid/expired/replayed challenge or bad origin/RP' }
@@ -1992,6 +2051,7 @@ paths:
       x-operation-id: passkey.rename
       x-csrf-required: true
       x-rate-limit-scope: passkeys.manage
+      x-request-schema: PasskeyRenameRequest
       x-response-schema: PasskeyRenamedResponse
       x-audit-event: passkey_renamed
       parameters:
@@ -2004,6 +2064,11 @@ paths:
           in: path
           required: true
           schema: { type: string, description: 'sha256(credential_id)[:16]' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasskeyRenameRequest' }
       responses:
         '200': { description: '{renamed: true}' }
         '404': { description: 'Unknown ref (uniform — no oracle)' }

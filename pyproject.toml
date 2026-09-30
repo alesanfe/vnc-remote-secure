@@ -97,6 +97,10 @@ dev = [
   "detect-secrets>=1.5,<2.0",
   "pip-audit>=2.7,<3.0",
   "cyclonedx-bom>=4.6,<8.0",
+  # Imported directly by tests/ — previously only reached the env
+  # transitively, which deptry and a bare venv would both flag.
+  "requests>=2.31,<3.0",
+  "PyYAML>=6.0,<7.0",
 ]
 linux = [
   "evdev>=1.0,<2.0"
@@ -384,7 +388,7 @@ DEP002 = [
     "pytest-randomly", "pytest-timeout", "pytest-repeat",
     "ruff", "black", "pre-commit", "yamllint", "hypothesis", "bandit",
     "build", "openapi-spec-validator", "openapi-core", "import-linter",
-    "respx", "mutmut", "pyfakefs", "time-machine", "detect-secrets",
+    "mutmut", "pyfakefs", "time-machine", "detect-secrets",
     "pip-audit", "cyclonedx-bom",
 ]
 
