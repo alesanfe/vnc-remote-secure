@@ -1,7 +1,7 @@
 """Unit tests for rate limiting module."""
 import os
 import sys
-import time
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
@@ -47,18 +47,24 @@ class TestRateLimiter:
     def test_lockout_expires(self):
         # Unique key: lockout-escalation strikes persist in the shared
         # backend and would leak from earlier tests using 'user1'.
+        import time_machine
         rl = RateLimiter(max_attempts=1, lockout_seconds=1, window_seconds=10)
         rl.record_failure('expiry-user')
         assert rl.is_locked('expiry-user')
-        time.sleep(1.1)
-        assert not rl.is_locked('expiry-user')
+        with time_machine.travel(
+                datetime.now(timezone.utc) + timedelta(seconds=2),
+                tick=False):
+            assert not rl.is_locked('expiry-user')
 
     def test_window_pruning(self):
+        import time_machine
         rl = RateLimiter(max_attempts=2, lockout_seconds=60, window_seconds=1)
         rl.record_failure('user1')
-        time.sleep(1.1)
-        # Old attempt should be pruned
-        assert rl.remaining_attempts('user1') == 2
+        with time_machine.travel(
+                datetime.now(timezone.utc) + timedelta(seconds=2),
+                tick=False):
+            # Old attempt should be pruned
+            assert rl.remaining_attempts('user1') == 2
 
 
 class TestLockoutEscalation:
@@ -66,14 +72,17 @@ class TestLockoutEscalation:
     exponentially more than a one-off typo."""
 
     def test_second_lockout_doubles(self):
+        import time_machine
         rl = RateLimiter(max_attempts=1, lockout_seconds=1,
                          window_seconds=60)
         rl.record_failure('u')
         first = rl.get_lockout_remaining('u')
-        time.sleep(1.1)
-        rl.is_locked('u')  # expire + clean
-        rl.record_failure('u')
-        second = rl.get_lockout_remaining('u')
+        with time_machine.travel(
+                datetime.now(timezone.utc) + timedelta(seconds=2),
+                tick=False):
+            rl.is_locked('u')  # expire + clean
+            rl.record_failure('u')
+            second = rl.get_lockout_remaining('u')
         assert second > first
 
     def test_escalation_capped_at_max(self):
