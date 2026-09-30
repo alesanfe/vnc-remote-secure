@@ -29,6 +29,31 @@ import time
 
 _KEEP = 50          # never retain more than 50 snapshots
 _ID_RE = re.compile(r'^[0-9]+_[0-9a-f]{8}$')
+_KEY_RE = re.compile(
+    rb'^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=')
+
+
+def _env_assignments(data: bytes) -> dict:
+    """KEY→value map of a .env blob — comments/blank lines skipped.
+
+    Used only to compute which KEYS differ between two snapshots:
+    values never leave this function."""
+    out = {}
+    for ln in data.splitlines():
+        m = _KEY_RE.match(ln)
+        if m:
+            out[m.group(1).decode()] = ln[m.end():].strip()
+    return out
+
+
+def _diff_keys(before: bytes, after: bytes) -> list:
+    """KEYs added, removed or value-changed between two env blobs.
+
+    The sidecar records only the names — the operator learns *what*
+    changed without the snapshot ever disclosing a value."""
+    a, b = _env_assignments(before), _env_assignments(after)
+    return sorted(
+        {k for k in set(a) | set(b) if a.get(k) != b.get(k)})[:100]
 
 
 def _env_targets() -> set:
@@ -55,12 +80,16 @@ def _history_dir() -> str:
 
 
 def snapshot(path: str | None = None, actor: str = '',
-             reason: str = '') -> str | None:
+             reason: str = '',
+             changed_keys: list | None = None) -> str | None:
     """Copy the given env file (default: project .env) into the
     history dir; returns the snapshot id.
 
     ``None`` when the file does not exist (fresh install) — nothing
     was lost. Rotates out the oldest entries past ``_KEEP``.
+    ``changed_keys`` — the KEY names (no values) the mutation that
+    follows is about to touch; recorded in the sidecar so the history
+    view answers "what did this change" without exposing secrets.
     """
     if path is None:
         from vnc_remote_secure.core.paths import find_project_root
@@ -89,6 +118,7 @@ def snapshot(path: str | None = None, actor: str = '',
         'reason': reason[:200], 'size': len(data), 'sha256': digest,
         'source': os.path.basename(path),
         'source_path': os.path.realpath(path),
+        'changed_keys': [str(k)[:64] for k in (changed_keys or [])][:100],
     }
     with open(os.path.join(d, f'{sid}.json'), 'w',
               encoding='utf-8') as f:
@@ -158,9 +188,15 @@ def rollback(snapshot_id: str, actor: str = '') -> dict:
     target = os.path.realpath(rec.get('source_path') or '')
     if not target or target not in _env_targets():
         raise ValueError(f'snapshot {sid} has no valid restore target')
-    # Snapshot the live file before overwriting — undo of undo.
-    snapshot(target, actor or '?', f'pre-rollback of {sid}')
     data = open(src, 'rb').read()
+    # Snapshot the live file before overwriting — undo of undo. The
+    # key names that differ survive in the sidecar so the history row
+    # answers "what would restoring this flip" without the values.
+    live = b''
+    with contextlib.suppress(OSError):
+        live = open(target, 'rb').read()
+    snapshot(target, actor or '?', f'pre-rollback of {sid}',
+             changed_keys=_diff_keys(live, data))
     from vnc_remote_secure.core.test_isolation import guard_write
     guard_write(target, 'config rollback')
     fd, tmp = tempfile.mkstemp(
@@ -174,4 +210,5 @@ def rollback(snapshot_id: str, actor: str = '') -> dict:
             os.unlink(tmp)
         raise
     return {'restored': sid, 'target': rec.get('source', 'env'),
-            'size': len(data)}
+            'size': len(data),
+            'changed_keys': _diff_keys(live, data)}

@@ -595,6 +595,10 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 label.check { display: flex; gap: 0.5rem; align-items: center; color: var(--text); }
 label.check input { width: auto; }
 
+/* Inline label editing in the sessions inventory + detail. */
+.label-cell { padding: 0; border: 0; background: none; cursor: text; }
+.label-edit { width: 10rem; font-size: inherit; padding: 0.1rem 0.3rem; }
+
 /* Misc */
 .notice {
   background: rgba(230, 162, 60, 0.12);

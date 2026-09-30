@@ -188,6 +188,28 @@ class SessionRevokeRequest(StrictBody):
     token_id: str = Field(min_length=1, max_length=128)
 
 
+class SessionUpdateRequest(StrictBody):
+    """PATCH /sessions/{token_id} — inventory metadata only.
+
+    The label never participates in authorization; it exists so the
+    session-center inventory can group links by purpose. Same
+    printable/bounded rules as SessionCreateRequest.label."""
+    label: str | None = Field(default=None, max_length=64)
+
+    @field_validator('label')
+    @classmethod
+    def _label_safe(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if any(ord(c) < 32 or c == '\x7f' for c in v):
+            raise ValueError(
+                'label must not contain control characters')
+        return v
+
+
 class OperatorCreateRequest(StrictBody):
     username: str = Field(min_length=1, max_length=64)
     # Password strength stays with core.validation.validate_password —
@@ -265,6 +287,10 @@ class ConfigRollbackRequest(StrictBody):
     # Snapshot id from GET /config/history — <epoch_ms>_<digest8>;
     # re-validated by the use case against the id scheme.
     snapshot: str = Field(min_length=1, max_length=64)
+    # When true the use case also queues a deferred service restart so
+    # the restored config takes effect without a second step-up —
+    # the bound grant already authorized the whole operation.
+    restart: bool = False
 
 
 class LifecycleRequest(StrictBody):

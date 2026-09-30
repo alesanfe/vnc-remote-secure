@@ -142,13 +142,19 @@ def _config_rollback(args):
              + (os.environ.get('USERNAME') or os.environ.get('USER')
                 or 'admin'))
     try:
-        result = config_rollback(actor, args.snapshot)
+        result = config_rollback(
+            actor, args.snapshot,
+            restart=getattr(args, 'restart', False))
     except (UseCaseError, ValueError, FileNotFoundError) as e:
         print(f"Error: {e}")
         return 1
     print(f"Restored snapshot {result['restored']} "
-          f"({result.get('size', '?')} bytes) — "
-          "restart services to apply.")
+          f"({result.get('size', '?')} bytes)")
+    if result.get('restart_job_id'):
+        print(f"Restart queued as job {result['restart_job_id']} — "
+              "services restart shortly to apply the config.")
+    else:
+        print("Restart services to apply the restored config.")
     return 0
 
 

@@ -79,16 +79,111 @@ _chain_lock = threading.Lock()
 _startup_verified = False
 
 
+# ---------------------------------------------------------------------------
+# Offset index — O(1) tail reads and cursor pagination
+# ---------------------------------------------------------------------------
+# The audit log is strictly append-only (rotation swaps the file, so a
+# changed first line invalidates the cache). Readers used to re-scan
+# the whole file per query — and *writers* did too, because
+# _load_chain_hash/_load_last_seq re-read the tail on every event.
+# This index caches line offsets and extends incrementally on append.
+# It is a pure cache: any inconsistency falls back to a full rebuild,
+# and verification paths keep reading the file verbatim.
+_idx_lock = threading.Lock()
+_idx_cache: dict = {}   # path -> {'first': bytes-hash, 'size': int,
+                        #          'offsets': [int]}
+
+
+def _first_line_digest(path) -> bytes:
+    """Identity of the current log generation — changes on rotation."""
+    try:
+        with open(path, 'rb') as f:
+            return hashlib.sha256(f.readline()).digest()
+    except OSError:
+        return b''
+
+
+def _audit_offsets(path) -> list:
+    """Line start offsets for ``path`` — cached, incrementally
+    extended on append, rebuilt when the file was replaced.
+
+    Returns the empty list when the file is missing/unreadable; the
+    caller then takes its own fallback path."""
+    key = str(path)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return []
+    with _idx_lock:
+        ent = _idx_cache.get(key)
+        first = _first_line_digest(path)
+        if not ent or ent['first'] != first or size < ent['size']:
+            ent = {'first': first, 'size': 0, 'offsets': []}
+            _idx_cache[key] = ent
+        if size == ent['size']:
+            return ent['offsets']
+        try:
+            with open(path, 'rb') as f:
+                f.seek(ent['size'])
+                tail = f.read(size - ent['size'])
+            # Extend the index over COMPLETE lines only; a partial
+            # tail (crash mid-write) stays unindexed until its
+            # newline lands — never exposed as an entry.
+            pos = ent['size']
+            seg = 0
+            while True:
+                nl = tail.find(b'\n', seg)
+                if nl < 0:
+                    break
+                ent['offsets'].append(pos + seg)
+                seg = nl + 1
+            ent['size'] = pos + seg
+            return ent['offsets']
+        except OSError:
+            return []
+
+
+def _read_lines(path, start: int, stop: int) -> list:
+    """Read lines ``[start, stop)`` via the offset index."""
+    offsets = _audit_offsets(path)
+    if not offsets:
+        return []
+    out = []
+    try:
+        with open(path, 'rb') as f:
+            for i in range(max(0, start), min(stop, len(offsets))):
+                f.seek(offsets[i])
+                out.append(f.readline().decode('utf-8',
+                                               errors='replace'))
+    except OSError:
+        return []
+    return out
+
+
+def _last_audit_line(path):
+    """The last complete line of the log — O(1) via the index, full
+    read only as fallback when the index is unavailable."""
+    offsets = _audit_offsets(path)
+    if offsets:
+        lines = _read_lines(path, len(offsets) - 1, len(offsets))
+        if lines:
+            return lines[-1]
+    try:
+        text = Path(path).read_text(encoding='utf-8').strip()
+        return text.split('\n')[-1] if text else ''
+    except OSError:
+        return ''
+
+
 def _load_chain_hash():
     """Load the last chain hash from the audit log file."""
     global _chain_hash
     try:
         path = Path(_audit_log_file())
         if path.exists():
-            lines = path.read_text(encoding='utf-8').strip().split('\n')
-            if lines:
-                last = json.loads(lines[-1])
-                _chain_hash = last.get('hash', '')
+            last = _last_audit_line(path)
+            if last:
+                _chain_hash = json.loads(last).get('hash', '')
     except (OSError, json.JSONDecodeError) as exc:
         logger.debug("Could not load audit chain hash: %s", exc)
         _chain_hash = ''
@@ -99,10 +194,9 @@ def _load_last_seq() -> int:
     try:
         path = Path(_audit_log_file())
         if path.exists():
-            lines = path.read_text(encoding='utf-8').strip().split('\n')
-            if lines:
-                last = json.loads(lines[-1])
-                seq = last.get('seq')
+            last = _last_audit_line(path)
+            if last:
+                seq = json.loads(last).get('seq')
                 if isinstance(seq, int):
                     return seq
     except (OSError, json.JSONDecodeError):
@@ -332,9 +426,7 @@ def _maybe_rotate():
     # fabricated log then fails chain continuity at the anchor.
     prev_tip = None
     try:
-        last = path.read_text(
-            encoding='utf-8').strip().split('\n')[-1]
-        prev_tip = json.loads(last).get('hash')
+        prev_tip = json.loads(_last_audit_line(path)).get('hash')
     except (OSError, json.JSONDecodeError, IndexError):
         prev_tip = None
     rotated = path.with_suffix('.jsonl.1')
@@ -599,6 +691,11 @@ def get_audit_entries(limit: int = 100, event: str | None = None,
     if not path.exists():
         return []
 
+    offsets = _audit_offsets(path)
+    if offsets:
+        return _entries_indexed(path, offsets, limit, event,
+                                before_seq, user, result)
+    # Fallback: unreadable index (e.g. empty file) — verbatim scan.
     lines = path.read_text(encoding='utf-8').strip().split('\n')
     entries = []
     for line in reversed(lines):
@@ -618,4 +715,52 @@ def get_audit_entries(limit: int = 100, event: str | None = None,
                 break
         except json.JSONDecodeError:
             continue
+    return entries
+
+
+def _entries_indexed(path, offsets: list, limit: int,
+                     event: str | None, before_seq: int | None,
+                     user: str | None, result: str | None) -> list:
+    """Indexed read of ``get_audit_entries`` — seeks lines instead of
+    scanning the whole file.
+
+    ``before_seq`` fast path: seq is assigned 0,1,2… per appended
+    entry, so when the line at index ``before_seq`` carries
+    ``seq == before_seq`` the chain is dense and every newer line is
+    excludable in O(1). Older files written before ``seq`` existed
+    have sparse seqs — the probe then fails and we scan from the tail
+    like the unindexed path, still correct but no faster.
+    """
+    start = len(offsets) - 1
+    if before_seq is not None and before_seq < len(offsets):
+        probe = _read_lines(path, before_seq, before_seq + 1)
+        if probe:
+            with contextlib.suppress(json.JSONDecodeError):
+                if json.loads(probe[0]).get('seq') == before_seq:
+                    start = before_seq - 1
+    entries = []
+    # Read backwards in page-sized windows: 'seek per line' would be
+    # one syscall per entry; a windowed read amortizes it.
+    window = max(limit * 2, 64)
+    top = start + 1
+    while top > 0 and len(entries) < limit:
+        lo = max(0, top - window)
+        for line in reversed(_read_lines(path, lo, top)):
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if before_seq is not None and \
+                    int(entry.get('seq', 0)) >= before_seq:
+                continue
+            if event is not None and entry.get('event') != event:
+                continue
+            if user is not None and entry.get('user') != user:
+                continue
+            if result is not None and entry.get('result') != result:
+                continue
+            entries.append(entry)
+            if len(entries) >= limit:
+                break
+        top = lo
     return entries

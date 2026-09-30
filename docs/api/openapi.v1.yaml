@@ -1022,6 +1022,10 @@ components:
                   size: { type: integer }
                   sha256: { type: string }
                   source: { type: string }
+                  changed_keys:
+                    type: array
+                    items: { type: string }
+                    description: 'KEY names the following mutation touched — never values'
         error: { nullable: true }
         request_id: { type: string }
     ConfigRollbackResponse:
@@ -1035,6 +1039,11 @@ components:
             restored: { type: string }
             target: { type: string }
             size: { type: integer }
+            changed_keys:
+              type: array
+              items: { type: string }
+              description: 'KEY names the restore flipped — never values'
+            restart_job_id: { type: string, nullable: true }
         error: { nullable: true }
         request_id: { type: string }
     UpgradeResponse:
@@ -1164,6 +1173,27 @@ components:
         resource: { type: string, enum: [desktop, terminal, audio, gamepad, files], nullable: true }
         email_to: { type: string, maxLength: 254, nullable: true, description: 'Optional recipient — the share link is emailed via ALERT_SMTP_*' }
         label: { type: string, maxLength: 64, nullable: true, description: 'Operator tag for inventory grouping' }
+    SessionUpdateRequest:
+      type: object
+      required: [label]
+      additionalProperties: false
+      properties:
+        label:
+          type: string
+          maxLength: 64
+          nullable: true
+          description: 'Inventory tag — null clears it; omitting the key is rejected'
+    SessionUpdateResponse:
+      type: object
+      required: [data, error, request_id]
+      properties:
+        data:
+          type: object
+          properties:
+            token_id: { type: string }
+            label: { type: string, nullable: true }
+        error: { nullable: true }
+        request_id: { type: string }
     BinaryResponse:
       type: object
       description: Raw binary body (PNG image or .vrsrec stream) — no JSON envelope.
@@ -1363,6 +1393,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionDetailResponse'
+        '403': { description: Operator access required }
+        '404': { description: Unknown or reaped id }
+    patch:
+      summary: Edit the inventory label on a share-link session
+      description: >
+        Operator-facing metadata only — the label never influences
+        authorization; it exists so the inventory can group links by
+        purpose ("soporte Juan", "demo Q3"). `label: null` clears the
+        tag; omitting the key is a malformed request. Audited as
+        session_label.
+      x-required-permission: admin_sessions
+      x-operation-id: session.update
+      x-csrf-required: true
+      x-rate-limit-scope: sessions.create
+      x-response-schema: SessionUpdateResponse
+      x-audit-event: session_label
+      parameters:
+        - $ref: '#/components/parameters/csrfHeader'
+        - name: token_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionUpdateResponse'
+        '400': { description: label missing or invalid }
         '403': { description: Operator access required }
         '404': { description: Unknown or reaped id }
   /power:
@@ -1923,6 +1989,7 @@ paths:
     patch:
       summary: Rename a passkey (owner or admin_users)
       x-required-permission: operator
+      x-operation-id: passkey.rename
       x-csrf-required: true
       x-rate-limit-scope: passkeys.manage
       x-response-schema: PasskeyRenamedResponse
@@ -2616,8 +2683,15 @@ paths:
               additionalProperties: false
               properties:
                 snapshot: { type: string, minLength: 1, maxLength: 64 }
+                restart:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Queue a deferred service restart so the restored
+                    config takes effect (same bound grant); the
+                    response carries restart_job_id.
       responses:
-        '200': { description: '{restored, target, size}' }
+        '200': { description: '{restored, target, size, changed_keys, restart_job_id?}' }
   /upgrade:
     get:
       summary: Installed vs available version (upgrade --check parity).

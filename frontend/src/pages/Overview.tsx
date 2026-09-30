@@ -100,8 +100,10 @@ function LifecyclePanel() {
 
   // Recent destructive jobs — live progress for queued/claimed/running
   // work survives a portal restart because the record is persisted.
+  // Own key: ['jobs'] (no suffix) is the shared running-jobs poller
+  // (useRunningJobs); this view needs finished entries too.
   const jobs = useQuery({
-    queryKey: ['jobs'],
+    queryKey: ['jobs', 'recent'],
     queryFn: () => api.jobs(10),
     refetchInterval: 15_000,
     retry: false,
@@ -348,8 +350,37 @@ function PowerPanel() {
   );
 }
 
+/** Operator-personalizable dashboard: each section can be hidden via
+    the customize checklist; the preference persists in localStorage
+    (a view pref, not security state — no backend needed). */
+const WIDGETS = ['banner', 'actions', 'metrics', 'services',
+                 'lan', 'system'] as const;
+type Widget = (typeof WIDGETS)[number];
+const LS_KEY = 'vrs.overview.widgets';
+
+function readHidden(): Set<Widget> {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(
+      (arr as string[]).filter((w): w is Widget =>
+        (WIDGETS as readonly string[]).includes(w)));
+  } catch { return new Set(); }
+}
+
 export default function Overview() {
   const { t } = useI18n();
+  const [hidden, setHidden] = useState<Set<Widget>>(readHidden);
+  const toggleWidget = (w: Widget) => {
+    setHidden((h) => {
+      const next = new Set(h);
+      if (next.has(w)) next.delete(w); else next.add(w);
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify([...next]));
+      } catch { /* quota/private mode — pref is best-effort */ }
+      return next;
+    });
+  };
   const status = useQuery({
     queryKey: ['status'],
     queryFn: () => api.get<StatusPayload>('status'),
@@ -381,7 +412,24 @@ export default function Overview() {
     <>
       <h1 className="page-title">{t('overview.title')}</h1>
 
-      {posture.data && (
+      <details className="widget-config">
+        <summary>{t('overview.customize')}</summary>
+        <div className="toolbar" role="group"
+             aria-label={t('overview.customize')}>
+          {WIDGETS.map((w) => (
+            <label key={w} className="check">
+              <input
+                type="checkbox"
+                checked={!hidden.has(w)}
+                onChange={() => toggleWidget(w)}
+              />
+              {t(`overview.widget.${w}`)}
+            </label>
+          ))}
+        </div>
+      </details>
+
+      {!hidden.has('banner') && posture.data && (
         <div className="toolbar">
           <span className={`badge ${
             posture.data.score >= 75 ? 'ok'
@@ -392,7 +440,7 @@ export default function Overview() {
         </div>
       )}
 
-      {hs && (
+      {!hidden.has('banner') && hs && (
         <div className="toolbar">
           <span
             className={`badge ${
@@ -412,6 +460,7 @@ export default function Overview() {
 
       {/* Frequent actions — one primary (new invite) plus the
           day-to-day jumps; system-level controls stay folded below. */}
+      {!hidden.has('actions') && (
       <div className="toolbar">
         <Link to="/access">
           <button type="button">{t('overview.actions.newInvite')}</button>
@@ -432,7 +481,9 @@ export default function Overview() {
           </button>
         </Link>
       </div>
+      )}
 
+      {!hidden.has('metrics') && (
       <div className="cards">
         <div className="card">
           <h3>{t('portal.metrics.uptime')}</h3>
@@ -451,7 +502,9 @@ export default function Overview() {
           <div className="metric-value">{sys?.disk ?? '—'}</div>
         </div>
       </div>
+      )}
 
+      {!hidden.has('services') && (<>
       <h2 className="section">{t('overview.services')}</h2>
       {services.isError && (
         <div className="error-box" role="alert">{t('overview.services.error')}</div>
@@ -484,8 +537,10 @@ export default function Overview() {
           </div>
         ))}
       </div>
+      </>)}
 
-      {status.data?.lan_ips && status.data.lan_ips.length > 0 && (
+      {!hidden.has('lan') &&
+       status.data?.lan_ips && status.data.lan_ips.length > 0 && (
         <>
           <h2 className="section">{t('overview.lanAccess')}</h2>
           <div className="cards">
@@ -501,11 +556,13 @@ export default function Overview() {
       {/* Destructive system control folds behind a disclosure — the
           overview's daily job is situational awareness, not power
           buttons competing with routine actions. */}
+      {!hidden.has('system') && (
       <details className="share-details">
         <summary>{t('overview.systemControl')}</summary>
         <LifecyclePanel />
         <PowerPanel />
       </details>
+      )}
     </>
   );
 }

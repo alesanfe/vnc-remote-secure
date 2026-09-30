@@ -8,7 +8,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Toaster } from 'sonner';
 import {
   Activity as ActivityIcon,
@@ -35,24 +35,30 @@ import ShortcutsDialog from './components/ShortcutsDialog';
 import { api, ApiError, type Me } from './api';
 import { LangSwitch, useI18n } from './i18n';
 import LoginPage from './pages/LoginPage';
-import Overview from './pages/Overview';
-import Sessions, { SESSION_TABS } from './pages/Sessions';
-import SessionDetail from './pages/SessionDetail';
-import ConnectPage from './pages/ConnectPage';
-import Users from './pages/Users';
-import UserDetail from './pages/UserDetail';
-import Security from './pages/Security';
-import Audit from './pages/Audit';
-import Doctor from './pages/Doctor';
-import Backups from './pages/Backups';
-import Config from './pages/Config';
-import Jobs from './pages/Jobs';
-import JobDetail from './pages/JobDetail';
-import FilesPage from './pages/FilesPage';
-import Recordings from './pages/Recordings';
-import RemoteConsole from './pages/RemoteConsole';
-import Activity from './pages/Activity';
-import Help from './pages/Help';
+// Route-level code splitting: the admin bundle used to ship every
+// page (xterm, noVNC, the whole ops surface) on first paint — ~950 kB.
+// Each page is now its own chunk; the shell + login stay eager so the
+// auth gate never waits on a lazy import. SESSION_TABS lives apart so
+// the /access dispatcher doesn't pull the Sessions chunk.
+import { SESSION_TABS } from './pages/sessionTabs';
+const Overview = lazy(() => import('./pages/Overview'));
+const Sessions = lazy(() => import('./pages/Sessions'));
+const SessionDetail = lazy(() => import('./pages/SessionDetail'));
+const ConnectPage = lazy(() => import('./pages/ConnectPage'));
+const Users = lazy(() => import('./pages/Users'));
+const UserDetail = lazy(() => import('./pages/UserDetail'));
+const Security = lazy(() => import('./pages/Security'));
+const Audit = lazy(() => import('./pages/Audit'));
+const Doctor = lazy(() => import('./pages/Doctor'));
+const Backups = lazy(() => import('./pages/Backups'));
+const Config = lazy(() => import('./pages/Config'));
+const Jobs = lazy(() => import('./pages/Jobs'));
+const JobDetail = lazy(() => import('./pages/JobDetail'));
+const FilesPage = lazy(() => import('./pages/FilesPage'));
+const Recordings = lazy(() => import('./pages/Recordings'));
+const RemoteConsole = lazy(() => import('./pages/RemoteConsole'));
+const Activity = lazy(() => import('./pages/Activity'));
+const Help = lazy(() => import('./pages/Help'));
 import ThemeSwitch, { DensitySwitch } from './components/ThemeSwitch';
 import JobsBadge from './components/JobsBadge';
 import StatusStrip from './components/StatusStrip';
@@ -61,11 +67,15 @@ import StatusStrip from './components/StatusStrip';
     inventory view; anything else is treated as a token_id and
     renders the access detail. */
 function AccessSegment() {
+  const { t } = useI18n();
   const { segment = '' } = useParams();
-  if ((SESSION_TABS as readonly string[]).includes(segment)) {
-    return <Sessions />;
-  }
-  return <SessionDetail tokenId={segment} />;
+  return (
+    <Suspense fallback={<p className="muted">{t('common.loading')}</p>}>
+      {(SESSION_TABS as readonly string[]).includes(segment)
+        ? <Sessions />
+        : <SessionDetail tokenId={segment} />}
+    </Suspense>
+  );
 }
 
 /** Legacy detail redirects: append the single route param to the
@@ -354,6 +364,7 @@ export default function App() {
         <PageCrumbs groups={NAV_GROUPS} />
         <StatusStrip />
         <Boundary>
+        <Suspense fallback={<p className="muted">{t('common.loading')}</p>}>
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/activity" element={<Activity />} />
@@ -402,6 +413,7 @@ export default function App() {
             }
           />
         </Routes>
+        </Suspense>
         </Boundary>
       </main>
     </div>

@@ -300,7 +300,61 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Edit the inventory label on a share-link session
+         * @description Operator-facing metadata only — the label never influences authorization; it exists so the inventory can group links by purpose ("soporte Juan", "demo Q3"). `label: null` clears the tag; omitting the key is a malformed request. Audited as session_label.
+         *
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description HMAC bound to (vnc_op sid, vnc_csrf nonce). Obtain via GET /api/v1/me. Required on every mutation. */
+                    "X-CSRF-Token": components["parameters"]["csrfHeader"];
+                };
+                path: {
+                    token_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SessionUpdateRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionUpdateResponse"];
+                    };
+                };
+                /** @description label missing or invalid */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Operator access required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown or reaped id */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         trace?: never;
     };
     "/power": {
@@ -3243,11 +3297,16 @@ export interface paths {
                 content: {
                     "application/json": {
                         snapshot: string;
+                        /**
+                         * @description Queue a deferred service restart so the restored config takes effect (same bound grant); the response carries restart_job_id.
+                         * @default false
+                         */
+                        restart?: boolean;
                     };
                 };
             };
             responses: {
-                /** @description {restored, target, size} */
+                /** @description {restored, target, size, changed_keys, restart_job_id?} */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -4332,6 +4391,8 @@ export interface components {
                     size?: number;
                     sha256?: string;
                     source?: string;
+                    /** @description KEY names the following mutation touched — never values */
+                    changed_keys?: string[];
                 }[];
             };
             error: unknown;
@@ -4342,6 +4403,9 @@ export interface components {
                 restored: string;
                 target?: string;
                 size?: number;
+                /** @description KEY names the restore flipped — never values */
+                changed_keys?: string[];
+                restart_job_id?: string | null;
             };
             error: unknown;
             request_id: string;
@@ -4441,6 +4505,18 @@ export interface components {
             email_to?: string | null;
             /** @description Operator tag for inventory grouping */
             label?: string | null;
+        };
+        SessionUpdateRequest: {
+            /** @description Inventory tag — null clears it; omitting the key is rejected */
+            label: string | null;
+        };
+        SessionUpdateResponse: {
+            data: {
+                token_id?: string;
+                label?: string | null;
+            };
+            error: unknown;
+            request_id: string;
         };
         /** @description Raw binary body (PNG image or .vrsrec stream) — no JSON envelope. */
         BinaryResponse: Record<string, never>;

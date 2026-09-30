@@ -158,6 +158,20 @@ def revoke_share_links_by(actor: str, created_by: str) -> int:
     return count
 
 
+def update_share_link_label(actor: str, token_id: str,
+                            label: str | None) -> bool:
+    """Set/clear the operator tag on a share link by public id.
+
+    Pure inventory metadata — never consulted for authorization.
+    Returns False when the id resolves to no retained session so the
+    transport answers 404 like every other unknown-id path.
+    """
+    ok = stores.session_set_label(token_id, _validate_label(label))
+    _audit('session_label', actor, f'token_id={token_id}',
+           result='success' if ok else 'failure')
+    return ok
+
+
 def get_share_link(token_id: str) -> dict | None:
     """Resolve one share-link record by its public ``token_id``.
 

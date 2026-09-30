@@ -253,6 +253,31 @@ def _session_revoke(args, store=None):
     return 1
 
 
+def _session_label(args):
+    """Set/clear the operator tag on a session via the shared use
+    case — the API PATCH runs the same validation and audit."""
+    from vnc_remote_secure.engine.application.sessions import (
+        update_share_link_label,
+    )
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    actor = ('cli:'
+             + (os.environ.get('USERNAME') or os.environ.get('USER')
+                or 'admin'))
+    token_id = args.token_pos
+    # '' clears the tag; missing label arg also clears (explicit verb).
+    label = getattr(args, 'label', None) or None
+    try:
+        ok = update_share_link_label(actor, token_id, label)
+    except UseCaseError as e:
+        print(f"Error: {e.detail or e.code}")
+        return 1
+    if not ok:
+        print("Session not found.")
+        return 1
+    print(f"label={'(cleared)' if label is None else label!r}")
+    return 0
+
+
 def cmd_session(args):
     """Manage ephemeral remote sessions."""
     # Load the effective env first: the share-link URL is derived from
@@ -278,5 +303,7 @@ def cmd_session(args):
         return _session_list(store, args)
     if action == 'revoke':
         return _session_revoke(args, store)
+    if action == 'label':
+        return _session_label(args)
     print(f"Unknown session action: {action}")
     return 1

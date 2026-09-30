@@ -592,8 +592,16 @@ def _copy_restored_tree(temp_dir, project_root):
     # wrong backup stays recoverable via ``config rollback``.
     try:
         from vnc_remote_secure.core import config_history
+        env_dst = os.path.join(project_root, '.env')
+        env_src = os.path.join(temp_dir, '.env')
+        diff = None
+        if os.path.isfile(env_src) and os.path.isfile(env_dst):
+            # Which KEYS differ between the live file and the restored
+            # one — names only, the sidecar never stores a value.
+            diff = config_history._diff_keys(
+                open(env_dst, 'rb').read(), open(env_src, 'rb').read())
         config_history.snapshot(
-            os.path.join(project_root, '.env'), reason='backup restore')
+            env_dst, reason='backup restore', changed_keys=diff)
     except OSError:
         pass  # history is best-effort
     # Restore .env

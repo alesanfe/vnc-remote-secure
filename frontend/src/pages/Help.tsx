@@ -2,7 +2,9 @@ import { Link } from 'react-router-dom';
 import { useI18n } from '../i18n';
 
 const STEPS = ['invite', 'share', 'consent', 'supervise', 'close'] as const;
-const CONCEPTS = ['session', 'invite', 'grant', 'stepup', 'audit'] as const;
+const CONCEPTS = ['session', 'invite', 'sharelink', 'connection',
+                  'opsession', 'grant', 'stepup', 'job', 'label',
+                  'audit'] as const;
 
 /** Contextual help — the onboarding tour the console didn't have:
     the invite→consent→monitor→close flow in plain language, a

@@ -348,11 +348,20 @@ export const api = {
   /** `vnc-remote config history` (admin_config) — env snapshots. */
   configHistory: () =>
     request<{ snapshots: ConfigSnapshot[] }>('config/history'),
-  /** `vnc-remote config rollback <id>` (admin_config + step-up). */
-  configRollback: (snapshot: string) =>
-    request<{ restored: string; target: string; size: number }>(
+  /** `vnc-remote config rollback <id> [--restart]` (admin_config +
+      step-up). restart queues a deferred service restart under the
+      same grant so the restored config goes live in one step. */
+  configRollback: (snapshot: string, restart = false) =>
+    request<{ restored: string; target: string; size: number;
+              changed_keys?: string[]; restart_job_id?: string | null }>(
       'config/rollback',
-      { method: 'POST', body: JSON.stringify({ snapshot }) }),
+      { method: 'POST',
+        body: JSON.stringify({ snapshot, restart }) }),
+  /** `PATCH /sessions/{id}` — edit the inventory tag (admin_sessions). */
+  sessionSetLabel: (tokenId: string, label: string | null) =>
+    request<{ token_id: string; label: string | null }>(
+      `sessions/${encodeURIComponent(tokenId)}`,
+      { method: 'PATCH', body: JSON.stringify({ label }) }),
   /** `vnc-remote upgrade --check` (operator). */
   upgradeStatus: () =>
     request<UpgradeStatus>('upgrade'),
@@ -376,6 +385,8 @@ export interface ConfigSnapshot {
   size: number;
   sha256: string;
   source: string;
+  /** KEY names the following mutation touched — never values. */
+  changed_keys?: string[];
 }
 
 // ---- Types ----

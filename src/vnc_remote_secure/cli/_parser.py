@@ -99,6 +99,14 @@ def _add_session_args(subparsers):
     p_revoke.add_argument('--by-user', default=None, metavar='USER',
                           help='Revoke all sessions created by USER')
     _add_common_args(p_revoke, suppress_defaults=True)
+    p_label = p_session_sub.add_parser(
+        'label', help='Set or clear the inventory tag on a session')
+    p_label.add_argument('token_pos', metavar='TOKEN_ID',
+                         help='Session fingerprint (session list)')
+    p_label.add_argument('label', nargs='?', default=None,
+                         metavar='LABEL',
+                         help='New tag text; empty string clears it')
+    _add_common_args(p_label, suppress_defaults=True)
     p_session.set_defaults(func=cmd_session)
 
 
@@ -200,6 +208,10 @@ def _add_config_args(subparsers):
     p_crb = p_config_sub.add_parser(
         'rollback', help='Restore .env from a history snapshot')
     p_crb.add_argument('snapshot', help='Snapshot id from `config history`')
+    p_crb.add_argument(
+        '--restart', action='store_true',
+        help='Queue a deferred service restart so the restored config '
+             'takes effect immediately (same step-up grant)')
     _add_common_args(p_crb, suppress_defaults=True)
     p_config.set_defaults(func=cmd_config)
 

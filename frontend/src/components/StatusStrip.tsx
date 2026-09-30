@@ -7,6 +7,7 @@ import {
   ListTodo,
 } from 'lucide-react';
 import { api, type Posture } from '../api';
+import { useRunningJobs } from '../hooks/useRunningJobs';
 import { useI18n } from '../i18n';
 
 /** Always-visible status strip — Kubernetes-dashboard style: host
@@ -29,12 +30,7 @@ export default function StatusStrip() {
     refetchInterval: 30_000,
     retry: false,
   });
-  const jobs = useQuery({
-    queryKey: ['jobs-badge'],
-    queryFn: () => api.jobs(10),
-    refetchInterval: 15_000,
-    retry: false,
-  });
+  const jobs = useRunningJobs();
   const posture = useQuery({
     queryKey: ['posture'],
     queryFn: () => api.get<Posture>('security/posture'),
@@ -47,8 +43,7 @@ export default function StatusStrip() {
     : svc.status === 'healthy' ? 'ok'
     : svc.status === 'degraded' ? 'warn' : 'fail';
   const sessions = (portal.data?.sessions ?? []).length;
-  const running = (jobs.data?.jobs ?? []).filter(
-    (j) => j.state !== 'done' && j.state !== 'failed');
+  const running = jobs.running;
   const criticals = posture.data?.blocking_findings?.length ?? 0;
 
   return (

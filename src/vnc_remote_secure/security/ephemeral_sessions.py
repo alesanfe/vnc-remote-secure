@@ -885,6 +885,22 @@ class SessionStore:
             return True
         return False
 
+    def set_label(self, token: str, label: str | None) -> bool:
+        """Set/replace the operator tag on a session by public id or
+        internal token. Non-terminal metadata — unlike revoke() the
+        write rides the normal save path; a concurrent process save
+        may lose it, which is acceptable for an inventory tag."""
+        session = self.find_by_token_id(token) or self.get(token)
+        if session is None:
+            return False
+        session.label = label
+        self._save()
+        from vnc_remote_secure.security.audit import audit_event
+        fp = hashlib.sha256(session.token.encode()).hexdigest()[:12]
+        audit_event('session_label',
+                    detail=f'token_id={fp} label={label!r}')
+        return True
+
     def list_active(self) -> list:
         """List all active (non-expired, non-revoked) sessions."""
         now = time.time()

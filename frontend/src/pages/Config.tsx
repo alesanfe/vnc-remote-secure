@@ -167,6 +167,7 @@ function ConfigHistory() {
   const qc = useQueryClient();
   const stepUp = useStepUp();
   const [target, setTarget] = useState<ConfigSnapshot | null>(null);
+  const [restartAfter, setRestartAfter] = useState(false);
   const [flash, setFlash] = useState('');
 
   const history = useQuery({
@@ -175,19 +176,28 @@ function ConfigHistory() {
     retry: false,
   });
   const rollback = useMutation({
-    mutationFn: (id: string) => api.configRollback(id),
+    mutationFn: (v: { id: string; restart: boolean }) =>
+      api.configRollback(v.id, v.restart),
     onSuccess: (d) => {
       setTarget(null);
-      setFlash(t('config.history.restored', { id: d.restored }));
+      setFlash(
+        t('config.history.restored', { id: d.restored })
+        + (d.restart_job_id
+          ? ` · ${t('config.history.restartQueued', { id: d.restart_job_id })}`
+          : '')
+        + (d.changed_keys?.length
+          ? ` · ${t('config.history.keysChanged', { keys: d.changed_keys.join(', ') })}`
+          : ''));
       qc.invalidateQueries({ queryKey: ['config'] });
       qc.invalidateQueries({ queryKey: ['config-history'] });
       qc.invalidateQueries({ queryKey: ['config-validate'] });
+      qc.invalidateQueries({ queryKey: ['jobs'] });
     },
-    onError: (e, id) => {
+    onError: (e, v) => {
       if (stepUp.gate(
         e, t('config.history.stepup'),
-        () => rollback.mutate(id),
-        { opId: 'config.rollback', resource: id })) return;
+        () => rollback.mutate(v),
+        { opId: 'config.rollback', resource: v.id })) return;
       setTarget(null);
       setFlash(
         e instanceof ApiError
@@ -213,6 +223,7 @@ function ConfigHistory() {
               <th>{t('config.history.col.snapshot')}</th>
               <th>{t('config.history.col.actor')}</th>
               <th>{t('config.history.col.reason')}</th>
+              <th>{t('config.history.col.changes')}</th>
               <th>{t('config.history.col.file')}</th>
               <th />
             </tr>
@@ -224,6 +235,11 @@ function ConfigHistory() {
                 <td className="mono">{s.id}</td>
                 <td>{s.actor}</td>
                 <td>{s.reason || '—'}</td>
+                <td className="mono muted">
+                  {s.changed_keys?.length
+                    ? s.changed_keys.join(', ')
+                    : '—'}
+                </td>
                 <td className="mono muted">{s.source}</td>
                 <td>
                   <button
@@ -249,12 +265,28 @@ function ConfigHistory() {
         confirmLabel={t('config.history.restore')}
         busy={rollback.isPending}
         onCancel={() => setTarget(null)}
-        onConfirm={() => target && rollback.mutate(target.id)}
+        onConfirm={() =>
+          target && rollback.mutate(
+            { id: target.id, restart: restartAfter })}
       >
         <p>
           {t('config.history.confirmBody',
              { id: target?.id ?? '', source: target?.source ?? '' })}
         </p>
+        {target?.changed_keys?.length ? (
+          <p className="muted mono">
+            {t('config.history.keysChanged',
+               { keys: target.changed_keys.join(', ') })}
+          </p>
+        ) : null}
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={restartAfter}
+            onChange={(e) => setRestartAfter(e.target.checked)}
+          />
+          {t('config.history.restartAfter')}
+        </label>
       </ConfirmDialog>
       {stepUp.dialog}
     </>

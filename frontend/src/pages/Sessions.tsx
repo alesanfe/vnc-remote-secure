@@ -23,6 +23,7 @@ import {
   copyText,
 } from '../components/bits';
 import { useI18n } from '../i18n';
+import { SESSION_TABS, type SessionTab } from './sessionTabs';
 
 const ROLES = ['viewer', 'support', 'operator', 'administrator'];
 const RESOURCES = ['', 'desktop', 'terminal', 'audio', 'gamepad', 'files'];
@@ -56,16 +57,6 @@ interface CreateResult {
   /** True when the link was emailed to email_to via ALERT_SMTP_*. */
   emailed?: boolean;
 }
-
-// Inventory split per the access lifecycle: an unused live link is
-// an invitation; a live link already consumed is a connection;
-// revoked/expired records are history. The backend only filters
-// 'active' vs 'all' — the split on `used` happens client-side.
-// The tab is part of the URL (/access/<tab>) so every view is
-// linkable; /access/<token_id> routes to the detail instead.
-export const SESSION_TABS =
-  ['invitations', 'connections', 'history'] as const;
-type SessionTab = (typeof SESSION_TABS)[number];
 
 interface SessionPage {
   sessions: EphemeralSessionInfo[];
@@ -143,6 +134,22 @@ export default function Sessions() {
   // is only revoked if the timer actually fires. The timer survives
   // unmount so a navigation can't silently cancel the revocation.
   const revokeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Inline label editing — click the tag cell to rename; Enter saves,
+  // Escape cancels. Labels are inventory metadata (PATCH /sessions/id).
+  const [editLabel, setEditLabel] =
+    useState<{ id: string; value: string } | null>(null);
+  const setLabel = useMutation({
+    mutationFn: (v: { id: string; label: string | null }) =>
+      api.sessionSetLabel(v.id, v.label),
+    onSuccess: () => {
+      setEditLabel(null);
+      qc.invalidateQueries({ queryKey: ['sessions'] });
+      qc.invalidateQueries({ queryKey: ['session-detail'] });
+    },
+    onError: (e) =>
+      toast.error(e instanceof ApiError
+        ? e.message : t('sessions.labelError')),
+  });
 
   const create = useMutation({
     mutationFn: () =>
@@ -617,8 +624,42 @@ export default function Sessions() {
             key: 'label',
             header: t('sessions.col.label'),
             render: (s) =>
-              s.label ? <span className="badge dim">{s.label}</span>
-                      : '—',
+              editLabel?.id === s.token_id ? (
+                <input
+                  autoFocus
+                  className="label-edit"
+                  value={editLabel.value}
+                  maxLength={64}
+                  aria-label={t('sessions.labelEditAria')}
+                  onChange={(e) =>
+                    setEditLabel({ id: s.token_id,
+                                   value: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter')
+                      setLabel.mutate({ id: s.token_id,
+                        label: editLabel.value.trim() || null });
+                    if (e.key === 'Escape') setEditLabel(null);
+                  }}
+                  onBlur={() =>
+                    setLabel.mutate({ id: s.token_id,
+                      label: editLabel.value.trim() || null })}
+                  disabled={setLabel.isPending}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="ghost label-cell"
+                  title={t('sessions.labelEditAria')}
+                  aria-label={t('sessions.labelEditAria')}
+                  onClick={() =>
+                    setEditLabel({ id: s.token_id,
+                                   value: s.label ?? '' })}
+                >
+                  {s.label
+                    ? <span className="badge dim">{s.label}</span>
+                    : '—'}
+                </button>
+              ),
             sortValue: (s) => s.label ?? null,
           },
           {

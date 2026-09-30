@@ -36,6 +36,7 @@ deliberate `cli-only`/`api-only` cell).
 | `session.create` | high | `session create` | `POST /sessions` | sí | `admin_sessions` | session | sync | `ephemeral_session_create` | no |
 | `session.revoke` | moderate | `session revoke` | `POST /sessions/revoke` | sí | `admin_sessions` | session | sync | `portal_session_revoke` | no |
 | `session.revoke_all` | high | `session revoke --all` | `POST /sessions/revoke-all` | sí | `admin_sessions` | stepup | sync | `portal_session_revoke_all` | no |
+| `session.update` | low | `session label` | `PATCH /sessions/{token_id}` | sí | `admin_sessions` | session | sync | `session_label` | yes |
 | `operator.create` | high | `operator add` | `POST /operators` | sí | `admin_users` | stepup | sync | `operator_created` | no |
 | `operator.update` | moderate | `operator passwd|role|disable|enable` | `PATCH /operators/{username}` | sí | `admin_users` | session | sync | `operator_updated` | no |
 | `operator.delete` | high | `operator remove` | `DELETE /operators/{username}` | sí | `admin_users` | stepup | sync | `operator_deleted` | partially |
@@ -45,6 +46,7 @@ deliberate `cli-only`/`api-only` cell).
 | `system_user.delete` | high | — | `DELETE /system-users/{username}` | sí | `admin_users` | stepup | sync | `user_delete` | no |
 | `passkey.register_begin` | high | — | `POST /operators/{username}/passkeys/register/begin` | sí | `operator` | stepup | sync | `passkey_register_begin` | yes |
 | `passkey.register_complete` | high | — | `POST /operators/{username}/passkeys/register/complete` | sí | `operator` | stepup | sync | `passkey_registered` | yes |
+| `passkey.rename` | low | — | `PATCH /operators/{username}/passkeys/{credential_ref}` | sí | `operator` | session | sync | `passkey_renamed` | yes |
 | `passkey.revoke` | high | — | `DELETE /operators/{username}/passkeys/{credential_ref}` | sí | `operator` | stepup | sync | `passkey_revoked` | yes |
 | `maintenance.toggle` | high | `maintenance on|off|status` | `POST /maintenance` | sí | `admin:*` | stepup | sync | `maintenance_changed` | yes |
 | `upgrade.check` | low | `upgrade --check` | `GET /upgrade` | sí | `operator` | session | sync | `-` | yes |
@@ -61,4 +63,4 @@ deliberate `cli-only`/`api-only` cell).
 | `host.install` | critical | `install` | — | — | `public` | session | sync | `-` | partially |
 | `host.uninstall` | critical | `uninstall` | — | — | `public` | session | sync | `-` | partially |
 | `host.service` | moderate | `service --run` | — | — | `public` | session | sync | `-` | yes |
-| `ui.step_up` | low | — | `POST /step-up` | sí | `operator` | session | sync | `-` | yes |
+| `ui.step_up` | low | — | `POST /step-up` | sí | `operator` | session | sync | `step_up_granted` | yes |

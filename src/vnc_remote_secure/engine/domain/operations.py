@@ -206,6 +206,12 @@ OPERATIONS: dict[str, OperationSpec] = {
             audit_event='portal_session_revoke_all',
             cli_command='session revoke --all',
             api_route='POST /sessions/revoke-all'),
+        # Inventory metadata only — the label never influences
+        # authorization, so the edit stays a plain moderate op.
+        _op('session.update', 'Editar etiqueta de sesión', 'low',
+            'admin_sessions', audit_event='session_label',
+            cli_command='session label',
+            api_route='PATCH /sessions/{token_id}', reversible='yes'),
 
         # --- Operators ------------------------------------------------------
         _op('operator.create', 'Crear operador', 'high', 'admin_users',
@@ -258,6 +264,10 @@ OPERATIONS: dict[str, OperationSpec] = {
             confirmation_type='simple', supports_cli=False,
             audit_event='passkey_registered',
             api_route='POST /operators/{username}/passkeys/register/complete',
+            reversible='yes'),
+        _op('passkey.rename', 'Renombrar passkey', 'low', 'operator',
+            supports_cli=False, audit_event='passkey_renamed',
+            api_route='PATCH /operators/{username}/passkeys/{credential_ref}',
             reversible='yes'),
         _op('passkey.revoke', 'Revocar passkey', 'high', 'operator',
             authentication_policy='stepup', confirmation_type='simple',
@@ -350,8 +360,8 @@ OPERATIONS: dict[str, OperationSpec] = {
 
         # --- UI-internal (no CLI counterpart — browser ceremonies) --------
         _op('ui.step_up', 'Step-up grant', 'low', 'operator',
-            supports_cli=False, api_route='POST /step-up',
-            reversible='yes'),
+            supports_cli=False, audit_event='step_up_granted',
+            api_route='POST /step-up', reversible='yes'),
     ]
 }
 

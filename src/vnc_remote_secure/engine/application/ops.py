@@ -333,12 +333,16 @@ def config_history() -> dict:
 
 
 def config_rollback(actor: str, snapshot_id: str,
+                    restart: bool = False,
                     auth_ctx: dict | None = None) -> dict:
     """``vnc-remote config rollback <id>`` — restore an env snapshot.
 
     Overwrites the live env file, so it consumes a bound step-up grant
     tied to the snapshot id; the live file is snapshotted first, which
-    keeps the rollback reversible.
+    keeps the rollback reversible. ``restart=True`` additionally
+    queues a deferred service restart (same bound grant — the operator
+    authorized "restore this config and make it live", and a restart
+    without it would leave the rollback half-applied).
     """
     sid = str(snapshot_id or '').strip()
     if not sid:
@@ -351,6 +355,14 @@ def config_rollback(actor: str, snapshot_id: str,
     except ValueError as exc:
         raise UseCaseError(ERR_INVALID, str(exc))
     stores.audit('config_rollback', actor, f'snapshot={sid}')
+    if restart:
+        jid = _queue_destructive(
+            actor, 'lifecycle', 'restart',
+            payload={'op': 'lifecycle.action', 'action': 'restart',
+                     'after': f'config.rollback:{sid}'})
+        _spawn_runner(actor, jid, 'lifecycle_action',
+                      f'restart (config rollback {sid})')
+        result['restart_job_id'] = jid
     return result
 
 

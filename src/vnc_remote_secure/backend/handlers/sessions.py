@@ -197,6 +197,41 @@ def _post_session_revoke(handler, query):
     _ok(handler, {'revoked': bool(revoked)})
 
 
+def _patch_session_label(handler, query):
+    """PATCH /api/v1/sessions/{token_id} — edit the inventory tag.
+
+    Unknown/reaped ids answer 404 (same disclosure rule as the detail
+    GET); the label itself is domain-validated by the use case."""
+    operator = handler._api_operator
+    from vnc_remote_secure.backend.schemas import SessionUpdateRequest
+    body, error = _read_typed_body(
+        handler, SessionUpdateRequest, limit=4096)
+    if error:
+        _err(handler, *error)
+        return
+    # {'label': null} clears the tag; omitting the key entirely is a
+    # malformed PATCH, not a silent clear.
+    if 'label' not in body.model_fields_set:
+        _err(handler, 'label required', 400)
+        return
+    from vnc_remote_secure.engine.application.sessions import (
+        update_share_link_label,
+    )
+    from vnc_remote_secure.engine.domain.decision import UseCaseError
+    try:
+        ok = update_share_link_label(
+            operator.get('username', 'unknown'),
+            handler._api_params['token_id'], body.label)
+    except UseCaseError as exc:
+        _err(handler, exc.detail or exc.code, _uc_error_status(exc))
+        return
+    if not ok:
+        _err(handler, 'Session not found', 404)
+        return
+    _ok(handler, {'token_id': handler._api_params['token_id'],
+                  'label': body.label})
+
+
 def _post_session_revoke_all(handler, query):
     """POST /api/v1/sessions/revoke-all — emergency kill-switch."""
     operator = handler._api_operator

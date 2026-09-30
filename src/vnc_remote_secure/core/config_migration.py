@@ -101,8 +101,12 @@ def migrate_env(env_path: str | None = None, dry_run: bool = False,
         # restore.
         try:
             from vnc_remote_secure.core import config_history
+            touched = sorted({
+                k for ch in changes
+                for k in (ch.get('old'), ch.get('new')) if k})
             config_history.snapshot(env_path, actor or '?',
-                                    'config migrate')
+                                    'config migrate',
+                                    changed_keys=touched)
         except OSError:
             pass  # history is best-effort — the migration still applies
         content = '\n'.join(out_lines) + '\n'

@@ -318,7 +318,7 @@ def _post_config_rollback(handler, query):
     try:
         _ok(handler, ops.config_rollback(
             operator.get('username', '?'), body.snapshot,
-            auth_ctx=_auth_ctx(handler)))
+            restart=body.restart, auth_ctx=_auth_ctx(handler)))
     except UseCaseError as exc:
         _uc_err(handler, exc)
 

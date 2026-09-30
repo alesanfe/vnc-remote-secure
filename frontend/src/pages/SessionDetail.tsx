@@ -91,6 +91,22 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
     onSettled: () => setConfirmRevoke(false),
   });
 
+  // Inline label edit — inventory tag, PATCH /sessions/{id}.
+  const [labelDraft, setLabelDraft] = useState<string | null>(null);
+  const setLabel = useMutation({
+    mutationFn: (v: { label: string | null }) =>
+      api.sessionSetLabel(tokenId, v.label),
+    onSuccess: () => {
+      setLabelDraft(null);
+      qc.invalidateQueries({ queryKey: ['sessions'] });
+      qc.invalidateQueries({ queryKey: ['session', tokenId] });
+      qc.invalidateQueries({ queryKey: ['session-detail'] });
+    },
+    onError: (e) =>
+      setMutError(
+        e instanceof ApiError ? e.message : t('sessions.labelError')),
+  });
+
   const s = detail.data?.session;
   const nowSec = Date.now() / 1000;
   const expired = s ? !s.revoked && s.expires_at <= nowSec : false;
@@ -201,9 +217,38 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
             </dd>
             <dt>{t('sessions.col.label')}</dt>
             <dd>
-              {s.label
-                ? <span className="badge dim">{s.label}</span>
-                : '—'}
+              {labelDraft !== null ? (
+                <input
+                  autoFocus
+                  className="label-edit"
+                  value={labelDraft}
+                  maxLength={64}
+                  aria-label={t('sessions.labelEditAria')}
+                  onChange={(e) => setLabelDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter')
+                      setLabel.mutate(
+                        { label: labelDraft.trim() || null });
+                    if (e.key === 'Escape') setLabelDraft(null);
+                  }}
+                  onBlur={() =>
+                    setLabel.mutate(
+                      { label: labelDraft.trim() || null })}
+                  disabled={setLabel.isPending}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="ghost label-cell"
+                  title={t('sessions.labelEditAria')}
+                  onClick={() => setLabelDraft(s.label ?? '')}
+                >
+                  {s.label
+                    ? <span className="badge dim">{s.label}</span>
+                    : '—'}
+                  {' ✎'}
+                </button>
+              )}
             </dd>
             <dt>{t('sessions.detail.created')}</dt>
             <dd><RelativeTime epoch={s.created_at} kind="since" /></dd>

@@ -121,6 +121,7 @@ from vnc_remote_secure.backend.handlers.recordings import (
 from vnc_remote_secure.backend.handlers.sessions import (
     _get_session_detail,
     _get_sessions,
+    _patch_session_label,
     _post_session_create,
     _post_session_revoke,
     _post_session_revoke_all,
@@ -231,8 +232,35 @@ from collections import namedtuple
 # ``step_up`` — a mutation additionally requires a *recent*
 # authentication (POST /api/v1/step-up grants 5 minutes): mass
 # revocation and operator lifecycle changes are gated on it.
+# ``op`` — the catalog operation the route implements; when set the
+# gate fields are DERIVED, not declared.
 _Route = namedtuple(
-    '_Route', 'fn perm scope audit resp step_up', defaults=[False])
+    '_Route', 'fn perm scope audit resp step_up op',
+    defaults=[False, ''])
+
+
+def _route(fn, *, perm=None, scope='default', audit=None, resp=None,
+           step_up=False, op=None):
+    """Build a route spec.
+
+    ``op`` names a catalog operation: when given, the security-gate
+    fields (``perm``, ``step_up``, ``audit``) are DERIVED from
+    ``engine/domain/operations.py`` — transports declare the handler,
+    the rate-limit scope and the response schema, never the policy.
+    A catalog op that stops matching its route fails the contract
+    test, so the registry cannot quietly weaken a declared policy.
+    """
+    if op:
+        from vnc_remote_secure.engine.domain.operations import (
+            get_operation,
+        )
+        spec = get_operation(op)
+        assert spec is not None, f'unknown catalog op: {op}'
+        perm = spec.required_capability or None
+        audit = spec.audit_event or audit
+        step_up = bool(spec.authentication_policy)
+    return _Route(fn, perm, scope, audit, resp, step_up, op or '')
+
 
 _ROUTES = {
     ('GET', 'me'): _Route(
@@ -278,19 +306,20 @@ _ROUTES = {
     ('GET', 'security/overview'): _Route(
         _get_security_overview, 'operator', 'default', None,
         'SecurityOverviewResponse'),
-    ('GET', 'doctor'): _Route(
-        _get_doctor, 'operator', 'doctor', None, 'DoctorResponse'),
+    ('GET', 'doctor'): _route(
+        _get_doctor, scope='doctor', resp='DoctorResponse',
+        op='system.doctor'),
     ('GET', 'audit'): _Route(
         _get_audit, 'admin_audit', 'audit', None, 'AuditPageResponse'),
     ('GET', 'audit/verify'): _Route(
         _get_audit_verify, 'admin_audit', 'audit.verify', None,
         'AuditVerifyResponse'),
-    ('GET', 'config'): _Route(
-        _get_config, 'admin_config', 'default', None,
-        'ConfigPageResponse'),
-    ('GET', 'backups'): _Route(
-        _get_backups, 'operator', 'default', None,
-        'BackupPageResponse'),
+    ('GET', 'config'): _route(
+        _get_config, scope='default', resp='ConfigPageResponse',
+        op='config.effective'),
+    ('GET', 'backups'): _route(
+        _get_backups, scope='default', resp='BackupPageResponse',
+        op='backup.list'),
     ('GET', 'operators'): _Route(
         _get_operators, 'admin_users', 'default', None,
         'OperatorPageResponse'),
@@ -328,56 +357,59 @@ _ROUTES = {
     ('POST', 'gamepad/resume'): _Route(
         _post_gamepad_resume, 'admin_sessions', 'default',
         'portal_gamepad_resume', 'GamepadStateResponse'),
-    ('POST', 'maintenance'): _Route(
-        _post_maintenance, 'admin:*', 'maintenance',
-        'maintenance_changed', 'MaintenanceSetResponse', True),
-    ('POST', 'sessions'): _Route(
-        _post_session_create, 'admin_sessions', 'sessions.create',
-        'ephemeral_session_create', 'SessionCreatedResponse'),
-    ('POST', 'sessions/revoke'): _Route(
-        _post_session_revoke, 'admin_sessions', 'sessions.revoke',
-        'portal_session_revoke', 'SessionRevokeResponse'),
-    ('POST', 'sessions/revoke-all'): _Route(
-        _post_session_revoke_all, 'admin_sessions', 'sessions.revoke-all',
-        'portal_session_revoke_all', 'SessionRevokeResponse', True),
+    ('POST', 'maintenance'): _route(
+        _post_maintenance, scope='maintenance', resp='MaintenanceSetResponse',
+        op='maintenance.toggle'),
+    ('POST', 'sessions'): _route(
+        _post_session_create, scope='sessions.create', resp='SessionCreatedResponse',
+        op='session.create'),
+    ('POST', 'sessions/revoke'): _route(
+        _post_session_revoke, scope='sessions.revoke', resp='SessionRevokeResponse',
+        op='session.revoke'),
+    ('PATCH', 'sessions/{token_id}'): _route(
+        _patch_session_label, scope='sessions.create',
+        resp='SessionUpdateResponse', op='session.update'),
+    ('POST', 'sessions/revoke-all'): _route(
+        _post_session_revoke_all, scope='sessions.revoke-all', resp='SessionRevokeResponse',
+        op='session.revoke_all'),
     # Host power — MeshCentral/RustDesk parity. Step-up gated: a guest
     # or a stolen session must never be able to halt the host; WoL is
     # included (a spoofed packet can only wake, but the endpoint still
     # gets the same treatment because it emits a broadcast).
-    ('POST', 'power'): _Route(
-        _post_power, 'admin:*', 'power', 'power_action',
-        'PowerActionResponse', True),
-    ('POST', 'power/wol'): _Route(
-        _post_power_wol, 'admin:*', 'power', 'power_wol',
-        'WolResponse'),
+    ('POST', 'power'): _route(
+        _post_power, scope='power', resp='PowerActionResponse',
+        op='power.action'),
+    ('POST', 'power/wol'): _route(
+        _post_power_wol, scope='power', resp='WolResponse',
+        op='power.wol'),
     # Desktop capture — MeshCentral "Take screenshot"/recording parity.
     # The RFB capture client opens its own shared session against the
     # loopback VNC server; recordings are forensic material, so delete
     # is step-up bound.
-    ('GET', 'desktop/screenshot'): _Route(
-        _get_screenshot, 'admin:*', 'power', 'desktop_screenshot',
-        'BinaryResponse'),
-    ('GET', 'recordings'): _Route(
-        _get_recordings, 'admin:*', 'default', None,
-        'RecordingListResponse'),
-    ('POST', 'recordings'): _Route(
-        _post_recordings, 'admin:*', 'power', 'recording_start',
-        'RecordingStartResponse'),
-    ('GET', 'recordings/{id}'): _Route(
-        _get_recording, 'admin:*', 'default', 'recording_download',
-        'BinaryResponse'),
-    ('POST', 'recordings/{id}/stop'): _Route(
-        _post_recording_stop, 'admin:*', 'power', 'recording_stop',
-        'RecordingStopResponse'),
-    ('DELETE', 'recordings/{id}'): _Route(
-        _delete_recording, 'admin:*', 'power', 'recording_delete',
-        'RecordingDeleteResponse', True),
+    ('GET', 'desktop/screenshot'): _route(
+        _get_screenshot, scope='power', resp='BinaryResponse',
+        op='desktop.screenshot'),
+    ('GET', 'recordings'): _route(
+        _get_recordings, scope='default', resp='RecordingListResponse',
+        op='recording.list'),
+    ('POST', 'recordings'): _route(
+        _post_recordings, scope='power', resp='RecordingStartResponse',
+        op='recording.start'),
+    ('GET', 'recordings/{id}'): _route(
+        _get_recording, scope='default', resp='BinaryResponse',
+        op='recording.get'),
+    ('POST', 'recordings/{id}/stop'): _route(
+        _post_recording_stop, scope='power', resp='RecordingStopResponse',
+        op='recording.stop'),
+    ('DELETE', 'recordings/{id}'): _route(
+        _delete_recording, scope='power', resp='RecordingDeleteResponse',
+        op='recording.delete'),
     ('POST', 'logout'): _Route(
         _post_logout, 'operator', 'default', 'portal_logout',
         'LogoutResponse'),
-    ('POST', 'step-up'): _Route(
-        _post_step_up, 'operator', 'stepup', 'step_up_granted',
-        'StepUpResponse'),
+    ('POST', 'step-up'): _route(
+        _post_step_up, scope='stepup', resp='StepUpResponse',
+        op='ui.step_up'),
     # Operator management — {username} is a path parameter resolved
     # by _dispatch into handler._api_params.
     ('GET', 'operators/{username}'): _Route(
@@ -386,32 +418,30 @@ _ROUTES = {
     ('GET', 'operators/{username}/passkeys'): _Route(
         _get_operator_passkeys, 'operator', 'default', None,
         'PasskeyPageResponse'),
-    ('POST', 'operators/{username}/passkeys/register/begin'): _Route(
-        _post_passkey_register_begin, 'operator', 'passkeys.register',
-        'passkey_register_begin', 'PasskeyOptionsResponse', True),
-    ('POST', 'operators/{username}/passkeys/register/complete'): _Route(
-        _post_passkey_register_complete, 'operator',
-        'passkeys.register', 'passkey_registered',
-        'PasskeyRegisteredResponse', True),
-    ('PATCH', 'operators/{username}/passkeys/{credential_ref}'): _Route(
-        _patch_passkey, 'operator', 'passkeys.manage',
-        'passkey_renamed', 'PasskeyRenamedResponse'),
-    ('DELETE', 'operators/{username}/passkeys/{credential_ref}'): _Route(
-        _delete_passkey, 'operator', 'passkeys.manage',
-        'passkey_revoked', 'DeleteResponse', True),
-    ('POST', 'operators'): _Route(
-        _post_operator_create, 'admin_users', 'operators.create',
-        'operator_created', 'OperatorResponse', True),
-    ('PATCH', 'operators/{username}'): _Route(
-        _patch_operator, 'admin_users', 'operators.update',
-        'operator_updated', 'OperatorResponse'),
-    ('DELETE', 'operators/{username}'): _Route(
-        _delete_operator, 'admin_users', 'operators.delete',
-        'operator_deleted', 'DeleteResponse', True),
-    ('POST', 'operators/{username}/sessions/revoke-all'): _Route(
-        _post_operator_revoke_sessions, 'admin_users',
-        'operators.sessions_revoke', 'operator_sessions_revoked',
-        'SessionRevokeResponse', True),
+    ('POST', 'operators/{username}/passkeys/register/begin'): _route(
+        _post_passkey_register_begin, scope='passkeys.register', resp='PasskeyOptionsResponse',
+        op='passkey.register_begin'),
+    ('POST', 'operators/{username}/passkeys/register/complete'): _route(
+        _post_passkey_register_complete, scope='passkeys.register', resp='PasskeyRegisteredResponse',
+        op='passkey.register_complete'),
+    ('PATCH', 'operators/{username}/passkeys/{credential_ref}'): _route(
+        _patch_passkey, scope='passkeys.manage', resp='PasskeyRenamedResponse',
+        op='passkey.rename'),
+    ('DELETE', 'operators/{username}/passkeys/{credential_ref}'): _route(
+        _delete_passkey, scope='passkeys.manage', resp='DeleteResponse',
+        op='passkey.revoke'),
+    ('POST', 'operators'): _route(
+        _post_operator_create, scope='operators.create', resp='OperatorResponse',
+        op='operator.create'),
+    ('PATCH', 'operators/{username}'): _route(
+        _patch_operator, scope='operators.update', resp='OperatorResponse',
+        op='operator.update'),
+    ('DELETE', 'operators/{username}'): _route(
+        _delete_operator, scope='operators.delete', resp='DeleteResponse',
+        op='operator.delete'),
+    ('POST', 'operators/{username}/sessions/revoke-all'): _route(
+        _post_operator_revoke_sessions, scope='operators.sessions_revoke', resp='SessionRevokeResponse',
+        op='operator.sessions_revoke_all'),
     # Destructive-op ledger + operator restore (tombstone recovery).
     ('GET', 'jobs'): _Route(
         _get_jobs, 'admin_audit', 'default', None,
@@ -422,91 +452,94 @@ _ROUTES = {
     ('GET', 'operators/deleted'): _Route(
         _get_operators_deleted, 'admin_users', 'default', None,
         'DeletedOperatorsResponse'),
-    ('POST', 'operators/{username}/restore'): _Route(
-        _post_operator_restore, 'admin_users', 'operators.create',
-        'operator_restored', 'OperatorResponse', True),
+    ('POST', 'operators/{username}/restore'): _route(
+        _post_operator_restore, scope='operators.create', resp='OperatorResponse',
+        op='operator.restore'),
     # OS-level runtime accounts surfaced to the admin SPA.
     ('GET', 'system-users'): _Route(
         _get_system_users, 'admin_users', 'default', None,
         'SystemUserPageResponse'),
-    ('POST', 'system-users'): _Route(
-        _post_system_user_create, 'admin_users', 'system_users.manage',
-        'user_create', 'SystemUserCreatedResponse', True),
-    ('DELETE', 'system-users/{username}'): _Route(
-        _delete_system_user, 'admin_users', 'system_users.manage',
-        'user_delete', 'DeleteResponse', True),
+    ('POST', 'system-users'): _route(
+        _post_system_user_create, scope='system_users.manage', resp='SystemUserCreatedResponse',
+        op='system_user.create'),
+    ('DELETE', 'system-users/{username}'): _route(
+        _delete_system_user, scope='system_users.manage', resp='DeleteResponse',
+        op='system_user.delete'),
     # --- Operations parity with the CLI ----------------------------------
     # Version/status.
-    ('GET', 'version'): _Route(
-        _get_version, 'session', 'default', None, 'VersionResponse'),
-    ('GET', 'lifecycle'): _Route(
-        _get_lifecycle, 'operator', 'default', None,
-        'LifecycleStatusResponse'),
+    ('GET', 'version'): _route(
+        _get_version, scope='default', resp='VersionResponse',
+        op='system.version'),
+    ('GET', 'lifecycle'): _route(
+        _get_lifecycle, scope='default', resp='LifecycleStatusResponse',
+        op='system.status'),
     ('POST', 'lifecycle'): _Route(
         _post_lifecycle, 'admin:*', 'lifecycle', 'lifecycle_action',
         'LifecycleActionResponse', True),
     # Backups — create/verify/restore over ``core.backup``; names are
     # resolved server-side (basename allowlist) so the wire value never
     # reaches the filesystem.
-    ('POST', 'backups'): _Route(
-        _post_backup_create, 'admin:*', 'backups.write',
-        'backup_create', 'BackupCreatedResponse', True),
-    ('POST', 'backups/verify'): _Route(
-        _post_backup_verify, 'admin:*', 'default',
-        'backup_verify', 'BackupVerifyResponse'),
-    ('POST', 'backups/restore'): _Route(
-        _post_backup_restore, 'admin:*', 'backups.write',
-        'backup_restore', 'BackupRestoreResponse', True),
+    ('POST', 'backups'): _route(
+        _post_backup_create, scope='backups.write', resp='BackupCreatedResponse',
+        op='backup.create'),
+    ('POST', 'backups/verify'): _route(
+        _post_backup_verify, scope='default', resp='BackupVerifyResponse',
+        op='backup.verify'),
+    ('POST', 'backups/restore'): _route(
+        _post_backup_restore, scope='backups.write', resp='BackupRestoreResponse',
+        op='backup.restore'),
     # Secrets — status/redact are admin reads; rotations are step-up.
-    ('GET', 'secrets'): _Route(
-        _get_secrets, 'admin:*', 'default', None, 'SecretsResponse'),
-    ('GET', 'secrets/{name}'): _Route(
-        _get_secret_redact, 'admin:*', 'default', None,
-        'SecretRedactResponse'),
-    ('POST', 'secrets/{name}/rotate'): _Route(
-        _post_secret_rotate, 'admin:*', 'secrets.rotate',
-        'secret_rotate', 'SecretRotateResponse', True),
-    ('POST', 'secrets/rotate-signing'): _Route(
-        _post_secrets_rotate_signing, 'admin:*', 'secrets.rotate',
-        'signing_key_rotate', 'SigningRotateResponse', True),
-    ('POST', 'secrets/check'): _Route(
-        _post_secrets_check, 'admin:*', 'default',
-        'secrets_check', 'SecretsCheckResponse'),
-    ('POST', 'secrets/recovery-codes'): _Route(
-        _post_recovery_codes, 'admin:*', 'secrets.rotate',
-        'recovery_codes_generate', 'RecoveryCodesResponse', True),
+    ('GET', 'secrets'): _route(
+        _get_secrets, scope='default', resp='SecretsResponse',
+        op='secrets.status'),
+    ('GET', 'secrets/{name}'): _route(
+        _get_secret_redact, scope='default', resp='SecretRedactResponse',
+        op='secrets.redact'),
+    ('POST', 'secrets/{name}/rotate'): _route(
+        _post_secret_rotate, scope='secrets.rotate', resp='SecretRotateResponse',
+        op='secrets.rotate'),
+    ('POST', 'secrets/rotate-signing'): _route(
+        _post_secrets_rotate_signing, scope='secrets.rotate', resp='SigningRotateResponse',
+        op='secrets.rotate_signing'),
+    ('POST', 'secrets/check'): _route(
+        _post_secrets_check, scope='default', resp='SecretsCheckResponse',
+        op='secrets.check'),
+    ('POST', 'secrets/recovery-codes'): _route(
+        _post_recovery_codes, scope='secrets.rotate', resp='RecoveryCodesResponse',
+        op='secrets.recovery_codes'),
     # Config inspector — explain/validate/diff are reads; migrate
     # mutates .env so it gets step-up.
     ('GET', 'config/effective'): _Route(
         _get_config_effective, 'admin_config', 'default', None,
         'ConfigPageResponse'),
-    ('GET', 'config/explain/{name}'): _Route(
-        _get_config_explain, 'admin_config', 'default', None,
-        'ConfigExplainResponse'),
-    ('GET', 'config/validate'): _Route(
-        _get_config_validate, 'admin_config', 'default', None,
-        'ConfigValidateResponse'),
-    ('GET', 'config/diff'): _Route(
-        _get_config_diff, 'admin_config', 'default', None,
-        'ConfigDiffResponse'),
-    ('POST', 'config/migrate'): _Route(
-        _post_config_migrate, 'admin_config', 'config.write',
-        'config_migrate', 'ConfigMigrateResponse', True),
-    ('GET', 'config/history'): _Route(
-        _get_config_history, 'admin_config', 'default', None,
-        'ConfigHistoryResponse'),
-    ('POST', 'config/rollback'): _Route(
-        _post_config_rollback, 'admin_config', 'config.write',
-        'config_rollback', 'ConfigRollbackResponse', True),
+    ('GET', 'config/explain/{name}'): _route(
+        _get_config_explain, scope='default', resp='ConfigExplainResponse',
+        op='config.explain'),
+    ('GET', 'config/validate'): _route(
+        _get_config_validate, scope='default', resp='ConfigValidateResponse',
+        op='config.validate'),
+    ('GET', 'config/diff'): _route(
+        _get_config_diff, scope='default', resp='ConfigDiffResponse',
+        op='config.diff'),
+    ('POST', 'config/migrate'): _route(
+        _post_config_migrate, scope='config.write', resp='ConfigMigrateResponse',
+        op='config.migrate'),
+    ('GET', 'config/history'): _route(
+        _get_config_history, scope='default', resp='ConfigHistoryResponse',
+        op='config.history'),
+    ('POST', 'config/rollback'): _route(
+        _post_config_rollback, scope='config.write', resp='ConfigRollbackResponse',
+        op='config.rollback'),
     # Self-upgrade — long-running pip work under a job-ledger entry.
-    ('GET', 'upgrade'): _Route(
-        _get_upgrade, 'operator', 'default', None, 'UpgradeResponse'),
-    ('POST', 'upgrade'): _Route(
-        _post_upgrade, 'admin:*', 'upgrade', 'upgrade_run',
-        'UpgradeRunResponse', True),
-    ('POST', 'upgrade/rollback'): _Route(
-        _post_upgrade_rollback, 'admin:*', 'upgrade',
-        'upgrade_rollback', 'UpgradeRollbackResponse', True),
+    ('GET', 'upgrade'): _route(
+        _get_upgrade, scope='default', resp='UpgradeResponse',
+        op='upgrade.check'),
+    ('POST', 'upgrade'): _route(
+        _post_upgrade, scope='upgrade', resp='UpgradeRunResponse',
+        op='upgrade.run'),
+    ('POST', 'upgrade/rollback'): _route(
+        _post_upgrade_rollback, scope='upgrade', resp='UpgradeRollbackResponse',
+        op='upgrade.rollback'),
 }
 
 # Operator capabilities the registry may reference — anything else is

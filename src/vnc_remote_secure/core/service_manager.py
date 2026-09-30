@@ -1175,6 +1175,45 @@ _restart_history: dict = {}
 # entry, not every tick).
 _last_throttled: set = set()
 
+# Blocking posture findings seen on the last tick — transitions only:
+# a finding that stays active is not re-alerted every interval.
+_last_blocking: frozenset = frozenset()
+
+
+def _alert_new_blocking_findings() -> None:
+    """Page the operator when a NEW blocking security finding appears.
+
+    Posture is recomputed on every watchdog tick already; what was
+    missing is the push side — a degraded-config regression found at
+    3am should reach the configured channels instead of waiting for
+    someone to open /admin/security."""
+    global _last_blocking
+    try:
+        from vnc_remote_secure.security.profiles import (
+            get_blocking_findings,
+        )
+        findings = {
+            str(f.get('code') or f.get('message', '?'))
+            for f in get_blocking_findings()
+        }
+    except Exception:  # noqa: BLE001 - never break the watchdog
+        return
+    if findings == _last_blocking:
+        return
+    new = sorted(findings - _last_blocking)
+    _last_blocking = findings
+    if not new:
+        return
+    logger.error('Blocking security finding(s) appeared: %s', new)
+    try:
+        from vnc_remote_secure.monitoring.alerts import notify
+        notify('Blocking security finding',
+               'New blocking finding(s): ' + ', '.join(new)
+               + ' — see /admin/security',
+               severity='critical')
+    except Exception:  # noqa: BLE001 - alerting is best-effort
+        pass
+
 
 def _restart_allowed(service: str, now: float) -> bool:
     """Return True if ``service`` may be auto-restarted (rate-limited)."""
@@ -1216,6 +1255,10 @@ def watchdog_tick(config: dict | None = None) -> dict:
         enforce_drain_deadline()
     except Exception:  # noqa: BLE001 - never break the watchdog
         logger.debug('Drain check failed', exc_info=True)
+
+    # Posture edge detection belongs to the tick, not to the service
+    # check below — it must run even when every service is healthy.
+    _alert_new_blocking_findings()
 
     dead = _find_dead_services(config)
     global _last_watchdog_dead

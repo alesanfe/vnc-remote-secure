@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import App from './App';
-import SharePage from './pages/SharePage';
-import GuestPage from './pages/GuestPage';
-import RecoveryPage from './pages/RecoveryPage';
-import PortalPage from './pages/PortalPage';
-import AudioPage from './pages/AudioPage';
-import GamepadPage from './pages/GamepadPage';
-import TerminalPage from './pages/TerminalPage';
-import FilesPage from './pages/FilesPage';
-import RemoteConsole from './pages/RemoteConsole';
+// Route-level splitting: /share and / are the public cold paths —
+// they must not download the admin console, xterm or the RFB client.
+const App = lazy(() => import('./App'));
+const SharePage = lazy(() => import('./pages/SharePage'));
+const GuestPage = lazy(() => import('./pages/GuestPage'));
+const RecoveryPage = lazy(() => import('./pages/RecoveryPage'));
+const PortalPage = lazy(() => import('./pages/PortalPage'));
+const AudioPage = lazy(() => import('./pages/AudioPage'));
+const GamepadPage = lazy(() => import('./pages/GamepadPage'));
+const TerminalPage = lazy(() => import('./pages/TerminalPage'));
+const FilesPage = lazy(() => import('./pages/FilesPage'));
+const RemoteConsole = lazy(() => import('./pages/RemoteConsole'));
 import { I18nProvider, useI18n } from './i18n';
 import { GuestLayout } from './components/GuestShell';
 import { initTheme } from './components/ThemeSwitch';
@@ -63,10 +65,13 @@ const isAdmin = path === '/admin' || path.startsWith('/admin/');
 
 const surface = isAdmin ? (
   <BrowserRouter basename="/admin">
-    <App />
+    <Suspense fallback={null}>
+      <App />
+    </Suspense>
   </BrowserRouter>
 ) : (
   <BrowserRouter>
+    <Suspense fallback={null}>
     <Routes>
       <Route path="/" element={<PortalPage />} />
       <Route path="/share" element={<SharePage />} />
@@ -85,6 +90,7 @@ const surface = isAdmin ? (
       </Route>
       <Route path="*" element={<PublicNotFound />} />
     </Routes>
+    </Suspense>
   </BrowserRouter>
 );
 

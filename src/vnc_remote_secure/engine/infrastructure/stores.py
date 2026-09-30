@@ -38,6 +38,11 @@ def session_refresh(store) -> None:
         fn()
 
 
+def session_set_label(token_id: str, label: str | None) -> bool:
+    """Set/clear the inventory tag on a retained share session."""
+    return session_store().set_label(token_id, label)
+
+
 def session_roles() -> dict:
     """Role → default permission set for share links."""
     from vnc_remote_secure.security.ephemeral_sessions import ROLES

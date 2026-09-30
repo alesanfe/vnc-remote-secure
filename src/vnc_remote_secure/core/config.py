@@ -226,7 +226,8 @@ def set_env_persistent(name: str, value: str) -> bool:
     env_path = _env_file_for(name)
     try:
         from vnc_remote_secure.core import config_history
-        config_history.snapshot(env_path, reason=f'env persist {name}')
+        config_history.snapshot(env_path, reason=f'env persist {name}',
+                                changed_keys=[name])
     except OSError:
         pass  # history is best-effort — never blocks the write
     from vnc_remote_secure.core.test_isolation import guard_write
