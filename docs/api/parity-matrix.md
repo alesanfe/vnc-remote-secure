@@ -60,6 +60,8 @@ deliberate `cli-only`/`api-only` cell).
 | `recording.start` | high | — | `POST /recordings` | sí | `admin:*` | session | sync | `recording_start` | no |
 | `recording.stop` | moderate | — | `POST /recordings/{id}/stop` | sí | `admin:*` | session | sync | `recording_stop` | yes |
 | `recording.delete` | high | — | `DELETE /recordings/{id}` | sí | `admin:*` | stepup-bound | sync | `recording_delete` | no |
+| `gamepad.stop` | moderate | — | `POST /gamepad/stop` | sí | `admin_sessions` | session | sync | `portal_gamepad_stop` | yes |
+| `gamepad.resume` | moderate | — | `POST /gamepad/resume` | sí | `admin_sessions` | session | sync | `portal_gamepad_resume` | yes |
 | `host.install` | critical | `install` | — | — | `public` | session | sync | `-` | partially |
 | `host.uninstall` | critical | `uninstall` | — | — | `public` | session | sync | `-` | partially |
 | `host.service` | moderate | `service --run` | — | — | `public` | session | sync | `-` | yes |

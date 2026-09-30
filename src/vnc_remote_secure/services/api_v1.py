@@ -73,7 +73,6 @@ from vnc_remote_secure.backend.handlers.operators import (
 )
 from vnc_remote_secure.backend.handlers.ops import (
     _get_backups,
-    _get_config,
     _get_config_diff,
     _get_config_effective,
     _get_config_explain,
@@ -314,8 +313,11 @@ _ROUTES = {
     ('GET', 'audit/verify'): _Route(
         _get_audit_verify, 'admin_audit', 'audit.verify', None,
         'AuditVerifyResponse'),
+    # /config and /config/effective are the SAME read — one handler,
+    # one catalog op; /config takes ?profile= too (previously two
+    # handlers drifted: one ignored the profile parameter).
     ('GET', 'config'): _route(
-        _get_config, scope='default', resp='ConfigPageResponse',
+        _get_config_effective, scope='default', resp='ConfigPageResponse',
         op='config.effective'),
     ('GET', 'backups'): _route(
         _get_backups, scope='default', resp='BackupPageResponse',
@@ -351,12 +353,12 @@ _ROUTES = {
         'ephemeral_session_activate', 'SessionActivateResponse'),
     # Local gamepad kill-switch (operator-only — the flag cuts remote
     # input injection even while a share session holds it).
-    ('POST', 'gamepad/stop'): _Route(
-        _post_gamepad_stop, 'admin_sessions', 'default',
-        'portal_gamepad_stop', 'GamepadStateResponse'),
-    ('POST', 'gamepad/resume'): _Route(
-        _post_gamepad_resume, 'admin_sessions', 'default',
-        'portal_gamepad_resume', 'GamepadStateResponse'),
+    ('POST', 'gamepad/stop'): _route(
+        _post_gamepad_stop, resp='GamepadStateResponse',
+        op='gamepad.stop'),
+    ('POST', 'gamepad/resume'): _route(
+        _post_gamepad_resume, resp='GamepadStateResponse',
+        op='gamepad.resume'),
     ('POST', 'maintenance'): _route(
         _post_maintenance, scope='maintenance', resp='MaintenanceSetResponse',
         op='maintenance.toggle'),
@@ -509,9 +511,9 @@ _ROUTES = {
         op='secrets.recovery_codes'),
     # Config inspector — explain/validate/diff are reads; migrate
     # mutates .env so it gets step-up.
-    ('GET', 'config/effective'): _Route(
-        _get_config_effective, 'admin_config', 'default', None,
-        'ConfigPageResponse'),
+    ('GET', 'config/effective'): _route(
+        _get_config_effective, scope='default', resp='ConfigPageResponse',
+        op='config.effective'),
     ('GET', 'config/explain/{name}'): _route(
         _get_config_explain, scope='default', resp='ConfigExplainResponse',
         op='config.explain'),

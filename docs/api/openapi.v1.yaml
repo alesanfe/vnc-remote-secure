@@ -2464,6 +2464,7 @@ paths:
         Local kill-switch - sets the shared gamepad:stopped flag the
         gamepad service checks per connection/message.
       x-required-permission: admin_sessions
+      x-operation-id: gamepad.stop
       x-csrf-required: true
       x-rate-limit-scope: default
       x-response-schema: GamepadStateResponse
@@ -2475,6 +2476,7 @@ paths:
     post:
       summary: Clear the gamepad kill-switch flag.
       x-required-permission: admin_sessions
+      x-operation-id: gamepad.resume
       x-csrf-required: true
       x-rate-limit-scope: default
       x-response-schema: GamepadStateResponse

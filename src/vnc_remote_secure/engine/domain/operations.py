@@ -343,6 +343,18 @@ OPERATIONS: dict[str, OperationSpec] = {
             api_route='DELETE /recordings/{id}',
             audit_event='recording_delete', reversible='no'),
 
+        # --- Gamepad service control — API/UI only ---------------------
+        # Pause/resume the forwarding service from the console; the
+        # guest socket itself keeps its own session-scoped auth.
+        _op('gamepad.stop', 'Pausar reenvío de gamepad', 'moderate',
+            'admin_sessions', supports_cli=False,
+            api_route='POST /gamepad/stop',
+            audit_event='portal_gamepad_stop', reversible='yes'),
+        _op('gamepad.resume', 'Reanudar reenvío de gamepad', 'moderate',
+            'admin_sessions', supports_cli=False,
+            api_route='POST /gamepad/resume',
+            audit_event='portal_gamepad_resume', reversible='yes'),
+
         # --- Host bootstrap — CLI-only BY DESIGN ----------------------------
         _op('host.install', 'Instalar y configurar', 'critical', '',
             supports_api=False, supports_ui=False,

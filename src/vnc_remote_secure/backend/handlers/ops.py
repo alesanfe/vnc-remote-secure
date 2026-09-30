@@ -210,16 +210,6 @@ def _post_recovery_codes(handler, query):
         _uc_err(handler, exc)
 
 
-def _get_config(handler, query):
-    try:
-        from vnc_remote_secure.engine.application import read_models
-        _ok(handler, {'vars': [
-            config_entry_to_api(e) for e in read_models.config_vars()]})
-    except Exception as e:  # noqa: BLE001
-        log_exception(e, 'api /config')
-        _err(handler, 'Config inspection failed', 500)
-
-
 def _get_config_effective(handler, query):
     """GET /api/v1/config/effective?profile= — full provenance table."""
     profile = (query.get('profile') or [None])[0]

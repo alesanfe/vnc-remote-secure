@@ -67,6 +67,36 @@ def test_api_routes_match_catalog():
                 op.operation_id, spec.audit, op.audit_event)
 
 
+def test_mutating_routes_carry_a_catalog_op():
+    """Reverse direction: every mutating route must resolve to a
+    catalog operation — except the documented non-operator surfaces
+    (auth handshake, session-scoped guest actions, logout)."""
+    from vnc_remote_secure.services.api_v1 import _ROUTES
+    # Public/session-scoped flows that are policy-free by design:
+    # login + passkey ceremony, share-link activate/preview, guest
+    # files/chat under the 'session' perm, and logout.
+    allowlist = {
+        ('POST', 'auth/login'),
+        ('POST', 'auth/passkey/begin'),
+        ('POST', 'auth/passkey/complete'),
+        ('POST', 'session/activate'),
+        ('POST', 'session/preview'),
+        ('POST', 'logout'),
+        ('POST', 'chat'),
+        ('POST', 'files/upload'),
+        ('POST', 'files/mkdir'),
+    }
+    missing = []
+    for (method, rel), spec in _ROUTES.items():
+        if method == 'GET' or (method, rel) in allowlist:
+            continue
+        if not spec.op:
+            missing.append(f'{method} {rel}')
+    assert missing == [], (
+        'mutating routes without a catalog op (policy is '
+        f'uncatalogued): {sorted(missing)}')
+
+
 def test_step_up_routes_appear_in_catalog():
     """A step_up route without a catalog operation is an unmanaged
     destructive surface."""
