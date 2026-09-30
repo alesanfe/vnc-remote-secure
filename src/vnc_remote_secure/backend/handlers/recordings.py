@@ -9,8 +9,10 @@ import logging
 
 from vnc_remote_secure.backend.handlers.common import (
     _actor_name,
+    _auth_ctx,
     _err,
     _ok,
+    _uc_err,
 )
 from vnc_remote_secure.core.errors import log_exception
 
@@ -110,10 +112,16 @@ def _delete_recording(handler, query):
     (step-up bound: forensic data destruction)."""
     try:
         from vnc_remote_secure.engine.application import recordings
+        from vnc_remote_secure.engine.domain.decision import (
+            UseCaseError,
+        )
         _ok(handler, recordings.delete(
-            _recording_id(handler), _actor_name(handler)))
+            _recording_id(handler), _actor_name(handler),
+            auth_ctx=_auth_ctx(handler)))
     except FileNotFoundError:
         _err(handler, 'Recording not found', 404)
+    except UseCaseError as exc:
+        _uc_err(handler, exc)
     except RuntimeError as exc:
         _err(handler, str(exc), 409)
     except ValueError as exc:

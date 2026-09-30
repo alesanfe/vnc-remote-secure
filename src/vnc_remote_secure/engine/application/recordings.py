@@ -48,7 +48,15 @@ def read(rec_id: str, actor: str) -> tuple[bytes, str]:
     return data, name
 
 
-def delete(rec_id: str, actor: str) -> dict:
+def delete(rec_id: str, actor: str, auth_ctx=None) -> dict:
+    # Catalog: recording.delete is 'stepup-bound' — the grant must be
+    # consumed here (single-use, bound to this recording id), not just
+    # the route's recency check. CLI calls (no auth_ctx) skip it — the
+    # shell is the auth boundary there.
+    from vnc_remote_secure.engine.application.ops import (
+        require_bound_step_up,
+    )
+    require_bound_step_up(actor, 'recording.delete', rec_id, auth_ctx)
     if not stores.recording_delete(rec_id):
         raise FileNotFoundError(rec_id)
     stores.audit('recording_delete', actor, f'id={rec_id}')

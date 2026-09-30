@@ -84,7 +84,8 @@ class TestEphemeralSharedRevocation:
         from vnc_remote_secure.security import ephemeral_sessions as es
         store = es.SessionStore.__new__(es.SessionStore)
         store._sessions = {}
-        store._lock = __import__('threading').Lock()
+        # RLock, not Lock: create/revoke now nest _save under _lock.
+        store._lock = __import__('threading').RLock()
         store._last_mtime = 0.0
         store._cleanup_interval = 300
         monkeypatch.setattr(store, '_persist_path',

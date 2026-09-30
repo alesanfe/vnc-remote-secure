@@ -158,9 +158,13 @@ def run_job(jid: str) -> int:
     job = jobs.job_get(jid)
     if job is None:
         logger.error('job %s not found', jid)
+        # A phantom job (enqueue failed after the API answered) must
+        # still release the op-class mutex the caller took.
+        jobs.job_unlock(_OP_LOCK, jid)
         return 2
     if not jobs.job_claim(jid, f'pid-{os.getpid()}'):
         logger.warning('job %s already claimed — not re-running', jid)
+        jobs.job_unlock(_OP_LOCK, jid)
         return 2
     payload = job.get('payload') or {}
     op = str(payload.get('op', ''))
@@ -217,7 +221,15 @@ def main(argv=None) -> int:
         return run_job(argv[1])
     if argv[0] in _ACTIONS:
         # Legacy/debug mode — runs the lifecycle action with no job
-        # record. API paths always go through `run <job_id>`.
+        # record, no ledger, no claim and no audit trail. The API
+        # path always goes through `run <job_id>`; require an explicit
+        # env opt-in so an interactive shell can't silently bypass the
+        # audited path.
+        if os.environ.get('VRS_DEFERRED_LEGACY', '') != '1':
+            print('Direct lifecycle execution is disabled. Use '
+                  'vnc-remote start|stop|restart, or set '
+                  'VRS_DEFERRED_LEGACY=1 for a manual debug run.')
+            return 2
         return run_action(argv[0])
     print(f'Usage: python -m {__name__} '
           f'run <job_id> [delay_s] | <{"|".join(_ACTIONS)}> [delay_s]')

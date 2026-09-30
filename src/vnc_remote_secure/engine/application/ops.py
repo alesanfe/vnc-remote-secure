@@ -67,6 +67,12 @@ def _queue_destructive(actor: str, kind: str, target: str,
     The lock is released by the deferred runner when it finishes;
     callers that fail to spawn must ``job_unlock`` themselves."""
     jid = stores.job_enqueue(kind, actor, target, payload)
+    if not jid:
+        # Backend write failed — never answer 202 for a job that was
+        # never persisted (the runner would exit without unlocking).
+        raise UseCaseError(
+            ERR_INVALID,
+            'job ledger unavailable — operation not queued')
     if not stores.job_lock(_DESTRUCTIVE_LOCK, jid):
         stores.job_fail(jid, 'another destructive operation is running')
         raise UseCaseError(

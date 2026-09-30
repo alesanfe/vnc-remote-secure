@@ -592,8 +592,15 @@ class SessionStore:
 
     def __init__(self):
         self._sessions: dict = {}  # token -> EphemeralSession
-        self._lock = threading.Lock()
-        self._last_mtime: float = 0.0
+        # RLock: module-level callers (consume/activate) already hold
+        # it while calling get()/_save() — re-entrant so those paths
+        # keep working while EVERY public mutator is now serialized
+        # (previously only consume/activate locked; concurrent
+        # create/revoke/list could interleave mid-_save).
+        self._lock = threading.RLock()
+        # (mtime_ns, size, ino) — a bare float mtime misses same-tick
+        # writes on filesystems with coarse granularity.
+        self._last_mtime: tuple = (0, 0, 0)
         self._load()
 
     def _persist_path(self) -> str:
@@ -602,15 +609,20 @@ class SessionStore:
         from vnc_remote_secure.core.paths import get_run_dir
         return os.path.join(get_run_dir(), 'ephemeral_sessions.json')
 
+    def _file_sig(self, path: str) -> tuple:
+        """Cheap change marker for the persistence file."""
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size, getattr(st, 'st_ino', 0))
+
     def _load(self):
         """Load sessions from disk into memory."""
         import json
         path = self._persist_path()
         if not os.path.exists(path):
-            self._last_mtime = 0.0
+            self._last_mtime = (0, 0, 0)
             return
         with contextlib.suppress(OSError):
-            self._last_mtime = os.path.getmtime(path)
+            self._last_mtime = self._file_sig(path)
         try:
             with open(path, encoding='utf-8') as f:
                 data = json.load(f)
@@ -639,11 +651,12 @@ class SessionStore:
         An mtime compare keeps the per-request cost near zero.
         """
         try:
-            mtime = os.path.getmtime(self._persist_path())
+            sig = self._file_sig(self._persist_path())
         except OSError:
             return
-        if mtime != self._last_mtime:
-            self._load()
+        if sig != self._last_mtime:
+            with self._lock:
+                self._load()
 
     def _merge_disk_flags(self, path: str) -> None:
         """Pull terminal flags (revoked, used, use_count) from the
@@ -711,6 +724,10 @@ class SessionStore:
         ``create()`` uses it because returning a signed token that was
         never persisted hands the operator a dead share link.
         """
+        with self._lock:
+            self._save_inner(raise_on_error)
+
+    def _save_inner(self, raise_on_error: bool = False):
         import json
         path = self._persist_path()
         try:
@@ -734,7 +751,7 @@ class SessionStore:
                     os.unlink(tmp)
                 raise
             with contextlib.suppress(OSError):
-                self._last_mtime = os.path.getmtime(path)
+                self._last_mtime = self._file_sig(path)
             # The file contains live session tokens — anyone who can
             # read it can hijack every active share session. Restrict
             # to owner-only (os.chmod alone is a no-op on Windows).
@@ -805,9 +822,10 @@ class SessionStore:
             max_uses=max_uses if max_uses > 0 else (1 if single_use else 0),
             label=label,
         )
-        self._sessions[token] = session
-        signed = create_ephemeral_token(session)
-        self._save(raise_on_error=True)
+        with self._lock:
+            self._sessions[token] = session
+            signed = create_ephemeral_token(session)
+            self._save(raise_on_error=True)
         from vnc_remote_secure.security.audit import audit_event
         audit_event('ephemeral_session_create', user=created_by,
                   detail=f'role={role} expires_in={expires_in} '
@@ -824,19 +842,21 @@ class SessionStore:
         created by other processes (e.g. ``vnc-remote session create``)
         after this process started must be discoverable.
         """
-        session = self._sessions.get(token)
-        if session is None:
-            self._load()
+        with self._lock:
             session = self._sessions.get(token)
-        if session is not None and not session.revoked \
-                and _is_revoked_shared(token):
-            # A cross-process revoke won the lost-update race with a
-            # concurrent _save() — the JSON flag was overwritten, but
-            # the shared marker survives. Honour it locally so every
-            # downstream check (is_valid, check_permission, ws
-            # upgrade) sees the session as revoked.
-            session.revoked = True
-        return session
+            if session is None:
+                self._load()
+                session = self._sessions.get(token)
+            if session is not None and not session.revoked \
+                    and _is_revoked_shared(token):
+                # A cross-process revoke won the lost-update race
+                # with a concurrent _save() — the JSON flag was
+                # overwritten, but the shared marker survives. Honour
+                # it locally so every downstream check (is_valid,
+                # check_permission, ws upgrade) sees the session as
+                # revoked.
+                session.revoked = True
+            return session
 
     def validate(self, signed_token: str, client_ip: str | None = None,
                  resource: str | None = None) -> EphemeralSession | None:
@@ -850,12 +870,20 @@ class SessionStore:
         payload = verify_ephemeral_token(signed_token)
         if not payload:
             return None
-        session = self.get(payload['session_token'])
-        if not session:
-            return None
-        if not session.is_valid(client_ip, resource):
-            return None
-        return session
+        with self._lock:
+            session = self.get(payload['session_token'])
+            if not session:
+                return None
+            if session.allowed_ip == 'first-observed' and client_ip:
+                # Pin the 'first-observed' marker on the bearer path
+                # too — before this fix only activate() pinned it, so
+                # a token used directly as Bearer (terminal/WS auth)
+                # carried NO ip restriction at all.
+                session.allowed_ip = client_ip
+                self._save()
+            if not session.is_valid(client_ip, resource):
+                return None
+            return session
 
     def revoke(self, token: str) -> bool:
         """Revoke a session by token.
@@ -869,32 +897,34 @@ class SessionStore:
             payload = verify_ephemeral_token(token)
             if payload:
                 internal = payload['session_token']
-        session = self.get(internal)
-        if session:
-            session.revoke()
-            # Shared-state marker: a concurrent _save() in another
-            # process can lose this JSON flag (merge-read then
-            # os.replace is not atomic across processes), so the
-            # revocation is ALSO recorded in the backend that
-            # _claim_use already uses. get() consults it.
-            _mark_revoked_shared(internal, session.expires_at)
-            self._save()
-            from vnc_remote_secure.security.audit import audit_event
-            audit_event('ephemeral_session_revoke',
-                      detail=f'role={session.role}')
-            return True
-        return False
+        with self._lock:
+            session = self.get(internal)
+            if session:
+                session.revoke()
+                # Shared-state marker: a concurrent _save() in another
+                # process can lose this JSON flag (merge-read then
+                # os.replace is not atomic across processes), so the
+                # revocation is ALSO recorded in the backend that
+                # _claim_use already uses. get() consults it.
+                _mark_revoked_shared(internal, session.expires_at)
+                self._save()
+                from vnc_remote_secure.security.audit import audit_event
+                audit_event('ephemeral_session_revoke',
+                          detail=f'role={session.role}')
+                return True
+            return False
 
     def set_label(self, token: str, label: str | None) -> bool:
         """Set/replace the operator tag on a session by public id or
         internal token. Non-terminal metadata — unlike revoke() the
         write rides the normal save path; a concurrent process save
         may lose it, which is acceptable for an inventory tag."""
-        session = self.find_by_token_id(token) or self.get(token)
-        if session is None:
-            return False
-        session.label = label
-        self._save()
+        with self._lock:
+            session = self.find_by_token_id(token) or self.get(token)
+            if session is None:
+                return False
+            session.label = label
+            self._save()
         from vnc_remote_secure.security.audit import audit_event
         fp = hashlib.sha256(session.token.encode()).hexdigest()[:12]
         audit_event('session_label',
@@ -904,23 +934,27 @@ class SessionStore:
     def list_active(self) -> list:
         """List all active (non-expired, non-revoked) sessions."""
         now = time.time()
-        return [
-            s.to_dict() for s in self._sessions.values()
-            if not s.revoked and now < s.expires_at
-        ]
+        with self._lock:
+            return [
+                s.to_dict() for s in list(self._sessions.values())
+                if not s.revoked and now < s.expires_at
+            ]
 
     def list_revoked(self) -> list:
         """Revoked sessions still retained (until expiry/cleanup)."""
         now = time.time()
-        return [
-            s.to_dict() for s in self._sessions.values()
-            if s.revoked and now < s.expires_at
-        ]
+        with self._lock:
+            return [
+                s.to_dict() for s in list(self._sessions.values())
+                if s.revoked and now < s.expires_at
+            ]
 
     def list_all(self) -> list:
         """Every retained session: active, revoked, and expired records
         not yet reaped by ``cleanup()`` — the session-center history."""
-        return [s.to_dict() for s in self._sessions.values()]
+        with self._lock:
+            return [s.to_dict()
+                    for s in list(self._sessions.values())]
 
     def find_by_token_id(self, token_id: str):
         """Return the live session object for a public ``token_id``.
@@ -930,12 +964,13 @@ class SessionStore:
         registry) resolve the internal token here without it ever
         leaving the store. Returns None for unknown/reaped ids.
         """
-        self._load()
-        for token, session in self._sessions.items():
-            digest = hashlib.sha256(token.encode()).hexdigest()[:12]
-            if hmac.compare_digest(digest, token_id):
-                return session
-        return None
+        with self._lock:
+            self._load()
+            for token, session in self._sessions.items():
+                digest = hashlib.sha256(token.encode()).hexdigest()[:12]
+                if hmac.compare_digest(digest, token_id):
+                    return session
+            return None
 
     def note_connection(self, internal_token: str,
                         connected: bool = True):
@@ -944,28 +979,31 @@ class SessionStore:
         sockets. Persists immediately — a disconnect that is only
         in-memory is invisible to the detail view of another process.
         """
-        session = self._sessions.get(internal_token)
-        if session is None:
-            self._load()
+        with self._lock:
             session = self._sessions.get(internal_token)
-        if session is None:
-            return
-        if connected:
-            session.note_connected()
-        else:
-            session.note_disconnected()
-        self._save()
+            if session is None:
+                self._load()
+                session = self._sessions.get(internal_token)
+            if session is None:
+                return
+            if connected:
+                session.note_connected()
+            else:
+                session.note_disconnected()
+            self._save()
 
     def cleanup(self):
         """Remove expired sessions."""
         now = time.time()
-        expired = [t for t, s in self._sessions.items() if now >= s.expires_at]
-        for t in expired:
-            del self._sessions[t]
-        if expired:
-            self._save()
-            for _ in expired:
-                _metric('expired')
+        with self._lock:
+            expired = [t for t, s in self._sessions.items()
+                       if now >= s.expires_at]
+            for t in expired:
+                del self._sessions[t]
+            if expired:
+                self._save()
+                for _ in expired:
+                    _metric('expired')
 
 
 # Global session store

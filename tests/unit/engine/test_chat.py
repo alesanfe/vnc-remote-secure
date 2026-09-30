@@ -22,9 +22,18 @@ class _FakeBackend:
     def get(self, ns, key):
         return self.data.get((ns, key))
 
+    def delete(self, ns, key):
+        self.data.pop((ns, key), None)
+
     def set_ttl(self, ns, key, value, ttl):
         self.data[(ns, key)] = value
         self.ttls[(ns, key)] = ttl
+
+    def set_if_absent(self, ns, key, value, ttl_seconds):
+        if (ns, key) in self.data:
+            return False
+        self.data[(ns, key)] = value
+        return True
 
 
 class _FakeStore:

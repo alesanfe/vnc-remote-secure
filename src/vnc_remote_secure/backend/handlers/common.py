@@ -149,7 +149,7 @@ def session_to_api(s: dict) -> dict:
             'created_by', 'created_at', 'used', 'revoked', 'resource',
             'max_uses', 'use_count', 'last_used_at', 'last_used_ip',
             'last_connected_at', 'last_disconnected_at',
-            'connection_count')
+            'connection_count', 'label')
     return {k: s.get(k) for k in keys if k in s}
 
 

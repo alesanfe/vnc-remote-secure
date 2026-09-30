@@ -101,7 +101,11 @@ def job_enqueue(kind: str, actor: str, target: str = '',
 
     The record is durably in the shared backend before the caller
     answers — the 202 response can safely reference ``job_id`` even
-    when the operation will kill the serving process."""
+    when the operation will kill the serving process.
+
+    Returns '' on backend failure — a phantom jid would leave the API
+    answering 202 for a job that can never run (and the deferred
+    runner exiting with the op-class mutex still held)."""
     jid = secrets.token_hex(8)
     try:
         rec = {
@@ -114,7 +118,8 @@ def job_enqueue(kind: str, actor: str, target: str = '',
         }
         _be().set_ttl(_NS_JOBS, jid, json.dumps(rec), _JOB_TTL)
     except Exception:  # noqa: BLE001
-        logger.debug('job_enqueue failed', exc_info=True)
+        logger.exception('job_enqueue failed')
+        return ''
     return jid
 
 

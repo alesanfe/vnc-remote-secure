@@ -27,6 +27,8 @@ import pytest
 
 _DRIVER_RE = re.compile(r'playwright[\\/]driver', re.IGNORECASE)
 _BROWSER_RE = re.compile(r'ms-playwright', re.IGNORECASE)
+_BROWSER_EXE = ('headless_shell', 'chrome', 'chromium', 'ffmpeg',
+                'msedge', 'firefox')
 
 
 def _processes() -> list:
@@ -75,7 +77,13 @@ def _processes() -> list:
                           'rb') as f:
                     cmd = f.read().replace(b'\x00', b' ').decode(
                         errors='replace')
-                rows.append((int(name), '', cmd))
+                # POSIX /proc gives no exe name column — derive it
+                # from argv[0]'s basename so the driver check's
+                # 'node' match works here too (previously name=''
+                # made is_driver impossible on POSIX).
+                argv0 = cmd.strip().split(' ', 1)[0]
+                proc_name = os.path.basename(argv0) if argv0 else ''
+                rows.append((int(name), proc_name, cmd))
             except OSError:
                 continue
     return rows
@@ -100,8 +108,14 @@ def _sweep_orphan_drivers() -> int:
         if pid == me:
             continue
         cmd = cmd or ''
-        is_driver = _DRIVER_RE.search(cmd) and 'node' in name.lower()
-        is_browser_child = _BROWSER_RE.search(cmd)
+        lname = name.lower()
+        is_driver = _DRIVER_RE.search(cmd) and 'node' in lname
+        # The browser-cache match is scoped to actual browser-ish
+        # executables — a bare 'ms-playwright' substring in the
+        # cmdline could belong to another project's own playwright
+        # run (shared cache dir), which we must not reap.
+        is_browser_child = _BROWSER_RE.search(cmd) and any(
+            exe in lname for exe in _BROWSER_EXE)
         if is_driver or is_browser_child:
             _kill(pid)
             killed += 1

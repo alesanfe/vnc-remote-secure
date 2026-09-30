@@ -62,6 +62,11 @@ def test_main_delay_is_bounded(monkeypatch):
     slept = []
     monkeypatch.setattr(dl.time, 'sleep', lambda s: slept.append(s))
     monkeypatch.setattr(dl, 'run_action', lambda a: 0)
+    # Legacy direct mode is opt-in — without the flag the action is
+    # refused (the audited path is `run <job_id>`).
+    dl.main(['stop', '999999'])
+    assert slept[0] <= 60.0
+    monkeypatch.setenv('VRS_DEFERRED_LEGACY', '1')
     dl.main(['stop', '999999'])
     assert slept[0] <= 60.0
 

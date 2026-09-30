@@ -155,6 +155,15 @@ def drain_deadline_passed() -> bool:
     return False
 
 
+# In-process memo for enforce_drain_deadline — the shared-state reads
+# after the deadline (drain_done lookup, lease claim) used to run on
+# EVERY session validity check: a guest polling /files or /chat meant
+# a backend round-trip per request. The memo expires each generation
+# switch automatically since it is keyed on maintenance_id.
+_DRAINED_MEMO: dict = {'mid': '', 'ts': 0.0}
+_MEMO_TTL = 5.0
+
+
 def enforce_drain_deadline() -> bool:
     """When the deadline passed, materialize the drain exactly once
     per maintenance generation.
@@ -173,6 +182,9 @@ def enforce_drain_deadline() -> bool:
     if not drain_deadline_passed():
         return False
     mid = _read_flag().get('maintenance_id', '')
+    if (_DRAINED_MEMO['mid'] == mid and mid
+            and time.monotonic() - _DRAINED_MEMO['ts'] < _MEMO_TTL):
+        return True  # known-drained this generation — skip backend
     try:
         from vnc_remote_secure.security.shared_state import get_backend
         be = get_backend()
@@ -205,6 +217,8 @@ def enforce_drain_deadline() -> bool:
     except Exception:  # noqa: BLE001 - deny regardless of sweep result
         logger.warning('Drain sweep failed; sessions still denied',
                        exc_info=True)
+    _DRAINED_MEMO['mid'] = mid
+    _DRAINED_MEMO['ts'] = time.monotonic()
     return True
 
 

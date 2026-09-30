@@ -12,10 +12,10 @@ Design notes:
   internal token never needs to leave the store;
 * messages are small ({author, at, text} dicts, text ≤ 500 chars,
   history capped) — this is a coordination channel, not storage;
-* writes are append-then-rewrite under a best-effort lock key in the
-  same backend. A lost update between two simultaneous posters is
-  acceptable for chat (both messages still arrive on the next poll)
-  and strictly simpler than a queue primitive the backend lacks;
+* writes are append-then-rewrite serialized by a per-channel mutex
+  (``set_if_absent`` lease + retry). The backend lacks a queue/append
+  primitive, so without the lease two simultaneous posters would
+  silently lose a message (both messages now arrive);
 * every message is audited so the immutable log keeps who-said-what
   even though the channel itself is TTL'd.
 """
@@ -70,13 +70,27 @@ def post_message(token_id: str, author: str, text: str) -> dict:
     author = (author or '?')[:64]
 
     be = stores.shared_backend()
-    messages = be.get(_NS, token_id)
-    messages = messages if isinstance(messages, list) else []
+    lock_key = f'lock:{token_id}'
+    # Short lease: a poster that dies mid-write frees the channel in
+    # 5 s; waiters retry briefly before proceeding best-effort.
+    deadline = time.monotonic() + 2.0
+    locked = False
+    while time.monotonic() < deadline:
+        if be.set_if_absent(_NS, lock_key, '1', ttl_seconds=5):
+            locked = True
+            break
+        time.sleep(0.02)
     record = {'author': author, 'at': time.time(), 'text': text}
-    messages.append(record)
-    messages = messages[-_MAX_MESSAGES:]
-    ttl = max(60, session['expires_at'] - time.time() + _TTL_GRACE)
-    be.set_ttl(_NS, token_id, messages, ttl)
+    try:
+        messages = be.get(_NS, token_id)
+        messages = messages if isinstance(messages, list) else []
+        messages.append(record)
+        messages = messages[-_MAX_MESSAGES:]
+        ttl = max(60, session['expires_at'] - time.time() + _TTL_GRACE)
+        be.set_ttl(_NS, token_id, messages, ttl)
+    finally:
+        if locked:
+            be.delete(_NS, lock_key)
 
     stores.audit('session_chat_message', author,
                  f'token_id={token_id} len={len(text)}')

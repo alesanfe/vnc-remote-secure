@@ -473,9 +473,9 @@ _ROUTES = {
     ('GET', 'lifecycle'): _route(
         _get_lifecycle, scope='default', resp='LifecycleStatusResponse',
         op='system.status'),
-    ('POST', 'lifecycle'): _Route(
-        _post_lifecycle, 'admin:*', 'lifecycle', 'lifecycle_action',
-        'LifecycleActionResponse', True),
+    ('POST', 'lifecycle'): _route(
+        _post_lifecycle, scope='lifecycle', resp='LifecycleActionResponse',
+        op='lifecycle.action'),
     # Backups — create/verify/restore over ``core.backup``; names are
     # resolved server-side (basename allowlist) so the wire value never
     # reaches the filesystem.
@@ -647,6 +647,16 @@ def _dispatch(handler, method: str, path: str, query: dict) -> bool:
         # direct dispatch paths (mutations, tests) from trusting the
         # caller to have run it.
         if handler._valid_ephemeral_cookie():
+            # Guest mutations used to skip every CSRF layer —
+            # SameSite on vnc_ephemeral was the only protection.
+            # Run the same Origin + Sec-Fetch-Site gate the public
+            # routes use; operators still go through _operator_gate.
+            if method != 'GET':
+                from vnc_remote_secure.backend.handlers.common import (
+                    _public_gate,
+                )
+                if not _public_gate(handler):
+                    return True
             handler._api_ephemeral = True
             handler._api_operator = None
         else:
