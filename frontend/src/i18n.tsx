@@ -48,6 +48,7 @@ const es = {
   'nav.sessionErrorNet': 'Error de red — el servicio puede estar caído.',
   'common.retry': 'Reintentar',
   'common.open': 'Abrir',
+  'common.actions': 'Acciones',
 
   'login.title': 'Panel del operador',
   'login.username': 'Usuario',
@@ -1087,6 +1088,7 @@ const en: typeof es = {
   'common.close': 'Close',
   'common.more': 'More',
   'common.undo': 'Undo',
+  'common.actions': 'Actions',
   'common.enabled': 'enabled',
   'common.disabled': 'disabled',
   'common.detail': 'Detail',

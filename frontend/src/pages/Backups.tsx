@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type BackupItem } from '../api';
 import { useStepUp } from '../components/useStepUp';
+import { useDialogA11y } from '../components/useDialogA11y';
 import { useI18n } from '../i18n';
 
 function fmtSize(bytes: number): string {
@@ -38,6 +39,9 @@ function RestoreWizard({
   const { t } = useI18n();
   const [step, setStep] = useState<WizardStep>('verify');
   const [typed, setTyped] = useState('');
+  // Escape closes the wizard, Tab stays trapped, focus returns to the
+  // row's Restore button on close (same contract as ConfirmDialog).
+  const { ref: dialogRef } = useDialogA11y(true, onCancel);
   const verify = useQuery({
     queryKey: ['backup-verify', target],
     queryFn: () => api.backupVerify(target),
@@ -51,8 +55,12 @@ function RestoreWizard({
   }, [verify.isSuccess, verify.data, step]);
 
   return (
-    <div className="dialog-overlay" role="presentation">
+    <div className="dialog-overlay" role="presentation"
+         onClick={(e) => {
+           if (e.target === e.currentTarget) onCancel();
+         }}>
       <div className="dialog" role="dialog" aria-modal="true"
+           ref={dialogRef}
            aria-labelledby="restore-wizard-title">
         <h2 id="restore-wizard-title">{t('wizard.title')}</h2>
         <ol className="wizard-steps" aria-label={t('wizard.steps')}>

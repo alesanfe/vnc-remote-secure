@@ -225,7 +225,7 @@ function ConfigHistory() {
               <th>{t('config.history.col.reason')}</th>
               <th>{t('config.history.col.changes')}</th>
               <th>{t('config.history.col.file')}</th>
-              <th />
+              <th><span className="sr-only">{t('common.actions')}</span></th>
             </tr>
           </thead>
           <tbody>

@@ -240,7 +240,7 @@ function OperatorSessions({ p }: { p: PortalData }) {
               <th>{t('portal.sessions.role')}</th>
               <th>{t('portal.sessions.expires')}</th>
               <th>{t('portal.sessions.uses')}</th>
-              <th></th>
+              <th><span className="sr-only">{t('common.actions')}</span></th>
             </tr>
           </thead>
           <tbody>

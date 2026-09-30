@@ -339,7 +339,7 @@ export default function Recordings() {
               <th>{t('rec.col.operator')}</th>
               <th>{t('rec.col.size')}</th>
               <th>{t('rec.col.state')}</th>
-              <th></th>
+              <th><span className="sr-only">{t('common.actions')}</span></th>
             </tr>
           </thead>
           <tbody>

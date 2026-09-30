@@ -809,7 +809,11 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SessionRevokeRequest"];
+                };
+            };
             responses: {
                 /** @description {revoked: bool} — existence is never disclosed */
                 200: {
@@ -1336,7 +1340,11 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OperatorCreateRequest"];
+                };
+            };
             responses: {
                 /** @description Created */
                 201: {
@@ -1468,7 +1476,11 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OperatorUpdateRequest"];
+                };
+            };
             responses: {
                 /** @description {operator, changed, sessions_revoked} */
                 200: {
@@ -1610,7 +1622,11 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasskeyRegisterRequest"];
+                };
+            };
             responses: {
                 /** @description {registered: true} */
                 201: {
@@ -1699,7 +1715,11 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasskeyRenameRequest"];
+                };
+            };
             responses: {
                 /** @description {renamed: true} */
                 200: {
@@ -4517,6 +4537,36 @@ export interface components {
             };
             error: unknown;
             request_id: string;
+        };
+        SessionRevokeRequest: {
+            token_id: string;
+        };
+        OperatorCreateRequest: {
+            /** @description [a-zA-Z0-9._-@] */
+            username: string;
+            password: string;
+            /**
+             * @default viewer
+             * @enum {string}
+             */
+            role: "viewer" | "support" | "operator" | "administrator";
+            /** @default true */
+            enabled: boolean;
+        };
+        OperatorUpdateRequest: {
+            /** @enum {string|null} */
+            role?: "viewer" | "support" | "operator" | "administrator" | null;
+            disabled?: boolean | null;
+            password?: string | null;
+        };
+        PasskeyRegisterRequest: {
+            /** @description WebAuthn attestation response */
+            credential: Record<string, never>;
+            /** @default  */
+            name: string;
+        };
+        PasskeyRenameRequest: {
+            name: string;
         };
         /** @description Raw binary body (PNG image or .vrsrec stream) — no JSON envelope. */
         BinaryResponse: Record<string, never>;

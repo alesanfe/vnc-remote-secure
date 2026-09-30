@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
+import { useDialogA11y } from './useDialogA11y';
 
 interface Props {
   open: boolean;
@@ -37,48 +38,14 @@ export default function ConfirmDialog({
   const { t } = useI18n();
   confirmLabel ??= t('common.confirm');
   cancelLabel ??= t('common.cancel');
-  const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  const opener = useRef<Element | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [typedOk, setTypedOk] = useState(false);
+  const { ref } = useDialogA11y(open, onCancel, inputRef);
 
   useEffect(() => {
-    if (!open) return;
-    opener.current = document.activeElement;
-    setTypedOk(false);
-    const el = ref.current;
-    const focusTarget =
-      inputRef.current ??
-      el?.querySelector<HTMLElement>('button[data-autofocus]') ??
-      el?.querySelector<HTMLElement>('button');
-    focusTarget?.focus();
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-      if (e.key === 'Tab' && el) {
-        // Simple focus trap: keep Tab inside the dialog.
-        const items = el.querySelectorAll<HTMLElement>(
-          'button, input, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!items.length) return;
-        const first = items[0];
-        const last = items[items.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      (opener.current as HTMLElement | null)?.focus?.();
-    };
-  }, [open, onCancel]);
+    if (open) setTypedOk(false);
+  }, [open]);
 
   if (!open) return null;
   const needsTyping = Boolean(confirmText);

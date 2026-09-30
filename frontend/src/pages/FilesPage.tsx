@@ -260,7 +260,7 @@ export default function FilesPage() {
               <th>{t('files.col.name')}</th>
               <th>{t('files.col.size')}</th>
               <th>{t('files.col.mtime')}</th>
-              <th></th>
+              <th><span className="sr-only">{t('common.actions')}</span></th>
             </tr>
           </thead>
           <tbody>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
+import { useDialogA11y } from './useDialogA11y';
 
 /** Global '?' key → shortcut cheat sheet. '?' needs Shift on most
     layouts, so listen on keydown for both '/' and '?' — and never
@@ -19,15 +20,15 @@ export default function ShortcutsDialog() {
         e.preventDefault();
         setOpen((o) => !o);
       }
-      if (e.key === 'Escape') setOpen(false);
+      // Escape is handled by useDialogA11y once open (otherwise the
+      // key would close ANY open modal AND this listener at once).
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  useEffect(() => {
-    if (open) closeRef.current?.focus();
-  }, [open]);
+  // Same focus-trap/Escape/restore contract as ConfirmDialog.
+  const { ref: dialogRef } = useDialogA11y(open, () => setOpen(false), closeRef);
 
   if (!open) return null;
   const rows: [string, string][] = [
@@ -42,7 +43,7 @@ export default function ShortcutsDialog() {
            if (e.target === e.currentTarget) setOpen(false);
          }}>
       <div className="dialog" role="dialog" aria-modal="true"
-           aria-label={t('keys.title')}>
+           ref={dialogRef} aria-label={t('keys.title')}>
         <h2>{t('keys.title')}</h2>
         <table className="data" style={{ marginTop: '0.5rem' }}>
           <tbody>
