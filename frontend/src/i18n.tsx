@@ -386,8 +386,8 @@ const es = {
   'security.deployment': 'Despliegue',
   'security.deployment.allowed': 'despliegue permitido',
   'security.deployment.blocked': 'despliegue bloqueado',
-  'security.overview.error': 'El resumen de seguridad no est disponible.',
-  'security.overview.score': 'Puntuacin',
+  'security.overview.error': 'El resumen de seguridad no está disponible.',
+  'security.overview.score': 'Puntuación',
   'security.overview.blocking': '{{count}} hallazgo(s) bloqueantes',
   'security.overview.noBlocking': 'Sin hallazgos bloqueantes',
   'security.overview.authFails': 'Fallos auth (24h)',
@@ -567,7 +567,7 @@ const es = {
   'portal.sessions.revoke': 'Revocar',
   'portal.sessions.revokeError': 'No se pudo revocar la sesión.',
   'portal.gamepad.desc': 'Reenvío de mando en directo para juegos.',
-  'portal.gamepad.resume': 'Reanudar audio',
+  'portal.gamepad.resume': 'Reanudar mando',
   'portal.gamepad.stop': 'Detener',
   'portal.error.restricted': 'Acceso restringido a operadores.',
   'portal.error.load': 'No se pudo cargar el portal.',
@@ -964,6 +964,7 @@ const es = {
 
   // --- Users (operators) --------------------------------------------------------------
   'users.title': 'Operadores',
+  'users.confirmDeleteWord': 'ELIMINAR',
   'users.subtitle':
     'Cuentas de operador, permisos, sesiones y passkeys.',
   'users.loadError': 'No se pudieron cargar los operadores.',
@@ -1072,6 +1073,7 @@ const es = {
   'keys.this': 'Esta ayuda',
   'keys.esc': 'Cierra diálogos, paneles y el modo inmersivo',
   'keys.tab': 'Recorre los controles del diálogo',
+  'lang.label': 'Idioma',
 };
 
 const en: typeof es = {
@@ -1626,7 +1628,7 @@ const en: typeof es = {
   'portal.sessions.revoke': 'Revoke',
   'portal.sessions.revokeError': 'Could not revoke the session.',
   'portal.gamepad.desc': 'Live gamepad forwarding for games.',
-  'portal.gamepad.resume': 'Resume audio',
+  'portal.gamepad.resume': 'Resume gamepad',
   'portal.gamepad.stop': 'Stop',
   'portal.error.restricted': 'Access restricted to operators.',
   'portal.error.load': 'Could not load the portal.',
@@ -2016,6 +2018,7 @@ const en: typeof es = {
 
   // --- Users (operators) --------------------------------------------------------------
   'users.title': 'Operators',
+  'users.confirmDeleteWord': 'DELETE',
   'users.subtitle':
     'Operator accounts, permissions, sessions and passkeys.',
   'users.loadError': 'Could not load operators.',
@@ -2123,6 +2126,7 @@ const en: typeof es = {
   'keys.this': 'This help',
   'keys.esc': 'Closes dialogs, panels and immersive mode',
   'keys.tab': 'Cycles through dialog controls',
+  'lang.label': 'Language',
 };
 
 export type Lang = 'es' | 'en';

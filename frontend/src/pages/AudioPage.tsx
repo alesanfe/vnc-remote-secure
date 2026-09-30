@@ -29,6 +29,11 @@ export default function AudioPage() {
     return () => {
       wsRef.current?.close();
       wsRef.current = null;
+      // Browsers cap AudioContext instances (~6) — a leaked ctx
+      // per /audio visit eventually breaks every audio surface.
+      void ctxRef.current?.close().catch(() => {});
+      ctxRef.current = null;
+      gainRef.current = null;
     };
   }, []);
 

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Gamepad2,
   Link2,
@@ -71,6 +71,7 @@ function directAccesses(p?: PortalData): DirectAccess[] {
     entry point to create a new link. */
 export default function ConnectPage() {
   const { t } = useI18n();
+  const nav = useNavigate();
   const portal = useQuery({
     queryKey: ['portal'],
     queryFn: () => api.portal(),
@@ -92,9 +93,9 @@ export default function ConnectPage() {
       <div className="toolbar section">
         <h2 style={{ margin: 0 }}>{t('connect.direct')}</h2>
         <span className="spacer" />
-        <Link to="/access">
-          <button type="button">{t('connect.newLink')}</button>
-        </Link>
+        <button type="button" onClick={() => nav('/access')}>
+          {t('connect.newLink')}
+        </button>
       </div>
       <p className="muted">{t('connect.directDesc')}</p>
       <div className="cards">

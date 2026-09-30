@@ -56,6 +56,19 @@ function PublicNotFound() {
   );
 }
 
+/** Visible chunk-loading state — fallback=null left a blank
+    viewport while the route bundle downloaded. */
+function RouteFallback() {
+  const { t } = useI18n();
+  return (
+    <div className="share-wrap" role="status" aria-live="polite">
+      <div className="card share-card">
+        <p className="muted">{t('common.loading')}</p>
+      </div>
+    </div>
+  );
+}
+
 // The admin SPA keeps its own basename router (its NavLinks are
 // relative to /admin); every other surface shares one Routes tree
 // with layout nesting — GuestLayout mounts the session bar around
@@ -65,13 +78,13 @@ const isAdmin = path === '/admin' || path.startsWith('/admin/');
 
 const surface = isAdmin ? (
   <BrowserRouter basename="/admin">
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteFallback />}>
       <App />
     </Suspense>
   </BrowserRouter>
 ) : (
   <BrowserRouter>
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteFallback />}>
     <Routes>
       <Route path="/" element={<PortalPage />} />
       <Route path="/share" element={<SharePage />} />

@@ -210,7 +210,12 @@ function OperatorSessions({ p }: { p: PortalData }) {
   const revoke = useMutation({
     mutationFn: (tokenId: string) =>
       api.post('sessions/revoke', { token_id: tokenId }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['portal'] });
+      // /access lists the same sessions under its own key — a revoke
+      // here left it showing a live link until its next poll.
+      qc.invalidateQueries({ queryKey: ['sessions'] });
+    },
     onError: (e) =>
       setErr(e instanceof ApiError ? e.message
                                    : t('portal.sessions.revokeError')),

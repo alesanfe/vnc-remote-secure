@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
   ApiError,
@@ -26,6 +26,7 @@ function StatusBadge({ running }: { running: boolean }) {
 function LifecyclePanel() {
   const stepUp = useStepUp();
   const { t } = useI18n();
+  const qc = useQueryClient();
   const [pending, setPending] = useState<'stop' | 'restart' | null>(null);
   const [flash, setFlash] = useState('');
   const [upgradeSource, setUpgradeSource] = useState('');
@@ -58,6 +59,11 @@ function LifecyclePanel() {
           : d.action === 'restart'
             ? t('overview.lifecycle.restarting', { job: d.job_id })
             : t('overview.lifecycle.starting', { job: d.job_id }));
+      // The detached runner executes after the response — pull the
+      // ledger and lifecycle views forward instead of waiting 15-30 s.
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      qc.invalidateQueries({ queryKey: ['lifecycle'] });
+      qc.invalidateQueries({ queryKey: ['health'] });
     },
     onError: (e, action) => {
       if (stepUp.gate(
@@ -74,8 +80,10 @@ function LifecyclePanel() {
 
   const up = useMutation({
     mutationFn: (source?: string) => api.upgradeRun(source),
-    onSuccess: (d) =>
-      setFlash(t('overview.upgrade.queued', { job: d.job_id })),
+    onSuccess: (d) => {
+      setFlash(t('overview.upgrade.queued', { job: d.job_id }));
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
     onError: (e, source) => {
       stepUp.gate(e, t('overview.upgrade.confirm'),
                   () => up.mutate(source),
@@ -85,8 +93,10 @@ function LifecyclePanel() {
   });
   const rollback = useMutation({
     mutationFn: () => api.upgradeRollback(),
-    onSuccess: (d) =>
-      setFlash(t('overview.upgrade.rollbackQueued', { job: d.job_id })),
+    onSuccess: (d) => {
+      setFlash(t('overview.upgrade.rollbackQueued', { job: d.job_id }));
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
     onError: (e) => {
       stepUp.gate(e, t('overview.upgrade.confirmRollback'),
                   () => rollback.mutate(),
@@ -370,6 +380,7 @@ function readHidden(): Set<Widget> {
 
 export default function Overview() {
   const { t } = useI18n();
+  const nav = useNavigate();
   const [hidden, setHidden] = useState<Set<Widget>>(readHidden);
   const toggleWidget = (w: Widget) => {
     setHidden((h) => {
@@ -460,26 +471,25 @@ export default function Overview() {
 
       {/* Frequent actions — one primary (new invite) plus the
           day-to-day jumps; system-level controls stay folded below. */}
+      {/* Buttons (not Link>button nesting — invalid interactive-
+          nested HTML, and it creates a double tab stop). */}
       {!hidden.has('actions') && (
       <div className="toolbar">
-        <Link to="/access">
-          <button type="button">{t('overview.actions.newInvite')}</button>
-        </Link>
-        <Link to="/remote">
-          <button type="button" className="ghost">
-            {t('overview.actions.console')}
-          </button>
-        </Link>
-        <Link to="/security/audit">
-          <button type="button" className="ghost">
-            {t('overview.actions.activity')}
-          </button>
-        </Link>
-        <Link to="/operations/doctor">
-          <button type="button" className="ghost">
-            {t('overview.actions.diag')}
-          </button>
-        </Link>
+        <button type="button" onClick={() => nav('/access')}>
+          {t('overview.actions.newInvite')}
+        </button>
+        <button type="button" className="ghost"
+                onClick={() => nav('/remote')}>
+          {t('overview.actions.console')}
+        </button>
+        <button type="button" className="ghost"
+                onClick={() => nav('/security/audit')}>
+          {t('overview.actions.activity')}
+        </button>
+        <button type="button" className="ghost"
+                onClick={() => nav('/operations/doctor')}>
+          {t('overview.actions.diag')}
+        </button>
       </div>
       )}
 

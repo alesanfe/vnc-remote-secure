@@ -635,14 +635,19 @@ export default function Sessions() {
                     setEditLabel({ id: s.token_id,
                                    value: e.target.value })}
                   onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setEditLabel(null); return; }
+                    // Enter + the blur after it would fire two PATCHes —
+                    // isPending between them is not guaranteed, so keep
+                    // one explicit in-flight flag.
                     if (e.key === 'Enter')
                       setLabel.mutate({ id: s.token_id,
                         label: editLabel.value.trim() || null });
-                    if (e.key === 'Escape') setEditLabel(null);
                   }}
-                  onBlur={() =>
-                    setLabel.mutate({ id: s.token_id,
-                      label: editLabel.value.trim() || null })}
+                  onBlur={() => {
+                    if (!setLabel.isPending)
+                      setLabel.mutate({ id: s.token_id,
+                        label: editLabel.value.trim() || null });
+                  }}
                   disabled={setLabel.isPending}
                 />
               ) : (

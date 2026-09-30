@@ -64,6 +64,10 @@ export default function Users() {
     },
     onSuccess: (data, a) => {
       invalidate();
+      // Per-operator views (detail panel, passkeys) must refresh too —
+      // a delete/patch otherwise leaves stale rows until the next poll.
+      qc.invalidateQueries({ queryKey: ['operator', a.username] });
+      qc.invalidateQueries({ queryKey: ['operator-passkeys', a.username] });
       if (a.kind === 'patch' && 'sessions_revoked' in data &&
           data.sessions_revoked)
         toast.success(t('users.sessionsRevoked', { name: a.username }));
@@ -208,7 +212,7 @@ export default function Users() {
         danger
         busy={act.isPending}
         confirmLabel={t('common.delete')}
-        confirmText="ELIMINAR"
+        confirmText={t('users.confirmDeleteWord')}
         onCancel={() => setPending(null)}
         onConfirm={() => {
           if (pending) {
@@ -221,7 +225,7 @@ export default function Users() {
           {t('users.deleteBody', { name: pending?.username ?? '' })}
         </p>
         <p className="muted">
-          {t('confirm.typeToConfirm', { name: 'ELIMINAR' })}
+          {t('confirm.typeToConfirm', { name: t('users.confirmDeleteWord') })}
         </p>
       </ConfirmDialog>
 

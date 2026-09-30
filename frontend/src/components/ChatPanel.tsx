@@ -93,6 +93,7 @@ export default function ChatPanel({ session }: { session?: string }) {
             className="ghost"
             style={{ float: 'right', fontSize: '0.85rem' }}
             aria-pressed={notify}
+            aria-label={t('chat.notify')}
             title={t('chat.notify')}
             onClick={toggleNotify}
           >

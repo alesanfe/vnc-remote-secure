@@ -226,14 +226,18 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
                   aria-label={t('sessions.labelEditAria')}
                   onChange={(e) => setLabelDraft(e.target.value)}
                   onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setLabelDraft(null); return; }
                     if (e.key === 'Enter')
                       setLabel.mutate(
                         { label: labelDraft.trim() || null });
-                    if (e.key === 'Escape') setLabelDraft(null);
                   }}
-                  onBlur={() =>
-                    setLabel.mutate(
-                      { label: labelDraft.trim() || null })}
+                  onBlur={() => {
+                    // Enter already queued the PATCH — blur fires
+                    // right after it; skip the duplicate request.
+                    if (!setLabel.isPending)
+                      setLabel.mutate(
+                        { label: labelDraft.trim() || null });
+                  }}
                   disabled={setLabel.isPending}
                 />
               ) : (
