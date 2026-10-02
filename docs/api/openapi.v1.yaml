@@ -405,6 +405,9 @@ components:
               type: array
               items: { $ref: '#/components/schemas/PostureCheck' }
             summary: { type: string }
+            summary_key:
+              type: string
+              enum: [excellent, good, moderate, poor]
             deployment_decision: { type: string, enum: [allowed, blocked] }
             blocking_findings: { type: array, items: { type: string } }
         error: { nullable: true }
@@ -421,6 +424,7 @@ components:
               properties:
                 score: { type: integer, nullable: true }
                 summary: { type: string, nullable: true }
+                summary_key: { type: string, nullable: true }
                 blocking_findings:
                   type: array
                   items: { type: string }

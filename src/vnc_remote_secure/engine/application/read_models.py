@@ -126,6 +126,7 @@ def security_overview() -> dict:
         "posture": {
             "score": report.get("score"),
             "summary": report.get("summary"),
+            "summary_key": report.get("summary_key"),
             "blocking_findings": report.get("blocking_findings", []),
         },
         "signals": {

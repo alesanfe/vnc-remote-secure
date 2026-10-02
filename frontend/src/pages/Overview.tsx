@@ -447,7 +447,11 @@ export default function Overview() {
             : posture.data.score >= 50 ? 'warn' : 'fail'}`}>
             {t('overview.security.score', { score: posture.data.score })}
           </span>
-          <span className="muted">{posture.data.summary}</span>
+          <span className="muted">
+            {posture.data.summary_key
+              ? t(`overview.security.posture.${posture.data.summary_key}`)
+              : posture.data.summary}
+          </span>
         </div>
       )}
 

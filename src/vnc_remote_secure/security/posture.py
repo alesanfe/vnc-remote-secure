@@ -458,7 +458,7 @@ def calculate_posture() -> dict:
         elif f["status"] == "fail":
             score -= f["points"]
     score = max(0, min(100, score))
-    summary = _summarize(score)
+    summary_key, summary = _summarize(score)
 
     # Checks exposed to callers exclude the internal 'points' field;
     # severity + evidence make a critical finding self-describing in
@@ -484,16 +484,19 @@ def calculate_posture() -> dict:
         "score": score,
         "checks": checks,
         "summary": summary,
+        "summary_key": summary_key,
         "deployment_decision": decision,
         "blocking_findings": blocking,
     }
 
 
-def _summarize(score: int) -> str:
+def _summarize(score: int) -> tuple:
+    """Return ``(band_key, english_fallback)`` — the key lets UIs
+    localize the summary; the fallback keeps CLI/API consumers working."""
     if score >= 90:
-        return "Excellent security posture"
+        return "excellent", "Excellent security posture"
     if score >= 75:
-        return "Good security posture with minor gaps"
+        return "good", "Good security posture with minor gaps"
     if score >= 50:
-        return "Moderate security posture — several improvements needed"
-    return "Poor security posture — immediate action required"
+        return "moderate", "Moderate security posture — several improvements needed"
+    return "poor", "Poor security posture — immediate action required"

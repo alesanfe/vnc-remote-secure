@@ -551,6 +551,7 @@ export interface Posture {
   score: number;
   checks: PostureCheck[];
   summary: string;
+  summary_key?: string;
   deployment_decision: string;
   blocking_findings: string[];
 }
@@ -560,6 +561,7 @@ export interface SecurityOverview {
   posture: {
     score: number | null;
     summary: string | null;
+    summary_key?: string | null;
     blocking_findings: string[];
   };
   signals: {

@@ -465,7 +465,11 @@ export default function Security() {
               >
                 {p.score}/100
               </div>
-              <div className="muted">{p.summary}</div>
+              <div className="muted">
+                {p.summary_key
+                  ? t(`overview.security.posture.${p.summary_key}`)
+                  : p.summary}
+              </div>
             </div>
             <div className="card">
               <h3>{t('security.deployment')}</h3>

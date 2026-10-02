@@ -325,7 +325,7 @@ function OperatorRow({
   return (
     <>
       <tr>
-        <td>
+        <td style={{ whiteSpace: 'nowrap' }}>
           <button type="button" className="link-btn" onClick={onToggle}>
             {expanded
               ? <ChevronDown size={14} aria-hidden="true" />
@@ -483,7 +483,6 @@ export function OperatorDetailPanel({ username }: { username: string }) {
   const op = detail.data.operator;
   return (
     <div className="card">
-      <h2>{op.username}</h2>
       <p>
         {t('users.role')} <strong>{op.role}</strong> ·{' '}
         {t('users.passkeyCount', { count: op.passkey_count ?? 0 })}
