@@ -33,7 +33,7 @@ attacker-controlled input is expected by design.
   server; the SPA wipes it and posts it in the request body to
   `session/preview`/`session/activate`. The token is exchanged for a
   cookie once — prefetch/replay gets 403. (Legacy `?session=` query
-  links still work via the same consent flow.)
+  links are ignored — the compat shim was removed.)
 - **Everything not listed is untrusted input** — Host headers,
   Origin, cookies, query params, WebSocket payloads, RFB bytes.
 

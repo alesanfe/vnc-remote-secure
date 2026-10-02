@@ -49,11 +49,14 @@ Windows is explicitly documented as "local/LAN support, not full parity":
   the official release; the `ULTRAVNC_URL` env var can override the
   download source. Externally-installed copies and `ULTRAVNC_PATH` are
   still honoured as fallbacks.
-- **Process-level isolation is incomplete**: The restricted runtime user
-  is created and ACLs are applied to data directories, but VNC and
-  terminal processes currently run under the current user's context, not
-  under the restricted user. Full process impersonation
-  (CreateProcessAsUser) is a planned enhancement.
+- ~~Process-level isolation is incomplete~~ — **resolved**: terminal
+  shells and the UltraVNC server (`winvnc.exe`) now spawn inside
+  dedicated AppContainers (`platform/windows/sandbox.py`), which need
+  no privileges and stay in the interactive session so screen capture
+  keeps working. The restricted runtime user and ACLs remain as
+  defence-in-depth. Full process impersonation (CreateProcessAsUser)
+  is no longer the planned mechanism — it required the restricted
+  user's credentials and a separate session.
 - **Service runs as LocalSystem**: `sc.exe create` does not pass an
   `obj=` logon account, so `VncRemoteSecure` runs under the default
   LocalSystem context — more privilege than required. A virtual service

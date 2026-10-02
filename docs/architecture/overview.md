@@ -25,7 +25,7 @@ docs/
 │   ├── 0009-bash-python-coexistence.md
 │   ├── 0010-unified-token-signing.md
 │   └── 0011-shared-state-abstraction.md
-├── api/                        # OpenAPI specification (openapi.yaml)
+├── api/                        # OpenAPI specification (openapi.v1.yaml)
 ├── installation/               # Installation guides
 │   ├── linux.md                 # Linux installation
 │   ├── windows.md               # Windows installation

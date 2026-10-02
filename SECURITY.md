@@ -49,15 +49,21 @@ recommended channel.
 
 | Stage | Target time |
 |-------|-------------|
-| Acknowledgement of receipt | 72 hours |
+| Acknowledgement of receipt | 72 hours (hard bound: 14 days) |
 | Initial triage and severity assessment | 7 days |
 | Status update on remediation progress | 30 days (or sooner for critical issues) |
 | Fix release or mitigation guidance | Best-effort, severity-dependent |
+| Publicly-disclosed vulnerability fix | ≤ 60 days |
 
 These targets are commitments on a best-effort basis. This is a personal
 project maintained outside of business hours, so response times may vary.
 The reporter will be kept informed of progress and notified before any
 public disclosure.
+
+The same disclosure information is published per RFC 9116 at
+`/.well-known/security.txt` on every deployed instance (served by the
+health endpoint, unauthenticated and rate-limited by design) and in
+this repository at `.well-known/security.txt`.
 
 ## Scope
 

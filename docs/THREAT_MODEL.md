@@ -148,6 +148,20 @@ The following controls, previously planned, are now implemented:
   (`security/ephemeral_sessions.py`).
 - **Content-Security-Policy.** CSP headers for the web UI to mitigate
   injection and data exfiltration (`security/http_headers.py`).
+- **Windows process isolation (AppContainer).** The web terminal and the
+  UltraVNC server (`winvnc.exe`) spawn inside dedicated AppContainers
+  (`VncRemoteSecure.Terminal` / `VncRemoteSecure.VncServer`) whose tokens
+  can only touch filesystem paths ACL'd to their AppContainer SID — the
+  service's secrets under the user profile are unreachable.
+  `winvnc.exe` additionally carries the `internetClientServer` +
+  `privateNetworkClientServer` capabilities so it can bind the RFB port,
+  and a read-write grant on its own install dir for `ultravnc.ini` /
+  `WinVNC.log`. This supersedes the planned CreateProcessAsUser approach
+  (see ADR-0007): an AppContainer needs no privileges and stays in the
+  interactive session, so desktop capture keeps working. Controlled by
+  `TERMINAL_WINDOWS_SANDBOX` / `VNC_WINDOWS_SANDBOX`
+  (`auto`|`strict`|`off`); hardened profiles promote `auto` to `strict`
+  (`platform/windows/sandbox.py`).
 
 ## Planned Controls
 
@@ -155,9 +169,6 @@ These controls are recommended but not yet implemented:
 
 - **Certificate pinning.** For self-signed deployments to reduce the impact
   of a compromised CA.
-- **Full Windows process isolation.** The restricted runtime user is created
-  and ACLs are applied, but VNC and terminal processes do not yet run under
-  the restricted user's context (CreateProcessAsUser is planned; see ADR-0007).
 
 ## Security Assumptions
 
@@ -206,7 +217,7 @@ classified as Low, Medium, High, or Critical.
 | Secret leakage in process list | Low | High | Medium | Secrets from env/files, not args |
 | VNC without encryption (misconfiguration) | Medium | Critical | Critical | `--ssl-only`, nginx TLS, documented guidance |
 | Health endpoint information disclosure | Low | Low | Low | Bind localhost, minimal response |
-| WebSocket connection exhaustion (DoS) | Medium | Medium | Medium | Connection limits (planned), bind localhost |
+| WebSocket connection exhaustion (DoS) | Medium | Medium | Medium | Connection limits (implemented, `security/websocket_registry.py`), bind localhost |
 | Privilege escalation via terminal | Low | Critical | High | Temp user isolation, systemd hardening, least privilege |
 | Temporary user persistence / misuse | Low | Critical | High | `KEEP_TEMP_USER=false`, cleanup on exit |
 | Lack of audit logs (repudiation) | High | Medium | High | Structured audit logging (implemented, `security/audit.py`) |

@@ -41,9 +41,10 @@ that backs the consent card, and only explicit consent triggers
 cookie. The user then lands on `/` (the public portal). There is no
 GET-based token exchange.
 
-Legacy `/?session=<token>` links still work for compatibility — the
-SPA reads the query parameter, wipes it from the URL, and renders the
-same consent flow — but they are never generated anymore.
+Legacy `/?session=<token>` query links were removed (breaking):
+the SPA ignores the query parameter — only fragment links
+(`/share#t=<token>`) enter the consent flow. Ask the operator for a
+fresh link if an old query-style URL still exists.
 
 ## single_use
 

@@ -28,7 +28,6 @@ A few locations still carry a static copy that must be bumped manually
 when releasing (format-required duplicates — never add more):
 
 - `src/vnc_remote_secure/native/windows/VncRemote.psd1` (`ModuleVersion`)
-- `docs/api/openapi.yaml` (`info.version`)
 - `tests/powershell/VncRemote.Tests.ps1` and `tests/windows/VncRemote.Tests.ps1` (version assertions)
 
 `package.json` carries no `version` field (it is optional for npm

@@ -56,3 +56,6 @@ checkout.
 - [ ] `doctor` output attached for each platform
 - [ ] `verify audit` + `verify backup` outputs clean
 - [ ] Known failures documented in the release notes
+- [ ] Screenshots still match the shipped UI — regenerate with
+  `cd frontend && VRS_SHOTS=1 npm run test:e2e -- screenshots`
+  when any README-visible surface changed

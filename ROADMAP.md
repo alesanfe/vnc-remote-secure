@@ -9,6 +9,7 @@ Dates are indicative and may change based on priorities and feedback.
 - 🔄 In progress
 - 📋 Planned
 - 💡 Under consideration
+- ❌ Intentionally omitted
 
 ---
 
@@ -24,8 +25,11 @@ Dates are indicative and may change based on priorities and feedback.
 - ✅ Landing page portal
 - ✅ Temporary user isolation (Linux and Windows)
 - ✅ Rate limiting and Fail2ban support
-- ~~⚠️ Session recording~~ — removed: no recording service exists;
-  `RECORDING_ENABLED` was dropped entirely (F-033)
+- ✅ Session recording — mini RFB client (`core/rfb_capture.py`)
+  captures screenshots and records sessions to `.vrsrec`; managed via
+  `/api/v1/recordings*` and the admin SPA `Recordings` page
+  (`RECORDING_ENABLED` env flag was dropped — recording is
+  an on-demand operation, not an always-on service)
 - ✅ Backup and restore scripts
 - ✅ Docker packaging (`packaging/docker/Dockerfile` +
   `compose.integration.yml` for CI)
@@ -55,7 +59,10 @@ Dates are indicative and may change based on priorities and feedback.
 - ✅ Blocking posture controls (not just scoring)
 - ✅ Adversarial security tests (14 tests)
 - ✅ Backend bind enforcement (127.0.0.1 only)
-- ✅ Windows restricted runtime user
+- ✅ Windows restricted runtime user — account + ACLs provisioned, and
+  VNC/terminal processes run inside dedicated AppContainers
+  (`VncRemoteSecure.VncServer` / `VncRemoteSecure.Terminal`,
+  `VNC_WINDOWS_SANDBOX` / `TERMINAL_WINDOWS_SANDBOX`; ADR-0007)
 - ✅ TLS cipher validation tests
 - ✅ HTTP security headers (HSTS, CSP, X-Frame-Options, etc.)
 - ✅ Structured audit logging (JSON, tamper-evident chain)
@@ -87,8 +94,9 @@ Dates are indicative and may change based on priorities and feedback.
 - ✅ Alert integration (`monitoring/alerts.py`: Discord webhook,
   generic JSON webhook, SMTP email — on start failure / watchdog events)
 - 📋 DNS provider abstraction (DuckDNS, Cloudflare, manual, self-signed)
-- ⏳ `make demo` target (Docker-based; `packaging/docker/` now provided,
-  demo target still pending)
+- ❌ `make demo` target — intentionally omitted: `docker-*`/`demo`
+  make targets are out of scope (`Makefile`); container packaging
+  remains under `packaging/docker/` for CI integration only
 - ✅ API documentation (OpenAPI) for health endpoints
 
 ## v0.5.0 — Distribution
@@ -108,6 +116,34 @@ Dates are indicative and may change based on priorities and feedback.
 - ✅ API documentation for health endpoint
 - ✅ Monitoring runbook
 - 💡 Disaster recovery procedures
+
+## Beyond 1.0 — Under consideration
+
+Gaps identified against comparable self-hosted remote-access tools
+(RustDesk, MeshCentral, Apache Guacamole, DWService, Sunshine,
+Kasm). Each needs its own design discussion before being scheduled:
+
+- 💡 NAT traversal / relay mode — today the host needs port-forwarding,
+  VPN, or SSH tunnel (documented pattern). **Every** comparable tool
+  ships an answer here: RustDesk/MeshCentral run rendezvous+relay
+  servers, DWService agents dial *out* to relay nodes (zero firewall
+  changes). This is the largest functional gap — a self-hosted relay
+  (WebSocket tunnel out to a small VPS) fits the architecture better
+  than P2P/STUN and preserves the current trust model.
+- 💡 SSO integration (OIDC / LDAP / SAML) — operator accounts are local
+  only; enterprise IdP support is absent.
+- 💡 Multi-host management — single-host by design; a fleet dashboard is
+  a different product shape (agents + central console).
+- 💡 Multi-monitor support in the noVNC surface.
+- 💡 RDP backend — VNC-only today (VNC DES is a protocol limitation);
+  RDP would improve Windows parity.
+- 💡 Low-latency video path — Sunshine/Moonlight stream GPU-encoded
+  H.264/HEVC at interactive latency; raw RFB over WebSocket cannot
+  match that for video/3D workloads. Optional WebRTC/H.264 pipeline
+  would be a distinct transport, not a VNC patch.
+- 💡 Mobile client — every competitor ships Android/iOS; VRS is
+  browser-only (works on mobile browsers but without touch-optimised
+  input or app-store presence).
 
 ---
 

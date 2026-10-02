@@ -42,8 +42,8 @@ external-style review, checked against the actual code. Statuses:
   the URL fragment (`/share#t=`), which browsers never send; the SPA
   wipes it and posts it in the JSON body of
   `POST /api/v1/session/preview` and `POST /api/v1/session/activate`.
-  Legacy `?session=` query links remain accepted (access-log
-  redaction still applies) but are no longer generated.
+  Legacy `?session=` query links were removed — the SPA ignores the
+  parameter; only `/share#t=` fragment links activate.
 - **Origin validation on every WS upgrade** — absent/`null` rejected;
   terminal, audio, gamepad, noVNC all enforce it.
 - **Session fixation** — `session.clear()` + fresh signed token +

@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **RFC 9116 `security.txt`**: every deployed instance serves
+  `/.well-known/security.txt` from the health app (unauthenticated +
+  rate-limited, by design) and the file is kept in-repo at
+  `.well-known/security.txt`.
+- **`docs/REQUIREMENTS.md`**: verifiable functional requirements with
+  acceptance criteria + measurable NFRs + definition of done.
+- **`docs/runbook/slo.md`**: SLI/SLO table, error budgets and explicit
+  RPO (≤ 24 h) / RTO (≤ 30 min restart, ≤ 4 h restore) / rollback
+  (≤ 15 min) targets.
+- **`docs/runbook/incident-response.md`**: severity classes, per-
+  incident containment table, recovery and disclosure procedure.
+- **`docs/security/risk-register.md`**: formal likelihood × impact
+  register with controls and explicitly accepted residual risks.
+- **`GOVERNANCE.md` + `docs/security/ossf-baseline.md`**: documented
+  governance model and OpenSSF Best Practices self-assessment mapped
+  to evidence.
+- **Dependabot**: weekly grouped updates for pip, npm (frontend) and
+  GitHub Actions (`.github/dependabot.yml`).
+- **Coverage reporting**: `[tool.coverage]` config + `make coverage`
+  (branch coverage, HTML report; indicator, not a gate).
+- **Least-privilege workflow defaults**: `permissions: contents: read`
+  at top level of all workflows (OpenSSF Scorecard Token-Permissions).
+- **`OP_SESSION_IP_BIND`**: opt-in binding of the `vnc_op` operator
+  cookie to the issuing client IP (HMAC-folded at mint, verified per
+  request) — a stolen cookie is not portable to another address.
+  Off by default; see ADR-0012.
+- **Governance artifacts**: `GOVERNANCE.md`, `docs/policies/`
+  (versioning, compatibility, deps, secrets, backups, incidents,
+  exceptions), `docs/maturity.md` (A–E + 0–4 matrix self-assessment),
+  `docs/quality-attributes.md`, `docs/feature-flags.md`,
+  `docs/tech-debt.md` (TD-xx register).
+- **Operational artifacts**: `docs/architecture/catalog.md` (service
+  inventory + criticality), `docs/architecture/failure-modes.md`
+  (dependency failure matrix), `docs/runbook/drills.md` (recovery/
+  chaos battery), `docs/runbook/postmortem-template.md`,
+  `docs/developer/code-review-checklist.md`.
+- **`tools/debt_audit.py` + `make debt-audit`**: repeatable
+  technical-debt signals — git hotspots (churn × radon CC), co-change
+  coupling, debt markers, disabled tests, vulture dead code, and
+  schema↔`.env.example` drift (caught 9 undocumented env knobs, now
+  documented).
+- **`docs/recording-format.md`**: external spec of the `.vrsrec`
+  recording format (magic, block layout, bounds) — parseable without
+  reading the implementation.
+- **Docs screenshots**: real captures under `docs/assets/screenshots/`
+  (portal, consent card, admin console, CLI output) with a gated
+  generator — `VRS_SHOTS=1 npm run test:e2e -- screenshots`
+  re-shoots them against a real service.
+
+### Removed
+- **Legacy `?session=<token>` share links** (TD-05): the SPA no longer
+  accepts the token in the query string — only `/share#t=<token>`
+  fragment links enter the consent flow. Announced as deprecated in
+  the compat window; old query-style links now render the portal
+  instead of a share preview. Ask the operator for a fresh link.
+
 ### Security
 - **Health endpoints fail closed on public binds**: `HEALTH_AUTH_TOKEN`
   empty now only grants open access when every health-serving bind

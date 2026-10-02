@@ -1,0 +1,9 @@
+# RFC 9116 security contact.
+# The same file is packaged (config/security.txt) and served live by
+# deployed instances at /.well-known/security.txt — keep both copies
+# identical and refresh Expires at least once a year.
+Contact: https://github.com/alesanfe/vnc-remote-secure/security/advisories/new
+Expires: 2027-10-01T00:00:00.000Z
+Preferred-Languages: en, es
+Policy: https://github.com/alesanfe/vnc-remote-secure/blob/main/SECURITY.md
+Canonical: https://github.com/alesanfe/vnc-remote-secure/blob/main/.well-known/security.txt

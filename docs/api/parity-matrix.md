@@ -40,10 +40,10 @@ deliberate `cli-only`/`api-only` cell).
 | `operator.create` | high | `operator add` | `POST /operators` | sí | `admin_users` | stepup | sync | `operator_created` | no |
 | `operator.update` | moderate | `operator passwd|role|disable|enable` | `PATCH /operators/{username}` | sí | `admin_users` | session | sync | `operator_updated` | no |
 | `operator.delete` | high | `operator remove` | `DELETE /operators/{username}` | sí | `admin_users` | stepup | sync | `operator_deleted` | partially |
-| `operator.restore` | high | — | `POST /operators/{username}/restore` | sí | `admin_users` | stepup | sync | `operator_restored` | yes |
-| `operator.sessions_revoke_all` | moderate | — | `POST /operators/{username}/sessions/revoke-all` | sí | `admin_users` | stepup | sync | `operator_sessions_revoked` | no |
-| `system_user.create` | high | — | `POST /system-users` | sí | `admin_users` | stepup | sync | `user_create` | no |
-| `system_user.delete` | high | — | `DELETE /system-users/{username}` | sí | `admin_users` | stepup | sync | `user_delete` | no |
+| `operator.restore` | high | `operator restore` | `POST /operators/{username}/restore` | sí | `admin_users` | stepup | sync | `operator_restored` | yes |
+| `operator.sessions_revoke_all` | moderate | `operator revoke-sessions` | `POST /operators/{username}/sessions/revoke-all` | sí | `admin_users` | stepup | sync | `operator_sessions_revoked` | no |
+| `system_user.create` | high | `system-user create` | `POST /system-users` | sí | `admin_users` | stepup | sync | `user_create` | no |
+| `system_user.delete` | high | `system-user delete` | `DELETE /system-users/{username}` | sí | `admin_users` | stepup | sync | `user_delete` | no |
 | `passkey.register_begin` | high | — | `POST /operators/{username}/passkeys/register/begin` | sí | `operator` | stepup | sync | `passkey_register_begin` | yes |
 | `passkey.register_complete` | high | — | `POST /operators/{username}/passkeys/register/complete` | sí | `operator` | stepup | sync | `passkey_registered` | yes |
 | `passkey.rename` | low | — | `PATCH /operators/{username}/passkeys/{credential_ref}` | sí | `operator` | session | sync | `passkey_renamed` | yes |
@@ -52,14 +52,14 @@ deliberate `cli-only`/`api-only` cell).
 | `upgrade.check` | low | `upgrade --check` | `GET /upgrade` | sí | `operator` | session | sync | `-` | yes |
 | `upgrade.run` | critical | `upgrade` | `POST /upgrade` | sí | `admin:*` | stepup-bound | job | `upgrade_run` | partially |
 | `upgrade.rollback` | critical | `upgrade --rollback` | `POST /upgrade/rollback` | sí | `admin:*` | stepup-bound | job | `upgrade_rollback` | yes |
-| `power.action` | critical | — | `POST /power` | sí | `admin:*` | stepup-bound | sync | `power_action` | no |
-| `power.wol` | low | — | `POST /power/wol` | sí | `admin:*` | session | sync | `power_wol` | no |
-| `desktop.screenshot` | moderate | — | `GET /desktop/screenshot` | sí | `admin:*` | session | sync | `desktop_screenshot` | no |
-| `recording.list` | low | — | `GET /recordings` | sí | `admin:*` | session | sync | `-` | yes |
-| `recording.get` | moderate | — | `GET /recordings/{id}` | sí | `admin:*` | session | sync | `recording_download` | yes |
-| `recording.start` | high | — | `POST /recordings` | sí | `admin:*` | session | sync | `recording_start` | no |
-| `recording.stop` | moderate | — | `POST /recordings/{id}/stop` | sí | `admin:*` | session | sync | `recording_stop` | yes |
-| `recording.delete` | high | — | `DELETE /recordings/{id}` | sí | `admin:*` | stepup-bound | sync | `recording_delete` | no |
+| `power.action` | critical | `power action` | `POST /power` | sí | `admin:*` | stepup-bound | sync | `power_action` | no |
+| `power.wol` | low | `power wol` | `POST /power/wol` | sí | `admin:*` | session | sync | `power_wol` | no |
+| `desktop.screenshot` | moderate | `desktop screenshot` | `GET /desktop/screenshot` | sí | `admin:*` | session | sync | `desktop_screenshot` | no |
+| `recording.list` | low | `recording list` | `GET /recordings` | sí | `admin:*` | session | sync | `-` | yes |
+| `recording.get` | moderate | `recording download` | `GET /recordings/{id}` | sí | `admin:*` | session | sync | `recording_download` | yes |
+| `recording.start` | high | `recording start` | `POST /recordings` | sí | `admin:*` | session | sync | `recording_start` | no |
+| `recording.stop` | moderate | `recording stop` | `POST /recordings/{id}/stop` | sí | `admin:*` | session | sync | `recording_stop` | yes |
+| `recording.delete` | high | `recording delete` | `DELETE /recordings/{id}` | sí | `admin:*` | stepup-bound | sync | `recording_delete` | no |
 | `gamepad.stop` | moderate | — | `POST /gamepad/stop` | sí | `admin_sessions` | session | sync | `portal_gamepad_stop` | yes |
 | `gamepad.resume` | moderate | — | `POST /gamepad/resume` | sí | `admin_sessions` | session | sync | `portal_gamepad_resume` | yes |
 | `host.install` | critical | `install` | — | — | `public` | session | sync | `-` | partially |

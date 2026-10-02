@@ -46,3 +46,4 @@ What could go wrong?
 | [0009](0009-bash-python-coexistence.md) | Coexistence of Bash and Python implementations | Superseded (Python-canonical) |
 | [0010](0010-unified-token-signing.md) | Unified token signing with type separation | Accepted |
 | [0011](0011-shared-state-abstraction.md) | Shared state abstraction for multi-process deployments | Accepted |
+| [0012](0012-delegated-sso-and-operator-session-ip-binding.md) | Delegated SSO and opt-in operator-session IP binding | Accepted |
