@@ -9,7 +9,7 @@ certificates are created automatically by ``vnc-remote install``
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from vnc_remote_secure.core.paths import get_ssl_dir
 from vnc_remote_secure.security.certificates import generate_self_signed
@@ -18,8 +18,8 @@ from vnc_remote_secure.security.certificates import generate_self_signed
 def main():
     ssl_dir = get_ssl_dir()
     os.makedirs(ssl_dir, exist_ok=True)
-    cert = os.path.join(ssl_dir, 'fullchain.pem')
-    key = os.path.join(ssl_dir, 'privkey.pem')
+    cert = os.path.join(ssl_dir, "fullchain.pem")
+    key = os.path.join(ssl_dir, "privkey.pem")
 
     if os.path.exists(cert) and os.path.exists(key):
         print(f"Certificates already exist: {cert}")
@@ -31,5 +31,5 @@ def main():
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

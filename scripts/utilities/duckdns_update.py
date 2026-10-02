@@ -24,12 +24,12 @@ import os
 import socket
 import sys
 import time
+
 try:
     import httpx
     import tenacity
 except ImportError:
-    print("Error: httpx/tenacity not installed. "
-          "Run: pip install -e .")
+    print("Error: httpx/tenacity not installed. " "Run: pip install -e .")
     sys.exit(1)
 from datetime import datetime
 from pathlib import Path
@@ -42,10 +42,11 @@ def load_env():
     imported (e.g. script copied outside the checkout).
     """
     try:
-        _src = Path(__file__).resolve().parent.parent.parent / 'src'
+        _src = Path(__file__).resolve().parent.parent.parent / "src"
         if str(_src) not in sys.path:
             sys.path.insert(0, str(_src))
         from vnc_remote_secure.core.config import load_env_file
+
         load_env_file()
         return
     except Exception:  # noqa: BLE001 - fallback for standalone use
@@ -76,11 +77,11 @@ def get_config():
 
     # Strip .duckdns.org suffix if included
     if domain.endswith(".duckdns.org"):
-        domain = domain[:-len(".duckdns.org")]
+        domain = domain[: -len(".duckdns.org")]
 
     if not domain:
         print("Error: DUCK_DOMAIN not set. Configure it in .env")
-        print('  Example: DUCK_DOMAIN=alesanfe')
+        print("  Example: DUCK_DOMAIN=alesanfe")
         sys.exit(1)
     if not token:
         print("Error: DUCKDNS_TOKEN not set. Configure it in .env")
@@ -93,19 +94,22 @@ def get_config():
 def update_ip(domain, token):
     """Send update request to Duck DNS API. Returns True on success."""
     import urllib.parse
-    url = ("https://www.duckdns.org/update?domains="
-           f"{urllib.parse.quote(domain, safe='')}"
-           f"&token={urllib.parse.quote(token, safe='')}&ip=")
+
+    url = (
+        "https://www.duckdns.org/update?domains="
+        f"{urllib.parse.quote(domain, safe='')}"
+        f"&token={urllib.parse.quote(token, safe='')}&ip="
+    )
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     @tenacity.retry(
         stop=tenacity.stop_after_attempt(3),
         wait=tenacity.wait_exponential(min=2, max=15),
         retry=tenacity.retry_if_exception_type(httpx.TransportError),
-        reraise=True)
+        reraise=True,
+    )
     def _send():
-        with httpx.Client(timeout=30,
-                          follow_redirects=False) as client:
+        with httpx.Client(timeout=30, follow_redirects=False) as client:
             return client.get(url)
 
     try:
@@ -157,7 +161,9 @@ def check_dns(domain):
         if resolved_ip == public_ip:
             print("\033[0;32m  ✓ DNS is up to date\033[0m")
         else:
-            print(f"\033[0;33m  ⚠ DNS is stale (resolved: {resolved_ip}, current: {public_ip})\033[0m")
+            print(
+                f"\033[0;33m  ⚠ DNS is stale (resolved: {resolved_ip}, current: {public_ip})\033[0m"
+            )
             print("\033[0;33m    Run 'make duckdns-update' to fix.\033[0m")
     return True
 
@@ -174,10 +180,8 @@ def show_status(domain, token, interval):
 
 def main():
     parser = argparse.ArgumentParser(description="Duck DNS Update Script")
-    parser.add_argument("--daemon", "-d", action="store_true",
-                        help="Continuous update mode")
-    parser.add_argument("--check", "-c", action="store_true",
-                        help="Check current DNS resolution")
+    parser.add_argument("--daemon", "-d", action="store_true", help="Continuous update mode")
+    parser.add_argument("--check", "-c", action="store_true", help="Check current DNS resolution")
     args = parser.parse_args()
 
     load_env()

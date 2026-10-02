@@ -4,6 +4,11 @@ on:
   push:
     tags: ['v*']
 
+# Least-privilege default — build/attest/publish jobs declare their
+# own permissions explicitly below.
+permissions:
+  contents: read
+
 jobs:
   # ============================================================================
   # BUILD - Create release artifacts

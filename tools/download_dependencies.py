@@ -23,7 +23,7 @@ import zipfile
 def find_project_root():
     current = os.path.dirname(os.path.abspath(__file__))
     for _ in range(5):
-        if os.path.exists(os.path.join(current, '.env.example')):
+        if os.path.exists(os.path.join(current, ".env.example")):
             return current
         current = os.path.dirname(current)
     return os.getcwd()
@@ -38,15 +38,15 @@ def load_manifests(project_root):
     ``<project_root>/third_party/manifests`` (pre-consolidation layout).
     """
     candidates = [
-        os.path.join(project_root, 'src', 'vnc_remote_secure', 'third_party', 'manifests'),
-        os.path.join(project_root, 'third_party', 'manifests'),
+        os.path.join(project_root, "src", "vnc_remote_secure", "third_party", "manifests"),
+        os.path.join(project_root, "third_party", "manifests"),
     ]
     manifests_dir = next((d for d in candidates if d and os.path.isdir(d)), None)
     manifests = []
     if not manifests_dir:
         return manifests
     for f in sorted(os.listdir(manifests_dir)):
-        if f.endswith('.json'):
+        if f.endswith(".json"):
             with open(os.path.join(manifests_dir, f)) as fh:
                 manifests.append(json.load(fh))
     return manifests
@@ -54,10 +54,10 @@ def load_manifests(project_root):
 
 def _verify_sha256(filepath, expected_sha, name):
     """Verify SHA-256 checksum of a file. Returns True if valid or no checksum."""
-    if not expected_sha or expected_sha == 'TBD':
+    if not expected_sha or expected_sha == "TBD":
         print(f"[WARN] {name}: SHA-256 not set in manifest, skipping verification")
         return True
-    actual_sha = hashlib.sha256(open(filepath, 'rb').read()).hexdigest()
+    actual_sha = hashlib.sha256(open(filepath, "rb").read()).hexdigest()
     if actual_sha.lower() != expected_sha.lower():
         print(f"[FAIL] {name}: SHA-256 mismatch!")
         print(f"  Expected: {expected_sha}")
@@ -74,8 +74,7 @@ def _download_file(url, target_path, name):
         # urlopen with an explicit timeout — urlretrieve() relies on the
         # global socket timeout (unset here), so a stalled connection
         # would hang CI/developer runs indefinitely.
-        with urllib.request.urlopen(url, timeout=120) as resp, \
-                open(target_path, 'wb') as out:
+        with urllib.request.urlopen(url, timeout=120) as resp, open(target_path, "wb") as out:
             shutil.copyfileobj(resp, out)
     except Exception as e:
         print(f"[ERROR] {name}: download failed: {e}", file=sys.stderr)
@@ -87,7 +86,7 @@ def _extract_zip(zip_path, extract_dir, name):
     """Extract a zip file to a directory."""
     print(f"[EXTRACT] {name}: {zip_path} -> {extract_dir}")
     try:
-        with zipfile.ZipFile(zip_path, 'r') as zf:
+        with zipfile.ZipFile(zip_path, "r") as zf:
             # Reject member paths that escape the target dir
             # (zip-slip) — same guard as the runtime UltraVNC
             # provisioning path in platform/windows/installer.py.
@@ -95,10 +94,9 @@ def _extract_zip(zip_path, extract_dir, name):
             for member in zf.namelist():
                 target = os.path.realpath(os.path.join(dest, member))
                 if not target.startswith(dest + os.sep):
-                    raise RuntimeError(
-                        f"Unsafe path in {name} archive: {member}")
+                    raise RuntimeError(f"Unsafe path in {name} archive: {member}")
             try:
-                zf.extractall(dest, filter='data')
+                zf.extractall(dest, filter="data")
             except TypeError:
                 zf.extractall(dest)
         return True
@@ -107,8 +105,7 @@ def _extract_zip(zip_path, extract_dir, name):
         return False
 
 
-def _git_clone(clone_url, target_dir, name, pinned_commit=None,
-               pinned_sha=None):
+def _git_clone(clone_url, target_dir, name, pinned_commit=None, pinned_sha=None):
     """Clone a git repository to target directory.
 
     When ``pinned_sha`` is given, the checked-out HEAD must equal it —
@@ -126,9 +123,9 @@ def _git_clone(clone_url, target_dir, name, pinned_commit=None,
         # pinned tag/branch must be passed to ``--branch`` at clone
         # time — a later ``checkout`` cannot see refs the shallow
         # clone never fetched.
-        clone_cmd = ['git', 'clone', '--depth', '1']
+        clone_cmd = ["git", "clone", "--depth", "1"]
         if pinned_commit:
-            clone_cmd += ['--branch', pinned_commit]
+            clone_cmd += ["--branch", pinned_commit]
         clone_cmd += [clone_url, target_dir]
         subprocess.run(clone_cmd, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
@@ -140,17 +137,20 @@ def _git_clone(clone_url, target_dir, name, pinned_commit=None,
     if pinned_sha:
         try:
             head = subprocess.run(
-                ['git', '-C', target_dir, 'rev-parse', 'HEAD'],
-                check=True, capture_output=True, text=True,
+                ["git", "-C", target_dir, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
             ).stdout.strip()
         except subprocess.CalledProcessError:
-            head = ''
+            head = ""
         if head != pinned_sha:
             print(
                 f"[ERROR] {name}: checked-out HEAD {head or '<unknown>'} "
                 f"does not match pinned_commit_sha {pinned_sha} — the "
                 f"tag may have been re-pointed. Refusing to use it.",
-                file=sys.stderr)
+                file=sys.stderr,
+            )
             shutil.rmtree(target_dir, ignore_errors=True)
             return False
         print(f"[VERIFIED] {name}: HEAD {head} matches pinned SHA")
@@ -159,45 +159,49 @@ def _git_clone(clone_url, target_dir, name, pinned_commit=None,
 
 def download_and_verify(manifest, project_root):
     """Download a dependency and verify its checksum."""
-    name = manifest.get('name', 'unknown')
-    managed_by = manifest.get('managed_by', 'download')
-    expected_sha = manifest.get('sha256', 'TBD')
+    name = manifest.get("name", "unknown")
+    managed_by = manifest.get("managed_by", "download")
+    expected_sha = manifest.get("sha256", "TBD")
 
     # Determine target directory
-    platform = manifest.get('platform', 'cross-platform')
+    platform = manifest.get("platform", "cross-platform")
     # Skip manifests for other platforms — the same gate
     # verify_dependencies.py applies, so running this tool on Windows
     # does not fetch Linux-only binaries (and vice versa).
     import sys as _sys
-    is_windows = _sys.platform == 'win32'
-    if platform == 'linux' and is_windows:
+
+    is_windows = _sys.platform == "win32"
+    if platform == "linux" and is_windows:
         print(f"[SKIP] {name}: Linux-only dependency")
         return False
-    if platform == 'windows' and not is_windows:
+    if platform == "windows" and not is_windows:
         print(f"[SKIP] {name}: Windows-only dependency")
         return False
-    if platform == 'windows':
-        target_dir = os.path.join(project_root, 'bin')
+    if platform == "windows":
+        target_dir = os.path.join(project_root, "bin")
     else:
-        target_dir = os.path.join(project_root, 'vendor')
+        target_dir = os.path.join(project_root, "vendor")
 
     # --- git-clone ---
-    if managed_by == 'git-clone':
-        clone_url = manifest.get('clone_url')
-        clone_target = manifest.get('clone_target', name.lower() + '/')
+    if managed_by == "git-clone":
+        clone_url = manifest.get("clone_url")
+        clone_target = manifest.get("clone_target", name.lower() + "/")
         if not clone_url:
             print(f"[SKIP] {name}: no clone_url")
             return False
         target_path = os.path.join(project_root, clone_target)
         return _git_clone(
-            clone_url, target_path, name,
-            manifest.get('pinned_commit'),
-            manifest.get('pinned_commit_sha'))
+            clone_url,
+            target_path,
+            name,
+            manifest.get("pinned_commit"),
+            manifest.get("pinned_commit_sha"),
+        )
 
     # --- manual (verify existing binary) ---
-    if managed_by == 'manual':
-        target_path_rel = manifest.get('target_path')
-        filename = manifest.get('filename')
+    if managed_by == "manual":
+        target_path_rel = manifest.get("target_path")
+        filename = manifest.get("filename")
         if target_path_rel:
             target_path = os.path.join(project_root, target_path_rel)
         elif filename:
@@ -206,17 +210,19 @@ def download_and_verify(manifest, project_root):
             print(f"[SKIP] {name}: no target_path or filename")
             return False
         if not os.path.exists(target_path):
-            print(f"[MISSING] {name}: {target_path} not found. See notes in manifest for manual download.")
+            print(
+                f"[MISSING] {name}: {target_path} not found. See notes in manifest for manual download."
+            )
             return False
         print(f"[EXISTS] {name}: {target_path}")
-        if expected_sha and expected_sha != 'TBD':
+        if expected_sha and expected_sha != "TBD":
             if not _verify_sha256(target_path, expected_sha, name):
                 return False
         return True
 
     # --- download ---
-    url = manifest.get('download_url')
-    filename = manifest.get('filename')
+    url = manifest.get("download_url")
+    filename = manifest.get("filename")
     if not url or not filename:
         print(f"[SKIP] {name}: no download URL or filename")
         return False
@@ -226,13 +232,13 @@ def download_and_verify(manifest, project_root):
 
     if os.path.exists(target_path):
         print(f"[EXISTS] {name}: {target_path}")
-        if expected_sha and expected_sha != 'TBD':
+        if expected_sha and expected_sha != "TBD":
             if not _verify_sha256(target_path, expected_sha, name):
                 return False
         return True
 
     # Download to temp file first
-    with tempfile.NamedTemporaryFile(delete=False, suffix='_' + filename) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix="_" + filename) as tmp:
         tmp_path = tmp.name
 
     try:
@@ -247,9 +253,9 @@ def download_and_verify(manifest, project_root):
         shutil.move(tmp_path, target_path)
 
         # Extract if it's a zip archive
-        archive_type = manifest.get('archive_type')
-        if archive_type == 'zip' or filename.endswith('.zip'):
-            extract_dir = os.path.join(target_dir, filename.rsplit('.', 1)[0])
+        archive_type = manifest.get("archive_type")
+        if archive_type == "zip" or filename.endswith(".zip"):
+            extract_dir = os.path.join(target_dir, filename.rsplit(".", 1)[0])
             if not _extract_zip(target_path, extract_dir, name):
                 return False
             print(f"[EXTRACTED] {name}: -> {extract_dir}")
@@ -266,7 +272,9 @@ def main():
     manifests = load_manifests(project_root)
 
     if not manifests:
-        print("No manifests found (checked src/vnc_remote_secure/third_party/manifests/ and third_party/manifests/)")
+        print(
+            "No manifests found (checked src/vnc_remote_secure/third_party/manifests/ and third_party/manifests/)"
+        )
         return 1
 
     print(f"Found {len(manifests)} manifest(s)")
@@ -279,5 +287,5 @@ def main():
     return 0 if success == len(manifests) else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

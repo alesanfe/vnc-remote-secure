@@ -144,20 +144,21 @@ repos:
         exclude: .secrets.baseline
 
   # ============================================================================
-  # Architecture + project rules (local; skip if tools not installed)
+  # Architecture + project rules (local; hard-fail if tools missing —
+  # both ship in `.[dev]` and gate in CI, so a silent skip only hides drift)
   # ============================================================================
   - repo: local
     hooks:
       - id: lint-imports
         name: import-linter (engine layering contracts)
-        entry: bash -c 'command -v lint-imports >/dev/null && lint-imports || echo "lint-imports not installed — skipping"'
+        entry: bash -c 'command -v lint-imports >/dev/null && lint-imports || { echo "lint-imports not installed — run: pip install -e \".[dev]\""; exit 1; }'
         language: system
         files: ^(src/.*\.py|pyproject\.toml)$
         pass_filenames: false
 
       - id: semgrep-project
         name: Semgrep project rules (.semgrep.yml)
-        entry: bash -c 'command -v semgrep >/dev/null && semgrep scan --config .semgrep.yml --metrics=off --error src/ frontend/src/ || echo "semgrep not installed — skipping"'
+        entry: bash -c 'command -v semgrep >/dev/null && semgrep scan --config .semgrep.yml --metrics=off --error src/ frontend/src/ || { echo "semgrep not installed (or findings) — pip install semgrep"; exit 1; }'
         language: system
         files: ^(src/.*\.py|frontend/src/.*\.(ts|tsx))$
         pass_filenames: false

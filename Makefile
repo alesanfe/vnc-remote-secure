@@ -176,6 +176,16 @@ test-e2e: ## Level 5: end-to-end tests (entry point)
 	@echo "$(BLUE)Running E2E tests (Level 5)...$(NC)"
 	@cd tests && bash run_tests.sh e2e/
 
+coverage: ## Coverage report (indicator, not a gate)
+	@echo "$(BLUE)Collecting coverage (unit + integration)...$(NC)"
+	@python -m pytest tests/unit tests/integration \
+		--cov=vnc_remote_secure --cov-report=term-missing \
+		--cov-report=html:htmlcov -q
+	@echo "$(GREEN)V Coverage written to htmlcov/index.html$(NC)"
+
+debt-audit: ## Technical-debt signals: hotspots, markers, dead code, skips, drift
+	@python tools/debt_audit.py
+
 test-security: ## Level 7: security tests (password, sanitization)
 	@echo "$(BLUE)Running security tests (Level 7)...$(NC)"
 	@cd tests && bash run_tests.sh security/
@@ -205,12 +215,14 @@ lint-strict: ## Run shellcheck and fail on any warning
 	@find tests/static tests/unit tests/integration tests/e2e tests/security -name 'test_*.sh' -type f -print0 2>/dev/null | xargs -0 -r shellcheck -x
 	@echo "$(GREEN)✓ Linting complete (no warnings)$(NC)"
 
-lint-python: ## Run Python linters (ruff, black if available)
+lint-python: ## Run Python linters (ruff, black, mypy — fail on findings)
 	@echo "$(BLUE)Running Python linters...$(NC)"
-	@if command -v ruff &>/dev/null; then ruff check src/vnc_remote_secure/ tools/ scripts/utilities/ || true; \
-	else echo "$(YELLOW)ruff not installed, skipping$(NC)"; fi
-	@if command -v black &>/dev/null; then black --check src/vnc_remote_secure/ tools/ scripts/utilities/ || true; \
-	else echo "$(YELLOW)black not installed, skipping$(NC)"; fi
+	@if command -v ruff &>/dev/null; then ruff check src/vnc_remote_secure/ tools/ scripts/utilities/; \
+	else echo "$(RED)ruff not installed — pip install -e \".[dev]\"$(NC)"; exit 1; fi
+	@if command -v black &>/dev/null; then black --check src/vnc_remote_secure/ tools/ scripts/utilities/; \
+	else echo "$(RED)black not installed — pip install -e \".[dev]\"$(NC)"; exit 1; fi
+	@if command -v mypy &>/dev/null; then mypy src/vnc_remote_secure; \
+	else echo "$(RED)mypy not installed — pip install -e \".[dev]\"$(NC)"; exit 1; fi
 	@echo "$(GREEN)✓ Python linting complete$(NC)"
 
 format: ## Format Python and shell code (delegates to scripts/development/format.sh)
@@ -238,9 +250,17 @@ check-secrets: ## Security: detect-secrets against .secrets.baseline
 	@detect-secrets scan --baseline .secrets.baseline src/ tests/ tools/
 	@echo "$(GREEN)✓ No new secrets detected$(NC)"
 
-check-deps: ## Security: pip-audit (known-vulnerable dependencies)
+check-deps: ## Security: pip-audit on declared deps (CI gates on this too)
 	@echo "$(BLUE)Auditing dependencies (pip-audit)...$(NC)"
-	@pip-audit --desc || true
+	@# Audit only the declared dependency tree — a bare `pip-audit` scans the
+	@# whole environment and fails on unrelated packages the dev happens to
+	@# have installed. Requires `pip install -e .` first.
+	@python -c "import importlib.metadata as m, sys; \
+		reqs = m.requires('vnc-remote-secure'); \
+		sys.exit('vnc-remote-secure not installed — run: pip install -e .') if reqs is None else None; \
+		print('\n'.join(r.split(';')[0].strip() for r in reqs if 'extra' not in r))" > .deps-audit.txt
+	@pip-audit -r .deps-audit.txt --desc
+	@rm -f .deps-audit.txt
 	@echo "$(GREEN)✓ Dependency audit done$(NC)"
 
 sbom: ## Generate CycloneDX SBOM (sbom.cdx.json)

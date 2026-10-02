@@ -1,0 +1,47 @@
+# Automated dependency updates — checklist item: "herramienta de
+# actualización automatizada". Weekly cadence; security updates are
+# opened immediately regardless of schedule.
+#
+# Notes:
+# - Python deps live in pyproject.toml (single source of truth).
+#   Dependabot bumps them in place; pip-audit in CI still gates on
+#   known-vulnerable resolved versions.
+# - GitHub Actions are pinned by SHA in this repo; Dependabot
+#   understands those pins and proposes the newer SHA + version
+#   comment, keeping the pinning policy intact.
+# - Minor/patch updates are grouped to keep PR volume reviewable;
+#   majors arrive individually so breaking changes are reviewed alone.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "python"]
+    groups:
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "ci"]
+    groups:
+      github-actions:
+        patterns: ["*"]

@@ -28,7 +28,7 @@ import sys
 def find_project_root():
     current = os.path.dirname(os.path.abspath(__file__))
     for _ in range(5):
-        if os.path.exists(os.path.join(current, '.env.example')):
+        if os.path.exists(os.path.join(current, ".env.example")):
             return current
         current = os.path.dirname(current)
     return os.getcwd()
@@ -37,9 +37,8 @@ def find_project_root():
 def check_old_scripts(project_root):
     """Check for deprecated scripts and warn."""
     deprecated = [
-        ('launch.sh', 'Deprecated delegator. Use: vnc-remote start'),
-        ('src/rpi-vnc-remote.sh',
-         'Legacy compatibility wrapper. Prefer: vnc-remote'),
+        ("launch.sh", "Deprecated delegator. Use: vnc-remote start"),
+        ("src/rpi-vnc-remote.sh", "Legacy compatibility wrapper. Prefer: vnc-remote"),
     ]
     for script, replacement in deprecated:
         path = os.path.join(project_root, script)
@@ -52,10 +51,10 @@ def run_cli_migrate(project_root):
     """Delegate to ``vnc-remote config migrate`` for canonical migration."""
     print("[INFO] Running: vnc-remote config migrate")
     env = os.environ.copy()
-    src_dir = os.path.join(project_root, 'src')
-    env['PYTHONPATH'] = src_dir + os.pathsep + env.get('PYTHONPATH', '')
+    src_dir = os.path.join(project_root, "src")
+    env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
     result = subprocess.run(
-        [sys.executable, '-m', 'vnc_remote_secure.cli', 'config', 'migrate'],
+        [sys.executable, "-m", "vnc_remote_secure.cli", "config", "migrate"],
         cwd=project_root,
         env=env,
     )
@@ -84,5 +83,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

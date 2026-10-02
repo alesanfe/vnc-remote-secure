@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '0 6 * * 1'  # Weekly on Monday
 
+# Least-privilege default — scorecard uploads declare security-events
+# at job level.
+permissions:
+  contents: read
+
 jobs:
   # ============================================================================
   # GITLEAKS - Scan for secrets in git history

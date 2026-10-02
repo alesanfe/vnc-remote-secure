@@ -21,10 +21,10 @@ rules:
           - pattern: import aiohttp
           - pattern: import httpx
           - pattern: import requests
-          - pattern: from fastapi import ...
-          - pattern: from starlette.$X import ...
-          - pattern: from vnc_remote_secure.services import ...
-          - pattern: from vnc_remote_secure.web import ...
+          - pattern: from fastapi import $X
+          - pattern: from starlette import $X
+          - pattern: from vnc_remote_secure.services import $X
+          - pattern: from vnc_remote_secure.web import $X
 
   - id: engine-application-no-infra
     message: >-
@@ -39,9 +39,9 @@ rules:
         - "src/vnc_remote_secure/engine/domain/**"
     patterns:
       - pattern-either:
-          - pattern: from vnc_remote_secure.security import ...
-          - pattern: from vnc_remote_secure.monitoring import ...
-          - pattern: from vnc_remote_secure.platform import ...
+          - pattern: from vnc_remote_secure.security import $X
+          - pattern: from vnc_remote_secure.monitoring import $X
+          - pattern: from vnc_remote_secure.platform import $X
           - pattern: import vnc_remote_secure.security
           - pattern: import vnc_remote_secure.monitoring
           - pattern: import vnc_remote_secure.platform

@@ -73,7 +73,11 @@ dev = [
   "pytest-timeout>=2.3,<3.0",
   "pytest-repeat>=0.9,<1.0",
   "ruff>=0.7.0,<1.0",
-  "black>=24.0,<26.0",
+  # 24.x line (matches the pre-commit pin; 25+/26+ restyle docstring
+  # spacing, which would split the style gate from the hook version).
+  "black>=24.10,<25",
+  # Canonical type checker ([tool.mypy]); gated in the CI lint job.
+  "mypy>=1.13,<2.0",
   "pre-commit>=3.5,<5.0",
   "yamllint>=1.35,<2.0",
   "hypothesis>=6.100,<7.0",
@@ -177,6 +181,20 @@ markers = [
   "e2e: end-to-end tests that spawn real service subprocesses"
 ]
 
+[tool.coverage.run]
+source = ["src/vnc_remote_secure"]
+branch = true
+omit = [
+    "src/vnc_remote_secure/vendor/*",       # vendored third-party code
+    "src/vnc_remote_secure/third_party/*",  # vendored assets/manifests
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Coverage is a discovery indicator, not a gate: no fail_under here —
+# the pyramid decides which flows deserve depth, not a global number.
+
 [tool.mypy]
 python_version = "3.11"
 warn_unused_ignores = true
@@ -227,6 +245,7 @@ vnc_remote_secure = [
   "config/examples/*.env.example",
   "config/schema/*.json",
   "config/nginx.conf",
+  "config/security.txt",
   "native/linux/systemd/*.service",
   "native/linux/bin/*",
   "native/linux/README.md",
