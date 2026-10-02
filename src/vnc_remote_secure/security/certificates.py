@@ -4,6 +4,7 @@ Generates self-signed certificates, validates existing certificates,
 and reports their expiry dates. Uses the ``cryptography`` library when
 available; falls back to the ``openssl`` CLI otherwise.
 """
+
 import contextlib
 import datetime
 import logging
@@ -34,7 +35,7 @@ def request_letsencrypt(domain, email, ssl_dir=None):
     Returns:
         ``True`` when certificates were issued and are available.
     """
-    certbot = shutil.which('certbot')
+    certbot = shutil.which("certbot")
     if not certbot:
         logger.warning("certbot not installed; cannot request Let's Encrypt.")
         return False
@@ -44,37 +45,44 @@ def request_letsencrypt(domain, email, ssl_dir=None):
     # The domain is interpolated into a filesystem path below —
     # reject anything outside a DNS hostname (dots, hyphens, alnum)
     # so a '../..' cannot escape /etc/letsencrypt/live.
-    if not re.fullmatch(r'[A-Za-z0-9.-]{1,253}', domain) or '..' in domain:
+    if not re.fullmatch(r"[A-Za-z0-9.-]{1,253}", domain) or ".." in domain:
         logger.warning("Refusing suspicious certbot domain: %r", domain)
         return False
 
     base_cmd = [
-        certbot, 'certonly', '-n', '--agree-tos',
-        '-m', email, '-d', domain,
+        certbot,
+        "certonly",
+        "-n",
+        "--agree-tos",
+        "-m",
+        email,
+        "-d",
+        domain,
     ]
-    for plugin_args in (['--nginx'], ['--standalone']):
+    for plugin_args in (["--nginx"], ["--standalone"]):
         result = run_cmd(
-            base_cmd + plugin_args, capture_output=True, text=True,
+            base_cmd + plugin_args,
+            capture_output=True,
+            text=True,
         )
         if result.returncode == 0:
             logger.info("Let's Encrypt certificate issued for %s", domain)
             break
-        logger.debug("certbot %s failed: %s",
-                     plugin_args[0], result.stderr.strip()[:300])
+        logger.debug("certbot %s failed: %s", plugin_args[0], result.stderr.strip()[:300])
     else:
         logger.warning("Let's Encrypt issuance failed for %s", domain)
         return False
 
-    live_dir = os.path.join('/etc/letsencrypt/live', domain)
-    fullchain = os.path.join(live_dir, 'fullchain.pem')
-    privkey = os.path.join(live_dir, 'privkey.pem')
+    live_dir = os.path.join("/etc/letsencrypt/live", domain)
+    fullchain = os.path.join(live_dir, "fullchain.pem")
+    privkey = os.path.join(live_dir, "privkey.pem")
     if not (os.path.exists(fullchain) and os.path.exists(privkey)):
         logger.warning("certbot succeeded but certs not found in %s", live_dir)
         return False
 
     if ssl_dir:
         os.makedirs(ssl_dir, exist_ok=True)
-        for name in ('fullchain.pem', 'privkey.pem'):
+        for name in ("fullchain.pem", "privkey.pem"):
             src = os.path.join(live_dir, name)
             dst = os.path.join(ssl_dir, name)
             if os.path.lexists(dst):
@@ -109,7 +117,8 @@ def create_ssl_context(cert_file=None, key_file=None):
         if _is_hardened_profile():
             raise RuntimeError(
                 "SSL cert/key configured but not found under profile "
-                f"'{_profile()}': {cert} / {key}")
+                f"'{_profile()}': {cert} / {key}"
+            )
         logger.debug("SSL cert/key not found: %s / %s", cert, key)
         return None
 
@@ -121,6 +130,7 @@ def create_ssl_context(cert_file=None, key_file=None):
             from vnc_remote_secure.security.tls_validation import (
                 get_recommended_ssl_context,
             )
+
             context = get_recommended_ssl_context()
         except Exception:  # noqa: BLE001 - fallback to a sane default
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -138,7 +148,8 @@ def create_ssl_context(cert_file=None, key_file=None):
         if _is_hardened_profile():
             raise RuntimeError(
                 f"SSL context failed to load under profile '{_profile()}': "
-                f"{exc} — refusing to downgrade to plain HTTP") from exc
+                f"{exc} — refusing to downgrade to plain HTTP"
+            ) from exc
         logger.warning("Failed to load SSL context: %s", exc)
         return None
 
@@ -153,12 +164,14 @@ def _tls_enabled_env():
     """
     try:
         from vnc_remote_secure.core.config import _is_tls_enabled_env
+
         return _is_tls_enabled_env()
     except ImportError:
         from vnc_remote_secure.core.config import env_flag
-        if env_flag('DISABLE_SSL', ''):
+
+        if env_flag("DISABLE_SSL", ""):
             return False
-        return env_flag('TLS_ENABLED', 'true')
+        return env_flag("TLS_ENABLED", "true")
 
 
 def _resolve_cert_key_paths(cert_file, key_file):
@@ -170,17 +183,16 @@ def _resolve_cert_key_paths(cert_file, key_file):
     service terminates TLS consistently rather than only the ones
     passing config-derived paths.
     """
-    cert = cert_file or os.environ.get('SSL_CERT', '')
-    key = key_file or os.environ.get('SSL_KEY', '')
+    cert = cert_file or os.environ.get("SSL_CERT", "")
+    key = key_file or os.environ.get("SSL_KEY", "")
     if cert and key:
         return cert, key
     try:
         from vnc_remote_secure.core.paths import find_project_root, get_ssl_dir
-        for cert_dir in (
-                get_ssl_dir(),
-                os.path.join(find_project_root(), 'data', 'ssl')):
-            default_cert = os.path.join(cert_dir, 'fullchain.pem')
-            default_key = os.path.join(cert_dir, 'privkey.pem')
+
+        for cert_dir in (get_ssl_dir(), os.path.join(find_project_root(), "data", "ssl")):
+            default_cert = os.path.join(cert_dir, "fullchain.pem")
+            default_key = os.path.join(cert_dir, "privkey.pem")
             if os.path.exists(default_cert) and os.path.exists(default_key):
                 return cert or default_cert, key or default_key
     except Exception:  # noqa: BLE001 - discovery is best-effort
@@ -190,13 +202,12 @@ def _resolve_cert_key_paths(cert_file, key_file):
 
 def _profile():
     """Return the active security profile name."""
-    return os.environ.get('VNC_REMOTE_PROFILE', 'development')
+    return os.environ.get("VNC_REMOTE_PROFILE", "development")
 
 
 def _is_hardened_profile():
     """Return True when the profile forbids silent TLS downgrade."""
-    return _profile() in (
-        'public-hardened', 'private-overlay', 'trusted-lan')
+    return _profile() in ("public-hardened", "private-overlay", "trusted-lan")
 
 
 def _restrict_key_permissions(key_path, writable=False):
@@ -215,13 +226,14 @@ def _restrict_key_permissions(key_path, writable=False):
     DELETE on the existing target — atomic rewrites would otherwise
     fail with WinError 5.
     """
-    if os.name == 'nt':
+    if os.name == "nt":
         import subprocess
-        user = os.environ.get('USERNAME', '')
-        rights = '(M)' if writable else '(R)'
-        grants = [f'*S-1-5-18:{rights}', f'*S-1-5-32-544:{rights}']
+
+        user = os.environ.get("USERNAME", "")
+        rights = "(M)" if writable else "(R)"
+        grants = [f"*S-1-5-18:{rights}", f"*S-1-5-32-544:{rights}"]
         if user:
-            grants.append(f'{user}:{rights}')
+            grants.append(f"{user}:{rights}")
         try:
             # '/grant:r' only replaces ACEs belonging to the granted
             # principals — explicit ACEs for other principals (e.g. an
@@ -229,23 +241,24 @@ def _restrict_key_permissions(key_path, writable=False):
             # restores the inherited ACL, wiping every explicit ACE,
             # so the file ends up with exactly the grants below.
             run_cmd(
-                ['icacls', key_path, '/reset'],
-                capture_output=True, timeout=15, check=False,
+                ["icacls", key_path, "/reset"],
+                capture_output=True,
+                timeout=15,
+                check=False,
             )
             run_cmd(
-                ['icacls', key_path, '/inheritance:r',
-                 '/grant:r', *grants],
-                capture_output=True, timeout=15, check=False,
+                ["icacls", key_path, "/inheritance:r", "/grant:r", *grants],
+                capture_output=True,
+                timeout=15,
+                check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            logger.warning(
-                "Could not restrict key ACL at %s: %s", key_path, exc)
+            logger.warning("Could not restrict key ACL at %s: %s", key_path, exc)
     else:
         os.chmod(key_path, 0o600)
 
 
-def generate_self_signed(cert_path, key_path, common_name='vnc-remote-secure',
-                         days_valid=365):
+def generate_self_signed(cert_path, key_path, common_name="vnc-remote-secure", days_valid=365):
     """Generate a self-signed X.509 certificate and private key.
 
     Tries the ``cryptography`` library first, then falls back to the
@@ -275,16 +288,19 @@ def generate_self_signed(cert_path, key_path, common_name='vnc-remote-secure',
         return _generate_via_openssl(cert_path, key_path, common_name, days_valid)
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+        ]
+    )
     san_entries = [x509.DNSName(common_name)]
-    if common_name == 'vnc-remote-secure':
+    if common_name == "vnc-remote-secure":
         # Useful default SANs for the localhost dev/fallback cert.
         import ipaddress
+
         san_entries = [
-            x509.DNSName('localhost'),
-            x509.IPAddress(ipaddress.IPv4Address('127.0.0.1')),
+            x509.DNSName("localhost"),
+            x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
         ]
     cert = (
         x509.CertificateBuilder()
@@ -293,25 +309,27 @@ def generate_self_signed(cert_path, key_path, common_name='vnc-remote-secure',
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.datetime.now(datetime.UTC))
-        .not_valid_after(
-            datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=days_valid)
+        .not_valid_after(datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=days_valid))
+        .add_extension(
+            x509.SubjectAlternativeName(san_entries),
+            critical=False,
         )
         .add_extension(
-            x509.SubjectAlternativeName(san_entries), critical=False,
-        )
-        .add_extension(
-            x509.BasicConstraints(ca=False, path_length=None), critical=True,
+            x509.BasicConstraints(ca=False, path_length=None),
+            critical=True,
         )
         .sign(key, hashes.SHA256())
     )
-    with open(cert_path, 'wb') as f:
+    with open(cert_path, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
-    with open(key_path, 'wb') as f:
-        f.write(key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        ))
+    with open(key_path, "wb") as f:
+        f.write(
+            key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
     _restrict_key_permissions(key_path)
     return True
 
@@ -322,21 +340,30 @@ def _generate_via_openssl(cert_path, key_path, common_name, days_valid):
     # (/CN=x/O=evil); '=' escapes into the value's attribute name.
     # Strip subject-syntax characters rather than escaping — openssl
     # escaping rules differ across versions and configs.
-    safe_cn = re.sub(r'[/=+\\\r\n\t]', '', str(common_name)).strip()
+    safe_cn = re.sub(r"[/=+\\\r\n\t]", "", str(common_name)).strip()
     if not safe_cn:
         raise ValueError("common_name contains no usable characters")
     cmd = [
-        'openssl', 'req', '-x509', '-nodes', '-days', str(days_valid),
-        '-newkey', 'rsa:2048',
-        '-keyout', key_path,
-        '-out', cert_path,
-        '-subj', f'/CN={safe_cn}',
+        "openssl",
+        "req",
+        "-x509",
+        "-nodes",
+        "-days",
+        str(days_valid),
+        "-newkey",
+        "rsa:2048",
+        "-keyout",
+        key_path,
+        "-out",
+        cert_path,
+        "-subj",
+        f"/CN={safe_cn}",
     ]
     result = run_cmd(cmd, capture_output=True)
     if result.returncode != 0:
         err = result.stderr
         if isinstance(err, bytes):
-            err = err.decode('utf-8', 'replace')
+            err = err.decode("utf-8", "replace")
         raise RuntimeError(f"openssl failed: {err}")
     _restrict_key_permissions(key_path)
     return True

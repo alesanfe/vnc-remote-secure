@@ -5,6 +5,7 @@ Thin wrapper around
 ``create_runtime_user``/``remove_runtime_user`` API expected by the
 platform adapter contract.
 """
+
 from vnc_remote_secure.platform.windows.permissions import (
     create_restricted_user,
     remove_user,

@@ -4,6 +4,7 @@ Thin wrapper around :mod:`vnc_remote_secure.platform.linux.permissions`
 providing the ``create_runtime_user``/``remove_runtime_user`` API
 expected by the platform adapter contract.
 """
+
 from vnc_remote_secure.platform.linux.permissions import (
     create_user,
     remove_user,
@@ -17,7 +18,7 @@ def create_runtime_user(username):
     shell so it cannot be used for interactive logins.
     """
     # justification: useradd shell arg, not shell=True
-    return create_user(username, system=True, shell='/usr/sbin/nologin')  # nosec B604
+    return create_user(username, system=True, shell="/usr/sbin/nologin")  # nosec B604
 
 
 def remove_runtime_user(username):

@@ -5,6 +5,7 @@ Transport surfaces (CLI, REST) only validate input and format output;
 everything that generates, persists or invalidates secrets lives here
 so both management paths behave identically.
 """
+
 import contextlib
 import hashlib
 import logging
@@ -16,9 +17,15 @@ logger = logging.getLogger(__name__)
 # Any env-var credential can be rotated — the mechanism is identical
 # (generate a strong value, persist to .env).
 ROTATABLE = {
-    'TTYD_PASSWD', 'TEMP_USER_PASS', 'VNC_PASSWORD',
-    'HEALTH_AUTH_TOKEN', 'LANDING_PASSWORD', 'USER_UI_PASSWORD',
-    'AUTH_SECRET', 'FLASK_SECRET_KEY', 'BACKUP_PASSWORD',
+    "TTYD_PASSWD",
+    "TEMP_USER_PASS",
+    "VNC_PASSWORD",
+    "HEALTH_AUTH_TOKEN",
+    "LANDING_PASSWORD",
+    "USER_UI_PASSWORD",
+    "AUTH_SECRET",
+    "FLASK_SECRET_KEY",
+    "BACKUP_PASSWORD",
 }
 
 
@@ -27,17 +34,19 @@ def generate_secret_value(name: str) -> str:
     import secrets as secrets_mod
     import string
 
-    chars = string.ascii_letters + string.digits + '!@%^&*'
+    chars = string.ascii_letters + string.digits + "!@%^&*"
     # VNC legacy DES auth uses at most 8 bytes — a longer rotated
     # value would silently truncate to its first 8 chars, leaving
     # a .env value that does not match the effective credential.
-    length = 8 if name == 'VNC_PASSWORD' else 24
+    length = 8 if name == "VNC_PASSWORD" else 24
     while True:
-        new_val = ''.join(secrets_mod.choice(chars) for _ in range(length))
-        if (any(c.isupper() for c in new_val)
-                and any(c.islower() for c in new_val)
-                and any(c.isdigit() for c in new_val)
-                and any(c in '!@%^&*' for c in new_val)):
+        new_val = "".join(secrets_mod.choice(chars) for _ in range(length))
+        if (
+            any(c.isupper() for c in new_val)
+            and any(c.islower() for c in new_val)
+            and any(c.isdigit() for c in new_val)
+            and any(c in "!@%^&*" for c in new_val)
+        ):
             return new_val
 
 
@@ -55,7 +64,7 @@ def _drop_stale_secret_fallbacks(name: str) -> None:
     # file as a fallback — the env var shadows it now, but deleting the
     # env var later would resurrect the OLD key (same stale-fallback bug
     # as generated_credentials.env).
-    if name in ('AUTH_SECRET', 'FLASK_SECRET_KEY'):
+    if name in ("AUTH_SECRET", "FLASK_SECRET_KEY"):
         with contextlib.suppress(Exception):  # cleanup is best-effort
             if os.path.isfile(_secret_file_path()):
                 os.unlink(_secret_file_path())
@@ -81,10 +90,9 @@ def rotate_secret(name: str) -> dict:
     )
     from vnc_remote_secure.core.paths import find_project_root
 
-    name = str(name or '').strip().upper()
+    name = str(name or "").strip().upper()
     if name not in ROTATABLE:
-        raise ValueError(
-            f"cannot rotate '{name}'; rotatable: {sorted(ROTATABLE)}")
+        raise ValueError(f"cannot rotate '{name}'; rotatable: {sorted(ROTATABLE)}")
 
     new_val = generate_secret_value(name)
 
@@ -92,18 +100,23 @@ def rotate_secret(name: str) -> dict:
     # new value when this process exits, and printing it would leak
     # it into scrollback. Running services pick it up on restart.
     if not set_env_persistent(name, new_val):
-        raise OSError('could not write .env')
+        raise OSError("could not write .env")
 
     # Report the real write target, not unconditionally .env.
     sys_env = _system_env_path()
-    env_path = sys_env if (
-        sys_env and os.path.isfile(sys_env)
-        and any(
-            ln.split('=', 1)[0].strip() == name
-            and not ln.strip().startswith('#')
-            for ln in Path(sys_env).read_text(encoding='utf-8').splitlines()
-            if '=' in ln)
-    ) else os.path.join(find_project_root(), '.env')
+    env_path = (
+        sys_env
+        if (
+            sys_env
+            and os.path.isfile(sys_env)
+            and any(
+                ln.split("=", 1)[0].strip() == name and not ln.strip().startswith("#")
+                for ln in Path(sys_env).read_text(encoding="utf-8").splitlines()
+                if "=" in ln
+            )
+        )
+        else os.path.join(find_project_root(), ".env")
+    )
 
     _drop_stale_secret_fallbacks(name)
 
@@ -113,80 +126,86 @@ def rotate_secret(name: str) -> dict:
     # password's authority after the credential changed. Bumping the
     # epoch invalidates all sessions issued so far (services pick it up
     # via shared state without a restart).
-    if name in ('USER_UI_PASSWORD', 'TTYD_PASSWD'):
+    if name in ("USER_UI_PASSWORD", "TTYD_PASSWD"):
         try:
             from vnc_remote_secure.security.sessions import (
                 bump_operator_epoch,
             )
+
             bump_operator_epoch()
             sessions_revoked = True
         except Exception:  # noqa: BLE001 - rotation already succeeded
             pass
 
     return {
-        'name': name,
-        'fingerprint': hashlib.sha256(new_val.encode()).hexdigest()[:8],
-        'env_path': env_path,
-        'sessions_revoked': sessions_revoked,
+        "name": name,
+        "fingerprint": hashlib.sha256(new_val.encode()).hexdigest()[:8],
+        "env_path": env_path,
+        "sessions_revoked": sessions_revoked,
     }
 
 
 def secret_status() -> dict:
     """Per-secret status dict (set/missing/weak) — never values."""
     from vnc_remote_secure.security.redaction import get_secret_status
+
     return get_secret_status()
 
 
 def redact_secret(name: str) -> str:
     """Return the fingerprinted redaction for one secret."""
     from vnc_remote_secure.security.redaction import redact_env
+
     return redact_env(name, show_fingerprint=True)
 
 
-def secrets_check(fix: bool = False) -> list:
-    """TLS config + secret-file permission findings (optionally fixed)."""
+def secrets_check(fix: bool = False) -> list | dict:
+    """TLS config + secret-file permission findings (optionally fixed).
+
+    ``fix=True`` returns the remediation report dict from
+    ``_secrets_check_fix`` instead of the raw findings list."""
     findings = []
     try:
         from vnc_remote_secure.security.tls_validation import (
             validate_tls_config,
         )
+
         findings.extend(validate_tls_config())
     except (ImportError, OSError, ValueError) as e:
         # Validation framework failure is critical, not a warning.
-        findings.append({'severity': 'critical',
-                         'message': f'TLS validation error: {e}'})
+        findings.append({"severity": "critical", "message": f"TLS validation error: {e}"})
     try:
         from vnc_remote_secure.security.file_permissions import (
             validate_secret_files,
         )
+
         findings.extend(validate_secret_files())
     except (ImportError, OSError) as e:
-        findings.append({'severity': 'critical',
-                         'message': f'File permission check error: {e}'})
+        findings.append({"severity": "critical", "message": f"File permission check error: {e}"})
 
     if fix:
-        findings = _secrets_check_fix(findings)
+        return _secrets_check_fix(findings)
     return findings
 
 
-def _secrets_check_fix(findings: list) -> list:
+def _secrets_check_fix(findings: list) -> dict:
     """Apply permission fixes for findings that carry a file path."""
     from vnc_remote_secure.security.file_permissions import (
         fix_secret_file_permissions,
         validate_secret_files,
     )
+
     fixed = []
     for f in findings:
-        path = f.get('file')
+        path = f.get("file")
         if not path:
             continue
-        fixed.append({'file': path,
-                      'fixed': fix_secret_file_permissions(path)})
+        fixed.append({"file": path, "fixed": fix_secret_file_permissions(path)})
     # Re-validate after fixing so the report reflects reality.
-    remaining = [f for f in findings if not f.get('file')]
+    remaining = [f for f in findings if not f.get("file")]
     with contextlib.suppress(ImportError, OSError):
         remaining.extend(validate_secret_files())
-    return {'remaining': remaining, 'fixed': fixed}
+    return {"remaining": remaining, "fixed": fixed}
 
 
 def generate_recovery_codes(count: int = 8) -> list:
@@ -203,9 +222,9 @@ def generate_recovery_codes(count: int = 8) -> list:
     )
 
     codes = generate_recovery_codes(count)
-    hashes = ','.join(hash_recovery_code(c) for c in codes)
-    if not set_env_persistent('RECOVERY_CODES_HASHES', hashes):
-        raise OSError('could not write .env')
+    hashes = ",".join(hash_recovery_code(c) for c in codes)
+    if not set_env_persistent("RECOVERY_CODES_HASHES", hashes):
+        raise OSError("could not write .env")
     return codes
 
 
@@ -219,7 +238,8 @@ def rotate_signing_key() -> dict:
     from vnc_remote_secure.security.authentication import (
         rotate_signing_secret,
     )
+
     ok, err = rotate_signing_secret()
     if not ok:
-        raise RuntimeError(err or 'rotation failed')
-    return {'rotated': True, 'window_days': 7}
+        raise RuntimeError(err or "rotation failed")
+    return {"rotated": True, "window_days": 7}

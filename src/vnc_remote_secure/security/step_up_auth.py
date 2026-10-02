@@ -28,6 +28,7 @@ Usage:
     if needs_step_up(username, max_age_seconds=300):
         return error_json('Re-authentication required', 403)
 """
+
 import hashlib
 import json
 import logging
@@ -50,13 +51,13 @@ logger = logging.getLogger(__name__)
 # session step-up has no enforcement surface there. ``file_transfer``
 # has no implementation at all.
 SENSITIVE_ACTIONS: set[str] = {
-    'open_terminal',
-    'create_admin',
-    'delete_admin',
+    "open_terminal",
+    "create_admin",
+    "delete_admin",
     # Passkey lifecycle — registration binds a new auth factor,
     # revocation removes one; both need a recent authentication.
-    'webauthn_register',
-    'webauthn_revoke',
+    "webauthn_register",
+    "webauthn_revoke",
 }
 
 
@@ -70,7 +71,7 @@ class StepUpAuthManager:
     authenticated" and reject (the F-018 class of bug).
     """
 
-    _NS = 'step_up_auth_times'
+    _NS = "step_up_auth_times"
 
     def __init__(self, default_max_age: int = 300):
         self._auth_times: dict[str, float] = {}  # process-local cache
@@ -81,6 +82,7 @@ class StepUpAuthManager:
         """Read the auth time from the shared backend."""
         try:
             from vnc_remote_secure.security.shared_state import get_backend
+
             val = get_backend().get(self._NS, username)
             return float(val) if val is not None else None
         except Exception:  # noqa: BLE001 - backend must not break auth
@@ -98,11 +100,12 @@ class StepUpAuthManager:
             self._auth_times[username] = ts
         try:
             from vnc_remote_secure.security.shared_state import get_backend
+
             # TTL 24h — auth records are useless past any session lifetime.
             get_backend().set_ttl(self._NS, username, ts, 86400)
         except Exception:  # noqa: BLE001
             pass
-        logger.debug('Step-up auth recorded for user: %s', username)
+        logger.debug("Step-up auth recorded for user: %s", username)
 
     def needs_step_up(self, username: str, max_age: int | None = None) -> bool:
         """Check if a user needs to re-authenticate.
@@ -125,9 +128,12 @@ class StepUpAuthManager:
             # row written by a tampering process) must NOT satisfy the
             # re-auth requirement — fail closed.
             logger.warning(
-                'Step-up auth timestamp for %s is in the future '
-                '(%.0f > %.0f) — treating as missing', username,
-                last_auth, now)
+                "Step-up auth timestamp for %s is in the future "
+                "(%.0f > %.0f) — treating as missing",
+                username,
+                last_auth,
+                now,
+            )
             return True
         return (now - last_auth) > age
 
@@ -150,6 +156,7 @@ class StepUpAuthManager:
                 self._auth_times.clear()
         try:
             from vnc_remote_secure.security.shared_state import get_backend
+
             backend = get_backend()
             if username:
                 backend.delete(self._NS, username)
@@ -183,14 +190,15 @@ class StepUpAuthManager:
 #   handler for the op calls
 #       consume_step_up(user, op, resource, sid)        (single-use)
 # ---------------------------------------------------------------------------
-_GRANT_NS = 'step_up_grants'
-_CONSUMED_NS = 'step_up_consumed'
+_GRANT_NS = "step_up_grants"
+_CONSUMED_NS = "step_up_consumed"
 GRANT_TTL_SECONDS = 120  # long enough for one wizard step — no more
 
 
 def _grant_backend():
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         return get_backend()
     except Exception:  # noqa: BLE001
         return None
@@ -199,15 +207,14 @@ def _grant_backend():
 def _resource_hash(resource: str) -> str:
     """Bind a grant to a resource without storing the raw name —
     backup filenames and secret names are enumeration-sensitive."""
-    return hashlib.sha256(resource.encode('utf-8')).hexdigest()[:16]
+    return hashlib.sha256(resource.encode("utf-8")).hexdigest()[:16]
 
 
 def _grant_key(username: str, operation: str, resource: str) -> str:
-    return '\x00'.join((username, operation, _resource_hash(resource)))
+    return "\x00".join((username, operation, _resource_hash(resource)))
 
 
-def grant_step_up(username: str, operation: str, resource: str = '',
-                  sid: str = '') -> str:
+def grant_step_up(username: str, operation: str, resource: str = "", sid: str = "") -> str:
     """Record a bound step-up grant; returns the grant nonce.
 
     ``operation`` is the catalog operation id (``backup.restore``);
@@ -217,18 +224,22 @@ def grant_step_up(username: str, operation: str, resource: str = '',
     a grant minted in one session cannot satisfy another."""
     nonce = secrets.token_hex(16)
     payload = {
-        'nonce': nonce, 'sid': sid or None,
-        'issued_at': time.time(),
+        "nonce": nonce,
+        "sid": sid or None,
+        "issued_at": time.time(),
     }
     be = _grant_backend()
     if be is not None:
-        be.set_ttl(_GRANT_NS, _grant_key(username, operation, resource),
-                   json.dumps(payload), GRANT_TTL_SECONDS)
+        be.set_ttl(
+            _GRANT_NS,
+            _grant_key(username, operation, resource),
+            json.dumps(payload),
+            GRANT_TTL_SECONDS,
+        )
     return nonce
 
 
-def consume_step_up(username: str, operation: str, resource: str = '',
-                    sid: str = '') -> bool:
+def consume_step_up(username: str, operation: str, resource: str = "", sid: str = "") -> bool:
     """Consume a bound grant — single-use, expiry enforced by the
     backend TTL. Returns True iff a matching grant existed and was
     unused.
@@ -245,34 +256,31 @@ def consume_step_up(username: str, operation: str, resource: str = '',
         if raw is None:
             return False
         payload = json.loads(raw)
-        grant_sid = payload.get('sid')
+        grant_sid = payload.get("sid")
         if grant_sid is not None and grant_sid != sid:
             # Bound to a different operator session — deny. A caller
             # presenting NO sid must not satisfy a bound grant either:
             # requiring equality keeps the binding meaningful when a
             # transport fails to resolve the cookie.
             return False
-        nonce = payload.get('nonce', '')
-        if not be.set_if_absent(_CONSUMED_NS, nonce, username,
-                                GRANT_TTL_SECONDS):
+        nonce = payload.get("nonce", "")
+        if not be.set_if_absent(_CONSUMED_NS, nonce, username, GRANT_TTL_SECONDS):
             return False  # already consumed by a racing request
         be.delete(_GRANT_NS, key)
         return True
     except Exception:  # noqa: BLE001 - fail closed
-        logger.debug('step-up grant consume failed', exc_info=True)
+        logger.debug("step-up grant consume failed", exc_info=True)
         return False
 
 
-def pending_step_up(username: str, operation: str,
-                    resource: str = '') -> bool:
+def pending_step_up(username: str, operation: str, resource: str = "") -> bool:
     """True when a grant exists but has not been consumed — lets the
     UI distinguish 'needs re-auth' from 'grant pending'."""
     be = _grant_backend()
     if be is None:
         return False
     try:
-        return be.get(_GRANT_NS,
-                      _grant_key(username, operation, resource)) is not None
+        return be.get(_GRANT_NS, _grant_key(username, operation, resource)) is not None
     except Exception:  # noqa: BLE001
         return False
 
@@ -299,8 +307,7 @@ def needs_step_up(username: str, max_age: int | None = None) -> bool:
     return get_step_up_manager().needs_step_up(username, max_age)
 
 
-def require_step_up(username: str, action: str,
-                    max_age: int | None = None) -> str | None:
+def require_step_up(username: str, action: str, max_age: int | None = None) -> str | None:
     """Check if a sensitive action requires step-up auth.
 
     Args:
@@ -316,11 +323,9 @@ def require_step_up(username: str, action: str,
         return None  # Not a sensitive action
 
     if needs_step_up(username, max_age):
-        logger.warning(
-            'Step-up auth required for user %s on action %s', username, action
-        )
+        logger.warning("Step-up auth required for user %s on action %s", username, action)
         return (
-            f'Re-authentication required for action: {action}. '
-            'Please log in again or provide MFA.'
+            f"Re-authentication required for action: {action}. "
+            "Please log in again or provide MFA."
         )
     return None

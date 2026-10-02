@@ -1,4 +1,5 @@
 """Windows ACL and user management via PowerShell."""
+
 import contextlib
 
 from ._powershell import run_powershell
@@ -20,14 +21,15 @@ def create_user(username, password=None):
     """
     if user_exists(username):
         return True
-    if password is not None and ('\n' in password or '\r' in password):
+    if password is not None and ("\n" in password or "\r" in password):
         return False  # ReadLine() would silently truncate it
     if password is None:
         # Create with a random password; user cannot log in interactively.
         import secrets
         import string
+
         alphabet = string.ascii_letters + string.digits
-        password = ''.join(secrets.choice(alphabet) for _ in range(32))
+        password = "".join(secrets.choice(alphabet) for _ in range(32))
     # The password travels via stdin — embedding it in the command
     # line would expose it to any process able to read cmdlines
     # (WMI Win32_Process, Process Explorer).
@@ -37,7 +39,7 @@ def create_user(username, password=None):
         "-Password (ConvertTo-SecureString $pw -AsPlainText -Force) "
         "-Description 'VNC Remote Secure runtime user' -ErrorAction SilentlyContinue"
     )
-    result = run_powershell(ps_script, input_data=password + '\n')
+    result = run_powershell(ps_script, input_data=password + "\n")
     return result.returncode == 0
 
 
@@ -52,11 +54,13 @@ def remove_user(username):
         RESERVED_USERNAMES,
         WINDOWS_BUILTIN_USERNAMES,
     )
-    if username in WINDOWS_BUILTIN_USERNAMES \
-            or username.lower() in {u.lower() for u in RESERVED_USERNAMES}:
+
+    if username in WINDOWS_BUILTIN_USERNAMES or username.lower() in {
+        u.lower() for u in RESERVED_USERNAMES
+    }:
         import logging
-        logging.getLogger(__name__).warning(
-            "Refusing to remove reserved/builtin user %s", username)
+
+        logging.getLogger(__name__).warning("Refusing to remove reserved/builtin user %s", username)
         return False
     ps_script = f"Remove-LocalUser -Name '{_ps_escape(username)}' -ErrorAction SilentlyContinue"
     result = run_powershell(ps_script)
@@ -70,7 +74,7 @@ def user_exists(username):
         "{ 'yes' } else { 'no' }"
     )
     result = run_powershell(ps_script)
-    return result.stdout.strip().lower() == 'yes'
+    return result.stdout.strip().lower() == "yes"
 
 
 def list_users():
@@ -80,14 +84,12 @@ def list_users():
     System accounts (Administrator, Guest, DefaultAccount, etc.) are
     excluded.
     """
-    ps_script = (
-        "Get-LocalUser | Select-Object Name, SID | "
-        "ConvertTo-Json -Compress"
-    )
+    ps_script = "Get-LocalUser | Select-Object Name, SID | " "ConvertTo-Json -Compress"
     result = run_powershell(ps_script)
     if result.returncode != 0 or not result.stdout.strip():
         return []
     import json
+
     try:
         data = json.loads(result.stdout)
     except (json.JSONDecodeError, ValueError):
@@ -96,24 +98,29 @@ def list_users():
         data = [data]
     users = []
     for u in data:
-        name = u.get('Name', '')
-        sid_obj = u.get('SID', '')
+        name = u.get("Name", "")
+        sid_obj = u.get("SID", "")
         # SID from ConvertTo-Json can be a string or a dict with
         # 'Identifier'/'Value'/'Sddl' keys depending on PS version.
-        sid_str = ''
+        sid_str = ""
         if isinstance(sid_obj, str):
             sid_str = sid_obj
         elif isinstance(sid_obj, dict):
-            sid_str = (sid_obj.get('Sddl') or sid_obj.get('Value')
-                       or sid_obj.get('Identifier') or sid_obj.get('SID') or '')
+            sid_str = (
+                sid_obj.get("Sddl")
+                or sid_obj.get("Value")
+                or sid_obj.get("Identifier")
+                or sid_obj.get("SID")
+                or ""
+            )
         # Extract RID from SID (last component after last dash).
         uid = 0
         if sid_str:
-            parts = sid_str.split('-')
+            parts = sid_str.split("-")
             if parts:
                 with contextlib.suppress(ValueError):
                     uid = int(parts[-1])
-        users.append({'username': name, 'uid': uid, 'home': ''})
+        users.append({"username": name, "uid": uid, "home": ""})
     return users
 
 
@@ -170,7 +177,7 @@ def set_user_password(username, password):
     read with ``ReadLine()`` — a newline would silently truncate it,
     so reject control characters up front.
     """
-    if '\n' in password or '\r' in password:
+    if "\n" in password or "\r" in password:
         return False
     if not user_exists(username):
         return False
@@ -180,5 +187,5 @@ def set_user_password(username, password):
         "-Password (ConvertTo-SecureString $pw -AsPlainText -Force) "
         "-ErrorAction SilentlyContinue"
     )
-    result = run_powershell(ps_script, input_data=password + '\n')
+    result = run_powershell(ps_script, input_data=password + "\n")
     return result.returncode == 0

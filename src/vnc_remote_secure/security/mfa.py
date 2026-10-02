@@ -4,6 +4,7 @@ The HOTP/TOTP primitives come from ``pyotp`` — the code here is the
 project-specific layer on top: replay protection via shared state,
 recovery codes, and env-based enablement.
 """
+
 import hashlib
 import hmac
 import logging
@@ -26,14 +27,16 @@ TOTP_WINDOW = 1  # allow 1 step before/after current time
 def _base32_encode(data: bytes) -> str:
     """Base32-encode without padding (RFC 4648)."""
     import base64
-    return base64.b32encode(data).decode('ascii').rstrip('=')
+
+    return base64.b32encode(data).decode("ascii").rstrip("=")
 
 
 def _base32_decode(data: str) -> bytes:
     """Base32-decode, adding padding if needed."""
     import base64
+
     padding = (8 - len(data) % 8) % 8
-    return base64.b32decode(data + '=' * padding)
+    return base64.b32decode(data + "=" * padding)
 
 
 def _canonical_secret(secret: str) -> str:
@@ -48,11 +51,11 @@ def generate_totp_secret() -> str:
     return pyotp.random_base32()
 
 
-def generate_totp_uri(secret: str, account: str, issuer: str = 'VNC Remote Secure') -> str:
+def generate_totp_uri(secret: str, account: str, issuer: str = "VNC Remote Secure") -> str:
     """Generate an otpauth:// URI for QR code generation."""
-    return pyotp.TOTP(
-        secret, digits=TOTP_DIGITS, interval=TOTP_INTERVAL
-    ).provisioning_uri(name=account, issuer_name=issuer)
+    return pyotp.TOTP(secret, digits=TOTP_DIGITS, interval=TOTP_INTERVAL).provisioning_uri(
+        name=account, issuer_name=issuer
+    )
 
 
 def _hotp(secret_b32: str, counter: int) -> int:
@@ -61,7 +64,7 @@ def _hotp(secret_b32: str, counter: int) -> int:
     return int(pyotp.HOTP(secret_b32, digits=TOTP_DIGITS).at(counter))
 
 
-_NS_TOTP = 'mfa_last_step'
+_NS_TOTP = "mfa_last_step"
 
 
 def _secret_id(secret: str) -> str:
@@ -78,13 +81,14 @@ def _last_step(secret: str):
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        val = get_backend().get(_NS_TOTP, f'last:{_secret_id(secret)}')
+
+        val = get_backend().get(_NS_TOTP, f"last:{_secret_id(secret)}")
         return int(val) if val is not None else -1
     except Exception:  # noqa: BLE001
         return -1
 
 
-def _record_step(step: int, secret: str = ''):
+def _record_step(step: int, secret: str = ""):
     """Persist the consumed TOTP counter so it cannot be replayed.
 
     ``secret`` may be empty for legacy/test callers — the key then
@@ -92,7 +96,8 @@ def _record_step(step: int, secret: str = ''):
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        key = f'last:{_secret_id(secret)}' if secret else 'last'
+
+        key = f"last:{_secret_id(secret)}" if secret else "last"
         get_backend().set(_NS_TOTP, key, step)
     except Exception:  # noqa: BLE001
         pass
@@ -112,24 +117,24 @@ def _claim_step(secret: str, step: int) -> bool:
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         sid = _secret_id(secret)
         ttl = (TOTP_WINDOW * 2 + 1) * TOTP_INTERVAL * 2
-        return bool(get_backend().set_if_absent(
-            'mfa_used_steps', f'{sid}:{step}', True, ttl))
+        return bool(get_backend().set_if_absent("mfa_used_steps", f"{sid}:{step}", True, ttl))
     except Exception:  # noqa: BLE001 - fail closed
         # Backend down and the step is within the drift window but
         # above _last_step (the last-step check passed). Returning True
         # here would allow a code captured and replayed within its
         # window across two processes — deny instead.
-        logger.exception(
-            "TOTP step claim backend unavailable — denying")
+        logger.exception("TOTP step claim backend unavailable — denying")
         return False
 
 
 def _metric_replay() -> None:
     """Emit the TOTP-replay counter (best-effort)."""
     from vnc_remote_secure.monitoring.prometheus import inc_counter
-    inc_counter('vnc_remote_totp_replays_total')
+
+    inc_counter("vnc_remote_totp_replays_total")
 
 
 def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
@@ -142,8 +147,12 @@ def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
     """
     # isdigit() alone accepts non-ASCII digits ('١٢٣٤٥٦', '１２３４５６')
     # which then crash str-form compare_digest — require ASCII digits.
-    if (not isinstance(code, str) or not code.isascii()
-            or not code.isdigit() or len(code) != TOTP_DIGITS):
+    if (
+        not isinstance(code, str)
+        or not code.isascii()
+        or not code.isdigit()
+        or len(code) != TOTP_DIGITS
+    ):
         return False
     try:
         canonical = _canonical_secret(secret)
@@ -162,14 +171,12 @@ def verify_totp(secret: str, code: str, timestamp: int | None = None) -> bool:
                 # Already consumed — replay within the drift window.
                 # A replay attempt is a security signal: the code was
                 # captured somewhere. Metric, not just a debug log.
-                logger.debug("TOTP replay rejected (counter %d <= %d)",
-                             matched, last)
+                logger.debug("TOTP replay rejected (counter %d <= %d)", matched, last)
                 _metric_replay()
                 return False
             if not _claim_step(secret, matched):
                 # Lost a cross-process race for this timestep.
-                logger.debug("TOTP replay rejected (step %d claimed)",
-                             matched)
+                logger.debug("TOTP replay rejected (step %d claimed)", matched)
                 _metric_replay()
                 return False
             _record_step(matched, secret)
@@ -187,14 +194,13 @@ def generate_recovery_codes(count: int = 8) -> list:
     codes = []
     for _ in range(count):
         raw = secrets.token_hex(16)  # 32 hex chars = 128 bits
-        codes.append('-'.join(
-            raw[i:i + 4] for i in range(0, 32, 4)).upper())
+        codes.append("-".join(raw[i : i + 4] for i in range(0, 32, 4)).upper())
     return codes
 
 
 def hash_recovery_code(code: str) -> str:
     """Hash a recovery code for secure storage (SHA-256)."""
-    return hashlib.sha256(code.upper().encode('utf-8')).hexdigest()
+    return hashlib.sha256(code.upper().encode("utf-8")).hexdigest()
 
 
 def verify_recovery_code(code: str, stored_hashes: list) -> bool:
@@ -209,9 +215,7 @@ def verify_recovery_code(code: str, stored_hashes: list) -> bool:
     for stored in stored_hashes:
         # compare as bytes — a non-ASCII stored value would otherwise
         # raise TypeError in str-form compare_digest (fail closed).
-        if hmac.compare_digest(
-                code_hash.encode('ascii'),
-                str(stored).encode('utf-8', 'replace')):
+        if hmac.compare_digest(code_hash.encode("ascii"), str(stored).encode("utf-8", "replace")):
             return True
     return False
 
@@ -219,7 +223,7 @@ def verify_recovery_code(code: str, stored_hashes: list) -> bool:
 def is_mfa_enabled() -> bool:
     """Check if MFA is configured for the current user."""
     load_env_file()
-    return bool(os.environ.get('TOTP_SECRET'))
+    return bool(os.environ.get("TOTP_SECRET"))
 
 
 def mfa_required_for_login() -> bool:
@@ -230,6 +234,6 @@ def mfa_required_for_login() -> bool:
     - MFA_REQUIRED env var is set to true
     """
     load_env_file()
-    if env_flag('MFA_REQUIRED', 'false'):
+    if env_flag("MFA_REQUIRED", "false"):
         return True
     return is_mfa_enabled()

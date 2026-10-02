@@ -9,6 +9,7 @@ Handles:
 - Event Log integration
 - Paths: ProgramFiles, ProgramData
 """
+
 import contextlib
 import logging
 import os
@@ -29,46 +30,97 @@ def _merge_ini_overrides(lines, overrides):
     section — a stale ``passwd`` left in [ultravnc]/[poll] would remain
     a working default credential. Structural keys are [admin]-only.
     """
-    credential_keys = {'passwd', 'passwd2'}
-
-    def _safe(v):
-        # A CR/LF in an override value would inject extra lines into
-        # the ini — strip them (values are single-line by definition).
-        return str(v).replace('\r', '').replace('\n', '')
+    credential_keys = {"passwd", "passwd2"}
+    safe = {k: _safe_ini_value(v) for k, v in overrides.items()}
 
     out = []
     seen = set()
     in_admin = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith('[') and stripped.endswith(']'):
-            in_admin = stripped == '[admin]'
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_admin = stripped == "[admin]"
             out.append(line)
             continue
-        if '=' in line:
-            key_name = line.split('=', 1)[0].strip()
-            if key_name in credential_keys and key_name in overrides:
-                out.append(f'{key_name}={_safe(overrides[key_name])}')
-                seen.add(key_name)
-                continue
-            if in_admin and key_name in overrides:
-                out.append(f'{key_name}={_safe(overrides[key_name])}')
+        if "=" in line:
+            key_name = line.split("=", 1)[0].strip()
+            # Credential keys are rewritten in EVERY section — a stale
+            # passwd left in [ultravnc]/[poll] would remain a working
+            # default credential. Structural keys are [admin]-only.
+            if key_name in safe and (key_name in credential_keys or in_admin):
+                out.append(f"{key_name}={safe[key_name]}")
                 seen.add(key_name)
                 continue
         out.append(line)
-    missing = [k for k in overrides if k not in seen]
-    if missing:
-        # Create the [admin] section when absent — a truncated/empty
-        # ini must not abort the write.
-        if not any(ln.strip() == '[admin]' for ln in out):
-            out.append('[admin]')
-        idx = next(
-            i for i, line in enumerate(out)
-            if line.strip() == '[admin]') + 1
-        for key_name in missing:
-            out.insert(idx, f'{key_name}={_safe(overrides[key_name])}')
-            idx += 1
+    _insert_missing_overrides(out, safe, seen)
     return out
+
+
+def _safe_ini_value(v) -> str:
+    """A CR/LF in an override value would inject extra lines into
+    the ini — strip them (values are single-line by definition)."""
+    return str(v).replace("\r", "").replace("\n", "")
+
+
+def _insert_missing_overrides(out: list, safe: dict, seen: set) -> None:
+    """Append overrides never matched into (a possibly just-created)
+    ``[admin]`` section — a truncated/empty ini must not abort the
+    write."""
+    missing = [k for k in safe if k not in seen]
+    if not missing:
+        return
+    if not any(ln.strip() == "[admin]" for ln in out):
+        out.append("[admin]")
+    idx = next(i for i, line in enumerate(out) if line.strip() == "[admin]") + 1
+    for key_name in missing:
+        out.insert(idx, f"{key_name}={safe[key_name]}")
+        idx += 1
+
+
+def _primary_lan_ip() -> str | None:
+    """UDP socket trick for the primary LAN IP (no traffic sent)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2)
+        s.connect(("8.8.8.8", 80))
+        primary_ip = s.getsockname()[0]
+        s.close()
+        if primary_ip and not primary_ip.startswith("127."):
+            return primary_ip
+    except Exception as e:
+        logger.debug("LAN IP detection via UDP socket failed: %s", e)
+    return None
+
+
+def _powershell_lan_ips() -> list:
+    """Get-NetIPAddress for physical adapters (excludes loopback,
+    link-local and virtual ranges already in the PS filter)."""
+    try:
+        ps_cmd = (
+            "Get-NetIPAddress -AddressFamily IPv4 | "
+            "Where-Object { $_.IPAddress -ne '127.0.0.1' -and "
+            "$_.IPAddress -notlike '169.254.*' -and "
+            "$_.IPAddress -notmatch '^172\\.(1[6-9]|2[0-9]|3[01])\\.' -and "
+            "$_.IPAddress -notlike '192.168.56.*' -and "
+            "$_.IPAddress -notlike '192.168.96.*' -and "
+            "$_.IPAddress -notlike '192.168.204.*' } | "
+            "Select-Object -ExpandProperty IPAddress -Unique"
+        )
+        result = run_cmd(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return [
+            line.strip()
+            for line in result.stdout.strip().split("\n")
+            if line.strip() and not line.strip().startswith("127.")
+        ]
+    except Exception as e:
+        logger.debug("LAN IP detection via PowerShell failed: %s", e)
+        return []
 
 
 class WindowsAdapter(PlatformAdapter):
@@ -77,16 +129,24 @@ class WindowsAdapter(PlatformAdapter):
     def get_platform_info(self):
         """Get platform info."""
         return {
-            'platform': 'windows',
-            'service_manager': 'Windows Services',
-            'firewall': 'Windows Firewall (NetFirewall)',
-            'config_dir': os.path.join(os.environ.get('ProgramData', 'C:\\ProgramData'), 'VncRemoteSecure', 'config'),
-            'data_dir': os.path.join(os.environ.get('ProgramData', 'C:\\ProgramData'), 'VncRemoteSecure', 'data'),
-            'log_dir': os.path.join(os.environ.get('ProgramData', 'C:\\ProgramData'), 'VncRemoteSecure', 'logs'),
-            'run_dir': os.path.join(os.environ.get('ProgramData', 'C:\\ProgramData'), 'VncRemoteSecure', 'run'),
-            'default_vnc_port': 5900,
-            'default_health_port': 8090,
-            'default_webterm_shell': 'cmd.exe',
+            "platform": "windows",
+            "service_manager": "Windows Services",
+            "firewall": "Windows Firewall (NetFirewall)",
+            "config_dir": os.path.join(
+                os.environ.get("ProgramData", "C:\\ProgramData"), "VncRemoteSecure", "config"
+            ),
+            "data_dir": os.path.join(
+                os.environ.get("ProgramData", "C:\\ProgramData"), "VncRemoteSecure", "data"
+            ),
+            "log_dir": os.path.join(
+                os.environ.get("ProgramData", "C:\\ProgramData"), "VncRemoteSecure", "logs"
+            ),
+            "run_dir": os.path.join(
+                os.environ.get("ProgramData", "C:\\ProgramData"), "VncRemoteSecure", "run"
+            ),
+            "default_vnc_port": 5900,
+            "default_health_port": 8090,
+            "default_webterm_shell": "cmd.exe",
         }
 
     def _run_powershell(self, script):
@@ -98,6 +158,7 @@ class WindowsAdapter(PlatformAdapter):
         from vnc_remote_secure.platform.windows.permissions import (
             _ps_escape,
         )
+
         # Stop the service first (ignore errors if it isn't running).
         self._run_powershell(
             f"Stop-Service -Name '{_ps_escape(service_name)}' "
@@ -105,8 +166,9 @@ class WindowsAdapter(PlatformAdapter):
         )
         # sc.exe delete is the documented way to remove a service.
         result = run_cmd(
-            ['sc.exe', 'delete', service_name],
-            capture_output=True, text=True,
+            ["sc.exe", "delete", service_name],
+            capture_output=True,
+            text=True,
         )
         return result.returncode == 0
 
@@ -115,15 +177,17 @@ class WindowsAdapter(PlatformAdapter):
         from vnc_remote_secure.platform.windows.permissions import (
             _ps_escape,
         )
+
         ps_script = (
             f"Remove-NetFirewallRule -DisplayName '{_ps_escape(rule_name)}*' "
             # No matching rule is not an error — removal is idempotent,
             # matching firewall.remove_firewall_rule.
-            "-ErrorAction SilentlyContinue")
+            "-ErrorAction SilentlyContinue"
+        )
         result = self._run_powershell(ps_script)
         return result.returncode == 0
 
-    def install_firewall_rule(self, port, protocol='tcp', rule_name=None):
+    def install_firewall_rule(self, port, protocol="tcp", rule_name=None):
         """Create a Windows Firewall rule allowing ``port``/``protocol``.
 
         The rule is named ``VncRemoteSecure-{port}-{protocol}`` so it can
@@ -133,12 +197,12 @@ class WindowsAdapter(PlatformAdapter):
         from vnc_remote_secure.platform.windows.permissions import (
             _ps_escape,
         )
+
         # Coerce/validate before interpolation: these values land inside
         # a PowerShell command string.
         port = int(port)
-        protocol = 'TCP' if str(protocol).lower() == 'tcp' else 'UDP'
-        name = _ps_escape(
-            rule_name or f'VncRemoteSecure-{port}-{protocol.lower()}')
+        protocol = "TCP" if str(protocol).lower() == "tcp" else "UDP"
+        name = _ps_escape(rule_name or f"VncRemoteSecure-{port}-{protocol.lower()}")
         # Scope to Private,Domain like firewall.configure_firewall —
         # an unscoped rule applies on Public networks too, which is
         # not what a LAN-only remote-access tool should open.
@@ -165,6 +229,7 @@ class WindowsAdapter(PlatformAdapter):
         from vnc_remote_secure.platform.windows.permissions import (
             create_restricted_user,
         )
+
         return create_restricted_user(username)
 
     def remove_runtime_user(self, username):
@@ -184,23 +249,25 @@ class WindowsAdapter(PlatformAdapter):
             RESERVED_USERNAMES,
             WINDOWS_BUILTIN_USERNAMES,
         )
-        if username in WINDOWS_BUILTIN_USERNAMES \
-                or username.lower() in {u.lower() for u in RESERVED_USERNAMES}:
-            log.warning(
-                "Refusing to remove reserved/builtin user %s", username)
+
+        if username in WINDOWS_BUILTIN_USERNAMES or username.lower() in {
+            u.lower() for u in RESERVED_USERNAMES
+        }:
+            log.warning("Refusing to remove reserved/builtin user %s", username)
             return False
         from vnc_remote_secure.platform.windows.permissions import (
             _ps_escape,
         )
+
         ps_script = (
-            f"Remove-LocalUser -Name '{_ps_escape(username)}' "
-            "-ErrorAction SilentlyContinue"
+            f"Remove-LocalUser -Name '{_ps_escape(username)}' " "-ErrorAction SilentlyContinue"
         )
         result = self._run_powershell(ps_script)
         # Best-effort profile removal (matches Linux ``userdel -r``).
         profile_path = f"C:\\Users\\{username}"
         try:
             import shutil
+
             if os.path.isdir(profile_path):
                 shutil.rmtree(profile_path, ignore_errors=True)
         except Exception as exc:  # noqa: BLE001 - best-effort cleanup
@@ -212,42 +279,15 @@ class WindowsAdapter(PlatformAdapter):
     def get_lan_ips(self):
         """Return LAN IP addresses, filtering out virtual/loopback adapters."""
         ips = []
-        # UDP socket trick for primary LAN IP
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(2)
-            s.connect(('8.8.8.8', 80))
-            primary_ip = s.getsockname()[0]
-            s.close()
-            if primary_ip and not primary_ip.startswith('127.'):
-                ips.append(primary_ip)
-        except Exception as e:
-            logger.debug("LAN IP detection via UDP socket failed: %s", e)
-        # PowerShell Get-NetIPAddress for physical adapters
-        try:
-            ps_cmd = (
-                "Get-NetIPAddress -AddressFamily IPv4 | "
-                "Where-Object { $_.IPAddress -ne '127.0.0.1' -and "
-                "$_.IPAddress -notlike '169.254.*' -and "
-                "$_.IPAddress -notmatch '^172\\.(1[6-9]|2[0-9]|3[01])\\.' -and "
-                "$_.IPAddress -notlike '192.168.56.*' -and "
-                "$_.IPAddress -notlike '192.168.96.*' -and "
-                "$_.IPAddress -notlike '192.168.204.*' } | "
-                "Select-Object -ExpandProperty IPAddress -Unique"
-            )
-            result = run_cmd(
-                ['powershell', '-NoProfile', '-Command', ps_cmd],
-                capture_output=True, text=True, timeout=10, check=False
-            )
-            for line in result.stdout.strip().split('\n'):
-                line = line.strip()
-                if line and line not in ips and not line.startswith('127.'):
-                    ips.append(line)
-        except Exception as e:
-            logger.debug("LAN IP detection via PowerShell failed: %s", e)
+        primary_ip = _primary_lan_ip()
+        if primary_ip:
+            ips.append(primary_ip)
+        for ip in _powershell_lan_ips():
+            if ip not in ips:
+                ips.append(ip)
         # Filter virtual adapter ranges
-        virtual_ranges = [f'172.{i}.' for i in range(16, 32)]
-        virtual_ranges += ['192.168.56.', '192.168.96.', '192.168.204.']
+        virtual_ranges = [f"172.{i}." for i in range(16, 32)]
+        virtual_ranges += ["192.168.56.", "192.168.96.", "192.168.204."]
         ips = [ip for ip in ips if not any(ip.startswith(r) for r in virtual_ranges)]
         # Deduplicate preserving order
         seen = set()
@@ -265,16 +305,22 @@ class WindowsAdapter(PlatformAdapter):
         that file before launch. ``geometry``/``depth`` are ignored:
         UltraVNC shares the console session at its native resolution.
 
-        Note: The VNC process currently runs under the current user's
-        context, not under the restricted runtime user. Full process
-        impersonation (CreateProcessAsUser) is a planned enhancement
-        (see ADR-0007). The restricted runtime user is created by the
-        installer and secret files (config.env, TLS keys) get owner-only
-        ACLs, but the VNC process itself is not yet sandboxed to that
-        user.
+        Note: The VNC process is spawned inside a dedicated
+        ``VncRemoteSecure.VncServer`` AppContainer when
+        ``VNC_WINDOWS_SANDBOX`` allows it (default ``auto``; ``strict``
+        propagates a sandbox failure, ``off`` disables it). The
+        container carries the ``internetClientServer`` +
+        ``privateNetworkClientServer`` capabilities winvnc needs to
+        bind the RFB port and accept clients, and an ACL grant on its
+        own install directory only — it cannot read the service's
+        secrets under the user profile. This supersedes the planned
+        CreateProcessAsUser isolation from ADR-0007: an AppContainer
+        needs no privileges and stays in the interactive session, so
+        desktop capture keeps working.
         """
         from vnc_remote_secure.core.exceptions import ServiceError
         from vnc_remote_secure.platform.windows.installer import _find_ultravnc
+
         exe = _find_ultravnc()
         if not exe:
             raise ServiceError(
@@ -290,7 +336,10 @@ class WindowsAdapter(PlatformAdapter):
             # current user cannot write).
             logger.warning(
                 "Could not write ultravnc.ini next to %s: %s — "
-                "starting with the existing settings", exe, e)
+                "starting with the existing settings",
+                exe,
+                e,
+            )
         # winvnc is an external binary that needs none of our
         # credentials — strip secret env vars like the service manager
         # does for websockify (the password travels via ultravnc.ini).
@@ -298,10 +347,63 @@ class WindowsAdapter(PlatformAdapter):
             from vnc_remote_secure.security.redaction import (
                 sanitized_child_env,
             )
+
             child_env = sanitized_child_env()
         except Exception:  # noqa: BLE001 - import broken entirely
-            child_env = {'PATH': os.environ.get('PATH', '')}
-        return subprocess.Popen([exe], env=child_env)
+            child_env = {"PATH": os.environ.get("PATH", "")}
+
+        # AppContainer isolation (same model as the web terminal, see
+        # platform/windows/sandbox.py). ``auto`` falls back to an
+        # unsandboxed Popen with a loud warning; ``strict`` propagates.
+        proc = None
+        mode = "off"
+        try:
+            from vnc_remote_secure.platform.windows.sandbox import (
+                sandbox_mode,
+                spawn_sandboxed,
+            )
+
+            mode = sandbox_mode("VNC_WINDOWS_SANDBOX")
+        except Exception as e:  # noqa: BLE001 - sandbox module missing
+            logger.warning(
+                "VNC AppContainer sandbox unavailable (%s) — winvnc runs unsandboxed",
+                e,
+            )
+        if mode != "off":
+            try:
+                # winvnc reads ultravnc.ini + companion DLLs from its
+                # own directory and writes WinVNC.log / persisted
+                # settings next to the binary → read-write grant. The
+                # dedicated VncRemoteSecure.VncServer profile keeps the
+                # grant scoped to the VNC container's SID.
+                proc = spawn_sandboxed(
+                    [exe],
+                    env=child_env,
+                    app_container_name="VncRemoteSecure.VncServer",
+                    capabilities=(
+                        "internetClientServer",
+                        "privateNetworkClientServer",
+                    ),
+                    grant_dirs=((os.path.dirname(os.path.realpath(exe)), True),),
+                    # GUI child: no CREATE_NO_WINDOW, and no job object
+                    # — only the PID survives (the service manager
+                    # stops it via taskkill /PID), so a
+                    # KILL_ON_JOB_CLOSE handle dropped to GC would kill
+                    # winvnc the moment the wrapper is released.
+                    hidden_window=False,
+                    job=False,
+                    capture_output=False,
+                )
+            except Exception:
+                if mode == "strict":
+                    raise
+                logger.warning(
+                    "AppContainer spawn of winvnc failed — running unsandboxed",
+                    exc_info=True,
+                )
+        if proc is None:
+            proc = subprocess.Popen([exe], env=child_env)
+        return proc
 
     @staticmethod
     def _write_ultravnc_ini(exe, password):
@@ -316,29 +418,29 @@ class WindowsAdapter(PlatformAdapter):
         from vnc_remote_secure.core.config import get_config
         from vnc_remote_secure.vendor.d3des import encrypt_vnc_password
 
-        ini_path = os.path.join(os.path.dirname(exe), 'ultravnc.ini')
+        ini_path = os.path.join(os.path.dirname(exe), "ultravnc.ini")
         from vnc_remote_secure.core.constants import (
             DEFAULT_VNC_HTTP_PORT,
             DEFAULT_VNC_PORT,
         )
+
         config = get_config()
         overrides = {
-            'UseRegistry': '0',
-            'SocketConnect': '1',
-            'HTTPConnect': '1',
-            'AllowLoopback': '1',
-            'AuthRequired': '1',
-            'QueryAccept': '0',
-            'PortNumber': str(config.get('vnc_port', DEFAULT_VNC_PORT)),
-            'HTTPPortNumber': str(config.get(
-                'vnc_http_port', DEFAULT_VNC_HTTP_PORT)),
+            "UseRegistry": "0",
+            "SocketConnect": "1",
+            "HTTPConnect": "1",
+            "AllowLoopback": "1",
+            "AuthRequired": "1",
+            "QueryAccept": "0",
+            "PortNumber": str(config.get("vnc_port", DEFAULT_VNC_PORT)),
+            "HTTPPortNumber": str(config.get("vnc_http_port", DEFAULT_VNC_HTTP_PORT)),
         }
         # ADR-0002 parity with TigerVNC ``-localhost yes``: when nginx
         # is the single entry point the RFB port must not listen on all
         # interfaces — the loopback websockify bridge still works.
         # Without nginx the port stays open for native VNC clients.
-        if config.get('nginx_enabled'):
-            overrides['LoopbackOnly'] = '1'
+        if config.get("nginx_enabled"):
+            overrides["LoopbackOnly"] = "1"
         if password:
             # ultravnc.ini ``passwd`` uses the classic vncpasswd
             # format (8-byte padded password, fixed-key DES). UltraVNC
@@ -347,34 +449,34 @@ class WindowsAdapter(PlatformAdapter):
             # hex string — without it the API fails and winvnc reports
             # "no valid password enabled".
             blob = encrypt_vnc_password(password)
-            hex_pass = blob.hex().upper() + f'{sum(blob) & 0xFF:02X}'
-            overrides['passwd'] = hex_pass
+            hex_pass = blob.hex().upper() + f"{sum(blob) & 0xFF:02X}"
+            overrides["passwd"] = hex_pass
             # passwd2 is UltraVNC's view-only password. Setting it
             # equal to passwd is deliberate: a *different* stale
             # passwd2 left in the ini would still authenticate a
             # view-only login (credential bypass for viewing), and
             # per-session view-only is enforced at the control-channel
             # layer, not in RFB (see services/novnc.py).
-            overrides['passwd2'] = hex_pass
+            overrides["passwd2"] = hex_pass
 
         try:
-            with open(ini_path, encoding='utf-8', errors='replace') as fh:
+            with open(ini_path, encoding="utf-8", errors="replace") as fh:
                 lines = fh.read().splitlines()
         except OSError:
-            lines = ['[admin]']
-        if not any(line.strip() == '[admin]' for line in lines):
-            lines.insert(0, '[admin]')
+            lines = ["[admin]"]
+        if not any(line.strip() == "[admin]" for line in lines):
+            lines.insert(0, "[admin]")
 
         out = _merge_ini_overrides(lines, overrides)
         # Atomic write: a truncated ultravnc.ini would leave winvnc
         # running with corrupted/partial settings (including a stale
         # or missing password).
         import tempfile
-        fd, tmp = tempfile.mkstemp(
-            dir=os.path.dirname(ini_path) or '.', suffix='.tmp')
+
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(ini_path) or ".", suffix=".tmp")
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8', newline='') as fh:
-                fh.write('\n'.join(out) + '\n')
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+                fh.write("\n".join(out) + "\n")
             os.replace(tmp, ini_path)
         except BaseException:
             with contextlib.suppress(OSError):
@@ -392,7 +494,9 @@ class WindowsAdapter(PlatformAdapter):
         try:
             result = run_cmd(
                 ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
-                capture_output=True, text=True, timeout=10
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             # ffmpeg outputs device list to stderr
             logger.info("%s", result.stderr)
@@ -408,20 +512,26 @@ class WindowsAdapter(PlatformAdapter):
         """
         try:
             from vnc_remote_secure.platform.windows.gamepad import ViGEmInjector
+
             injector = ViGEmInjector()
             logger.info("Gamepad backend: ViGEm X360 virtual controller")
             return injector
         except Exception as e:
-            logger.debug("ViGEm injector unavailable (driver or "
-                         "vgamepad missing): %s — falling back to "
-                         "SendInput", e)
+            logger.debug(
+                "ViGEm injector unavailable (driver or "
+                "vgamepad missing): %s — falling back to "
+                "SendInput",
+                e,
+            )
         try:
             from vnc_remote_secure.platform.windows.gamepad import WindowsInputInjector
+
             injector = WindowsInputInjector()
             logger.info(
                 "Gamepad backend: SendInput key/mouse injection "
                 "(install ViGEmBus + `pip install vgamepad` for a "
-                "real XInput controller)")
+                "real XInput controller)"
+            )
             return injector
         except Exception as e:
             logger.debug("Windows gamepad injector unavailable: %s", e)

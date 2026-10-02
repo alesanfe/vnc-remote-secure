@@ -21,6 +21,7 @@ The backend is selected via the ``SHARED_STATE_BACKEND`` env var
 This module is intentionally dependency-free (uses only the standard
 library) so it works on every platform without additional packages.
 """
+
 import contextlib
 import json
 import logging
@@ -33,13 +34,14 @@ from vnc_remote_secure.core.config import env_flag
 
 logger = logging.getLogger(__name__)
 
-BACKEND_MEMORY = 'memory'
-BACKEND_SQLITE = 'sqlite'
+BACKEND_MEMORY = "memory"
+BACKEND_SQLITE = "sqlite"
 
 
 # ---------------------------------------------------------------------------
 # Backend abstraction
 # ---------------------------------------------------------------------------
+
 
 class StateBackend:
     """Abstract backend for shared state with TTL support."""
@@ -60,8 +62,9 @@ class StateBackend:
         """Set ``namespace:key`` to ``value`` with a TTL."""
         raise NotImplementedError
 
-    def set_if_absent(self, namespace: str, key: str, value,
-                      ttl_seconds: float | None = None) -> bool:
+    def set_if_absent(
+        self, namespace: str, key: str, value, ttl_seconds: float | None = None
+    ) -> bool:
         """Atomically set ``namespace:key`` only when it is absent.
 
         Returns ``True`` when the value was written, ``False`` when a
@@ -71,12 +74,13 @@ class StateBackend:
         """
         raise NotImplementedError
 
-    def list_keys(self, namespace: str, prefix: str = '') -> list:
+    def list_keys(self, namespace: str, prefix: str = "") -> list:
         """Return all keys in ``namespace`` matching ``prefix``."""
         raise NotImplementedError
 
-    def increment(self, namespace: str, key: str, amount: int = 1,
-                  ttl_seconds: float | None = None) -> int:
+    def increment(
+        self, namespace: str, key: str, amount: int = 1, ttl_seconds: float | None = None
+    ) -> int:
         """Atomically increment ``namespace:key`` by ``amount``.
 
         When ``ttl_seconds`` is provided the entry's expiry is set
@@ -127,8 +131,9 @@ class MemoryBackend(StateBackend):
         with self._lock:
             self._store[nk] = (value, time.time() + ttl_seconds)
 
-    def set_if_absent(self, namespace: str, key: str, value,
-                      ttl_seconds: float | None = None) -> bool:
+    def set_if_absent(
+        self, namespace: str, key: str, value, ttl_seconds: float | None = None
+    ) -> bool:
         """Set if absent."""
         nk = (namespace, key)
         with self._lock:
@@ -141,7 +146,7 @@ class MemoryBackend(StateBackend):
             self._store[nk] = (value, exp)
             return True
 
-    def list_keys(self, namespace: str, prefix: str = '') -> list:
+    def list_keys(self, namespace: str, prefix: str = "") -> list:
         """List keys."""
         with self._lock:
             now = time.time()
@@ -156,8 +161,9 @@ class MemoryBackend(StateBackend):
                 result.append(key)
             return result
 
-    def increment(self, namespace: str, key: str, amount: int = 1,
-                  ttl_seconds: float | None = None) -> int:
+    def increment(
+        self, namespace: str, key: str, amount: int = 1, ttl_seconds: float | None = None
+    ) -> int:
         """Increment."""
         nk = (namespace, key)
         with self._lock:
@@ -203,44 +209,45 @@ class SQLiteBackend(StateBackend):
             os.makedirs(parent, exist_ok=True)
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(
-            db_path, check_same_thread=False, isolation_level=None,
+            db_path,
+            check_same_thread=False,
+            isolation_level=None,
             timeout=10,
         )
         # WAL + busy_timeout: several service processes share this DB
         # (counters, revoked-session namespace). The default DELETE
         # journal makes readers block writers and vice versa, surfacing
         # as "database is locked" under concurrent access.
-        self._conn.execute('PRAGMA journal_mode=WAL')
-        self._conn.execute('PRAGMA busy_timeout=10000')
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=10000")
         # Restrict file permissions to owner-only. os.chmod is a
         # no-op on Windows ACLs — use the platform-aware helper. The
         # WAL/SHM sidecar files hold the same data as the db and are
         # created with inherited ACLs — they must be restricted too.
         try:
             from vnc_remote_secure.security.certificates import _restrict_key_permissions
-            for sidecar in (db_path, db_path + '-wal', db_path + '-shm'):
+
+            for sidecar in (db_path, db_path + "-wal", db_path + "-shm"):
                 if os.path.exists(sidecar):
                     _restrict_key_permissions(sidecar, writable=True)
         except Exception:  # noqa: BLE001
             with contextlib.suppress(OSError):
                 os.chmod(db_path, 0o600)
         self._conn.execute(
-            'CREATE TABLE IF NOT EXISTS state ('
-            '  namespace TEXT NOT NULL,'
-            '  key TEXT NOT NULL,'
-            '  value TEXT NOT NULL,'
-            '  expires_at REAL,'
-            '  PRIMARY KEY (namespace, key)'
-            ')'
+            "CREATE TABLE IF NOT EXISTS state ("
+            "  namespace TEXT NOT NULL,"
+            "  key TEXT NOT NULL,"
+            "  value TEXT NOT NULL,"
+            "  expires_at REAL,"
+            "  PRIMARY KEY (namespace, key)"
+            ")"
         )
-        self._conn.execute(
-            'CREATE INDEX IF NOT EXISTS idx_state_ns ON state(namespace)'
-        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_state_ns ON state(namespace)")
 
     # In-process op statistics. NOT emitted through the metric
     # counters — those write into this very database and would
     # recurse. render_metrics drains the snapshot instead.
-    _STATS = {'ops': 0, 'lock_errors': 0, 'total_ms': 0.0}
+    _STATS = {"ops": 0, "lock_errors": 0, "total_ms": 0.0}
 
     def _exec(self, sql, params=()):
         """Execute with in-process latency/lock-error accounting.
@@ -253,13 +260,12 @@ class SQLiteBackend(StateBackend):
         try:
             return self._conn.execute(sql, params)
         except sqlite3.OperationalError as exc:
-            if 'locked' in str(exc).lower():
-                SQLiteBackend._STATS['lock_errors'] += 1
+            if "locked" in str(exc).lower():
+                SQLiteBackend._STATS["lock_errors"] += 1
             raise
         finally:
-            SQLiteBackend._STATS['ops'] += 1
-            SQLiteBackend._STATS['total_ms'] += (
-                time.monotonic() - t0) * 1000
+            SQLiteBackend._STATS["ops"] += 1
+            SQLiteBackend._STATS["total_ms"] += (time.monotonic() - t0) * 1000
 
     def _serialise(self, value):
         return json.dumps(value)
@@ -276,7 +282,7 @@ class SQLiteBackend(StateBackend):
         """Get."""
         with self._lock:
             row = self._exec(
-                'SELECT value, expires_at FROM state WHERE namespace=? AND key=?',
+                "SELECT value, expires_at FROM state WHERE namespace=? AND key=?",
                 (namespace, key),
             ).fetchone()
         if row is None:
@@ -291,8 +297,8 @@ class SQLiteBackend(StateBackend):
         """Set."""
         with self._lock:
             self._exec(
-                'INSERT OR REPLACE INTO state (namespace, key, value, expires_at) '
-                'VALUES (?, ?, ?, NULL)',
+                "INSERT OR REPLACE INTO state (namespace, key, value, expires_at) "
+                "VALUES (?, ?, ?, NULL)",
                 (namespace, key, self._serialise(value)),
             )
 
@@ -300,7 +306,7 @@ class SQLiteBackend(StateBackend):
         """Delete."""
         with self._lock:
             self._exec(
-                'DELETE FROM state WHERE namespace=? AND key=?',
+                "DELETE FROM state WHERE namespace=? AND key=?",
                 (namespace, key),
             )
 
@@ -308,14 +314,14 @@ class SQLiteBackend(StateBackend):
         """Set ttl."""
         with self._lock:
             self._exec(
-                'INSERT OR REPLACE INTO state (namespace, key, value, expires_at) '
-                'VALUES (?, ?, ?, ?)',
-                (namespace, key, self._serialise(value),
-                 time.time() + ttl_seconds),
+                "INSERT OR REPLACE INTO state (namespace, key, value, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (namespace, key, self._serialise(value), time.time() + ttl_seconds),
             )
 
-    def set_if_absent(self, namespace: str, key: str, value,
-                      ttl_seconds: float | None = None) -> bool:
+    def set_if_absent(
+        self, namespace: str, key: str, value, ttl_seconds: float | None = None
+    ) -> bool:
         """Atomic test-and-set for single-use claims.
 
         ``INSERT OR IGNORE`` returns 0 rows on conflict; an expired
@@ -329,16 +335,16 @@ class SQLiteBackend(StateBackend):
             # SELECT-then-REPLACE path let two processes both reclaim an
             # expired key (TOCTOU on single-use claims).
             cur = self._exec(
-                'INSERT INTO state (namespace, key, value, expires_at) '
-                'VALUES (?, ?, ?, ?) '
-                'ON CONFLICT(namespace, key) DO UPDATE SET '
-                'value=excluded.value, expires_at=excluded.expires_at '
-                'WHERE state.expires_at IS NOT NULL AND state.expires_at <= ?',
+                "INSERT INTO state (namespace, key, value, expires_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(namespace, key) DO UPDATE SET "
+                "value=excluded.value, expires_at=excluded.expires_at "
+                "WHERE state.expires_at IS NOT NULL AND state.expires_at <= ?",
                 (namespace, key, self._serialise(value), expires, now),
             )
             return cur.rowcount == 1
 
-    def list_keys(self, namespace: str, prefix: str = '') -> list:
+    def list_keys(self, namespace: str, prefix: str = "") -> list:
         """List keys."""
         now = time.time()
         with self._lock:
@@ -349,16 +355,15 @@ class SQLiteBackend(StateBackend):
                 # keys' records. substr() is not an option — SQLite
                 # string functions stop at the first U+0000 and our
                 # key separators are '\x00'.
-                escaped = prefix.replace('\\', '\\\\') \
-                    .replace('%', '\\%').replace('_', '\\_')
+                escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 rows = self._exec(
                     "SELECT key, expires_at FROM state "
                     "WHERE namespace=? AND key LIKE ? ESCAPE '\\'",
-                    (namespace, escaped + '%'),
+                    (namespace, escaped + "%"),
                 ).fetchall()
             else:
                 rows = self._exec(
-                    'SELECT key, expires_at FROM state WHERE namespace=?',
+                    "SELECT key, expires_at FROM state WHERE namespace=?",
                     (namespace,),
                 ).fetchall()
         result = []
@@ -368,8 +373,9 @@ class SQLiteBackend(StateBackend):
             result.append(key)
         return result
 
-    def increment(self, namespace: str, key: str, amount: int = 1,
-                  ttl_seconds: float | None = None) -> int:
+    def increment(
+        self, namespace: str, key: str, amount: int = 1, ttl_seconds: float | None = None
+    ) -> int:
         """Atomically increment a counter.
 
         Uses ``INSERT ... ON CONFLICT DO UPDATE`` so the read-modify-write
@@ -379,24 +385,22 @@ class SQLiteBackend(StateBackend):
         expiry is refreshed atomically in the same statement; otherwise
         an existing TTL is preserved.
         """
-        expires = (time.time() + ttl_seconds
-                   if ttl_seconds is not None else None)
+        expires = time.time() + ttl_seconds if ttl_seconds is not None else None
         with self._lock:
             # SQLite UPSERT with atomic increment. The ``excluded`` table
             # refers to the row that would have been inserted. expires_at
             # is updated only when a TTL is requested (excluded non-NULL);
             # otherwise the current value is kept.
             self._exec(
-                'INSERT INTO state (namespace, key, value, expires_at) '
-                'VALUES (?, ?, ?, ?) '
-                'ON CONFLICT(namespace, key) DO UPDATE SET '
-                'value = CAST('
-                '  (CASE WHEN state.expires_at IS NULL OR ? <= state.expires_at '
-                '   THEN CAST(state.value AS INTEGER) ELSE 0 END) '
-                '  + ? AS TEXT), '
-                'expires_at = COALESCE(excluded.expires_at, state.expires_at)',
-                (namespace, key, self._serialise(amount), expires,
-                 time.time(), amount),
+                "INSERT INTO state (namespace, key, value, expires_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(namespace, key) DO UPDATE SET "
+                "value = CAST("
+                "  (CASE WHEN state.expires_at IS NULL OR ? <= state.expires_at "
+                "   THEN CAST(state.value AS INTEGER) ELSE 0 END) "
+                "  + ? AS TEXT), "
+                "expires_at = COALESCE(excluded.expires_at, state.expires_at)",
+                (namespace, key, self._serialise(amount), expires, time.time(), amount),
             )
             # Read back the resulting value so callers get the new total.
             # Note: a bare increment on an expired key keeps the stale
@@ -405,7 +409,7 @@ class SQLiteBackend(StateBackend):
             # expired via get(). The returned total is the stored value
             # either way, same as the memory backend.
             row = self._exec(
-                'SELECT value FROM state WHERE namespace=? AND key=?',
+                "SELECT value FROM state WHERE namespace=? AND key=?",
                 (namespace, key),
             ).fetchone()
             if row is None:
@@ -445,7 +449,7 @@ def shared_state_strict() -> bool:
     process-local state — a revoked/expired session must never be
     re-admitted because the witness is unreachable.
     """
-    return env_flag('SHARED_STATE_STRICT', '')
+    return env_flag("SHARED_STATE_STRICT", "")
 
 
 def sqlite_stats() -> dict:
@@ -460,7 +464,8 @@ def sqlite_stats() -> dict:
 
 def _default_sqlite_path() -> str:
     from vnc_remote_secure.core.paths import get_run_dir
-    return os.path.join(get_run_dir(), 'shared_state.db')
+
+    return os.path.join(get_run_dir(), "shared_state.db")
 
 
 def get_backend() -> StateBackend:
@@ -474,10 +479,9 @@ def get_backend() -> StateBackend:
     global _backend, _backend_fallback
     if _backend is not None:
         return _backend
-    choice = os.environ.get(
-        'SHARED_STATE_BACKEND', BACKEND_SQLITE).lower()
+    choice = os.environ.get("SHARED_STATE_BACKEND", BACKEND_SQLITE).lower()
     if choice == BACKEND_SQLITE:
-        db_path = os.environ.get('SHARED_STATE_DB_PATH', _default_sqlite_path())
+        db_path = os.environ.get("SHARED_STATE_DB_PATH", _default_sqlite_path())
         try:
             _backend = SQLiteBackend(db_path)
             logger.info("Shared state backend: sqlite (%s)", db_path)
@@ -490,19 +494,21 @@ def get_backend() -> StateBackend:
                 "Shared state sqlite backend failed (%s); falling back "
                 "to in-memory state — cross-process single-use and "
                 "revocation guarantees are degraded until this is fixed",
-                exc)
+                exc,
+            )
             from vnc_remote_secure.monitoring.prometheus import inc_counter
-            inc_counter('vnc_remote_shared_state_errors_total',
-                        'op=backend_init_fallback')
+
+            inc_counter("vnc_remote_shared_state_errors_total", "op=backend_init_fallback")
             if shared_state_strict():
                 # Fail-closed mode: a degraded backend weakens
                 # single-use/revocation/rate-limit guarantees to
                 # per-process scope — under strict policy that is a
                 # startup failure, not a degradation.
                 raise RuntimeError(
-                    'SHARED_STATE_STRICT: sqlite backend failed to '
-                    'initialise — refusing to run with degraded '
-                    'in-memory shared state') from exc
+                    "SHARED_STATE_STRICT: sqlite backend failed to "
+                    "initialise — refusing to run with degraded "
+                    "in-memory shared state"
+                ) from exc
             _backend = MemoryBackend()
             _backend_fallback = True
     else:

@@ -19,7 +19,7 @@ class PlatformAdapter:
         """Remove a firewall rule."""
         raise NotImplementedError
 
-    def install_firewall_rule(self, port, protocol='tcp', rule_name=None):
+    def install_firewall_rule(self, port, protocol="tcp", rule_name=None):
         """Install a firewall rule allowing ``port``/``protocol``.
 
         Concrete adapters should create a named rule so ``remove_firewall_rule``
@@ -70,9 +70,12 @@ class PlatformAdapter:
 def get_adapter():
     """Detect platform and return the appropriate adapter instance."""
     import platform
+
     system = platform.system().lower()
-    if system == 'windows':
+    if system == "windows":
         from vnc_remote_secure.platform.windows.adapter import WindowsAdapter
+
         return WindowsAdapter()
     from vnc_remote_secure.platform.linux.adapter import LinuxAdapter
+
     return LinuxAdapter()

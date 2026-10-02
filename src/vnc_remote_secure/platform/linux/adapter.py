@@ -9,6 +9,7 @@ Handles:
 - journald logging
 - Paths: /etc, /var/lib, /var/log, /run
 """
+
 import logging
 import os
 import shutil
@@ -21,34 +22,70 @@ from vnc_remote_secure.platform.base import PlatformAdapter
 logger = logging.getLogger(__name__)
 
 
+def _primary_lan_ip():
+    """UDP socket trick for the primary LAN IP (no traffic is
+    actually sent — connect() only selects the route/interface)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2)
+        s.connect(("8.8.8.8", 80))
+        primary_ip = s.getsockname()[0]
+        s.close()
+        if primary_ip and not primary_ip.startswith("127."):
+            return primary_ip
+    except Exception as e:
+        logger.debug("LAN IP detection via UDP socket failed: %s", e)
+    return None
+
+
+def _ip_addr_lan_ips():
+    """Parse 'ip addr' output for non-loopback IPv4 addresses."""
+    ips = []
+    try:
+        result = run_cmd(["ip", "addr"], capture_output=True, text=True, timeout=10, check=False)
+        for line in result.stdout.split("\n"):
+            if "inet " in line and "127.0.0.1" not in line:
+                parts = line.strip().split()
+                # 'ip addr' lines look like: "inet 10.0.0.5/24 brd ..."
+                # The address token is the token immediately after 'inet'.
+                if len(parts) >= 2 and parts[0] == "inet":
+                    ip = parts[1].split("/")[0]
+                    if ip and not ip.startswith("127.") and ip not in ips:
+                        ips.append(ip)
+    except Exception as e:
+        logger.debug("LAN IP detection via 'ip addr' failed: %s", e)
+    return ips
+
+
 class LinuxAdapter(PlatformAdapter):
     """Linux-specific platform operations."""
 
     def get_platform_info(self):
         """Get platform info."""
         return {
-            'platform': 'linux',
-            'service_manager': 'systemd',
-            'firewall': 'ufw or nftables',
-            'config_dir': '/etc/vnc-remote-secure',
-            'data_dir': '/var/lib/vnc-remote-secure',
-            'log_dir': '/var/log/vnc-remote-secure',
-            'run_dir': '/run/vnc-remote-secure',
-            'default_vnc_port': 5901,
-            'default_health_port': 8080,
-            'default_webterm_shell': '/bin/bash',
+            "platform": "linux",
+            "service_manager": "systemd",
+            "firewall": "ufw or nftables",
+            "config_dir": "/etc/vnc-remote-secure",
+            "data_dir": "/var/lib/vnc-remote-secure",
+            "log_dir": "/var/log/vnc-remote-secure",
+            "run_dir": "/run/vnc-remote-secure",
+            "default_vnc_port": 5901,
+            "default_health_port": 8080,
+            "default_webterm_shell": "/bin/bash",
         }
 
     def remove_service(self, service_name):
         """Stop and remove a systemd service."""
         from vnc_remote_secure.platform.linux.services import _check_unit_name
+
         _check_unit_name(service_name)
-        run_cmd(['systemctl', 'stop', service_name], check=False)
-        run_cmd(['systemctl', 'disable', service_name], check=False)
-        unit_path = f'/etc/systemd/system/{service_name}.service'
+        run_cmd(["systemctl", "stop", service_name], check=False)
+        run_cmd(["systemctl", "disable", service_name], check=False)
+        unit_path = f"/etc/systemd/system/{service_name}.service"
         if os.path.exists(unit_path):
             os.remove(unit_path)
-            run_cmd(['systemctl', 'daemon-reload'], check=False)
+            run_cmd(["systemctl", "daemon-reload"], check=False)
         return True
 
     def remove_firewall_rule(self, rule_name):
@@ -61,26 +98,28 @@ class LinuxAdapter(PlatformAdapter):
         deleted highest-first (numbers shift on each delete).
         """
         status = run_cmd(
-            ['ufw', 'status', 'numbered'],
-            capture_output=True, text=True,
+            ["ufw", "status", "numbered"],
+            capture_output=True,
+            text=True,
         )
         if status.returncode != 0:
             return False
         import re
+
         nums = [
-            int(m.group(1)) for m in re.finditer(
-                r'\[\s*(\d+)\].*' + re.escape(rule_name), status.stdout)
+            int(m.group(1))
+            for m in re.finditer(r"\[\s*(\d+)\].*" + re.escape(rule_name), status.stdout)
         ]
         ok = True
         for n in sorted(nums, reverse=True):
             res = run_cmd(
-                ['ufw', '--force', 'delete', str(n)],
+                ["ufw", "--force", "delete", str(n)],
                 capture_output=True,
             )
             ok = ok and res.returncode == 0
         return ok
 
-    def install_firewall_rule(self, port, protocol='tcp', rule_name=None):
+    def install_firewall_rule(self, port, protocol="tcp", rule_name=None):
         """Allow ``port``/``protocol`` through UFW.
 
         The rule is tagged with ``comment 'vnc-remote'`` (or
@@ -88,10 +127,9 @@ class LinuxAdapter(PlatformAdapter):
         delete it deterministically — bare ``ufw delete <name>`` is
         not valid UFW syntax. Returns ``True`` on success.
         """
-        comment = rule_name or 'vnc-remote'
+        comment = rule_name or "vnc-remote"
         result = run_cmd(
-            ['ufw', 'allow', f'{port}/{protocol}', 'comment', comment],
-            capture_output=True
+            ["ufw", "allow", f"{port}/{protocol}", "comment", comment], capture_output=True
         )
         return result.returncode == 0
 
@@ -104,6 +142,7 @@ class LinuxAdapter(PlatformAdapter):
         from vnc_remote_secure.platform.linux.users import (
             create_runtime_user as _create,
         )
+
         return _create(username)
 
     def remove_runtime_user(self, username):
@@ -111,6 +150,7 @@ class LinuxAdapter(PlatformAdapter):
         from vnc_remote_secure.platform.linux.users import (
             remove_runtime_user as _remove,
         )
+
         return _remove(username)
 
     # ---- Service-specific platform operations ----
@@ -118,37 +158,15 @@ class LinuxAdapter(PlatformAdapter):
     def get_lan_ips(self):
         """Return LAN IP addresses, filtering out virtual/loopback adapters."""
         ips = []
-        # UDP socket trick for primary LAN IP
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(2)
-            s.connect(('8.8.8.8', 80))
-            primary_ip = s.getsockname()[0]
-            s.close()
-            if primary_ip and not primary_ip.startswith('127.'):
-                ips.append(primary_ip)
-        except Exception as e:
-            logger.debug("LAN IP detection via UDP socket failed: %s", e)
-        # Parse 'ip addr' output
-        try:
-            result = run_cmd(
-                ['ip', 'addr'],
-                capture_output=True, text=True, timeout=10, check=False
-            )
-            for line in result.stdout.split('\n'):
-                if 'inet ' in line and '127.0.0.1' not in line:
-                    parts = line.strip().split()
-                    # 'ip addr' lines look like: "inet 10.0.0.5/24 brd ..."
-                    # The address token is the token immediately after 'inet'.
-                    if len(parts) >= 2 and parts[0] == 'inet':
-                        ip = parts[1].split('/')[0]
-                        if ip and not ip.startswith('127.') and ip not in ips:
-                            ips.append(ip)
-        except Exception as e:
-            logger.debug("LAN IP detection via 'ip addr' failed: %s", e)
+        primary = _primary_lan_ip()
+        if primary:
+            ips.append(primary)
+        for ip in _ip_addr_lan_ips():
+            if ip not in ips:
+                ips.append(ip)
         # Filter virtual adapter ranges
-        virtual_ranges = [f'172.{i}.' for i in range(16, 32)]
-        virtual_ranges += ['192.168.56.', '192.168.96.', '192.168.204.']
+        virtual_ranges = [f"172.{i}." for i in range(16, 32)]
+        virtual_ranges += ["192.168.56.", "192.168.96.", "192.168.204."]
         ips = [ip for ip in ips if not any(ip.startswith(r) for r in virtual_ranges)]
         # Deduplicate preserving order
         seen = set()
@@ -161,18 +179,19 @@ class LinuxAdapter(PlatformAdapter):
         passed via ``-PasswordFile`` rather than on the command line,
         to avoid exposing it in ``/proc/<pid>/cmdline``.
         """
-        exe = shutil.which('tigervncserver') or shutil.which('vncserver')
+        exe = shutil.which("tigervncserver") or shutil.which("vncserver")
         if not exe:
             from vnc_remote_secure.core.exceptions import ServiceError
+
             raise ServiceError("VNC server binary not found on PATH")
-        cmd = [exe, display, '-geometry', geometry, '-depth', str(depth)]
+        cmd = [exe, display, "-geometry", geometry, "-depth", str(depth)]
         # TigerVNC's wrapper daemonizes by default: it forks Xvnc and
         # exits, so the PID the service manager records dies instantly
         # and the real Xvnc escapes start/stop/status tracking. `-fg`
         # keeps the wrapper in the foreground as Xvnc's parent, which
         # restores correct PID lifecycle management.
-        if os.path.basename(exe).startswith('tigervncserver'):
-            cmd.append('-fg')
+        if os.path.basename(exe).startswith("tigervncserver"):
+            cmd.append("-fg")
         # ADR-0002: when nginx is the single entry point the RFB port
         # must not listen on all interfaces — direct RFB is only
         # reachable through the loopback websockify bridge. Without
@@ -181,13 +200,14 @@ class LinuxAdapter(PlatformAdapter):
         # may not even be installed.
         try:
             from vnc_remote_secure.core.config import get_config
-            if get_config().get('nginx_enabled'):
-                cmd.extend(['-localhost', 'yes'])
+
+            if get_config().get("nginx_enabled"):
+                cmd.extend(["-localhost", "yes"])
         except Exception:  # noqa: BLE001 - config lookup is best-effort
             pass
         if password:
             passwd_file = self._write_vnc_password_file(password)
-            cmd.extend(['-PasswordFile', passwd_file])
+            cmd.extend(["-PasswordFile", passwd_file])
         # The RFB server is an external binary that needs none of our
         # credentials — strip secret env vars like the service manager
         # does for websockify (password travels via -PasswordFile).
@@ -195,9 +215,10 @@ class LinuxAdapter(PlatformAdapter):
             from vnc_remote_secure.security.redaction import (
                 sanitized_child_env,
             )
+
             child_env = sanitized_child_env()
         except Exception:  # noqa: BLE001 - import broken entirely
-            child_env = {'PATH': os.environ.get('PATH', '')}
+            child_env = {"PATH": os.environ.get("PATH", "")}
         return subprocess.Popen(cmd, env=child_env)
 
     @staticmethod
@@ -217,16 +238,18 @@ class LinuxAdapter(PlatformAdapter):
         import tempfile
 
         from vnc_remote_secure.vendor.d3des import encrypt_vnc_password
+
         # The file must contain the classic vncpasswd obfuscation:
         # the padded password DES-encrypted under the fixed VNC key.
         encrypted = encrypt_vnc_password(password)
         try:
             from vnc_remote_secure.core.paths import get_run_dir
+
             base = get_run_dir()
         except Exception:  # noqa: BLE001
             base = tempfile.gettempdir()
         os.makedirs(base, exist_ok=True)
-        path = os.path.join(base, 'vnc_passwd.pwd')
+        path = os.path.join(base, "vnc_passwd.pwd")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             os.write(fd, encrypted)
@@ -239,8 +262,7 @@ class LinuxAdapter(PlatformAdapter):
         if not device:
             try:
                 result = run_cmd(
-                    ["pactl", "get-default-source"],
-                    capture_output=True, text=True, timeout=5
+                    ["pactl", "get-default-source"], capture_output=True, text=True, timeout=5
                 )
                 default_source = result.stdout.strip()
                 if default_source:
@@ -257,8 +279,7 @@ class LinuxAdapter(PlatformAdapter):
         """List PulseAudio/ALSA capture devices."""
         try:
             result = run_cmd(
-                ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=10
+                ["pactl", "list", "short", "sources"], capture_output=True, text=True, timeout=10
             )
             logger.info("PulseAudio sources:")
             for line in result.stdout.strip().split("\n"):
@@ -267,10 +288,7 @@ class LinuxAdapter(PlatformAdapter):
         except FileNotFoundError:
             logger.info("pactl not found, trying ALSA...")
             try:
-                result = run_cmd(
-                    ["arecord", "-l"],
-                    capture_output=True, text=True, timeout=10
-                )
+                result = run_cmd(["arecord", "-l"], capture_output=True, text=True, timeout=10)
                 logger.info("%s", result.stdout)
             except FileNotFoundError:
                 logger.warning("arecord not found either")
@@ -279,6 +297,7 @@ class LinuxAdapter(PlatformAdapter):
         """Return a LinuxInputInjector (or None if evdev unavailable)."""
         try:
             from vnc_remote_secure.platform.linux.gamepad import LinuxInputInjector
+
             return LinuxInputInjector()
         except Exception as e:
             logger.debug("Linux gamepad injector unavailable: %s", e)

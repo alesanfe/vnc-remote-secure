@@ -9,6 +9,7 @@ persistent session cookies and ephemeral access tokens share a single
 signing mechanism while remaining type-separated (a cookie cannot be
 replayed as an ephemeral token).
 """
+
 import logging
 import os
 import secrets
@@ -32,8 +33,8 @@ from vnc_remote_secure.core.constants import (
 
 DEFAULT_IDLE_TIMEOUT = DEFAULT_SESSION_IDLE_TIMEOUT
 DEFAULT_MAX_LIFETIME = DEFAULT_SESSION_MAX_LIFETIME
-DEFAULT_COOKIE_NAME = 'vnc_session'
-CSRF_HEADER = 'X-CSRF-Token'
+DEFAULT_COOKIE_NAME = "vnc_session"
+CSRF_HEADER = "X-CSRF-Token"
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -57,8 +58,8 @@ def create_session_cookie(
         - ``max_age``: cookie max-age in seconds
     """
     load_env_file()
-    idle = idle_timeout or _get_env_int('SESSION_IDLE_TIMEOUT', DEFAULT_IDLE_TIMEOUT)
-    max_lt = max_lifetime or _get_env_int('SESSION_MAX_LIFETIME', DEFAULT_MAX_LIFETIME)
+    idle = idle_timeout or _get_env_int("SESSION_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT)
+    max_lt = max_lifetime or _get_env_int("SESSION_MAX_LIFETIME", DEFAULT_MAX_LIFETIME)
     csrf = csrf_token or secrets.token_hex(32)
     now = int(time.time())
     # Payload v3: username:created:last_seen:expires:sid. ``last_seen``
@@ -72,9 +73,9 @@ def create_session_cookie(
     payload = f"{username}:{now}:{now}:{now + max_lt}:{sid}"
     cookie_value = sign_token(TOKEN_TYPE_SESSION, payload)
     return {
-        'value': cookie_value,
-        'csrf_token': csrf,
-        'max_age': min(idle, max_lt),
+        "value": cookie_value,
+        "csrf_token": csrf,
+        "max_age": min(idle, max_lt),
     }
 
 
@@ -88,17 +89,17 @@ def verify_session_cookie(cookie_value: str) -> dict | None:
     payload = verify_token(TOKEN_TYPE_SESSION, cookie_value)
     if payload is None:
         return None
-    parts = payload.split(':')
+    parts = payload.split(":")
     # v3: username:created:last_seen:expires:sid. v2 drops the sid;
     # legacy v1 (username:created:expires) gets last_seen=created.
     sid = None
     if len(parts) == 5:
-        (username, created_str, last_seen_str, expires_str,
-         sid) = parts
+        (username, created_str, last_seen_str, expires_str, sid) = parts
         # Reject malformed sids — the field is server-generated and
         # must be an opaque token, not attacker-controlled text.
         import re as _re
-        if not _re.fullmatch(r'[A-Za-z0-9_-]{16,64}', sid or ''):
+
+        if not _re.fullmatch(r"[A-Za-z0-9_-]{16,64}", sid or ""):
             return None
     elif len(parts) == 4:
         username, created_str, last_seen_str, expires_str = parts
@@ -120,19 +121,19 @@ def verify_session_cookie(cookie_value: str) -> dict | None:
     # sliding window refreshed on each authenticated request. The
     # cookie ``max_age`` is a client-side hint; a client that tampers
     # with it cannot extend the session past the signed values.
-    idle = _get_env_int('SESSION_IDLE_TIMEOUT', DEFAULT_IDLE_TIMEOUT)
+    idle = _get_env_int("SESSION_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT)
     if now - last_seen > idle:
         return None
     return {
-        'username': username,
-        'created': created,
-        'last_seen': last_seen,
-        'expires': expires,
-        'sid': sid,
+        "username": username,
+        "created": created,
+        "last_seen": last_seen,
+        "expires": expires,
+        "sid": sid,
     }
 
 
-_NS_OPERATOR_EPOCH = 'operator_session_epoch'
+_NS_OPERATOR_EPOCH = "operator_session_epoch"
 
 
 def bump_operator_epoch() -> None:
@@ -145,12 +146,17 @@ def bump_operator_epoch() -> None:
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         get_backend().set_ttl(
-            _NS_OPERATOR_EPOCH, 'all', time.time(),
-            _get_env_int('SESSION_MAX_LIFETIME', 86400) + 86400)
+            _NS_OPERATOR_EPOCH,
+            "all",
+            time.time(),
+            _get_env_int("SESSION_MAX_LIFETIME", 86400) + 86400,
+        )
         # Every session is invalid now — their auth-assurance
         # contexts must not outlive them.
         from vnc_remote_secure.security.auth_policy import drop_all_auth_contexts
+
         drop_all_auth_contexts()
     except Exception:  # noqa: BLE001 - best-effort; rotation already
         # Under strict policy the invalidation MUST land — a silent
@@ -158,6 +164,7 @@ def bump_operator_epoch() -> None:
         # the credential change reports the failure.
         logger.debug("Could not bump operator session epoch")
         from vnc_remote_secure.security.shared_state import shared_state_strict
+
         if shared_state_strict():
             raise
 
@@ -171,11 +178,13 @@ def operator_session_epoch() -> float:
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        val = get_backend().get(_NS_OPERATOR_EPOCH, 'all')
+
+        val = get_backend().get(_NS_OPERATOR_EPOCH, "all")
         return float(val) if val else 0.0
     except Exception:  # noqa: BLE001
         from vnc_remote_secure.security.shared_state import shared_state_strict
-        return float('inf') if shared_state_strict() else 0.0
+
+        return float("inf") if shared_state_strict() else 0.0
 
 
 def session_revocation_key(cookie_value: str) -> str | None:
@@ -193,8 +202,7 @@ def session_revocation_key(cookie_value: str) -> str | None:
     return f"{session['username']}:{session['created']}"
 
 
-def refresh_session_cookie(cookie_value: str,
-                           refresh_grace: int = 60) -> str | None:
+def refresh_session_cookie(cookie_value: str, refresh_grace: int = 60) -> str | None:
     """Return a re-signed cookie with an updated ``last_seen``.
 
     Callers that can emit ``Set-Cookie`` should attach the returned
@@ -211,25 +219,26 @@ def refresh_session_cookie(cookie_value: str,
     # Legacy v1/v2 cookies carry no sid — don't extend them; the
     # operator re-authenticates and gets a v3 session instead of a
     # silently downgraded refresh with no auth context.
-    if not session.get('sid'):
+    if not session.get("sid"):
         try:
             from vnc_remote_secure.security.audit import audit_event
-            audit_event('legacy_session_refresh_rejected',
-                        user=session.get('username'))
+
+            audit_event("legacy_session_refresh_rejected", user=session.get("username"))
         except Exception:  # noqa: BLE001 - audit is best-effort
             pass
         return None
     now = time.time()
-    if now - session.get('last_seen', session['created']) < refresh_grace:
+    if now - session.get("last_seen", session["created"]) < refresh_grace:
         return None  # still fresh — no need to re-issue
     # Preserve the sid — a refresh that dropped it would orphan the
     # session's auth context and fail closed on the next policy check.
-    if session.get('sid'):
-        payload = (f"{session['username']}:{session['created']}:"
-                   f"{int(now)}:{session['expires']}:{session['sid']}")
+    if session.get("sid"):
+        payload = (
+            f"{session['username']}:{session['created']}:"
+            f"{int(now)}:{session['expires']}:{session['sid']}"
+        )
     else:
-        payload = (f"{session['username']}:{session['created']}:"
-                   f"{int(now)}:{session['expires']}")
+        payload = f"{session['username']}:{session['created']}:" f"{int(now)}:{session['expires']}"
     return sign_token(TOKEN_TYPE_SESSION, payload)
 
 
@@ -245,10 +254,11 @@ def get_cookie_attributes(secure: bool = True) -> dict:
     # a crafted SESSION_SAMESITE containing ';' or CRLF would inject
     # extra attributes or split the response.
     from vnc_remote_secure.core.config import resolve_samesite
+
     samesite = resolve_samesite()
     return {
-        'httponly': True,
-        'secure': secure,
-        'samesite': samesite,
-        'path': '/',
+        "httponly": True,
+        "secure": secure,
+        "samesite": samesite,
+        "path": "/",
     }

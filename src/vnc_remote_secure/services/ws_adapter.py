@@ -10,6 +10,7 @@ adapter so the handlers run unchanged — including the revocation
 registry, which captures the running loop at registration and
 schedules coroutine close callbacks onto it.
 """
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,7 @@ class ClientWS:
         self._ws = websocket
         self.request_headers = websocket.headers
         client = websocket.client
-        self.remote_address = (
-            (client.host, client.port) if client else None)
+        self.remote_address = (client.host, client.port) if client else None
 
     async def send(self, data):
         if isinstance(data, (bytes, bytearray, memoryview)):
@@ -45,28 +45,29 @@ class ClientWS:
         else:
             await self._ws.send_text(data)
 
-    async def close(self, code=1000, reason=''):
+    async def close(self, code=1000, reason=""):
         try:
             await self._ws.close(code=code, reason=reason)
         except Exception:  # noqa: BLE001 - closing a dead socket is fine
-            logger.debug('WS close on closed socket: %s', code)
+            logger.debug("WS close on closed socket: %s", code)
 
     def __aiter__(self):
         return self._iterate()
 
     async def _iterate(self):
         from starlette.websockets import WebSocketDisconnect
+
         try:
             while True:
                 message = await self._ws.receive()
-                if message['type'] == 'websocket.disconnect':
+                if message["type"] == "websocket.disconnect":
                     return
-                if message['type'] != 'websocket.receive':
+                if message["type"] != "websocket.receive":
                     continue
-                if message.get('bytes') is not None:
-                    yield message['bytes']
+                if message.get("bytes") is not None:
+                    yield message["bytes"]
                 else:
-                    yield message.get('text') or ''
+                    yield message.get("text") or ""
         except WebSocketDisconnect:
             return
 
@@ -86,7 +87,7 @@ def make_ws_app(handle_client, before_accept=None):
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
-    async def _ws(websocket: WebSocket, path: str = ''):
+    async def _ws(websocket: WebSocket, path: str = ""):
         if before_accept is not None:
             denial = before_accept(websocket)
             if denial is not None:
@@ -95,6 +96,6 @@ def make_ws_app(handle_client, before_accept=None):
         await websocket.accept()
         await handle_client(ClientWS(websocket))
 
-    app.add_api_websocket_route('/', _ws)
-    app.add_api_websocket_route('/{path:path}', _ws)
+    app.add_api_websocket_route("/", _ws)
+    app.add_api_websocket_route("/{path:path}", _ws)
     return app

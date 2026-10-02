@@ -38,6 +38,7 @@ class AuthRequirement:
     because ``mfa`` alone would deny a phishing-resistant passkey
     session that never ran a second factor.
     """
+
     require_mfa: bool = False
     require_phishing_resistant: bool = False
     require_user_verified: bool = False
@@ -54,33 +55,31 @@ class AuthDecision:
     op can be allowed with unsatisfied requirements, and conflating
     them is exactly how fake guarantees happen.
     """
+
     allowed: bool
     operation: str
-    reason_code: str | None          # 'MFA_REQUIRED', 'AUTH_TOO_OLD'...
+    reason_code: str | None  # 'MFA_REQUIRED', 'AUTH_TOO_OLD'...
     observed_method: str | None
     auth_age_seconds: int | None
-    missing: tuple                   # properties the session lacked
-    enforced: bool                   # False => audit-only (dev/lan)
+    missing: tuple  # properties the session lacked
+    enforced: bool  # False => audit-only (dev/lan)
     requirements_satisfied: bool = True
 
 
 AUTH_POLICIES: dict[str, AuthRequirement] = {
-    'open_terminal': AuthRequirement(
+    "open_terminal": AuthRequirement(
         # Recent auth AND (verified MFA OR a UV passkey ceremony) —
         # a phishing-resistant session shouldn't be denied for
         # lacking a 'mfa' flag it never needed.
-        alternatives=(('mfa',),
-                      ('phishing_resistant', 'user_verified')),
-        max_auth_age_seconds=600),
-    'create_admin': AuthRequirement(
-        require_mfa=True, max_auth_age_seconds=300),
-    'delete_admin': AuthRequirement(
-        require_mfa=True, max_auth_age_seconds=300),
-    'webauthn_register': AuthRequirement(
-        require_mfa=True, max_auth_age_seconds=300),
-    'webauthn_delete': AuthRequirement(
-        require_phishing_resistant=True, require_user_verified=True,
-        max_auth_age_seconds=300),
+        alternatives=(("mfa",), ("phishing_resistant", "user_verified")),
+        max_auth_age_seconds=600,
+    ),
+    "create_admin": AuthRequirement(require_mfa=True, max_auth_age_seconds=300),
+    "delete_admin": AuthRequirement(require_mfa=True, max_auth_age_seconds=300),
+    "webauthn_register": AuthRequirement(require_mfa=True, max_auth_age_seconds=300),
+    "webauthn_delete": AuthRequirement(
+        require_phishing_resistant=True, require_user_verified=True, max_auth_age_seconds=300
+    ),
 }
 
 # Declared but NOT yet enforced anywhere — CLI ops have no session
@@ -89,41 +88,36 @@ AUTH_POLICIES: dict[str, AuthRequirement] = {
 # control, it's documentation. The contract test pins that every
 # AUTH_POLICIES key appears in POLICY_ENFORCEMENT_POINTS.
 PENDING_POLICIES: dict[str, AuthRequirement] = {
-    'secrets.rotate': AuthRequirement(
-        require_phishing_resistant=True, require_user_verified=True,
-        max_auth_age_seconds=300),
-    'backup.restore': AuthRequirement(
-        alternatives=(('mfa',),
-                      ('phishing_resistant', 'user_verified')),
-        max_auth_age_seconds=300),
-    'operator.grant_admin': AuthRequirement(
-        require_phishing_resistant=True, require_user_verified=True,
-        max_auth_age_seconds=300),
+    "secrets.rotate": AuthRequirement(
+        require_phishing_resistant=True, require_user_verified=True, max_auth_age_seconds=300
+    ),
+    "backup.restore": AuthRequirement(
+        alternatives=(("mfa",), ("phishing_resistant", "user_verified")), max_auth_age_seconds=300
+    ),
+    "operator.grant_admin": AuthRequirement(
+        require_phishing_resistant=True, require_user_verified=True, max_auth_age_seconds=300
+    ),
 }
 
 # Where each enforced policy is actually checked — the contract test
 # asserts declared == enforced.
 POLICY_ENFORCEMENT_POINTS: dict[str, frozenset] = {
-    'open_terminal': frozenset({'services/terminal.py:open_terminal'}),
+    "open_terminal": frozenset({"services/terminal.py:open_terminal"}),
     # OS-account admin ops are API mutations: step_up=True on the
     # /system-users routes is checked by needs_step_up() in dispatch.
-    'create_admin': frozenset(
-        {'services/api_v1.py:_post_system_user_create'}),
-    'delete_admin': frozenset(
-        {'services/api_v1.py:_delete_system_user'}),
+    "create_admin": frozenset({"services/api_v1.py:_post_system_user_create"}),
+    "delete_admin": frozenset({"services/api_v1.py:_delete_system_user"}),
     # Passkey lifecycle gates run inside the engine use cases
     # (_gate_step_up -> stores.step_up_error -> step_up_auth).
-    'webauthn_register': frozenset(
-        {'engine/application/passkeys.py:begin_registration'}),
-    'webauthn_delete': frozenset(
-        {'engine/application/passkeys.py:delete_passkey'}),
+    "webauthn_register": frozenset({"engine/application/passkeys.py:begin_registration"}),
+    "webauthn_delete": frozenset({"engine/application/passkeys.py:delete_passkey"}),
 }
 
 # Profile -> which requirement fields actually deny (rest audit-only).
-_ENFORCE_MFA_ONLY = ('trusted-lan',)
-_ENFORCE_ALL = ('private-overlay', 'public-hardened')
+_ENFORCE_MFA_ONLY = ("trusted-lan",)
+_ENFORCE_ALL = ("private-overlay", "public-hardened")
 
-_CTX_NS = 'web_auth_context'
+_CTX_NS = "web_auth_context"
 
 
 def _session_key(session_id: str) -> str:
@@ -138,7 +132,8 @@ def _session_key(session_id: str) -> str:
     cannot authenticate.
     """
     import hashlib
-    return hashlib.sha256(session_id.encode('utf-8')).hexdigest()
+
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
 
 
 def session_id_for_cookie(cookie_value: str) -> str | None:
@@ -147,17 +142,18 @@ def session_id_for_cookie(cookie_value: str) -> str | None:
     v3 payload (legacy cookies carry no sid — callers fail closed)."""
     try:
         from vnc_remote_secure.security.sessions import verify_session_cookie
+
         parsed = verify_session_cookie(cookie_value)
         if parsed:
-            return parsed.get('sid')
+            return parsed.get("sid")
     except Exception:  # noqa: BLE001
         pass
     return None
 
 
-def record_auth_context(session_id: str, ctx: dict,
-                        stable_id: str | None = None,
-                        expires_at: int | None = None) -> None:
+def record_auth_context(
+    session_id: str, ctx: dict, stable_id: str | None = None, expires_at: int | None = None
+) -> None:
     """Persist the login's auth properties for cross-process policy
     checks — the operator session is a signed cookie unavailable to the
     terminal/health services, so enforcement needs shared state.
@@ -171,10 +167,11 @@ def record_auth_context(session_id: str, ctx: dict,
     try:
         from vnc_remote_secure.security.sessions import operator_session_epoch
         from vnc_remote_secure.security.shared_state import get_backend
+
         ctx = dict(ctx)
-        ctx['operator_epoch'] = operator_session_epoch()
+        ctx["operator_epoch"] = operator_session_epoch()
         be = get_backend()
-        ttl = int(os.environ.get('SESSION_MAX_LIFETIME', '86400'))
+        ttl = int(os.environ.get("SESSION_MAX_LIFETIME", "86400"))
         if expires_at:
             ttl = min(ttl, max(1, expires_at - int(time.time())))
         be.set_ttl(_CTX_NS, _session_key(session_id), ctx, ttl)
@@ -182,17 +179,26 @@ def record_auth_context(session_id: str, ctx: dict,
             # Composite key = a SET of sids per stable pair — two
             # same-second logins share username:created, so a single
             # idx value would overwrite one session's index entry.
-            be.set_ttl(_CTX_NS,
-                       f'idx:{_session_key(stable_id)}:{_session_key(session_id)}',
-                       session_id, ttl)
+            be.set_ttl(
+                _CTX_NS,
+                f"idx:{_session_key(stable_id)}:{_session_key(session_id)}",
+                session_id,
+                ttl,
+            )
     except Exception:  # noqa: BLE001 - ctx is advisory if state is down
-        logger.debug('Could not record auth context', exc_info=True)
+        logger.debug("Could not record auth context", exc_info=True)
 
 
-_CTX_FIELDS = frozenset({
-    'auth_method', 'mfa', 'phishing_resistant', 'user_verified',
-    'authenticated_at', 'username',
-})
+_CTX_FIELDS = frozenset(
+    {
+        "auth_method",
+        "mfa",
+        "phishing_resistant",
+        "user_verified",
+        "authenticated_at",
+        "username",
+    }
+)
 
 
 def update_auth_context(session_id: str, **fields) -> None:
@@ -203,23 +209,22 @@ def update_auth_context(session_id: str, **fields) -> None:
     site fabricate assurance properties)."""
     bad = [k for k in fields if k not in _CTX_FIELDS]
     if bad:
-        logger.warning('auth_context update rejected unknown '
-                       'fields: %s', bad)
+        logger.warning("auth_context update rejected unknown " "fields: %s", bad)
         return
-    if 'authenticated_at' in fields and not isinstance(
-            fields['authenticated_at'], (int, float)):
+    if "authenticated_at" in fields and not isinstance(fields["authenticated_at"], (int, float)):
         return
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
         key = _session_key(session_id)
         ctx = be.get(_CTX_NS, key)
         if isinstance(ctx, dict):
             ctx.update(fields)
-            ttl = int(os.environ.get('SESSION_MAX_LIFETIME', '86400'))
+            ttl = int(os.environ.get("SESSION_MAX_LIFETIME", "86400"))
             be.set_ttl(_CTX_NS, key, ctx, ttl)
     except Exception:  # noqa: BLE001
-        logger.debug('Could not update auth context', exc_info=True)
+        logger.debug("Could not update auth context", exc_info=True)
 
 
 def auth_context_for(session_id: str) -> dict:
@@ -228,29 +233,26 @@ def auth_context_for(session_id: str) -> dict:
         return {}
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        return get_backend().get(_CTX_NS,
-                                 _session_key(session_id)) or {}
+
+        return get_backend().get(_CTX_NS, _session_key(session_id)) or {}
     except Exception:  # noqa: BLE001
         return {}
 
 
-def drop_auth_context(session_id: str,
-                      stable_id: str | None = None) -> None:
+def drop_auth_context(session_id: str, stable_id: str | None = None) -> None:
     """Delete one session's auth context — logout, revocation, or any
     event that invalidates the session must drop it too. When
     ``stable_id`` is known, the index entry is removed as well so no
     orphan ``idx:`` records survive."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
         be.delete(_CTX_NS, _session_key(session_id))
         if stable_id:
-            be.delete(
-                _CTX_NS,
-                f'idx:{_session_key(stable_id)}:'
-                f'{_session_key(session_id)}')
+            be.delete(_CTX_NS, f"idx:{_session_key(stable_id)}:" f"{_session_key(session_id)}")
     except Exception:  # noqa: BLE001
-        logger.debug('Could not drop auth context', exc_info=True)
+        logger.debug("Could not drop auth context", exc_info=True)
 
 
 def drop_auth_context_for_cookie(cookie_value: str) -> None:
@@ -258,13 +260,13 @@ def drop_auth_context_for_cookie(cookie_value: str) -> None:
     Never escalates to the shared stable pair."""
     try:
         from vnc_remote_secure.security.sessions import verify_session_cookie
+
         parsed = verify_session_cookie(cookie_value)
-        if parsed and parsed.get('sid'):
-            stable = (f"{parsed['username']}:{parsed['created']}"
-                      if parsed.get('created') else None)
-            drop_auth_context(parsed['sid'], stable_id=stable)
+        if parsed and parsed.get("sid"):
+            stable = f"{parsed['username']}:{parsed['created']}" if parsed.get("created") else None
+            drop_auth_context(parsed["sid"], stable_id=stable)
     except Exception:  # noqa: BLE001
-        logger.debug('Could not drop ctx for cookie', exc_info=True)
+        logger.debug("Could not drop ctx for cookie", exc_info=True)
 
 
 def drop_auth_contexts_for_stable(stable_id: str) -> None:
@@ -274,15 +276,15 @@ def drop_auth_contexts_for_stable(stable_id: str) -> None:
         return
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
-        prefix = f'idx:{_session_key(stable_id)}:'
+        prefix = f"idx:{_session_key(stable_id)}:"
         for idx_key in be.list_keys(_CTX_NS, prefix=prefix):
             be.delete(_CTX_NS, idx_key)
             # idx key embeds sha256(sid) — drop the ctx record.
-            be.delete(_CTX_NS, idx_key[len(prefix):])
+            be.delete(_CTX_NS, idx_key[len(prefix) :])
     except Exception:  # noqa: BLE001
-        logger.debug('Could not resolve ctx by stable id',
-                     exc_info=True)
+        logger.debug("Could not resolve ctx by stable id", exc_info=True)
 
 
 def drop_auth_context_for(cookie_or_stable: str) -> None:
@@ -301,6 +303,7 @@ def drop_all_auth_contexts() -> int:
     assurance records must not outlive them."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
         n = 0
         for key in be.list_keys(_CTX_NS):
@@ -308,20 +311,211 @@ def drop_all_auth_contexts() -> int:
             n += 1
         return n
     except Exception:  # noqa: BLE001
-        logger.debug('Could not drop auth contexts', exc_info=True)
+        logger.debug("Could not drop auth contexts", exc_info=True)
         return 0
 
 
 def _profile() -> str:
     try:
         from vnc_remote_secure.security.profiles import get_profile
+
         return get_profile()
     except Exception:  # noqa: BLE001
-        return 'development'
+        return "development"
 
 
-def evaluate(operation: str, session_ctx: dict,
-             profile: str | None = None) -> AuthDecision:
+def _resolve_requirement(operation: str):
+    """Look up the operation's requirement.
+
+    Returns ``(req, pending)`` — ``pending`` ops are declared but have
+    no enforcement point yet; they still get a real evaluation so a
+    future call site inherits working logic, but the decision is
+    audit-only regardless of profile.
+    """
+    req = AUTH_POLICIES.get(operation)
+    if req is not None:
+        return req, False
+    req = PENDING_POLICIES.get(operation)
+    return req, req is not None
+
+
+def _auth_age(session_ctx: dict, operation: str, method: str | None):
+    """Compute auth age; deny outright on a future timestamp.
+
+    Returns ``(age_seconds, deny_decision_or_None)``. A timestamp far
+    in the future is corruption or tampering, not "very fresh auth" —
+    small skew tolerance only.
+    """
+    auth_at = session_ctx.get("authenticated_at")
+    age = int(time.time() - auth_at) if isinstance(auth_at, (int, float)) else None
+    if isinstance(auth_at, (int, float)) and age is not None and age < -30:
+        logger.warning("auth_context authenticated_at is %.0fs in " "the future — denying", -age)
+        from vnc_remote_secure.security.audit import audit_event
+
+        audit_event(
+            "auth_policy",
+            result="denied",
+            user=session_ctx.get("username", "?"),
+            detail=f"op={operation} future_timestamp age={age}",
+        )
+        return age, AuthDecision(
+            False, operation, "INVALID_AUTH_CONTEXT", method, age, ("recent_auth",), enforced=True
+        )
+    return age, None
+
+
+def _epoch_denied(session_ctx: dict, operation: str, method: str | None, age):
+    """Deny when the context predates the current operator epoch.
+
+    A record written before a credential rotation is stale even if the
+    physical entry survived (logical invalidation, not just cleanup).
+    """
+    ctx_epoch = session_ctx.get("operator_epoch")
+    if ctx_epoch is None:
+        return None
+    try:
+        from vnc_remote_secure.security.sessions import operator_session_epoch
+
+        stale = float(ctx_epoch) < operator_session_epoch()
+    except Exception:  # noqa: BLE001 - can't prove epoch => deny
+        return AuthDecision(
+            False,
+            operation,
+            "AUTH_CONTEXT_INVALID",
+            method,
+            age,
+            ("operator_epoch",),
+            enforced=True,
+            requirements_satisfied=False,
+        )
+    if stale:
+        return AuthDecision(
+            False,
+            operation,
+            "SESSION_REVOKED",
+            method,
+            age,
+            ("current_epoch",),
+            enforced=True,
+            requirements_satisfied=False,
+        )
+    return None
+
+
+def _missing_requirements(req: AuthRequirement, session_ctx: dict, age) -> list:
+    """Policy properties the session context lacks."""
+    missing = []
+    if req.require_mfa and not session_ctx.get("mfa"):
+        missing.append("mfa")
+    if req.require_phishing_resistant and not session_ctx.get("phishing_resistant"):
+        missing.append("phishing_resistant")
+    if req.require_user_verified and session_ctx.get("user_verified") is not True:
+        missing.append("user_verified")
+    # AnyOf: satisfied when EVERY property in ANY alternative holds.
+    if req.alternatives and not any(
+        all(session_ctx.get(p) for p in alt) for alt in req.alternatives
+    ):
+        missing.append("strong_method")
+    if req.max_auth_age_seconds is not None and (age is None or age > req.max_auth_age_seconds):
+        missing.append("recent_auth")
+    return missing
+
+
+def _audit_missing(
+    session_ctx: dict,
+    operation: str,
+    missing: list,
+    enforced_missing: list,
+    audited_missing: list,
+    age,
+    denied: bool,
+    enforced: bool,
+) -> None:
+    """Emit the audit event + info log for a non-compliant session."""
+    from vnc_remote_secure.security.audit import audit_event
+
+    audit_event(
+        "auth_policy",
+        user=session_ctx.get("username", "?"),
+        result="denied" if denied else "audit-only",
+        detail=(
+            f'op={operation} missing={"+".join(missing)} '
+            f"enforced={enforced_missing} "
+            f"audited={audited_missing} age={age}"
+        ),
+    )
+    logger.info(
+        "Auth policy %s for %s: missing=%s enforced=%s",
+        "DENY" if denied else "audit",
+        operation,
+        missing,
+        enforced,
+    )
+
+
+def _reason_code(
+    pending: bool, missing: list, enforced: bool, allowed: bool, enforced_missing: list
+) -> str | None:
+    """Machine-readable denial reason, or None when allowed."""
+    if pending and missing:
+        return "POLICY_PENDING"
+    if enforced and not allowed:
+        if enforced_missing == ["recent_auth"]:
+            return "AUTH_TOO_OLD"
+        if "mfa" in enforced_missing:
+            return "MFA_REQUIRED"
+        return "STRONG_AUTH_REQUIRED"
+    return None
+
+
+def _policy_decision(
+    operation: str,
+    req: AuthRequirement,
+    pending: bool,
+    session_ctx: dict,
+    profile: str,
+    method: str | None,
+    age,
+) -> AuthDecision:
+    """Apply the profile's enforcement scope to the missing set and
+    produce the final decision (auditing non-compliance)."""
+    enforce_all = (profile in _ENFORCE_ALL) and not pending
+    enforce_mfa = (enforce_all or profile in _ENFORCE_MFA_ONLY) and not pending
+    missing = _missing_requirements(req, session_ctx, age)
+
+    # Split missing props by whether this profile enforces them.
+    enforced_missing = [
+        m for m in missing if m in ("mfa", "recent_auth", "strong_method") or enforce_all
+    ]
+    audited_missing = [m for m in missing if m not in enforced_missing]
+    enforced = enforce_mfa or enforce_all
+    allowed = not enforced_missing if enforced else True
+
+    if missing:
+        _audit_missing(
+            session_ctx,
+            operation,
+            missing,
+            enforced_missing,
+            audited_missing,
+            age,
+            denied=bool(enforced and not allowed),
+            enforced=enforced,
+        )
+
+    return AuthDecision(
+        allowed,
+        operation,
+        _reason_code(pending, missing, enforced, allowed, enforced_missing),
+        method,
+        age,
+        tuple(missing),
+        enforced=enforced,
+        requirements_satisfied=not missing,
+    )
+
+
+def evaluate(operation: str, session_ctx: dict, profile: str | None = None) -> AuthDecision:
     """Evaluate the session context against the operation's policy.
 
     ``session_ctx`` carries the properties recorded at login:
@@ -329,105 +523,17 @@ def evaluate(operation: str, session_ctx: dict,
     ``user_verified``, ``authenticated_at``. Unknown operations have
     no requirement and pass (declare one here to gate them).
     """
-    req = AUTH_POLICIES.get(operation)
-    pending = False
+    req, pending = _resolve_requirement(operation)
+    method = session_ctx.get("auth_method")
+    age, denied = _auth_age(session_ctx, operation, method)
+    if denied is not None:
+        return denied
     if req is None:
-        # Pending ops (declared, no enforcement point yet) still get
-        # a real evaluation — the decision is audit-only regardless
-        # of profile, so a future call site inherits working logic.
-        req = PENDING_POLICIES.get(operation)
-        pending = req is not None
-    method = session_ctx.get('auth_method')
-    auth_at = session_ctx.get('authenticated_at')
-    age = (int(time.time() - auth_at)
-           if isinstance(auth_at, (int, float)) else None)
-    # A timestamp far in the future is corruption or tampering, not
-    # "very fresh auth" — small skew tolerance only.
-    if isinstance(auth_at, (int, float)) and age is not None \
-            and age < -30:
-        logger.warning('auth_context authenticated_at is %.0fs in '
-                       'the future — denying', -age)
-        from vnc_remote_secure.security.audit import audit_event
-        audit_event('auth_policy', result='denied',
-                    user=session_ctx.get('username', '?'),
-                    detail=f'op={operation} future_timestamp age={age}')
-        return AuthDecision(False, operation, 'INVALID_AUTH_CONTEXT',
-                            method, age, ('recent_auth',),
-                            enforced=True)
-    if req is None:
-        return AuthDecision(True, operation, None, method, age, (),
-                            enforced=False)
+        return AuthDecision(True, operation, None, method, age, (), enforced=False)
+    epoch_deny = _epoch_denied(session_ctx, operation, method, age)
+    if epoch_deny is not None:
+        return epoch_deny
 
-    # The context must belong to the current operator epoch — a
-    # record written before a credential rotation is stale even if
-    # the physical entry survived (logical invalidation, not just
-    # cleanup).
-    ctx_epoch = session_ctx.get('operator_epoch')
-    if ctx_epoch is not None:
-        try:
-            from vnc_remote_secure.security.sessions import operator_session_epoch
-            if float(ctx_epoch) < operator_session_epoch():
-                return AuthDecision(
-                    False, operation, 'SESSION_REVOKED', method, age,
-                    ('current_epoch',), enforced=True,
-                    requirements_satisfied=False)
-        except Exception:  # noqa: BLE001 - can't prove epoch => deny
-            return AuthDecision(
-                False, operation, 'AUTH_CONTEXT_INVALID', method, age,
-                ('operator_epoch',), enforced=True,
-                requirements_satisfied=False)
-
-    profile = profile if profile is not None else _profile()
-    enforce_all = (profile in _ENFORCE_ALL) and not pending
-    enforce_mfa = (enforce_all
-                   or profile in _ENFORCE_MFA_ONLY) and not pending
-    missing = []
-    if req.require_mfa and not session_ctx.get('mfa'):
-        missing.append('mfa')
-    if req.require_phishing_resistant \
-            and not session_ctx.get('phishing_resistant'):
-        missing.append('phishing_resistant')
-    if req.require_user_verified \
-            and session_ctx.get('user_verified') is not True:
-        missing.append('user_verified')
-    # AnyOf: satisfied when EVERY property in ANY alternative holds.
-    if req.alternatives and not any(
-            all(session_ctx.get(p) for p in alt)
-            for alt in req.alternatives):
-        missing.append('strong_method')
-    if (req.max_auth_age_seconds is not None
-            and (age is None or age > req.max_auth_age_seconds)):
-        missing.append('recent_auth')
-
-    # Split missing props by whether this profile enforces them.
-    enforced_missing = [m for m in missing
-                        if m in ('mfa', 'recent_auth', 'strong_method')
-                        or enforce_all]
-    audited_missing = [m for m in missing
-                       if m not in enforced_missing]
-    enforced = enforce_mfa or enforce_all
-    allowed = not enforced_missing if enforced else True
-
-    if missing:
-        from vnc_remote_secure.security.audit import audit_event
-        audit_event(
-            'auth_policy', user=session_ctx.get('username', '?'),
-            result='denied' if (enforced and not allowed)
-            else 'audit-only',
-            detail=(f'op={operation} missing={"+".join(missing)} '
-                    f'enforced={enforced_missing} '
-                    f'audited={audited_missing} age={age}'))
-        logger.info('Auth policy %s for %s: missing=%s enforced=%s',
-                    'DENY' if (enforced and not allowed)
-                    else 'audit', operation, missing, enforced)
-
-    reason = None
-    if pending and missing:
-        reason = 'POLICY_PENDING'
-    elif enforced and not allowed:
-        reason = ('AUTH_TOO_OLD' if enforced_missing == ['recent_auth']
-                  else 'MFA_REQUIRED' if 'mfa' in enforced_missing
-                  else 'STRONG_AUTH_REQUIRED')
-    return AuthDecision(allowed, operation, reason, method, age,
-                        tuple(missing), enforced=enforced,
-                        requirements_satisfied=not missing)
+    if profile is None:
+        profile = _profile()
+    return _policy_decision(operation, req, pending, session_ctx, profile, method, age)

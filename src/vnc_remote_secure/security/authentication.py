@@ -8,6 +8,7 @@ Token signing is delegated to ``security.token_signing`` so that all
 signed tokens (bearer, session cookie, ephemeral) share a single
 signing mechanism while remaining type-separated.
 """
+
 import contextlib
 import hmac
 import logging
@@ -46,13 +47,15 @@ _SECRET_RECHECK_INTERVAL = 5.0
 def _secret_file_path():
     """Return the path to the persisted auto-generated secret."""
     from vnc_remote_secure.core.paths import get_run_dir
-    return os.path.join(get_run_dir(), 'auth_secret.key')
+
+    return os.path.join(get_run_dir(), "auth_secret.key")
 
 
 def _previous_secrets_path():
     """Return the path to retired signing secrets (verify-only)."""
     from vnc_remote_secure.core.paths import get_run_dir
-    return os.path.join(get_run_dir(), 'auth_secret.previous')
+
+    return os.path.join(get_run_dir(), "auth_secret.previous")
 
 
 def _persist_secret_file(path, value):
@@ -62,11 +65,11 @@ def _persist_secret_file(path, value):
     the deployment — write to a temp file and rename.
     """
     import tempfile
+
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(
-        dir=os.path.dirname(path), suffix='.tmp')
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(value)
         os.replace(tmp, path)
     except BaseException:
@@ -78,6 +81,7 @@ def _persist_secret_file(path, value):
     # local user can forge valid sessions.
     try:
         from vnc_remote_secure.security.certificates import _restrict_key_permissions
+
         _restrict_key_permissions(path, writable=True)
     except Exception:  # noqa: BLE001
         with contextlib.suppress(OSError):
@@ -94,42 +98,13 @@ def _get_secret():
     """
     global _cached_secret, _cached_secret_mtime, _cached_secret_checked
     load_env_file()
-    secret = os.environ.get('AUTH_SECRET') or os.environ.get('FLASK_SECRET_KEY')
+    secret = os.environ.get("AUTH_SECRET") or os.environ.get("FLASK_SECRET_KEY")
     if secret:
-        return secret.encode('utf-8')
+        return secret.encode("utf-8")
     if _cached_secret is None or _secret_file_changed():
         # Try to load a previously persisted secret.
         path = _secret_file_path()
-        loaded = None
-        try:
-            with open(path, encoding='utf-8') as f:
-                loaded = f.read().strip()
-            # Record the baseline mtime now — otherwise the first
-            # `_secret_file_changed` probe would adopt a post-rotation
-            # file as the baseline and keep signing with the stale key.
-            try:
-                _cached_secret_mtime = os.stat(path).st_mtime
-            except OSError:
-                pass
-            # Keys written before the ACL hardening existed may still
-            # be world-readable — re-restrict on load.
-            if loaded:
-                try:
-                    from vnc_remote_secure.security.certificates import _restrict_key_permissions
-                    _restrict_key_permissions(path, writable=True)
-                except Exception:  # noqa: BLE001
-                    pass
-        except OSError as exc:
-            # A missing file on first run is normal (debug); a file
-            # that EXISTS but is unreadable means every bearer/session/
-            # ephemeral token is about to be silently invalidated by
-            # the regenerated secret — that must be visible.
-            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs path+error, not the secret)
-            log = (logger.debug
-                   if isinstance(exc, FileNotFoundError)
-                   else logger.warning)
-            log("Could not read persisted auth secret at %s: %s",
-                path, exc, exc_info=True)
+        loaded = _load_persisted_secret(path)
         if loaded:
             if loaded != _cached_secret:
                 logger.info("Reloaded rotated auth secret from %s", path)
@@ -150,7 +125,43 @@ def _get_secret():
             _cached_secret_mtime = os.stat(path).st_mtime
         except OSError:
             pass
-    return _cached_secret.encode('utf-8')
+    return _cached_secret.encode("utf-8")
+
+
+def _load_persisted_secret(path):
+    """Read the persisted secret file (None when absent/unreadable).
+
+    Records the baseline mtime after reading — otherwise the first
+    ``_secret_file_changed`` probe would adopt a post-rotation file
+    as the baseline and keep signing with the stale key. Keys written
+    before the ACL hardening existed may still be world-readable —
+    re-restrict on load.
+    """
+    global _cached_secret_mtime
+    loaded = None
+    try:
+        with open(path, encoding="utf-8") as f:
+            loaded = f.read().strip()
+        try:
+            _cached_secret_mtime = os.stat(path).st_mtime
+        except OSError:
+            pass
+        if loaded:
+            try:
+                from vnc_remote_secure.security.certificates import _restrict_key_permissions
+
+                _restrict_key_permissions(path, writable=True)
+            except Exception:  # noqa: BLE001
+                pass
+    except OSError as exc:
+        # A missing file on first run is normal (debug); a file
+        # that EXISTS but is unreadable means every bearer/session/
+        # ephemeral token is about to be silently invalidated by
+        # the regenerated secret — that must be visible.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure (logs path+error, not the secret)
+        log = logger.debug if isinstance(exc, FileNotFoundError) else logger.warning
+        log("Could not read persisted auth secret at %s: %s", path, exc, exc_info=True)
+    return loaded
 
 
 def _secret_file_changed() -> bool:
@@ -183,16 +194,20 @@ def _load_previous_secrets() -> list:
     """
     path = _previous_secrets_path()
     try:
-        with open(path, encoding='utf-8') as f:
+        with open(path, encoding="utf-8") as f:
             import json
+
             entries = json.load(f)
     except (OSError, ValueError):
         return []
     now = time.time()
-    live = [e for e in entries
-            if isinstance(e, dict)
-            and isinstance(e.get('secret'), str)
-            and e.get('retire_after', 0) > now]
+    live = [
+        e
+        for e in entries
+        if isinstance(e, dict)
+        and isinstance(e.get("secret"), str)
+        and e.get("retire_after", 0) > now
+    ]
     if len(live) != len(entries):
         try:
             _persist_secret_file(path, json.dumps(live))
@@ -208,10 +223,9 @@ def previous_signing_secrets() -> list:
     secret via ``AUTH_SECRET``/``FLASK_SECRET_KEY`` they own rotation
     entirely — a stale previous file must not grant extra keys.
     """
-    if os.environ.get('AUTH_SECRET') or os.environ.get('FLASK_SECRET_KEY'):
+    if os.environ.get("AUTH_SECRET") or os.environ.get("FLASK_SECRET_KEY"):
         return []
-    return [e['secret'].encode('utf-8')
-            for e in _load_previous_secrets()]
+    return [e["secret"].encode("utf-8") for e in _load_previous_secrets()]
 
 
 def rotate_signing_secret(retire_in: float = 7 * 86400) -> tuple:
@@ -223,20 +237,24 @@ def rotate_signing_secret(retire_in: float = 7 * 86400) -> tuple:
     once. Returns ``(ok, error_message)``.
     """
     global _cached_secret, _cached_secret_mtime
-    if os.environ.get('AUTH_SECRET') or os.environ.get('FLASK_SECRET_KEY'):
-        return (False, 'secret is configured via environment '
-                       '(AUTH_SECRET/FLASK_SECRET_KEY) — rotate it '
-                       'there; file rotation is disabled')
-    old = _get_secret().decode('utf-8')  # ensures persisted current key
+    if os.environ.get("AUTH_SECRET") or os.environ.get("FLASK_SECRET_KEY"):
+        return (
+            False,
+            "secret is configured via environment "
+            "(AUTH_SECRET/FLASK_SECRET_KEY) — rotate it "
+            "there; file rotation is disabled",
+        )
+    old = _get_secret().decode("utf-8")  # ensures persisted current key
     entries = _load_previous_secrets()
-    if not any(e['secret'] == old for e in entries):
-        entries.append({
-            'secret': old,
-            'retire_after': time.time() + retire_in,
-            'retired_at': time.time(),
-        })
-    _persist_secret_file(_previous_secrets_path(),
-                         __import__('json').dumps(entries))
+    if not any(e["secret"] == old for e in entries):
+        entries.append(
+            {
+                "secret": old,
+                "retire_after": time.time() + retire_in,
+                "retired_at": time.time(),
+            }
+        )
+    _persist_secret_file(_previous_secrets_path(), __import__("json").dumps(entries))
     _cached_secret = secrets.token_hex(32)
     _persist_secret_file(_secret_file_path(), _cached_secret)
     try:
@@ -244,8 +262,8 @@ def rotate_signing_secret(retire_in: float = 7 * 86400) -> tuple:
     except OSError:
         pass
     from vnc_remote_secure.security.audit import audit_event
-    audit_event('signing_key_rotate', user='system',
-              detail=f'coexistence_window={int(retire_in)}s')
+
+    audit_event("signing_key_rotate", user="system", detail=f"coexistence_window={int(retire_in)}s")
     return True, None
 
 
@@ -267,24 +285,24 @@ def authenticate(username, password):
     # the bootstrap admin for deployments without a store.
     try:
         from vnc_remote_secure.security.operator_users import load_store, verify
+
         if str(username) in load_store():
             return verify(str(username), password) is not None
     except Exception as exc:  # noqa: BLE001 - store failure falls back to env
         # Falling back to env creds silently bypasses RBAC (the shared
         # credential authenticates as full admin) — the degraded state
         # must be loud, not invisible.
-        logger.warning(
-            "Operator store unreadable (%s) — falling back to env "
-            "credentials", exc)
+        logger.warning("Operator store unreadable (%s) — falling back to env " "credentials", exc)
     from vnc_remote_secure.core.constants import DEFAULT_TTYD_USERNAME
+
     expected_user = os.environ.get(
-        'USER_UI_USERNAME',
-        os.environ.get('TTYD_USERNAME', DEFAULT_TTYD_USERNAME))
+        "USER_UI_USERNAME", os.environ.get("TTYD_USERNAME", DEFAULT_TTYD_USERNAME)
+    )
     # Support both plain-text and hashed passwords. USER_UI_PASSWORD
     # (the UI's own credential) takes precedence over the shared
     # terminal password — when both are set, the operator's dedicated
     # UI password is the one that must work.
-    stored_password = os.environ.get('USER_UI_PASSWORD') or os.environ.get('TTYD_PASSWD', '')
+    stored_password = os.environ.get("USER_UI_PASSWORD") or os.environ.get("TTYD_PASSWD", "")
     if not stored_password:
         # Persisted auto-generated credential fallback: get_config()
         # generates TTYD_PASSWD into <run_dir>/generated_credentials.env
@@ -294,9 +312,10 @@ def authenticate(username, password):
             from vnc_remote_secure.core.config import (
                 _load_generated_credential,
             )
-            stored_password = _load_generated_credential('TTYD_PASSWD')
+
+            stored_password = _load_generated_credential("TTYD_PASSWD")
         except Exception:  # noqa: BLE001 - fallback is best-effort
-            stored_password = ''
+            stored_password = ""
     if not stored_password:
         return False
     # compare_digest on str rejects non-ASCII — a UTF-8 username or
@@ -304,15 +323,14 @@ def authenticate(username, password):
     # TypeError. Encode to bytes so the compare is constant-time AND
     # charset-agnostic.
     user_ok = hmac.compare_digest(
-        str(username).encode('utf-8', 'replace'),
-        expected_user.encode('utf-8', 'replace'))
+        str(username).encode("utf-8", "replace"), expected_user.encode("utf-8", "replace")
+    )
     # Exactly one expensive verification per attempt regardless of
     # outcome — a fast path (early return on unknown user, or the
     # near-instant plaintext compare) would leak via timing whether
     # the username is valid.
-    dummy = ('pbkdf2:sha256:600000$dummysalt$'
-             + '0' * 64)
-    if stored_password.startswith(('pbkdf2:', 'scrypt:', 'argon2:')):
+    dummy = "pbkdf2:sha256:600000$dummysalt$" + "0" * 64
+    if stored_password.startswith(("pbkdf2:", "scrypt:", "argon2:")):
         target = stored_password if user_ok else dummy
         pw_ok = verify_password(password, target) and user_ok
     else:
@@ -320,8 +338,8 @@ def authenticate(username, password):
         # run the dummy verify too so every attempt costs one pbkdf2
         # (same as the hashed-storage path).
         pw_ok = hmac.compare_digest(
-            str(password).encode('utf-8', 'replace'),
-            stored_password.encode('utf-8', 'replace'))
+            str(password).encode("utf-8", "replace"), stored_password.encode("utf-8", "replace")
+        )
         verify_password(str(password), dummy)
     return user_ok and pw_ok
 
@@ -351,9 +369,9 @@ def validate_session_token(token):
     payload = verify_token(TOKEN_TYPE_BEARER, token)
     if payload is None:
         raise SecurityError("Invalid token format")
-    if ':' not in payload:
+    if ":" not in payload:
         raise SecurityError("Invalid token payload")
-    username, expiry_str = payload.rsplit(':', 1)
+    username, expiry_str = payload.rsplit(":", 1)
     try:
         expiry = int(expiry_str)
     except ValueError as exc:

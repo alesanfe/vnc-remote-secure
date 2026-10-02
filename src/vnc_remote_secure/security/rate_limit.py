@@ -9,6 +9,7 @@ so that rate limiting works correctly across multiple processes when
 the SQLite backend is enabled. The default in-memory backend preserves
 the previous single-process behaviour.
 """
+
 import os
 import time
 
@@ -19,12 +20,12 @@ from vnc_remote_secure.security.shared_state import get_backend
 DEFAULT_MAX_ATTEMPTS = 5
 DEFAULT_LOCKOUT_SECONDS = 900  # 15 minutes
 DEFAULT_LOCKOUT_MAX_SECONDS = 86400  # 24 h cap on escalation
-DEFAULT_WINDOW_SECONDS = 600   # 10 minutes
+DEFAULT_WINDOW_SECONDS = 600  # 10 minutes
 
 # Shared-state namespaces.
-_NS_ATTEMPTS = 'rate_limit_attempts'
-_NS_LOCKOUTS = 'rate_limit_lockouts'
-_NS_STRIKES = 'rate_limit_lockout_strikes'
+_NS_ATTEMPTS = "rate_limit_attempts"
+_NS_LOCKOUTS = "rate_limit_lockouts"
+_NS_STRIKES = "rate_limit_lockout_strikes"
 
 
 class RateLimiter:
@@ -42,19 +43,18 @@ class RateLimiter:
     ):
         load_env_file()
         self.max_attempts = max_attempts or int(
-            os.environ.get('AUTH_MAX_ATTEMPTS', str(DEFAULT_MAX_ATTEMPTS))
+            os.environ.get("AUTH_MAX_ATTEMPTS", str(DEFAULT_MAX_ATTEMPTS))
         )
         self.lockout_seconds = lockout_seconds or int(
-            os.environ.get('AUTH_LOCKOUT_SECONDS', str(DEFAULT_LOCKOUT_SECONDS))
+            os.environ.get("AUTH_LOCKOUT_SECONDS", str(DEFAULT_LOCKOUT_SECONDS))
         )
         self.window_seconds = window_seconds or int(
-            os.environ.get('AUTH_WINDOW_SECONDS', str(DEFAULT_WINDOW_SECONDS))
+            os.environ.get("AUTH_WINDOW_SECONDS", str(DEFAULT_WINDOW_SECONDS))
         )
         self.lockout_max_seconds = int(
-            os.environ.get('AUTH_LOCKOUT_MAX_SECONDS',
-                           str(DEFAULT_LOCKOUT_MAX_SECONDS))
+            os.environ.get("AUTH_LOCKOUT_MAX_SECONDS", str(DEFAULT_LOCKOUT_MAX_SECONDS))
         )
-        self.escalation = env_flag('AUTH_LOCKOUT_ESCALATION', 'true')
+        self.escalation = env_flag("AUTH_LOCKOUT_ESCALATION", "true")
 
     def _next_lockout(self, key: str) -> float:
         """Return the duration for this key's next lockout.
@@ -75,13 +75,11 @@ class RateLimiter:
         except (TypeError, ValueError):
             strikes = 1
         duration = min(
-            float(self.lockout_seconds) * (2 ** (strikes - 1)),
-            float(self.lockout_max_seconds))
+            float(self.lockout_seconds) * (2 ** (strikes - 1)), float(self.lockout_max_seconds)
+        )
         # The strike record must outlive the lockout it produced or
         # escalation would never progress.
-        backend.set_ttl(
-            _NS_STRIKES, key, strikes,
-            int(duration) + self.window_seconds + 60)
+        backend.set_ttl(_NS_STRIKES, key, strikes, int(duration) + self.window_seconds + 60)
         return duration
 
     # Each failed attempt is stored as its own TTL'd record keyed
@@ -90,12 +88,11 @@ class RateLimiter:
     # could lose a failure when two service processes raced). The
     # embedded timestamp lets readers apply THEIR OWN window — a
     # record's TTL only controls storage cleanup.
-    _SEP = '\x00'
+    _SEP = "\x00"
 
     def _attempt_keys(self, key: str) -> list:
         """Return the unexpired attempt-record keys for ``key``."""
-        return get_backend().list_keys(
-            _NS_ATTEMPTS, prefix=key + self._SEP)
+        return get_backend().list_keys(_NS_ATTEMPTS, prefix=key + self._SEP)
 
     def _attempt_count(self, key: str) -> int:
         now = time.time()
@@ -139,21 +136,22 @@ class RateLimiter:
     def record_failure(self, key: str):
         """Record a failed attempt. Locks out if threshold exceeded."""
         import secrets as _secrets
+
         backend = get_backend()
         now = time.time()
         # Insert-only attempt record with sliding-window TTL. No read-
         # modify-write, so concurrent failures across processes can
         # never be lost (each insert is an independent row).
-        record_key = f'{key}{self._SEP}{now}{self._SEP}{_secrets.token_hex(4)}'
+        record_key = f"{key}{self._SEP}{now}{self._SEP}{_secrets.token_hex(4)}"
         backend.set_ttl(_NS_ATTEMPTS, record_key, True, self.window_seconds)
         if self._attempt_count(key) >= self.max_attempts:
             duration = self._next_lockout(key)
-            backend.set_ttl(_NS_LOCKOUTS, key, now + duration,
-                            int(duration) + 60)
+            backend.set_ttl(_NS_LOCKOUTS, key, now + duration, int(duration) + 60)
             # Lockouts are a security signal — a brute-force sweep
             # shows up here before it shows in logs.
             from vnc_remote_secure.monitoring.prometheus import inc_counter
-            inc_counter('vnc_remote_auth_lockouts_total')
+
+            inc_counter("vnc_remote_auth_lockouts_total")
 
     def record_success(self, key: str):
         """Clear attempt history on successful auth."""
@@ -188,7 +186,7 @@ def get_auth_limiter() -> RateLimiter:
 # This is a simple sliding-window limiter keyed by IP. For auth-specific
 # limiting with lockouts, use RateLimiter above.
 
-_NS_GENERAL = 'rate_limit_general'
+_NS_GENERAL = "rate_limit_general"
 
 DEFAULT_MAX_REQUESTS = 5
 # Distinct name from the auth limiter's DEFAULT_WINDOW_SECONDS above —
@@ -198,11 +196,12 @@ DEFAULT_MAX_REQUESTS = 5
 DEFAULT_GENERAL_WINDOW_SECONDS = 300  # 5 minutes
 
 
-_GENERAL_SEP = '\x00'
+_GENERAL_SEP = "\x00"
 
 
-def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
-                     window_seconds=DEFAULT_GENERAL_WINDOW_SECONDS):
+def check_rate_limit(
+    ip, max_requests=DEFAULT_MAX_REQUESTS, window_seconds=DEFAULT_GENERAL_WINDOW_SECONDS
+):
     r"""Check whether ``ip`` is within the allowed request rate.
 
     Records the current attempt and returns ``True`` if allowed,
@@ -216,11 +215,9 @@ def check_rate_limit(ip, max_requests=DEFAULT_MAX_REQUESTS,
     """
     backend = get_backend()
     bucket = int(time.time() // window_seconds)
-    count = backend.increment(
-        _NS_GENERAL, f'{ip}{_GENERAL_SEP}{bucket}', 1, window_seconds)
+    count = backend.increment(_NS_GENERAL, f"{ip}{_GENERAL_SEP}{bucket}", 1, window_seconds)
     try:
         return int(count) <= max_requests
     except (TypeError, ValueError):
         # A corrupt/None counter must not fail open — deny.
         return False
-

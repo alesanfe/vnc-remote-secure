@@ -9,6 +9,7 @@ The base VNC port is read from the ``VNC_PORT`` environment variable
 (falling back to ``DEFAULT_VNC_PORT``) so the service honors the
 operator's configured port, not just the compile-time default.
 """
+
 import platform
 
 from vnc_remote_secure.core.config import load_env_file
@@ -29,6 +30,7 @@ def _vnc_base_port():
     ``core.portal.vnc_base_port`` (single derivation for services and
     engine read models)."""
     from vnc_remote_secure.core.portal import vnc_base_port
+
     return vnc_base_port()
 
 
@@ -36,11 +38,11 @@ def _vnc_port(display):
     """Return the RFB port a ``vncserver :N`` display binds — delegates
     to ``core.portal.vnc_display_port`` (TigerVNC 5900+N convention)."""
     from vnc_remote_secure.core.portal import vnc_display_port
+
     return vnc_display_port(display)
 
 
-def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,
-              depth=DEFAULT_VNC_DEPTH, password=None):
+def start_vnc(display=":1", geometry=DEFAULT_VNC_GEOMETRY, depth=DEFAULT_VNC_DEPTH, password=None):
     """Start a VNC server for ``display``.
 
     Args:
@@ -56,9 +58,9 @@ def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,
         ServiceError: if the server binary is missing or fails to start.
     """
     display_str = str(display)
-    if not display_str.startswith(':'):
-        display_str = f':{display_str}'
-    if platform.system() == 'Windows':
+    if not display_str.startswith(":"):
+        display_str = f":{display_str}"
+    if platform.system() == "Windows":
         # UltraVNC shares the console session on the configured
         # VNC_PORT; the ``:N`` display offset is a TigerVNC-ism the
         # Windows adapter does not apply.
@@ -74,6 +76,7 @@ def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,
     # operator is aware of the protocol limitation.
     if password and len(password) > 8:
         import logging
+
         logging.getLogger(__name__).warning(
             "VNC password is %d characters long; legacy DES auth only uses "
             "the first 8 characters. Consider a shorter, strong password.",
@@ -85,15 +88,17 @@ def start_vnc(display=':1', geometry=DEFAULT_VNC_GEOMETRY,
         # (loopback at minimum). get_config() normally enforces
         # VNC_PASSWORD, so warn loudly on the direct-call path.
         import logging
+
         logging.getLogger(__name__).warning(
             "Starting VNC server WITHOUT a password — RFB accepts "
-            "unauthenticated connections. Set VNC_PASSWORD.")
+            "unauthenticated connections. Set VNC_PASSWORD."
+        )
 
     adapter = get_adapter()
     proc = adapter.start_vnc_server(display_str, geometry, depth, password)
-    if hasattr(proc, 'pid'):
+    if hasattr(proc, "pid"):
         # Windows adapter contract: return PID; Linux: return Popen
-        if platform.system() == 'Windows':
+        if platform.system() == "Windows":
             return proc.pid
         return proc
     return proc

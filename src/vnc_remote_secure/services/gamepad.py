@@ -51,6 +51,7 @@ DEFAULT_HOST = DEFAULT_BIND_HOST
 # WebSocket Server
 # ============================================================================
 
+
 def _extract_upgrade_headers(websocket):
     """Return the HTTP upgrade request headers from a websockets connection.
 
@@ -97,11 +98,12 @@ def _authenticate_gamepad_connection(headers, websocket):
         header_get,
         ws_peer_ip,
     )
-    origin = header_get(headers, 'Origin')
-    cookie = header_get(headers, 'Cookie')
-    session_cookie = cookie_value(cookie, 'vnc_session')
-    eph = cookie_value(cookie, 'vnc_ephemeral')
-    bearer = extract_bearer_token(header_get(headers, 'Authorization'))
+
+    origin = header_get(headers, "Origin")
+    cookie = header_get(headers, "Cookie")
+    session_cookie = cookie_value(cookie, "vnc_session")
+    eph = cookie_value(cookie, "vnc_ephemeral")
+    bearer = extract_bearer_token(header_get(headers, "Authorization"))
     peer_ip = client_ip_from(headers, ws_peer_ip(websocket))
     # Unified auth: session cookie, bearer, or activated ephemeral
     # cookie — resolved by the gateway's single enforcement tree.
@@ -109,8 +111,8 @@ def _authenticate_gamepad_connection(headers, websocket):
         origin=origin,
         cookie_value=session_cookie,
         bearer_token=bearer,
-        resource='gamepad',
-        required_permission='desktop:gamepad',
+        resource="gamepad",
+        required_permission="desktop:gamepad",
         client_ip=peer_ip,
         ephemeral_cookie=eph,
     )
@@ -118,17 +120,18 @@ def _authenticate_gamepad_connection(headers, websocket):
         return False, None, None, reason
     token = eph or bearer or session_cookie
     conn_id = register_websocket_connection(
-        token, websocket.close, resource='gamepad',
-        client_ip=peer_ip or '')
+        token, websocket.close, resource="gamepad", client_ip=peer_ip or ""
+    )
     if conn_id is None:
         # Session revoked between validation and registration
         # (TOCTOU guard in the registry).
-        return False, None, None, 'Session revoked'
+        return False, None, None, "Session revoked"
     # Cross-process revocation: the CLI's revoke marks shared state;
     # this watcher runs the local close path when the mark appears.
     from vnc_remote_secure.security.websocket_registry import (
         start_revocation_watcher,
     )
+
     start_revocation_watcher(token)
     return True, token, conn_id, None
 
@@ -169,7 +172,8 @@ def _injection_stopped() -> bool:
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        return bool(get_backend().get('gamepad', 'stopped'))
+
+        return bool(get_backend().get("gamepad", "stopped"))
     except Exception:  # noqa: BLE001
         return False
 
@@ -186,18 +190,18 @@ class GamepadServer:
         # Create platform-appropriate injector via the platform adapter
         try:
             from vnc_remote_secure.platform.base import get_adapter
+
             self.injector = get_adapter().create_gamepad_injector()
         except Exception as e:
             logger.warning("Gamepad injector creation failed: %s", e)
             self.injector = None
         # Normalize an unavailable injector to None for consistent handling
-        if self.injector is not None and not getattr(self.injector, 'available', False):
+        if self.injector is not None and not getattr(self.injector, "available", False):
             self.injector = None
         if self.injector is None:
             logger.warning("Gamepad forwarding not supported on %s", platform.system())
 
-    async def _drop_after_register(self, websocket, conn_id, reason,
-                                   code=1008):
+    async def _drop_after_register(self, websocket, conn_id, reason, code=1008):
         """Close a just-registered socket and drop its registry entry.
 
         Without the unregister the registry keeps a stale entry whose
@@ -211,13 +215,13 @@ class GamepadServer:
         from vnc_remote_secure.security.auth_gateway import (
             unregister_websocket_quiet,
         )
+
         unregister_websocket_quiet(conn_id)
 
     async def _fail_device(self, websocket, conn_id, message):
         """Send an error payload, close, and unregister."""
-        await websocket.send(json.dumps(
-            {"type": "error", "message": message}))
-        await self._drop_after_register(websocket, conn_id, '')
+        await websocket.send(json.dumps({"type": "error", "message": message}))
+        await self._drop_after_register(websocket, conn_id, "")
 
     async def handle_client(self, websocket, _path=None):
         """Handle a new gamepad WebSocket client with auth gateway enforcement.
@@ -228,90 +232,30 @@ class GamepadServer:
         merged. View-only sessions are rejected.
         """
         from vnc_remote_secure.security.http_auth import ws_peer_ip
+
         headers = _extract_upgrade_headers(websocket)
 
-        allowed, _token, conn_id, error_msg = _authenticate_gamepad_connection(
-            headers, websocket)
+        allowed, _token, conn_id, error_msg = _authenticate_gamepad_connection(headers, websocket)
         if not allowed:
             logger.warning("Gamepad WebSocket rejected: %s", error_msg)
             await websocket.close(code=1008, reason=error_msg)
             return
-        if _injection_stopped():
-            await self._drop_after_register(
-                websocket, conn_id, 'gamepad injection stopped locally')
-            return
-
-        # Single-controller policy: two simultaneous gamepad clients
-        # would fight over the same virtual device — reject the second
-        # instead of merging conflicting input streams.
-        if self.clients:
-            logger.warning(
-                "Gamepad client rejected: another session holds control")
-            await self._drop_after_register(
-                websocket, conn_id,
-                'another session controls the gamepad')
+        if not await self._passes_gates(websocket, conn_id):
             return
 
         self.clients.add(websocket)
         client_ip = ws_peer_ip(websocket) or "unknown"
         logger.info("Gamepad client connected: %s", client_ip)
 
-        if not self.injector or not self.injector.available:
-            await self._fail_device(
-                websocket, conn_id,
-                "Gamepad injection not available on this server")
+        if not await self._setup_device(websocket, conn_id):
             return
 
-        # Create virtual device if the injector supports it (Linux uinput)
-        if hasattr(self.injector, 'create_device') and not self.injector.create_device():
-            await self._fail_device(
-                websocket, conn_id,
-                "Failed to create virtual input device")
-            return
-
-        await websocket.send(json.dumps({
-            "type": "connected",
-            "message": "Gamepad forwarding active"
-        }))
+        await websocket.send(
+            json.dumps({"type": "connected", "message": "Gamepad forwarding active"})
+        )
 
         try:
-            # Rate limit: a real gamepad emits ~60 Hz axis updates;
-            # 240 events/s per client is generous headroom. An
-            # unbounded flood of SendInput/uinput calls is a CPU DoS
-            # on the host and can starve the asyncio loop.
-            import time as _time
-            window_start = _time.monotonic()
-            events_in_window = 0
-            async for message in websocket:
-                # Local kill-switch: a remote holding the session must
-                # not keep injecting once the operator at the machine
-                # stopped the gamepad service.
-                if _injection_stopped():
-                    await websocket.close(
-                        code=1008,
-                        reason='gamepad injection stopped locally')
-                    break
-                now = _time.monotonic()
-                if now - window_start >= 1.0:
-                    window_start = now
-                    events_in_window = 0
-                events_in_window += 1
-                if events_in_window > _MAX_EVENTS_PER_SEC:
-                    logger.warning(
-                        "Gamepad event flood from %s — disconnecting",
-                        client_ip)
-                    await websocket.close(
-                        code=1008, reason='event rate limit exceeded')
-                    break
-                try:
-                    event = json.loads(message)
-                    response = _process_gamepad_message(self, event, websocket)
-                    if response is not None:
-                        await websocket.send(json.dumps(response))
-
-                except json.JSONDecodeError as exc:
-                    logger.debug("Ignoring malformed gamepad message: %s", exc)
-
+            await self._message_loop(websocket, conn_id, client_ip)
         except websockets.ConnectionClosed:
             pass
         finally:
@@ -320,13 +264,81 @@ class GamepadServer:
             from vnc_remote_secure.security.auth_gateway import (
                 unregister_websocket_quiet,
             )
+
             unregister_websocket_quiet(conn_id)
 
             if not self.clients and self.injector:
                 self.injector.close()
-                if hasattr(self.injector, 'uinput'):
+                if hasattr(self.injector, "uinput"):
                     # Reset for next client
                     self.injector.uinput = None
+
+    async def _passes_gates(self, websocket, conn_id) -> bool:
+        """Local kill-switch + single-controller policy gates.
+
+        Two simultaneous gamepad clients would fight over the same
+        virtual device — the second is rejected, not merged.
+        """
+        if _injection_stopped():
+            await self._drop_after_register(websocket, conn_id, "gamepad injection stopped locally")
+            return False
+        if self.clients:
+            logger.warning("Gamepad client rejected: another session holds control")
+            await self._drop_after_register(
+                websocket, conn_id, "another session controls the gamepad"
+            )
+            return False
+        return True
+
+    async def _setup_device(self, websocket, conn_id) -> bool:
+        """Injector availability + virtual device creation."""
+        if not self.injector or not self.injector.available:
+            await self._fail_device(
+                websocket, conn_id, "Gamepad injection not available on this server"
+            )
+            return False
+        # Create virtual device if the injector supports it (Linux uinput)
+        if hasattr(self.injector, "create_device") and not self.injector.create_device():
+            await self._fail_device(websocket, conn_id, "Failed to create virtual input device")
+            return False
+        return True
+
+    async def _message_loop(self, websocket, conn_id, client_ip) -> None:
+        """Receive → rate-limit → dispatch gamepad events.
+
+        Rate limit: a real gamepad emits ~60 Hz axis updates;
+        240 events/s per client is generous headroom. An unbounded
+        flood of SendInput/uinput calls is a CPU DoS on the host and
+        can starve the asyncio loop.
+        """
+        import time as _time
+
+        window_start = _time.monotonic()
+        events_in_window = 0
+        async for message in websocket:
+            # Local kill-switch: a remote holding the session must
+            # not keep injecting once the operator at the machine
+            # stopped the gamepad service.
+            if _injection_stopped():
+                await websocket.close(code=1008, reason="gamepad injection stopped locally")
+                break
+            now = _time.monotonic()
+            if now - window_start >= 1.0:
+                window_start = now
+                events_in_window = 0
+            events_in_window += 1
+            if events_in_window > _MAX_EVENTS_PER_SEC:
+                logger.warning("Gamepad event flood from %s — disconnecting", client_ip)
+                await websocket.close(code=1008, reason="event rate limit exceeded")
+                break
+            try:
+                event = json.loads(message)
+                response = _process_gamepad_message(self, event, websocket)
+                if response is not None:
+                    await websocket.send(json.dumps(response))
+
+            except json.JSONDecodeError as exc:
+                logger.debug("Ignoring malformed gamepad message: %s", exc)
 
     def run(self):
         """Run the gamepad server (uvicorn/FastAPI)."""
@@ -335,34 +347,45 @@ class GamepadServer:
         # Optional TLS via shared SSL context builder.
         from vnc_remote_secure.security.certificates import create_ssl_context
         from vnc_remote_secure.services.ws_adapter import make_ws_app
+
         ssl_ctx = create_ssl_context()
-        scheme = 'wss' if ssl_ctx else 'ws'
+        scheme = "wss" if ssl_ctx else "ws"
 
         logger.info("Gamepad Forwarding Server")
         logger.info("  Host:   %s", self.host)
         logger.info("  Port:   %s", self.port)
         logger.info("  Platform: %s", platform.system())
-        logger.info("  Injector: %s", 'available' if self.injector and self.injector.available else 'not available')
+        logger.info(
+            "  Injector: %s",
+            "available" if self.injector and self.injector.available else "not available",
+        )
         logger.info("  URL:    %s://%s:%s", scheme, self.host, self.port)
 
         kwargs = {}
         if ssl_ctx:
-            kwargs = {'ssl_certfile': os.environ.get('SSL_CERT'),
-                      'ssl_keyfile': os.environ.get('SSL_KEY')}
+            kwargs = {
+                "ssl_certfile": os.environ.get("SSL_CERT"),
+                "ssl_keyfile": os.environ.get("SSL_KEY"),
+            }
         logger.info("Server running. Press Ctrl+C to stop.")
-        uvicorn.run(make_ws_app(self.handle_client),
-                    host=self.host, port=self.port,
-                    log_level='warning', access_log=False,
-                    proxy_headers=False,
-                    ws_ping_interval=DEFAULT_PING_INTERVAL,
-                    ws_ping_timeout=DEFAULT_PING_TIMEOUT,
-                    ws_max_size=8192,
-                    **kwargs)
+        uvicorn.run(
+            make_ws_app(self.handle_client),
+            host=self.host,
+            port=self.port,
+            log_level="warning",
+            access_log=False,
+            proxy_headers=False,
+            ws_ping_interval=DEFAULT_PING_INTERVAL,
+            ws_ping_timeout=DEFAULT_PING_TIMEOUT,
+            ws_max_size=8192,
+            **kwargs,
+        )
 
 
 def main():
     """Start the gamepad forwarding server."""
     from vnc_remote_secure.core.config import load_env_file
+
     load_env_file()
     parser = argparse.ArgumentParser(description="Gamepad Forwarding Server")
     parser.add_argument("--port", type=int, default=None)
@@ -371,10 +394,12 @@ def main():
 
     # Same resolution chain as config._env_host: GAMEPAD_HOST →
     # BIND_HOST → loopback.
-    host = (args.host
-            or os.environ.get("GAMEPAD_HOST", '').strip()
-            or os.environ.get('BIND_HOST', '').strip()
-            or DEFAULT_HOST)
+    host = (
+        args.host
+        or os.environ.get("GAMEPAD_HOST", "").strip()
+        or os.environ.get("BIND_HOST", "").strip()
+        or DEFAULT_HOST
+    )
     port = args.port or int(os.environ.get("GAMEPAD_PORT", DEFAULT_PORT))
 
     server = GamepadServer(host, port)

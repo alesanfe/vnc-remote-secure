@@ -5,6 +5,7 @@ platform-specific injector for the gamepad forwarding service. Keeping the
 injector in the platform layer avoids circular imports between
 ``services.gamepad`` and ``platform.*.adapter``.
 """
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ class LinuxInputInjector:
         try:
             import evdev
             from evdev import UInput, ecodes
+
             self.ecodes = ecodes
             self.UInput = UInput
             self.evdev = evdev
@@ -38,30 +40,30 @@ class LinuxInputInjector:
         """
         e = self.ecodes
         return {
-            'button_0': e.BTN_A,          # A (cross)
-            'button_1': e.BTN_B,          # B (circle)
-            'button_2': e.BTN_X,          # X (square)
-            'button_3': e.BTN_Y,          # Y (triangle)
-            'button_4': e.BTN_TL,         # L1
-            'button_5': e.BTN_TR,         # R1
-            'button_8': e.BTN_SELECT,     # Select/Share
-            'button_9': e.BTN_START,      # Start
-            'button_10': e.BTN_THUMBL,    # Left stick press
-            'button_11': e.BTN_THUMBR,    # Right stick press
-            'button_12': e.BTN_DPAD_UP,   # D-pad up
-            'button_13': e.BTN_DPAD_DOWN,
-            'button_14': e.BTN_DPAD_LEFT,
-            'button_15': e.BTN_DPAD_RIGHT,
+            "button_0": e.BTN_A,  # A (cross)
+            "button_1": e.BTN_B,  # B (circle)
+            "button_2": e.BTN_X,  # X (square)
+            "button_3": e.BTN_Y,  # Y (triangle)
+            "button_4": e.BTN_TL,  # L1
+            "button_5": e.BTN_TR,  # R1
+            "button_8": e.BTN_SELECT,  # Select/Share
+            "button_9": e.BTN_START,  # Start
+            "button_10": e.BTN_THUMBL,  # Left stick press
+            "button_11": e.BTN_THUMBR,  # Right stick press
+            "button_12": e.BTN_DPAD_UP,  # D-pad up
+            "button_13": e.BTN_DPAD_DOWN,
+            "button_14": e.BTN_DPAD_LEFT,
+            "button_15": e.BTN_DPAD_RIGHT,
         }
 
     def _axis_map(self):
         """Map the client's axis names to evdev ABS codes."""
         e = self.ecodes
         return {
-            'axis_0': e.ABS_X,            # left stick X
-            'axis_1': e.ABS_Y,            # left stick Y
-            'axis_2': e.ABS_RX,           # right stick X
-            'axis_3': e.ABS_RY,           # right stick Y
+            "axis_0": e.ABS_X,  # left stick X
+            "axis_1": e.ABS_Y,  # left stick Y
+            "axis_2": e.ABS_RX,  # right stick X
+            "axis_3": e.ABS_RY,  # right stick Y
         }
 
     def _key_events(self):
@@ -82,7 +84,7 @@ class LinuxInputInjector:
                     self.ecodes.EV_KEY: self._key_events(),
                     self.ecodes.EV_ABS: self._abs_events(),
                 },
-                name="VNC Remote Virtual Gamepad"
+                name="VNC Remote Virtual Gamepad",
             )
             return True
         except Exception:

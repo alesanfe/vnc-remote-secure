@@ -1,17 +1,18 @@
 """Windows Firewall management via PowerShell NetFirewall cmdlets."""
+
 from vnc_remote_secure.platform.windows.permissions import _ps_escape
 
 from ._powershell import run_powershell
 
 
-def configure_firewall(port, protocol='tcp'):
+def configure_firewall(port, protocol="tcp"):
     """Create an inbound Windows Firewall allow rule for ``port``.
 
     Returns ``True`` on success.
     """
     port = int(port)
-    protocol = 'TCP' if str(protocol).lower() == 'tcp' else 'UDP'
-    rule_name = _ps_escape(f'VncRemoteSecure-{port}-{protocol.lower()}')
+    protocol = "TCP" if str(protocol).lower() == "tcp" else "UDP"
+    rule_name = _ps_escape(f"VncRemoteSecure-{port}-{protocol.lower()}")
     ps_script = (
         f"New-NetFirewallRule -DisplayName '{rule_name}' "
         f"-Direction Inbound -Protocol {protocol} "
@@ -42,6 +43,3 @@ def list_firewall_rules():
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
-
-
-

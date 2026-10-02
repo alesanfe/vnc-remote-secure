@@ -28,7 +28,7 @@ from vnc_remote_secure.core.paths import get_run_dir
 
 logger = logging.getLogger(__name__)
 
-_FLAG_NAME = 'maintenance.json'
+_FLAG_NAME = "maintenance.json"
 
 
 def _flag_path() -> str:
@@ -44,14 +44,14 @@ def _boot_id() -> str | None:
     the monotonic bound rather than compare epochs across boots.
     """
     try:
-        with open('/proc/sys/kernel/random/boot_id',
-                  encoding='utf-8') as f:
+        with open("/proc/sys/kernel/random/boot_id", encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         pass
     try:
         import psutil
-        return f'boottime:{psutil.boot_time()}'
+
+        return f"boottime:{psutil.boot_time()}"
     except ImportError:
         return None
     except Exception:  # noqa: BLE001
@@ -60,14 +60,14 @@ def _boot_id() -> str | None:
 
 def _read_flag() -> dict:
     try:
-        return json.loads(Path(_flag_path()).read_text(encoding='utf-8'))
+        return json.loads(Path(_flag_path()).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
 
 
 def maintenance_active() -> bool:
     """True when maintenance mode is on via env or the flag file."""
-    if env_flag('MAINTENANCE_MODE'):
+    if env_flag("MAINTENANCE_MODE"):
         return True
     try:
         return os.path.exists(_flag_path())
@@ -77,19 +77,19 @@ def maintenance_active() -> bool:
 
 def maintenance_info() -> dict | None:
     """Describe the active maintenance state, or None when inactive."""
-    if env_flag('MAINTENANCE_MODE'):
-        return {'source': 'env', 'by': None, 'since': None, 'reason': ''}
+    if env_flag("MAINTENANCE_MODE"):
+        return {"source": "env", "by": None, "since": None, "reason": ""}
     try:
-        data = json.loads(Path(_flag_path()).read_text(encoding='utf-8'))
-        data['source'] = 'flag-file'
+        data = json.loads(Path(_flag_path()).read_text(encoding="utf-8"))
+        data["source"] = "flag-file"
         return data
     except (OSError, ValueError):
         return None
 
 
-def set_maintenance(active: bool, by: str = 'cli',
-                    reason: str = '',
-                    drain_at: float | None = None) -> None:
+def set_maintenance(
+    active: bool, by: str = "cli", reason: str = "", drain_at: float | None = None
+) -> None:
     """Toggle maintenance mode via the runtime flag file.
 
     ``drain_at`` (epoch seconds) schedules a deferred drain: existing
@@ -104,29 +104,30 @@ def set_maintenance(active: bool, by: str = 'cli',
     # clean them when a new window opens.
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
-        for key in be.list_keys('maintenance', prefix='drain_'):
-            be.delete('maintenance', key)
+        for key in be.list_keys("maintenance", prefix="drain_"):
+            be.delete("maintenance", key)
     except Exception:  # noqa: BLE001 - marker cleanup is best-effort
         pass
     if active:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         import secrets as _secrets
+
         data: dict = {
-            'by': by,
-            'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            'reason': reason,
+            "by": by,
+            "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "reason": reason,
             # Per-window id: a sweeper from maintenance window A can
             # never mark window B as drained — drain completion is
             # recorded against THIS generation.
-            'maintenance_id': _secrets.token_hex(8),
+            "maintenance_id": _secrets.token_hex(8),
         }
         if drain_at is not None:
-            data['drain_at'] = drain_at
-            data['drain_mono'] = (time.monotonic()
-                                  + (drain_at - time.time()))
-            data['boot_id'] = _boot_id()
-        Path(path).write_text(json.dumps(data), encoding='utf-8')
+            data["drain_at"] = drain_at
+            data["drain_mono"] = time.monotonic() + (drain_at - time.time())
+            data["boot_id"] = _boot_id()
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
     else:
         try:
             os.remove(path)
@@ -142,15 +143,19 @@ def drain_deadline_passed() -> bool:
     clock must not extend the grace period).
     """
     data = _read_flag()
-    drain_at = data.get('drain_at')
+    drain_at = data.get("drain_at")
     if isinstance(drain_at, (int, float)) and time.time() >= drain_at:
         return True
-    drain_mono = data.get('drain_mono')
+    drain_mono = data.get("drain_mono")
     # The monotonic bound is only valid within the same boot —
     # comparing epochs across a restart would deny sessions early or
     # extend the grace period arbitrarily.
-    if (isinstance(drain_mono, (int, float)) and drain_mono >= 0
-            and data.get('boot_id') and data['boot_id'] == _boot_id()):
+    if (
+        isinstance(drain_mono, (int, float))
+        and drain_mono >= 0
+        and data.get("boot_id")
+        and data["boot_id"] == _boot_id()
+    ):
         return time.monotonic() >= drain_mono
     return False
 
@@ -160,7 +165,7 @@ def drain_deadline_passed() -> bool:
 # EVERY session validity check: a guest polling /files or /chat meant
 # a backend round-trip per request. The memo expires each generation
 # switch automatically since it is keyed on maintenance_id.
-_DRAINED_MEMO: dict = {'mid': '', 'ts': 0.0}
+_DRAINED_MEMO: dict = {"mid": "", "ts": 0.0}
 _MEMO_TTL = 5.0
 
 
@@ -181,44 +186,41 @@ def enforce_drain_deadline() -> bool:
     """
     if not drain_deadline_passed():
         return False
-    mid = _read_flag().get('maintenance_id', '')
-    if (_DRAINED_MEMO['mid'] == mid and mid
-            and time.monotonic() - _DRAINED_MEMO['ts'] < _MEMO_TTL):
+    mid = _read_flag().get("maintenance_id", "")
+    if _DRAINED_MEMO["mid"] == mid and mid and time.monotonic() - _DRAINED_MEMO["ts"] < _MEMO_TTL:
         return True  # known-drained this generation — skip backend
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
-        if mid and be.get('maintenance', f'drain_done:{mid}'):
+        if mid and be.get("maintenance", f"drain_done:{mid}"):
             return True  # this generation already swept
         # The lease AND the done-marker are generation-scoped — a
         # sweeper from an older window can't claim or complete this
         # one, and a stale lease never blocks a new generation.
-        if be.set_if_absent('maintenance', f'drain_lease:{mid}', '1',
-                            ttl_seconds=30):
+        if be.set_if_absent("maintenance", f"drain_lease:{mid}", "1", ttl_seconds=30):
             # Re-validate right before the destructive effect: the
             # window may have been cancelled (or a NEW window opened)
             # between the lease claim and now — a sweeper for a dead
             # generation must not revoke sessions.
-            if _read_flag().get('maintenance_id', '') != mid:
-                logger.info('Drain aborted: maintenance generation '
-                            'changed before the sweep')
+            if _read_flag().get("maintenance_id", "") != mid:
+                logger.info("Drain aborted: maintenance generation " "changed before the sweep")
                 return True
             n = drain_sessions()
             # Confirm the generation once more before recording
             # completion — a swap between the sweep and this write
             # would otherwise stamp "done" onto a different window.
-            if _read_flag().get('maintenance_id', '') == mid:
+            if _read_flag().get("maintenance_id", "") == mid:
                 # TTL bounds the marker — a generation's record needn't
                 # outlive the deployment's maintenance cadence.
-                be.set_ttl('maintenance', f'drain_done:{mid}', '1',
-                           30 * 86400)
-            logger.info('Maintenance drain deadline reached — '
-                        'revoked %d ephemeral session(s)', n)
+                be.set_ttl("maintenance", f"drain_done:{mid}", "1", 30 * 86400)
+            logger.info(
+                "Maintenance drain deadline reached — " "revoked %d ephemeral session(s)", n
+            )
     except Exception:  # noqa: BLE001 - deny regardless of sweep result
-        logger.warning('Drain sweep failed; sessions still denied',
-                       exc_info=True)
-    _DRAINED_MEMO['mid'] = mid
-    _DRAINED_MEMO['ts'] = time.monotonic()
+        logger.warning("Drain sweep failed; sessions still denied", exc_info=True)
+    _DRAINED_MEMO["mid"] = mid
+    _DRAINED_MEMO["ts"] = time.monotonic()
     return True
 
 
@@ -236,11 +238,12 @@ def drain_sessions() -> int:
     Returns the number of sessions revoked.
     """
     from vnc_remote_secure.security.ephemeral_sessions import get_session_store, revoke_session
+
     store = get_session_store()
     store._load_if_changed()
     count = 0
     for s in store.list_active():
-        if revoke_session(s['token_id']):
+        if revoke_session(s["token_id"]):
             count += 1
     return count
 
@@ -258,18 +261,18 @@ def maintenance_login_allowed(username: str) -> bool:
     username = str(username)
     try:
         from vnc_remote_secure.security.operator_users import get_permissions
+
         if get_permissions(username):
             return True
     except Exception:  # noqa: BLE001 - fall through to env admins
-        logger.debug('Operator store unavailable during maintenance '
-                     'check', exc_info=True)
+        logger.debug("Operator store unavailable during maintenance " "check", exc_info=True)
     env_admins = {
         # 'admin' is the fixed env bootstrap identity (LANDING_PASSWORD
         # maps to it in authenticate_landing) — without it the operator
         # who enabled maintenance could not log back in to lift it.
-        'admin',
-        os.environ.get('USER_UI_USERNAME', ''),
-        os.environ.get('TTYD_USERNAME', ''),
+        "admin",
+        os.environ.get("USER_UI_USERNAME", ""),
+        os.environ.get("TTYD_USERNAME", ""),
     }
-    env_admins.discard('')
+    env_admins.discard("")
     return username in env_admins

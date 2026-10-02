@@ -63,8 +63,8 @@ def find_ffmpeg():
     """Find ffmpeg binary."""
     try:
         from vnc_remote_secure.core.processes import run_cmd
-        result = run_cmd(["ffmpeg", "-version"], capture_output=True,
-                         timeout=5)
+
+        result = run_cmd(["ffmpeg", "-version"], capture_output=True, timeout=5)
         # run_cmd maps a timeout to returncode=-1 — a hung ffmpeg is
         # not a usable ffmpeg, so the rc matters here.
         return "ffmpeg" if result.returncode == 0 else None
@@ -85,6 +85,7 @@ def list_audio_devices():
 
     try:
         from vnc_remote_secure.platform.base import get_adapter
+
         get_adapter().list_audio_devices(ffmpeg)
     except Exception:
         logger.exception("Error listing devices:")
@@ -103,11 +104,12 @@ def _set_audio_indicator(active: bool) -> None:
     """
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         backend = get_backend()
         if active:
-            backend.set_ttl('audio_indicator', 'capture', 'on', 120)
+            backend.set_ttl("audio_indicator", "capture", "on", 120)
         else:
-            backend.delete('audio_indicator', 'capture')
+            backend.delete("audio_indicator", "capture")
     except Exception:  # noqa: BLE001 - indicator must never break audio
         pass
 
@@ -120,6 +122,7 @@ def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
 
     try:
         from vnc_remote_secure.platform.base import get_adapter
+
         input_args = get_adapter().get_audio_capture_cmd(ffmpeg, device, bitrate)
     except Exception as e:
         logger.debug("Platform audio capture cmd failed: %s", e)
@@ -130,12 +133,16 @@ def get_ffmpeg_capture_cmd(device=None, bitrate=DEFAULT_BITRATE):
 
     return [
         ffmpeg,
-        "-loglevel", "error",  # Suppress verbose output
+        "-loglevel",
+        "error",  # Suppress verbose output
         *input_args,
-        "-codec:a", "libmp3lame",
-        "-b:a", f"{bitrate}k",
-        "-f", "mp3",
-        "pipe:1"  # Output to stdout
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        f"{bitrate}k",
+        "-f",
+        "mp3",
+        "pipe:1",  # Output to stdout
     ]
 
 
@@ -170,20 +177,22 @@ class AudioStreamServer:
                 from vnc_remote_secure.security.redaction import (
                     sanitized_child_env,
                 )
+
                 child_env = sanitized_child_env()
             except Exception:  # noqa: BLE001 - import broken entirely
-                child_env = {'PATH': os.environ.get('PATH', '')}
+                child_env = {"PATH": os.environ.get("PATH", "")}
             self.ffmpeg_process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=child_env,
             )
-            if os.name == 'nt':
+            if os.name == "nt":
                 # Orphan guard: an abruptly killed audio service must
                 # not leave ffmpeg capturing audio indefinitely —
                 # the Job Object kills it when this process exits.
                 from vnc_remote_secure.services.terminal import _assign_to_kill_job
+
                 _assign_to_kill_job(self.ffmpeg_process)
             self._ffmpeg_running.set()
             _set_audio_indicator(True)
@@ -205,8 +214,7 @@ class AudioStreamServer:
                 with contextlib.suppress(ProcessLookupError):
                     self.ffmpeg_process.kill()
                 with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(
-                        self.ffmpeg_process.wait(), 5)
+                    await asyncio.wait_for(self.ffmpeg_process.wait(), 5)
             self.ffmpeg_process = None
             self._ffmpeg_running.clear()
             _set_audio_indicator(False)
@@ -233,6 +241,7 @@ class AudioStreamServer:
             # 120 s TTL so a crashed audio service self-clears, but a
             # healthy long-running stream must renew it.
             import time as _t
+
             if _t.monotonic() - last_indicator_refresh > 60:
                 _set_audio_indicator(True)
                 last_indicator_refresh = _t.monotonic()
@@ -248,14 +257,16 @@ class AudioStreamServer:
                 restarts += 1
                 if restarts > max_restarts:
                     logger.error(
-                        "ffmpeg restarted %d times without producing "
-                        "audio; giving up", max_restarts)
+                        "ffmpeg restarted %d times without producing " "audio; giving up",
+                        max_restarts,
+                    )
                     self._ffmpeg_running.clear()
                     async with self._ffmpeg_lock:
                         await self.stop_ffmpeg()
                     continue
-                logger.warning("ffmpeg stream ended, restarting "
-                               "(%d/%d)...", restarts, max_restarts)
+                logger.warning(
+                    "ffmpeg stream ended, restarting " "(%d/%d)...", restarts, max_restarts
+                )
                 await asyncio.sleep(2)
                 async with self._ffmpeg_lock:
                     if self.ffmpeg_process is proc:
@@ -275,15 +286,11 @@ class AudioStreamServer:
                 disconnected = set()
                 for ws in self.clients:
                     try:
-                        await asyncio.wait_for(
-                            ws.send(data), timeout=_WS_SEND_TIMEOUT)
-                    except (websockets.ConnectionClosed,
-                            asyncio.TimeoutError, OSError):
+                        await asyncio.wait_for(ws.send(data), timeout=_WS_SEND_TIMEOUT)
+                    except (websockets.ConnectionClosed, asyncio.TimeoutError, OSError):
                         disconnected.add(ws)
                 if disconnected:
-                    logger.info(
-                        "Dropped %d slow/disconnected audio client(s)",
-                        len(disconnected))
+                    logger.info("Dropped %d slow/disconnected audio client(s)", len(disconnected))
                     self.clients -= disconnected
 
     @staticmethod
@@ -316,6 +323,7 @@ class AudioStreamServer:
         from vnc_remote_secure.security.auth_gateway import (
             check_websocket_upgrade,
         )
+
         headers = self._ws_headers(websocket)
 
         from vnc_remote_secure.security.http_auth import (
@@ -325,18 +333,19 @@ class AudioStreamServer:
             header_get,
             ws_peer_ip,
         )
-        cookie = header_get(headers, 'Cookie')
-        session_cookie = cookie_value(cookie, 'vnc_session')
-        eph = cookie_value(cookie, 'vnc_ephemeral')
-        bearer = extract_bearer_token(header_get(headers, 'Authorization'))
+
+        cookie = header_get(headers, "Cookie")
+        session_cookie = cookie_value(cookie, "vnc_session")
+        eph = cookie_value(cookie, "vnc_ephemeral")
+        bearer = extract_bearer_token(header_get(headers, "Authorization"))
         # Unified auth: session cookie, bearer, or activated ephemeral
         # cookie — all resolved by the gateway's single enforcement tree.
         allowed, reason = check_websocket_upgrade(
-            origin=header_get(headers, 'Origin'),
+            origin=header_get(headers, "Origin"),
             cookie_value=session_cookie,
             bearer_token=bearer,
-            resource='audio',
-            required_permission='desktop:audio',
+            resource="audio",
+            required_permission="desktop:audio",
             client_ip=client_ip_from(headers, ws_peer_ip(websocket)),
             ephemeral_cookie=eph,
         )
@@ -345,11 +354,8 @@ class AudioStreamServer:
             await websocket.close(code=1008, reason=reason)
             return None
         if len(self.clients) >= _MAX_CLIENTS:
-            logger.warning(
-                "Audio WebSocket rejected: client cap %d reached",
-                _MAX_CLIENTS)
-            await websocket.close(
-                code=1013, reason='Too many audio clients')
+            logger.warning("Audio WebSocket rejected: client cap %d reached", _MAX_CLIENTS)
+            await websocket.close(code=1013, reason="Too many audio clients")
             return None
         return eph or bearer or session_cookie
 
@@ -366,17 +372,18 @@ class AudioStreamServer:
             unregister_websocket_quiet,
         )
         from vnc_remote_secure.security.http_auth import ws_peer_ip
+
         token = await self._authenticate_ws(websocket)
         if token is None:
             return
         conn_id = register_websocket_connection(
-            token, websocket.close, resource='audio',
-            client_ip=ws_peer_ip(websocket))
+            token, websocket.close, resource="audio", client_ip=ws_peer_ip(websocket)
+        )
         if conn_id is None:
             # Session revoked between validation and registration
             # (TOCTOU guard in the registry) — the socket must not
             # stay open for a revoked session.
-            await websocket.close(code=1008, reason='Session revoked')
+            await websocket.close(code=1008, reason="Session revoked")
             return
         # A revocation issued from another process (e.g. the CLI) only
         # marks the shared namespace — this watcher notices and runs
@@ -384,6 +391,7 @@ class AudioStreamServer:
         from vnc_remote_secure.security.websocket_registry import (
             start_revocation_watcher,
         )
+
         start_revocation_watcher(token)
 
         self.clients.add(websocket)
@@ -410,12 +418,16 @@ class AudioStreamServer:
                     try:
                         cmd = json.loads(message)
                         if cmd.get("type") == "status":
-                            await websocket.send(json.dumps({
-                                "type": "status",
-                                "clients": len(self.clients),
-                                "device": self.device or "auto",
-                                "bitrate": f"{self.bitrate}k"
-                            }))
+                            await websocket.send(
+                                json.dumps(
+                                    {
+                                        "type": "status",
+                                        "clients": len(self.clients),
+                                        "device": self.device or "auto",
+                                        "bitrate": f"{self.bitrate}k",
+                                    }
+                                )
+                            )
                     except json.JSONDecodeError as exc:
                         logger.debug("Ignoring malformed audio message: %s", exc)
         except websockets.ConnectionClosed:
@@ -440,13 +452,14 @@ class AudioStreamServer:
         # Optional TLS via shared SSL context builder.
         from vnc_remote_secure.security.certificates import create_ssl_context
         from vnc_remote_secure.services.ws_adapter import make_ws_app
+
         ssl_ctx = create_ssl_context()
-        scheme = 'wss' if ssl_ctx else 'ws'
+        scheme = "wss" if ssl_ctx else "ws"
 
         logger.info("Audio Stream Server")
         logger.info("  Host:   %s", self.host)
         logger.info("  Port:   %s", self.port)
-        logger.info("  Device: %s", self.device or 'auto-detect')
+        logger.info("  Device: %s", self.device or "auto-detect")
         logger.info("  Format: MP3 %skbps", self.bitrate)
         logger.info("  URL:    %s://%s:%s", scheme, self.host, self.port)
 
@@ -466,21 +479,29 @@ class AudioStreamServer:
 
         kwargs = {}
         if ssl_ctx:
-            kwargs = {'ssl_certfile': os.environ.get('SSL_CERT'),
-                      'ssl_keyfile': os.environ.get('SSL_KEY')}
+            kwargs = {
+                "ssl_certfile": os.environ.get("SSL_CERT"),
+                "ssl_keyfile": os.environ.get("SSL_KEY"),
+            }
         logger.info("Server running. Press Ctrl+C to stop.")
-        uvicorn.run(app, host=self.host, port=self.port,
-                    log_level='warning', access_log=False,
-                    proxy_headers=False,
-                    ws_ping_interval=DEFAULT_PING_INTERVAL,
-                    ws_ping_timeout=DEFAULT_PING_TIMEOUT,
-                    ws_max_size=8192,
-                    **kwargs)
+        uvicorn.run(
+            app,
+            host=self.host,
+            port=self.port,
+            log_level="warning",
+            access_log=False,
+            proxy_headers=False,
+            ws_ping_interval=DEFAULT_PING_INTERVAL,
+            ws_ping_timeout=DEFAULT_PING_TIMEOUT,
+            ws_max_size=8192,
+            **kwargs,
+        )
 
 
 def main():
     """Start the audio streaming server."""
     from vnc_remote_secure.core.config import load_env_file
+
     load_env_file()
     parser = argparse.ArgumentParser(description="Audio Stream Server")
     parser.add_argument("--port", type=int, default=None, help="WebSocket port")
@@ -496,17 +517,19 @@ def main():
 
     # Load from environment — same resolution chain as
     # config._env_host: AUDIO_STREAM_HOST → BIND_HOST → loopback.
-    host = (args.host
-            or os.environ.get("AUDIO_STREAM_HOST", '').strip()
-            or os.environ.get('BIND_HOST', '').strip()
-            or DEFAULT_HOST)
+    host = (
+        args.host
+        or os.environ.get("AUDIO_STREAM_HOST", "").strip()
+        or os.environ.get("BIND_HOST", "").strip()
+        or DEFAULT_HOST
+    )
     port = args.port or int(os.environ.get("AUDIO_STREAM_PORT", DEFAULT_PORT))
     device = args.device or os.environ.get("AUDIO_DEVICE", "")
     bitrate = args.bitrate or int(os.environ.get("AUDIO_BITRATE", DEFAULT_BITRATE))
     if not 32 <= bitrate <= 512:
         logger.error(
-            "Invalid bitrate %s kbps — expected 32–512 "
-            "(AUDIO_BITRATE/--bitrate)", bitrate)
+            "Invalid bitrate %s kbps — expected 32–512 " "(AUDIO_BITRATE/--bitrate)", bitrate
+        )
         sys.exit(1)
 
     server = AudioStreamServer(host, port, device or None, bitrate)

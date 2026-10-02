@@ -25,26 +25,27 @@ class ViGEmInjector:
         # Optional Windows-only dependency — ImportError means the
         # backend is unavailable and the adapter falls back.
         import vgamepad as vg  # noqa: F401 # pylint: disable=import-error
+
         self._vg = vg
         self._pad = vg.VX360Gamepad()
         self.available = True
         b = vg.XUSB_BUTTON
         self._button_map = {
-            'button_0': b.XUSB_GAMEPAD_A,
-            'button_1': b.XUSB_GAMEPAD_B,
-            'button_2': b.XUSB_GAMEPAD_X,
-            'button_3': b.XUSB_GAMEPAD_Y,
-            'button_4': b.XUSB_GAMEPAD_LEFT_SHOULDER,
-            'button_5': b.XUSB_GAMEPAD_RIGHT_SHOULDER,
-            'button_6': b.XUSB_GAMEPAD_LEFT_THUMB,
-            'button_7': b.XUSB_GAMEPAD_RIGHT_THUMB,
-            'button_8': b.XUSB_GAMEPAD_BACK,
-            'button_9': b.XUSB_GAMEPAD_START,
-            'button_10': b.XUSB_GAMEPAD_GUIDE,
-            'button_12': b.XUSB_GAMEPAD_DPAD_UP,
-            'button_13': b.XUSB_GAMEPAD_DPAD_DOWN,
-            'button_14': b.XUSB_GAMEPAD_DPAD_LEFT,
-            'button_15': b.XUSB_GAMEPAD_DPAD_RIGHT,
+            "button_0": b.XUSB_GAMEPAD_A,
+            "button_1": b.XUSB_GAMEPAD_B,
+            "button_2": b.XUSB_GAMEPAD_X,
+            "button_3": b.XUSB_GAMEPAD_Y,
+            "button_4": b.XUSB_GAMEPAD_LEFT_SHOULDER,
+            "button_5": b.XUSB_GAMEPAD_RIGHT_SHOULDER,
+            "button_6": b.XUSB_GAMEPAD_LEFT_THUMB,
+            "button_7": b.XUSB_GAMEPAD_RIGHT_THUMB,
+            "button_8": b.XUSB_GAMEPAD_BACK,
+            "button_9": b.XUSB_GAMEPAD_START,
+            "button_10": b.XUSB_GAMEPAD_GUIDE,
+            "button_12": b.XUSB_GAMEPAD_DPAD_UP,
+            "button_13": b.XUSB_GAMEPAD_DPAD_DOWN,
+            "button_14": b.XUSB_GAMEPAD_DPAD_LEFT,
+            "button_15": b.XUSB_GAMEPAD_DPAD_RIGHT,
         }
         # vgamepad sets both stick components atomically — track the
         # last sent values so an axis event updates only its own axis.
@@ -73,22 +74,18 @@ class ViGEmInjector:
         except (TypeError, ValueError):
             return
         value = max(-1.0, min(1.0, value))
-        if axis == 'axis_0':
+        if axis == "axis_0":
             self._left[0] = value
-        elif axis == 'axis_1':
+        elif axis == "axis_1":
             self._left[1] = value
-        elif axis == 'axis_2':
+        elif axis == "axis_2":
             self._right[0] = value
-        elif axis == 'axis_3':
+        elif axis == "axis_3":
             self._right[1] = value
         else:
             return
-        self._pad.left_joystick_float(
-            x_value_float=self._left[0],
-            y_value_float=self._left[1])
-        self._pad.right_joystick_float(
-            x_value_float=self._right[0],
-            y_value_float=self._right[1])
+        self._pad.left_joystick_float(x_value_float=self._left[0], y_value_float=self._left[1])
+        self._pad.right_joystick_float(x_value_float=self._right[0], y_value_float=self._right[1])
         self._pad.update()
 
     def close(self):
@@ -133,15 +130,18 @@ class WindowsInputInjector:
         KEYEVENTF_KEYUP = 0x0002
 
         class KEYBDINPUT(ctypes.Structure):
-            _fields_ = [("wVk", wintypes.WORD),
-                        ("wScan", wintypes.WORD),
-                        ("dwFlags", wintypes.DWORD),
-                        ("time", wintypes.DWORD),
-                        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            ]
 
         class INPUT(ctypes.Structure):
             class _INPUT(ctypes.Union):
                 _fields_ = [("ki", KEYBDINPUT)]
+
             _anonymous_ = ("_input",)
             _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT)]
 
@@ -177,16 +177,19 @@ class WindowsInputInjector:
         MOUSEEVENTF_MOVE = 0x0001
 
         class MOUSEINPUT(ctypes.Structure):
-            _fields_ = [("dx", wintypes.LONG),
-                        ("dy", wintypes.LONG),
-                        ("mouseData", wintypes.DWORD),
-                        ("dwFlags", wintypes.DWORD),
-                        ("time", wintypes.DWORD),
-                        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
+            _fields_ = [
+                ("dx", wintypes.LONG),
+                ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            ]
 
         class INPUT(ctypes.Structure):
             class _INPUT(ctypes.Union):
                 _fields_ = [("mi", MOUSEINPUT)]
+
             _anonymous_ = ("_input",)
             _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT)]
 
@@ -246,15 +249,18 @@ class WindowsInputInjector:
         KEYEVENTF_KEYUP = 0x0002
 
         class KEYBDINPUT(ctypes.Structure):
-            _fields_ = [("wVk", wintypes.WORD),
-                        ("wScan", wintypes.WORD),
-                        ("dwFlags", wintypes.DWORD),
-                        ("time", wintypes.DWORD),
-                        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            ]
 
         class INPUT(ctypes.Structure):
             class _INPUT(ctypes.Union):
                 _fields_ = [("ki", KEYBDINPUT)]
+
             _anonymous_ = ("_input",)
             _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT)]
 
@@ -262,5 +268,4 @@ class WindowsInputInjector:
         inp.type = INPUT_KEYBOARD  # pylint: disable=attribute-defined-outside-init
         inp.ki.wVk = vk
         inp.ki.dwFlags = KEYEVENTF_KEYUP
-        ctypes.windll.user32.SendInput(
-            1, ctypes.byref(inp), ctypes.sizeof(inp))
+        ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))

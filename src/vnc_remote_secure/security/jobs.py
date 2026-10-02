@@ -17,6 +17,7 @@ Two mechanisms:
   with a random password and must be re-enabled + re-passworded by
   an admin.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,33 +27,38 @@ import time
 
 logger = logging.getLogger(__name__)
 
-_NS_JOBS = 'ops_jobs'
-_NS_TOMBSTONES = 'operator_tombstones'
-_JOB_TTL = 24 * 3600           # jobs are a recent-ops ledger
-_TOMBSTONE_TTL = 30 * 86400    # a month to notice a bad deletion
-_MAX_SCAN = 500                # never walk more keys than this
+_NS_JOBS = "ops_jobs"
+_NS_TOMBSTONES = "operator_tombstones"
+_JOB_TTL = 24 * 3600  # jobs are a recent-ops ledger
+_TOMBSTONE_TTL = 30 * 86400  # a month to notice a bad deletion
+_MAX_SCAN = 500  # never walk more keys than this
 
 
 def _be():
     from vnc_remote_secure.security.shared_state import get_backend
+
     return get_backend()
 
 
-def job_start(kind: str, actor: str, target: str = '',
-              detail: str = '') -> str:
+def job_start(kind: str, actor: str, target: str = "", detail: str = "") -> str:
     """Record a running job; returns the job id (best-effort — a
     backend failure must not block the operation itself)."""
     jid = secrets.token_hex(8)
     try:
         payload = {
-            'id': jid, 'kind': kind, 'actor': actor,
-            'target': target, 'state': 'running',
-            'started_at': time.time(), 'finished_at': None,
-            'detail': detail[:256], 'error': None,
+            "id": jid,
+            "kind": kind,
+            "actor": actor,
+            "target": target,
+            "state": "running",
+            "started_at": time.time(),
+            "finished_at": None,
+            "detail": detail[:256],
+            "error": None,
         }
         _be().set_ttl(_NS_JOBS, jid, json.dumps(payload), _JOB_TTL)
     except Exception:  # noqa: BLE001 - tracking must not break the op
-        logger.debug('job_start failed', exc_info=True)
+        logger.debug("job_start failed", exc_info=True)
     return jid
 
 
@@ -66,17 +72,15 @@ def _update(jid: str, **fields) -> None:
         payload.update(fields)
         be.set_ttl(_NS_JOBS, jid, json.dumps(payload), _JOB_TTL)
     except Exception:  # noqa: BLE001
-        logger.debug('job update failed', exc_info=True)
+        logger.debug("job update failed", exc_info=True)
 
 
-def job_finish(jid: str, detail: str = '') -> None:
-    _update(jid, state='done', finished_at=time.time(),
-            detail=detail[:256] or None, percent=100)
+def job_finish(jid: str, detail: str = "") -> None:
+    _update(jid, state="done", finished_at=time.time(), detail=detail[:256] or None, percent=100)
 
 
 def job_fail(jid: str, error: str) -> None:
-    _update(jid, state='failed', finished_at=time.time(),
-            error=str(error)[:256])
+    _update(jid, state="failed", finished_at=time.time(), error=str(error)[:256])
 
 
 # ---------------------------------------------------------------------------
@@ -89,14 +93,13 @@ def job_fail(jid: str, error: str) -> None:
 # claim is an atomic ``set_if_absent`` so a double-spawn or a retried
 # API call can never run the operation twice.
 # ---------------------------------------------------------------------------
-_NS_CLAIMS = 'ops_job_claims'
-_NS_LOCKS = 'ops_job_locks'
-_CLAIM_TTL = 3600        # a claim row outlives even a stuck runner
-_LOCK_TTL = 600          # op-class mutex — released early on finish
+_NS_CLAIMS = "ops_job_claims"
+_NS_LOCKS = "ops_job_locks"
+_CLAIM_TTL = 3600  # a claim row outlives even a stuck runner
+_LOCK_TTL = 600  # op-class mutex — released early on finish
 
 
-def job_enqueue(kind: str, actor: str, target: str = '',
-                payload: dict | None = None) -> str:
+def job_enqueue(kind: str, actor: str, target: str = "", payload: dict | None = None) -> str:
     """Persist a QUEUED job before any work starts; returns the id.
 
     The record is durably in the shared backend before the caller
@@ -109,29 +112,34 @@ def job_enqueue(kind: str, actor: str, target: str = '',
     jid = secrets.token_hex(8)
     try:
         rec = {
-            'id': jid, 'kind': kind, 'actor': actor,
-            'target': target, 'state': 'queued',
-            'started_at': time.time(), 'finished_at': None,
-            'detail': None, 'error': None,
-            'payload': payload or {},
-            'claimed_by': None, 'progress': None,
+            "id": jid,
+            "kind": kind,
+            "actor": actor,
+            "target": target,
+            "state": "queued",
+            "started_at": time.time(),
+            "finished_at": None,
+            "detail": None,
+            "error": None,
+            "payload": payload or {},
+            "claimed_by": None,
+            "progress": None,
         }
         _be().set_ttl(_NS_JOBS, jid, json.dumps(rec), _JOB_TTL)
     except Exception:  # noqa: BLE001
-        logger.exception('job_enqueue failed')
-        return ''
+        logger.exception("job_enqueue failed")
+        return ""
     return jid
 
 
-def job_claim(jid: str, worker_id: str = '') -> bool:
+def job_claim(jid: str, worker_id: str = "") -> bool:
     """Atomically claim a queued job. Returns False if already
     claimed or unknown — the executor must NOT run the payload."""
     try:
         be = _be()
-        if not be.set_if_absent(_NS_CLAIMS, jid, worker_id or 'runner',
-                                _CLAIM_TTL):
+        if not be.set_if_absent(_NS_CLAIMS, jid, worker_id or "runner", _CLAIM_TTL):
             return False
-        _update(jid, state='running', claimed_by=worker_id or 'runner')
+        _update(jid, state="running", claimed_by=worker_id or "runner")
         return True
     except Exception:  # noqa: BLE001 - fail closed: don't double-run
         return False
@@ -146,12 +154,14 @@ def job_get(jid: str) -> dict | None:
         return None
 
 
-def job_progress(jid: str, phase: str, detail: str = '',
-                 percent: int | None = None) -> None:
-    fields = {'state': 'running', 'progress': phase[:64],
-              'detail': detail[:256] or None}
+def job_progress(jid: str, phase: str, detail: str = "", percent: int | None = None) -> None:
+    fields: dict[str, object] = {
+        "state": "running",
+        "progress": phase[:64],
+        "detail": detail[:256] or None,
+    }
     if percent is not None:
-        fields['percent'] = max(0, min(100, int(percent)))
+        fields["percent"] = max(0, min(100, int(percent)))
     _update(jid, **fields)
 
 
@@ -187,7 +197,7 @@ def list_jobs(limit: int = 100) -> list:
                 out.append(json.loads(raw))
             except (ValueError, TypeError):
                 continue
-        out.sort(key=lambda j: j.get('started_at', 0), reverse=True)
+        out.sort(key=lambda j: j.get("started_at", 0), reverse=True)
         return out[:limit]
     except Exception:  # noqa: BLE001
         return []
@@ -195,19 +205,19 @@ def list_jobs(limit: int = 100) -> list:
 
 # --- Operator tombstones -------------------------------------------------
 
+
 def tombstone_save(username: str, record: dict) -> None:
     """Snapshot the non-secret parts of a deleted operator."""
     try:
         payload = {
-            'username': username,
-            'role': record.get('role', 'viewer'),
-            'created_at': record.get('created_at'),
-            'deleted_at': time.time(),
+            "username": username,
+            "role": record.get("role", "viewer"),
+            "created_at": record.get("created_at"),
+            "deleted_at": time.time(),
         }
-        _be().set_ttl(_NS_TOMBSTONES, username, json.dumps(payload),
-                      _TOMBSTONE_TTL)
+        _be().set_ttl(_NS_TOMBSTONES, username, json.dumps(payload), _TOMBSTONE_TTL)
     except Exception:  # noqa: BLE001
-        logger.debug('tombstone save failed', exc_info=True)
+        logger.debug("tombstone save failed", exc_info=True)
 
 
 def tombstone_get(username: str) -> dict | None:
@@ -238,7 +248,7 @@ def tombstones() -> list:
                 out.append(json.loads(raw))
             except (ValueError, TypeError):
                 continue
-        out.sort(key=lambda t: t.get('deleted_at', 0), reverse=True)
+        out.sort(key=lambda t: t.get("deleted_at", 0), reverse=True)
         return out
     except Exception:  # noqa: BLE001
         return []

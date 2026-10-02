@@ -10,6 +10,7 @@ Metrics include:
 - ``vnc_remote_posture_score``: Security posture score
 - ``vnc_remote_health_check_total``: Health check results
 """
+
 import logging
 import time
 
@@ -29,33 +30,34 @@ _PROCESS_START = time.time()
 # attempts recorded in other service processes (novnc, terminal,
 # landing…) are visible to the health process serving /metrics. With
 # the default memory backend this degrades to process-local behaviour.
-_NS_COUNTERS = 'prometheus_counters'
-_NS_GAUGES = 'prometheus_gauges'
+_NS_COUNTERS = "prometheus_counters"
+_NS_GAUGES = "prometheus_gauges"
 
 
-def inc_counter(name: str, labels: str = '', value: int = 1):
+def inc_counter(name: str, labels: str = "", value: int = 1):
     """Increment a counter metric."""
-    key = labels or 'default'
+    key = labels or "default"
     if name not in _counters:
         _counters[name] = {}
     _counters[name][key] = _counters[name].get(key, 0) + value
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        get_backend().increment(
-            _NS_COUNTERS, f'{name}|{key}', amount=value)
+
+        get_backend().increment(_NS_COUNTERS, f"{name}|{key}", amount=value)
     except Exception:  # noqa: BLE001 - metrics must never break auth
         pass
 
 
-def set_gauge(name: str, value: float, labels: str = ''):
+def set_gauge(name: str, value: float, labels: str = ""):
     """Set a gauge metric."""
-    key = labels or 'default'
+    key = labels or "default"
     if name not in _gauges:
         _gauges[name] = {}
     _gauges[name][key] = value
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        get_backend().set(_NS_GAUGES, f'{name}|{key}', value)
+
+        get_backend().set(_NS_GAUGES, f"{name}|{key}", value)
     except Exception:  # noqa: BLE001
         pass
 
@@ -65,9 +67,10 @@ def _shared_counters() -> dict[str, dict[str, int]]:
     merged: dict[str, dict[str, int]] = {}
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         backend = get_backend()
         for compound in backend.list_keys(_NS_COUNTERS):
-            name, _, key = compound.partition('|')
+            name, _, key = compound.partition("|")
             val = backend.get(_NS_COUNTERS, compound)
             if not isinstance(val, int):
                 continue
@@ -94,9 +97,10 @@ def _shared_gauges() -> dict[str, dict[str, float]]:
     merged: dict[str, dict[str, float]] = {}
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         backend = get_backend()
         for compound in backend.list_keys(_NS_GAUGES):
-            name, _, key = compound.partition('|')
+            name, _, key = compound.partition("|")
             val = backend.get(_NS_GAUGES, compound)
             if not isinstance(val, (int, float)):
                 continue
@@ -112,28 +116,26 @@ def _shared_gauges() -> dict[str, dict[str, float]]:
 def _label_dict(label_str: str) -> dict:
     """``'k=v,k=v'`` → ``{'k': 'v'}`` — the in-memory store keeps
     labels as a flat string; prometheus_client wants a dict."""
-    if not label_str or label_str == 'default':
+    if not label_str or label_str == "default":
         return {}
     out = {}
-    for pair in label_str.split(','):
-        k, _, v = pair.partition('=')
+    for pair in label_str.split(","):
+        k, _, v = pair.partition("=")
         if k:
             out[k.strip()] = v.strip()
     return out
 
 
-def _series(families: list, name: str, help_text: str,
-            mtype: str, series: dict):
+def _series(families: list, name: str, help_text: str, mtype: str, series: dict):
     """Append one metric family to ``families`` (prometheus_client
     owns HELP/TYPE headers and label escaping)."""
     from prometheus_client.core import (
         CounterMetricFamily,
         GaugeMetricFamily,
     )
-    fam_cls = {'counter': CounterMetricFamily,
-               'gauge': GaugeMetricFamily}[mtype]
-    label_names = sorted({
-        lk for ls in series for lk in _label_dict(ls)})
+
+    fam_cls = {"counter": CounterMetricFamily, "gauge": GaugeMetricFamily}[mtype]
+    label_names = sorted({lk for ls in series for lk in _label_dict(ls)})
     metric = fam_cls(name, help_text, labels=label_names or None)
     for labels, value in series.items():
         ld = _label_dict(labels)
@@ -141,8 +143,7 @@ def _series(families: list, name: str, help_text: str,
         # Integers render as '5', not '5.0' — keeps scrapes diffable.
         if v == int(v):
             v = int(v)
-        metric.add_metric(
-            [ld.get(k, '') for k in label_names], v)
+        metric.add_metric([ld.get(k, "") for k in label_names], v)
     families.append(metric)
 
 
@@ -150,11 +151,16 @@ def _emit_cert_days(families: list):
     """Certificate expiry gauge (scrape-time, best-effort)."""
     try:
         from vnc_remote_secure.security.tls_validation import cert_days_remaining
+
         days = cert_days_remaining()
         if days is not None:
-            _series(families, 'vnc_remote_cert_days_remaining',
-                    'Days until TLS certificate expiry', 'gauge',
-                    {'default': days})
+            _series(
+                families,
+                "vnc_remote_cert_days_remaining",
+                "Days until TLS certificate expiry",
+                "gauge",
+                {"default": days},
+            )
     except Exception:  # noqa: BLE001
         pass
 
@@ -163,24 +169,40 @@ def _emit_sqlite_stats(families: list):
     """Shared-state backend health + op stats (best-effort)."""
     try:
         from vnc_remote_secure.security.shared_state import backend_degraded, sqlite_stats
+
         # Degraded-backend flag: 1 means sqlite init failed and the
         # process is running on per-process in-memory state —
         # cross-process revocation/single-use guarantees are OFF.
-        _series(families, 'vnc_remote_shared_state_degraded',
-                'Shared-state backend fell back to in-memory '
-                '(1=degraded)', 'gauge',
-                {'default': 1 if backend_degraded() else 0})
+        _series(
+            families,
+            "vnc_remote_shared_state_degraded",
+            "Shared-state backend fell back to in-memory " "(1=degraded)",
+            "gauge",
+            {"default": 1 if backend_degraded() else 0},
+        )
         st = sqlite_stats()
-        if st.get('ops'):
-            _series(families, 'vnc_remote_sqlite_ops_total',
-                    'Shared-state DB operations', 'counter',
-                    {'default': st['ops']})
-            _series(families, 'vnc_remote_sqlite_lock_errors_total',
-                    '"database is locked" errors', 'counter',
-                    {'default': st['lock_errors']})
-            _series(families, 'vnc_remote_sqlite_avg_op_ms',
-                    'Average DB op latency (ms)', 'gauge',
-                    {'default': st['total_ms'] / st['ops']})
+        if st.get("ops"):
+            _series(
+                families,
+                "vnc_remote_sqlite_ops_total",
+                "Shared-state DB operations",
+                "counter",
+                {"default": st["ops"]},
+            )
+            _series(
+                families,
+                "vnc_remote_sqlite_lock_errors_total",
+                '"database is locked" errors',
+                "counter",
+                {"default": st["lock_errors"]},
+            )
+            _series(
+                families,
+                "vnc_remote_sqlite_avg_op_ms",
+                "Average DB op latency (ms)",
+                "gauge",
+                {"default": st["total_ms"] / st["ops"]},
+            )
     except Exception:  # noqa: BLE001
         pass
 
@@ -191,11 +213,16 @@ def _emit_db_size(families: list):
         import os as _os
 
         from vnc_remote_secure.security.shared_state import get_backend
-        db_path = getattr(get_backend(), '_db_path', None)
+
+        db_path = getattr(get_backend(), "_db_path", None)
         if db_path and _os.path.isfile(db_path):
-            _series(families, 'vnc_remote_shared_state_bytes',
-                    'Shared-state DB size', 'gauge',
-                    {'default': _os.path.getsize(db_path)})
+            _series(
+                families,
+                "vnc_remote_shared_state_bytes",
+                "Shared-state DB size",
+                "gauge",
+                {"default": _os.path.getsize(db_path)},
+            )
     except Exception:  # noqa: BLE001 - metric must not break /metrics
         pass
 
@@ -214,26 +241,50 @@ def render_metrics() -> str:
     gauges = _shared_gauges()
     counters = _shared_counters()
 
-    _series(families, 'vnc_remote_up',
-            'Service status (1=up, 0=down)', 'gauge',
-            gauges.get('vnc_remote_up', {'default': 1}))
-    _series(families, 'vnc_remote_session_active',
-            'Active ephemeral sessions', 'gauge',
-            gauges.get('vnc_remote_session_active', {'default': 0}))
-    _series(families, 'vnc_remote_auth_attempts_total',
-            'Login attempts', 'counter',
-            counters.get('vnc_remote_auth_attempts_total', {}))
-    _series(families, 'vnc_remote_tls_enabled',
-            'TLS status (1=enabled, 0=disabled)', 'gauge',
-            gauges.get('vnc_remote_tls_enabled', {'default': 1}))
-    _series(families, 'vnc_remote_posture_score',
-            'Security posture score (0-100)', 'gauge',
-            gauges.get('vnc_remote_posture_score', {'default': 0}))
+    _series(
+        families,
+        "vnc_remote_up",
+        "Service status (1=up, 0=down)",
+        "gauge",
+        gauges.get("vnc_remote_up", {"default": 1}),
+    )
+    _series(
+        families,
+        "vnc_remote_session_active",
+        "Active ephemeral sessions",
+        "gauge",
+        gauges.get("vnc_remote_session_active", {"default": 0}),
+    )
+    _series(
+        families,
+        "vnc_remote_auth_attempts_total",
+        "Login attempts",
+        "counter",
+        counters.get("vnc_remote_auth_attempts_total", {}),
+    )
+    _series(
+        families,
+        "vnc_remote_tls_enabled",
+        "TLS status (1=enabled, 0=disabled)",
+        "gauge",
+        gauges.get("vnc_remote_tls_enabled", {"default": 1}),
+    )
+    _series(
+        families,
+        "vnc_remote_posture_score",
+        "Security posture score (0-100)",
+        "gauge",
+        gauges.get("vnc_remote_posture_score", {"default": 0}),
+    )
     # health_check_total merged cross-process like auth above —
     # get_health_status runs in every service process.
-    _series(families, 'vnc_remote_health_check_total',
-            'Health check results', 'counter',
-            counters.get('vnc_remote_health_check_total', {}))
+    _series(
+        families,
+        "vnc_remote_health_check_total",
+        "Health check results",
+        "counter",
+        counters.get("vnc_remote_health_check_total", {}),
+    )
 
     _emit_cert_days(families)
     _emit_sqlite_stats(families)
@@ -243,23 +294,30 @@ def render_metrics() -> str:
     # Any component may inc_counter/set_gauge a security-relevant
     # metric (revocations, expiry closes, rate-limit rejections) and
     # have it exported here without a per-metric render block.
-    _emitted = {'vnc_remote_auth_attempts_total',
-                'vnc_remote_health_check_total'}
+    _emitted = {"vnc_remote_auth_attempts_total", "vnc_remote_health_check_total"}
     for name, entries in sorted(counters.items()):
         if name in _emitted:
             continue
-        _series(families, name, name, 'counter', entries)
-    _emitted_g = {'vnc_remote_up', 'vnc_remote_session_active',
-                  'vnc_remote_tls_enabled', 'vnc_remote_posture_score'}
+        _series(families, name, name, "counter", entries)
+    _emitted_g = {
+        "vnc_remote_up",
+        "vnc_remote_session_active",
+        "vnc_remote_tls_enabled",
+        "vnc_remote_posture_score",
+    }
     for name, gauge_entries in sorted(gauges.items()):
         if name in _emitted_g:
             continue
-        _series(families, name, name, 'gauge', gauge_entries)
+        _series(families, name, name, "gauge", gauge_entries)
 
     # --- Process info ---
-    _series(families, 'vnc_remote_process_start_time',
-            'Process start time (Unix epoch)', 'gauge',
-            {'default': _PROCESS_START})
+    _series(
+        families,
+        "vnc_remote_process_start_time",
+        "Process start time (Unix epoch)",
+        "gauge",
+        {"default": _PROCESS_START},
+    )
 
     class _Families:
         def collect(self):
@@ -267,39 +325,43 @@ def render_metrics() -> str:
 
     registry = CollectorRegistry()
     registry.register(_Families())
-    return generate_latest(registry).decode('utf-8')
+    return generate_latest(registry).decode("utf-8")
 
 
 def collect_system_metrics():
     """Collect current system metrics and update gauges."""
     # TLS status.
     from vnc_remote_secure.security.profiles import _is_tls_enabled
-    set_gauge('vnc_remote_tls_enabled', 1.0 if _is_tls_enabled() else 0.0)
+
+    set_gauge("vnc_remote_tls_enabled", 1.0 if _is_tls_enabled() else 0.0)
 
     # Posture score.
     try:
         from vnc_remote_secure.security.posture import calculate_posture
+
         posture = calculate_posture()
-        set_gauge('vnc_remote_posture_score', float(posture.get('score', 0)))
+        set_gauge("vnc_remote_posture_score", float(posture.get("score", 0)))
     except (ImportError, ValueError):
         logger.debug("Failed to collect posture score", exc_info=True)
 
     # Active sessions.
     try:
         from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+
         sessions = get_session_store().list_active()
-        set_gauge('vnc_remote_session_active', float(len(sessions)))
+        set_gauge("vnc_remote_session_active", float(len(sessions)))
     except (ImportError, OSError, ValueError):
-        set_gauge('vnc_remote_session_active', 0.0)
+        set_gauge("vnc_remote_session_active", 0.0)
 
     # Service status.
     try:
         from vnc_remote_secure.services.health import get_health_status
+
         status = get_health_status()
-        up = 1.0 if status.get('status') == 'healthy' else 0.0
-        set_gauge('vnc_remote_up', up)
+        up = 1.0 if status.get("status") == "healthy" else 0.0
+        set_gauge("vnc_remote_up", up)
     except (ImportError, OSError, RuntimeError):
-        set_gauge('vnc_remote_up', 0.0)
+        set_gauge("vnc_remote_up", 0.0)
 
 
 def metrics_handler():

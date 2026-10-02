@@ -33,6 +33,7 @@ Usage:
     closed = revoke_session_connections(session_id)
     # closed = number of connections that were forcibly closed
 """
+
 import hashlib
 import logging
 import os
@@ -49,12 +50,12 @@ logger = logging.getLogger(__name__)
 def _redact(session_id: str) -> str:
     """Return a short hash of a session ID for safe logging."""
     if not session_id:
-        return '<empty>'
+        return "<empty>"
     return hashlib.sha256(session_id.encode()).hexdigest()[:12]
 
 
 # Shared-state namespace for cross-process revocation propagation.
-_NS_REVOKED = 'websocket_revoked_sessions'
+_NS_REVOKED = "websocket_revoked_sessions"
 _expiry_warned_at = 0.0
 _revoke_check_warned_at = 0.0
 
@@ -67,14 +68,26 @@ CloseCallback = Callable[[], bool]
 class _ConnectionEntry:
     """Internal: tracks a single WebSocket connection."""
 
-    __slots__ = ('conn_id', 'session_id', 'close_callback', 'resource',
-                 'created_at', 'loop', 'client_ip')
+    __slots__ = (
+        "conn_id",
+        "session_id",
+        "close_callback",
+        "resource",
+        "created_at",
+        "loop",
+        "client_ip",
+    )
 
-    def __init__(self, conn_id: str, session_id: str,
-                 close_callback: CloseCallback,
-                 resource: str | None = None,
-                 created_at: float | None = None,
-                 loop=None, client_ip: str = ''):
+    def __init__(
+        self,
+        conn_id: str,
+        session_id: str,
+        close_callback: CloseCallback,
+        resource: str | None = None,
+        created_at: float | None = None,
+        loop=None,
+        client_ip: str = "",
+    ):
         self.conn_id = conn_id
         self.session_id = session_id
         self.close_callback = close_callback
@@ -100,9 +113,13 @@ class WebSocketRegistry:
         self._by_session: dict[str, set[str]] = {}  # session_id -> {conn_ids}
         self._next_id = 0
 
-    def register(self, session_id: str, close_callback: CloseCallback,
-                 resource: str | None = None,
-                 client_ip: str = '') -> str | None:
+    def register(
+        self,
+        session_id: str,
+        close_callback: CloseCallback,
+        resource: str | None = None,
+        client_ip: str = "",
+    ) -> str | None:
         """Register a new WebSocket connection.
 
         Args:
@@ -121,10 +138,9 @@ class WebSocketRegistry:
             # auth-gateway validation and this registration call. Check
             # both the raw key (legacy pair / ephemeral token) and the
             # sid-namespaced mark written by revoke_sid.
-            if is_revoked_shared(session_id) or \
-                    is_revoked_shared(f'sid:{session_id}'):
+            if is_revoked_shared(session_id) or is_revoked_shared(f"sid:{session_id}"):
                 logger.debug(
-                    'Refused WebSocket registration for revoked session %s',
+                    "Refused WebSocket registration for revoked session %s",
                     _redact(session_id),
                 )
                 return None
@@ -133,31 +149,32 @@ class WebSocketRegistry:
             # resource limit, not an auth decision.
             if len(self._connections) >= _max_connections():
                 logger.warning(
-                    'Refused WebSocket registration: connection cap '
-                    '(%d) reached', _max_connections())
+                    "Refused WebSocket registration: connection cap " "(%d) reached",
+                    _max_connections(),
+                )
                 return None
             # Per-IP cap: one source address must not own a large
             # fraction of the global budget on its own.
             if client_ip:
-                per_ip = sum(
-                    1 for e in self._connections.values()
-                    if e.client_ip == client_ip)
+                per_ip = sum(1 for e in self._connections.values() if e.client_ip == client_ip)
                 if per_ip >= _max_connections_per_ip():
                     logger.warning(
-                        'Refused WebSocket registration: per-IP cap '
-                        '(%d) reached', _max_connections_per_ip())
+                        "Refused WebSocket registration: per-IP cap " "(%d) reached",
+                        _max_connections_per_ip(),
+                    )
                     return None
             self._next_id += 1
-            conn_id = f'ws_{self._next_id}'
+            conn_id = f"ws_{self._next_id}"
             loop = None
             try:
                 import asyncio
+
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = None  # threaded handler (novnc) — sync callback
             entry = _ConnectionEntry(
-                conn_id, session_id, close_callback, resource,
-                loop=loop, client_ip=client_ip)
+                conn_id, session_id, close_callback, resource, loop=loop, client_ip=client_ip
+            )
             self._connections[conn_id] = entry
             if session_id not in self._by_session:
                 self._by_session[session_id] = set()
@@ -168,15 +185,16 @@ class WebSocketRegistry:
             # conn the sweep already missed — remove it and fire its
             # close callback after releasing the lock.
             close_now = None
-            if is_revoked_shared(session_id) or \
-                    is_revoked_shared(f'sid:{session_id}'):
+            if is_revoked_shared(session_id) or is_revoked_shared(f"sid:{session_id}"):
                 self._connections.pop(conn_id, None)
                 self._by_session.get(session_id, set()).discard(conn_id)
                 close_now = entry
             self._emit_active_gauges()
             logger.debug(
-                'Registered WebSocket connection %s for session %s (resource=%s)',
-                conn_id, _redact(session_id), resource,
+                "Registered WebSocket connection %s for session %s (resource=%s)",
+                conn_id,
+                _redact(session_id),
+                resource,
             )
         if close_now is not None:
             self._fire_close(conn_id, close_now)
@@ -196,13 +214,13 @@ class WebSocketRegistry:
         """
         try:
             from vnc_remote_secure.monitoring.prometheus import set_gauge
+
             counts: dict = {}
             for e in self._connections.values():
-                key = e.resource or 'unknown'
+                key = e.resource or "unknown"
                 counts[key] = counts.get(key, 0) + 1
             for res, n in counts.items():
-                set_gauge('vnc_remote_ws_connections_active',
-                          float(n), labels=f'resource={res}')
+                set_gauge("vnc_remote_ws_connections_active", float(n), labels=f"resource={res}")
         except Exception:  # noqa: BLE001
             pass
 
@@ -221,8 +239,9 @@ class WebSocketRegistry:
                     drained = True
             self._emit_active_gauges()
             logger.debug(
-                'Unregistered WebSocket connection %s for session %s',
-                conn_id, entry.session_id,
+                "Unregistered WebSocket connection %s for session %s",
+                conn_id,
+                entry.session_id,
             )
         if drained:
             _note_session_disconnect(entry.session_id)
@@ -247,9 +266,9 @@ class WebSocketRegistry:
         # shorter marker would let the revoked token re-authenticate
         # after the marker expired.
         try:
-            max_lifetime = int(os.environ.get(
-                'SESSION_MAX_LIFETIME',
-                str(DEFAULT_SESSION_MAX_LIFETIME)))
+            max_lifetime = int(
+                os.environ.get("SESSION_MAX_LIFETIME", str(DEFAULT_SESSION_MAX_LIFETIME))
+            )
         except (ValueError, TypeError):
             max_lifetime = DEFAULT_SESSION_MAX_LIFETIME
         # The marker stores the revocation timestamp so the sweep can
@@ -257,8 +276,7 @@ class WebSocketRegistry:
         # own close path) preserves the original timestamp — only a
         # legacy True value or a missing marker gets a fresh one.
         existing = get_backend().get(_NS_REVOKED, session_id)
-        if isinstance(existing, (int, float)) \
-                and not isinstance(existing, bool):
+        if isinstance(existing, (int, float)) and not isinstance(existing, bool):
             marked_at = existing
         else:
             marked_at = time.time()
@@ -271,15 +289,13 @@ class WebSocketRegistry:
             drop_auth_context_for,
             session_id_for_cookie,
         )
+
         sid = session_id_for_cookie(session_id)
         if sid:
-            get_backend().set_ttl(_NS_REVOKED, f'sid:{sid}',
-                                  marked_at, max(86400, max_lifetime))
+            get_backend().set_ttl(_NS_REVOKED, f"sid:{sid}", marked_at, max(86400, max_lifetime))
             drop_auth_context_for(session_id)  # sid branch: one ctx
         else:
-            get_backend().set_ttl(
-                _NS_REVOKED, session_id, marked_at,
-                max(86400, max_lifetime))
+            get_backend().set_ttl(_NS_REVOKED, session_id, marked_at, max(86400, max_lifetime))
             # Stable pair / legacy cookie: every session sharing it
             # dies, so every indexed ctx goes too.
             drop_auth_context_for(session_id)
@@ -300,13 +316,14 @@ class WebSocketRegistry:
         if conn_ids:
             _note_session_disconnect(session_id)
         logger.info(
-            'Revoked %d WebSocket connection(s) for session %s',
-            closed, _redact(session_id),
+            "Revoked %d WebSocket connection(s) for session %s",
+            closed,
+            _redact(session_id),
         )
         return closed
 
     @staticmethod
-    def _fire_close(conn_id: str, entry: '_ConnectionEntry') -> bool:
+    def _fire_close(conn_id: str, entry: "_ConnectionEntry") -> bool:
         """Invoke one close callback; returns True if the close ran.
 
         Handles callbacks that return a coroutine (websockets<=13's
@@ -317,12 +334,14 @@ class WebSocketRegistry:
         """
         import asyncio
         import inspect
+
         try:
             result = entry.close_callback()
         except Exception as e:
             logger.warning(
-                'Error closing WebSocket connection %s: %s',
-                conn_id, e,
+                "Error closing WebSocket connection %s: %s",
+                conn_id,
+                e,
             )
             return False
         if not inspect.iscoroutine(result):
@@ -333,12 +352,13 @@ class WebSocketRegistry:
                 asyncio.run_coroutine_threadsafe(result, loop)
                 return True
             except RuntimeError as e:
-                logger.warning(
-                    'Could not schedule close for %s: %s', conn_id, e)
+                logger.warning("Could not schedule close for %s: %s", conn_id, e)
         else:
             logger.warning(
-                'Close callback for %s is a coroutine but no running '
-                'loop was captured — connection may stay open', conn_id)
+                "Close callback for %s is a coroutine but no running "
+                "loop was captured — connection may stay open",
+                conn_id,
+            )
         # Silence the "coroutine never awaited" warning on the
         # abandoned coroutine object.
         result.close()
@@ -362,13 +382,15 @@ class WebSocketRegistry:
             for conn_id in conn_ids:
                 entry = self._connections.get(conn_id)
                 if entry:
-                    result.append({
-                        'conn_id': entry.conn_id,
-                        'session_id': entry.session_id,
-                        'resource': entry.resource,
-                        'created_at': entry.created_at,
-                        'client_ip': entry.client_ip,
-                    })
+                    result.append(
+                        {
+                            "conn_id": entry.conn_id,
+                            "session_id": entry.session_id,
+                            "resource": entry.resource,
+                            "created_at": entry.created_at,
+                            "client_ip": entry.client_ip,
+                        }
+                    )
             return result
 
 
@@ -399,6 +421,7 @@ def _note_session_connect(session_id: str):
     """
     try:
         from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+
         get_session_store().note_connection(session_id, connected=True)
     except Exception:  # noqa: BLE001
         pass
@@ -408,17 +431,17 @@ def _note_session_disconnect(session_id: str):
     """Forensic stamp: the last live socket for a session closed."""
     try:
         from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+
         get_session_store().note_connection(session_id, connected=False)
     except Exception:  # noqa: BLE001
         pass
 
 
-def register_connection(session_id: str, close_callback: CloseCallback,
-                        resource: str | None = None,
-                        client_ip: str = '') -> str | None:
+def register_connection(
+    session_id: str, close_callback: CloseCallback, resource: str | None = None, client_ip: str = ""
+) -> str | None:
     """Register a new WebSocket connection (convenience function)."""
-    return get_registry().register(
-        session_id, close_callback, resource, client_ip=client_ip)
+    return get_registry().register(session_id, close_callback, resource, client_ip=client_ip)
 
 
 def unregister_connection(conn_id: str):
@@ -453,16 +476,18 @@ def is_revoked_shared(session_id: str) -> bool:
         if now - _revoke_check_warned_at > 60:
             _revoke_check_warned_at = now
             logger.warning(
-                "Shared revocation check failed — treating sessions "
-                "as %s", 'revoked' if _strict() else 'not revoked')
+                "Shared revocation check failed — treating sessions " "as %s",
+                "revoked" if _strict() else "not revoked",
+            )
         from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_shared_state_errors_total',
-                    'op=revocation_check')
+
+        inc_counter("vnc_remote_shared_state_errors_total", "op=revocation_check")
         return _strict()
 
 
 def _strict() -> bool:
     from vnc_remote_secure.security.shared_state import shared_state_strict
+
     return shared_state_strict()
 
 
@@ -495,6 +520,7 @@ def _session_expired(session_id: str) -> bool:
     try:
 
         from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+
         sess = get_session_store().get(session_id)
         return sess is not None and time.time() > sess.expires_at
     except Exception:  # noqa: BLE001 - expiry check must not kill watcher
@@ -508,14 +534,15 @@ def _session_expired(session_id: str) -> bool:
             _expiry_warned_at = now
             logger.warning(
                 "Session expiry check unavailable — live WebSockets "
-                "for expired sessions are not being swept")
+                "for expired sessions are not being swept"
+            )
         return _strict()
 
 
 def _max_connections() -> int:
     """Return the per-process WebSocket connection cap."""
     try:
-        return max(1, int(os.environ.get('WS_MAX_CONNECTIONS', '256')))
+        return max(1, int(os.environ.get("WS_MAX_CONNECTIONS", "256")))
     except (TypeError, ValueError):
         return 256
 
@@ -523,8 +550,7 @@ def _max_connections() -> int:
 def _max_connections_per_ip() -> int:
     """Return the per-source-IP WebSocket connection cap."""
     try:
-        return max(1, int(
-            os.environ.get('WS_MAX_CONNECTIONS_PER_IP', '32')))
+        return max(1, int(os.environ.get("WS_MAX_CONNECTIONS_PER_IP", "32")))
     except (TypeError, ValueError):
         return 32
 
@@ -545,33 +571,35 @@ def _operator_session_dead(session_id: str) -> str | None:
     would kill an actively-used desktop that simply hasn't polled an
     HTTP endpoint. The absolute cap still bounds total stream life.
     """
-    if not session_id.startswith('session:'):
+    if not session_id.startswith("session:"):
         return None
     try:
         from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, verify_token
+
         payload = verify_token(TOKEN_TYPE_SESSION, session_id)
         if payload is None:
             # A cookie that verified at upgrade and no longer does
             # (key fully retired past the coexistence window, or a
             # corrupted value) is dead — close it.
-            return 'expired'
-        parts = payload.split(':')
+            return "expired"
+        parts = payload.split(":")
         if len(parts) == 4:
             _u, created_s, _last_seen_s, expires_s = parts
         elif len(parts) == 3:
             _u, created_s, expires_s = parts
         else:
-            return 'expired'
+            return "expired"
         if time.time() > int(expires_s):
-            return 'expired'
+            return "expired"
         from vnc_remote_secure.security.sessions import operator_session_epoch
+
         if int(created_s) < operator_session_epoch():
-            return 'revoked'
+            return "revoked"
         return None
     except Exception:  # noqa: BLE001 - watcher must not die
         # Under strict policy a failed liveness check denies — an
         # unverifiable privileged session is worse than a dropped one.
-        return 'revoked' if _strict() else None
+        return "revoked" if _strict() else None
 
 
 def _sweep_revoked_session(session_id: str) -> bool:
@@ -579,16 +607,15 @@ def _sweep_revoked_session(session_id: str) -> bool:
     reason = None
     marked_at = None
     if is_revoked_shared(session_id):
-        reason = 'revoked'
+        reason = "revoked"
         try:
             raw = get_backend().get(_NS_REVOKED, session_id)
-            if isinstance(raw, (int, float)) \
-                    and not isinstance(raw, bool):
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool):
                 marked_at = float(raw)
         except Exception:  # noqa: BLE001
             pass
     elif _session_expired(session_id):
-        reason = 'expired'
+        reason = "expired"
     else:
         reason = _operator_session_dead(session_id)
     if reason is None:
@@ -596,21 +623,25 @@ def _sweep_revoked_session(session_id: str) -> bool:
     closed = get_registry().revoke_session(session_id)
     try:
         from vnc_remote_secure.monitoring.prometheus import inc_counter, set_gauge
-        inc_counter('vnc_remote_ws_connections_closed_total',
-                    f'reason={reason}',
-                    value=closed if isinstance(closed, int) else 1)
+
+        inc_counter(
+            "vnc_remote_ws_connections_closed_total",
+            f"reason={reason}",
+            value=closed if isinstance(closed, int) else 1,
+        )
         if marked_at is not None:
             # mark->close propagation latency, clamped for clock skew.
-            set_gauge('vnc_remote_revocation_latency_seconds',
-                      max(0.0, time.time() - marked_at),
-                      labels='channel=websocket')
+            set_gauge(
+                "vnc_remote_revocation_latency_seconds",
+                max(0.0, time.time() - marked_at),
+                labels="channel=websocket",
+            )
     except Exception:  # noqa: BLE001 - metrics must not break cleanup
         pass
     return True
 
 
-async def watch_shared_revocation_async(session_id: str,
-                                        interval: float = 5.0) -> None:
+async def watch_shared_revocation_async(session_id: str, interval: float = 5.0) -> None:
     """Poll the shared revocation set; closes local connections on hit.
 
     Exits when the session has no local connections left (normal
@@ -618,6 +649,7 @@ async def watch_shared_revocation_async(session_id: str,
     a task reference until completion.
     """
     import asyncio
+
     while True:
         await asyncio.sleep(interval)
         if _sweep_revoked_session(session_id):
@@ -626,8 +658,7 @@ async def watch_shared_revocation_async(session_id: str,
             return
 
 
-def start_revocation_watcher(session_id: str,
-                             interval: float = 5.0):
+def start_revocation_watcher(session_id: str, interval: float = 5.0):
     """Spawn the async watcher on the current loop.
 
     Call right after a successful ``register_connection`` from an
@@ -636,21 +667,20 @@ def start_revocation_watcher(session_id: str,
     itself when the watcher exits.
     """
     import asyncio
-    task = asyncio.ensure_future(
-        watch_shared_revocation_async(session_id, interval))
+
+    task = asyncio.ensure_future(watch_shared_revocation_async(session_id, interval))
     _watcher_tasks.add(task)
     task.add_done_callback(_watcher_tasks.discard)
     return task
 
 
-def start_revocation_watcher_thread(session_id: str,
-                                    interval: float = 5.0
-                                    ) -> threading.Thread:
+def start_revocation_watcher_thread(session_id: str, interval: float = 5.0) -> threading.Thread:
     """Spawn the watcher on a daemon thread (for non-asyncio handlers).
 
     Used by the noVNC relay, whose connections live in
     ``http.server`` worker threads rather than an event loop.
     """
+
     def _run():
         while True:
             if _sweep_revoked_session(session_id):
@@ -659,8 +689,6 @@ def start_revocation_watcher_thread(session_id: str,
                 return
             time.sleep(interval)
 
-    t = threading.Thread(
-        target=_run, daemon=True,
-        name=f'ws-revoke-{_redact(session_id)}')
+    t = threading.Thread(target=_run, daemon=True, name=f"ws-revoke-{_redact(session_id)}")
     t.start()
     return t

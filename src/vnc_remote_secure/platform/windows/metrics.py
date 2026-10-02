@@ -3,6 +3,7 @@
 Uses PowerShell ``Get-CimInstance`` (the supported replacement for the
 deprecated ``wmic``) to collect CPU load, memory, disk, and uptime.
 """
+
 import logging
 import subprocess
 from datetime import datetime
@@ -16,8 +17,10 @@ def _run_ps(command):
     """Run a PowerShell command and return its stdout (or None on failure)."""
     try:
         result = run_cmd(
-            ['powershell', '-NoProfile', '-Command', command],
-            capture_output=True, text=True, timeout=5,
+            ["powershell", "-NoProfile", "-Command", command],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return result.stdout.strip()
     except FileNotFoundError:
@@ -37,10 +40,10 @@ def get_os_display_name():
     """
     caption = _run_ps("(Get-CimInstance Win32_OperatingSystem).Caption")
     if caption:
-        if 'Windows 11' in caption:
-            return 'Windows 11'
-        if 'Windows 10' in caption:
-            return 'Windows 10'
+        if "Windows 11" in caption:
+            return "Windows 11"
+        if "Windows 10" in caption:
+            return "Windows 10"
         return caption
     return None
 
@@ -53,20 +56,18 @@ def get_system_metrics():
     (percentages where applicable).
     """
     metrics = {
-        'cpu': 'N/A',
-        'cpu_percent': 'N/A',
-        'memory': 'N/A',
-        'disk': 'N/A',
-        'uptime': 'N/A',
+        "cpu": "N/A",
+        "cpu_percent": "N/A",
+        "memory": "N/A",
+        "disk": "N/A",
+        "uptime": "N/A",
     }
 
     # CPU load percentage
-    pct = _run_ps(
-        "(Get-CimInstance Win32_Processor).LoadPercentage"
-    )
+    pct = _run_ps("(Get-CimInstance Win32_Processor).LoadPercentage")
     if pct and pct.isdigit():
-        metrics['cpu'] = f"{pct}%"
-        metrics['cpu_percent'] = f"{pct}%"
+        metrics["cpu"] = f"{pct}%"
+        metrics["cpu_percent"] = f"{pct}%"
 
     # Memory usage (with percentage)
     mem = _run_ps(
@@ -77,11 +78,11 @@ def get_system_metrics():
         "$pct = [math]::Round(($used/$total)*100,0); "
         "$pct.ToString() + '|' + $used.ToString() + '|' + $total.ToString()"
     )
-    if mem and '|' in mem:
-        parts = mem.split('|')
+    if mem and "|" in mem:
+        parts = mem.split("|")
         if len(parts) == 3:
             pct_m, used_mb, total_mb = parts
-            metrics['memory'] = f"{pct_m}% ({used_mb} MB / {total_mb} MB)"
+            metrics["memory"] = f"{pct_m}% ({used_mb} MB / {total_mb} MB)"
 
     # Disk usage (first logical disk)
     disk = _run_ps(
@@ -92,23 +93,21 @@ def get_system_metrics():
         "$pct = [math]::Round((($size-$free)/$size)*100,0); "
         "$d.DeviceID + '|' + $pct.ToString() + '|' + $free.ToString()"
     )
-    if disk and '|' in disk:
-        parts = disk.split('|')
+    if disk and "|" in disk:
+        parts = disk.split("|")
         if len(parts) == 3:
             drive, pct_d, free_gb = parts
-            metrics['disk'] = f"{drive} {pct_d}% ({free_gb} GB free)"
+            metrics["disk"] = f"{drive} {pct_d}% ({free_gb} GB free)"
 
     # Uptime from LastBootUpTime
-    boot = _run_ps(
-        "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime"
-    )
+    boot = _run_ps("(Get-CimInstance Win32_OperatingSystem).LastBootUpTime")
     if boot:
         try:
             boot_dt = datetime.fromisoformat(boot)
             delta = datetime.now(boot_dt.tzinfo) - boot_dt
             hours = int(delta.total_seconds() // 3600)
             minutes = int((delta.total_seconds() % 3600) // 60)
-            metrics['uptime'] = f"{hours}h {minutes}m"
+            metrics["uptime"] = f"{hours}h {minutes}m"
         except (ValueError, TypeError) as e:
             logger.debug("Windows uptime parse failed: %s", e)
 

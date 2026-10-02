@@ -1,4 +1,5 @@
 """Shared PowerShell execution helper for the Windows platform adapter."""
+
 from vnc_remote_secure.core.processes import run_cmd
 
 
@@ -10,7 +11,9 @@ def run_powershell(script, input_data=None):
     any same-session process can read via WMI/Process Explorer.
     """
     return run_cmd(
-        ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
-        capture_output=True, text=True, timeout=60,
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
         input=input_data,
     )

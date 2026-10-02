@@ -4,6 +4,7 @@ VNC authentication uses DES with a fixed key where each byte's bits are
 reversed. This module provides the VNC-specific key handling and delegates
 the actual DES encryption to pycryptodome.
 """
+
 try:
     # justification: VNC protocol requires DES
     from Crypto.Cipher import DES as _DES  # nosec B413
@@ -12,7 +13,14 @@ except ImportError:
 
 # VNC fixed key (all zeros before bit reversal).
 vnckey = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
 ]
 
 # Fixed key used to obfuscate stored VNC passwords (the ``vncpasswd``
@@ -23,8 +31,7 @@ vnckey = [
 # pycryptodome (which does NOT reverse key bits) the key must be used
 # as-is; passing it through ``deskey`` would reverse it a second time
 # and produce a blob UltraVNC cannot decrypt.
-VNC_PASSWD_FIXED_KEY = bytes(
-    [0xE8, 0x4A, 0xD6, 0x60, 0xC4, 0x72, 0x1A, 0xE0])
+VNC_PASSWD_FIXED_KEY = bytes([0xE8, 0x4A, 0xD6, 0x60, 0xC4, 0x72, 0x1A, 0xE0])
 
 
 def _bit_reverse(byte):
@@ -75,7 +82,7 @@ def encrypt_vnc_password(password: str) -> bytes:
             "pycryptodome is required for VNC password encryption. "
             "Install with: pip install pycryptodome"
         )
-    padded = password.encode('latin-1')[:8].ljust(8, b'\x00')
+    padded = password.encode("latin-1")[:8].ljust(8, b"\x00")
     # justification: VNC protocol requires DES/ECB
     cipher = _DES.new(VNC_PASSWD_FIXED_KEY, _DES.MODE_ECB)  # nosec B304
     return cipher.encrypt(padded)

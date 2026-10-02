@@ -1,4 +1,5 @@
 """POSIX permission and user management for Linux."""
+
 import logging
 
 from vnc_remote_secure.core.processes import run_cmd
@@ -12,16 +13,16 @@ def _valid_username(username):
     adapter validates instead of trusting callers to have done so.
     """
     from vnc_remote_secure.core.validation import validate_username
+
     try:
         validate_username(username)
         return True
     except (ValueError, TypeError):
-        logging.getLogger(__name__).warning(
-            "Refusing invalid username %r", username)
+        logging.getLogger(__name__).warning("Refusing invalid username %r", username)
         return False
 
 
-def create_user(username, system=True, shell='/usr/sbin/nologin'):
+def create_user(username, system=True, shell="/usr/sbin/nologin"):
     """Create a Linux system user.
 
     Returns ``True`` if the user was created or already exists.
@@ -30,10 +31,10 @@ def create_user(username, system=True, shell='/usr/sbin/nologin'):
         return False
     if user_exists(username):
         return True
-    cmd = ['useradd']
+    cmd = ["useradd"]
     if system:
-        cmd.append('-r')
-    cmd.extend(['-s', shell, '--', username])
+        cmd.append("-r")
+    cmd.extend(["-s", shell, "--", username])
     result = run_cmd(cmd, capture_output=True, text=True)
     return result.returncode == 0
 
@@ -49,19 +50,16 @@ def _terminate_user_processes(username):
     hosts. Neither failing is fatal: userdel still runs.
     """
     log = logging.getLogger(__name__)
-    r = run_cmd(['loginctl', 'terminate-user', username],
-                capture_output=True, text=True)
+    r = run_cmd(["loginctl", "terminate-user", username], capture_output=True, text=True)
     if r.returncode != 0:
-        log.debug("loginctl terminate-user %s: %s",
-                  username, (r.stderr or '').strip())
+        log.debug("loginctl terminate-user %s: %s", username, (r.stderr or "").strip())
     # SIGKILL (-9): a graceful TERM lets a stubborn process linger
     # past userdel and get orphaned under the deleted uid. The
     # username is -u's argument (validated — no leading dash), not a
     # pattern.
-    r = run_cmd(['pkill', '-9', '-u', username],
-                capture_output=True, text=True)
+    r = run_cmd(["pkill", "-9", "-u", username], capture_output=True, text=True)
     if r.returncode not in (0, 1):  # 1 = no processes matched
-        log.debug("pkill -u %s: %s", username, (r.stderr or '').strip())
+        log.debug("pkill -u %s: %s", username, (r.stderr or "").strip())
 
 
 def remove_user(username):
@@ -78,14 +76,15 @@ def remove_user(username):
     if not _valid_username(username):
         return False
     from vnc_remote_secure.core.constants import RESERVED_USERNAMES
+
     if username in RESERVED_USERNAMES:
-        logging.getLogger(__name__).warning(
-            "Refusing to remove reserved user %s", username)
+        logging.getLogger(__name__).warning("Refusing to remove reserved user %s", username)
         return False
     _terminate_user_processes(username)
     result = run_cmd(
-        ['userdel', '-r', '--', username],
-        capture_output=True, text=True,
+        ["userdel", "-r", "--", username],
+        capture_output=True,
+        text=True,
     )
     return result.returncode == 0
 
@@ -99,14 +98,15 @@ def set_user_password(username, password):
     """
     if not _valid_username(username):
         return False
-    if ':' in username or '\n' in username or '\r' in username:
+    if ":" in username or "\n" in username or "\r" in username:
         return False
-    if '\n' in password or '\r' in password:
+    if "\n" in password or "\r" in password:
         return False
     result = run_cmd(
-        ['chpasswd'],
-        input=f'{username}:{password}\n',
-        capture_output=True, text=True,
+        ["chpasswd"],
+        input=f"{username}:{password}\n",
+        capture_output=True,
+        text=True,
     )
     return result.returncode == 0
 
@@ -115,6 +115,7 @@ def user_exists(username):
     """Return ``True`` if ``username`` exists on the system."""
     try:
         import pwd  # pylint: disable=import-error
+
         pwd.getpwnam(username)
         return True
     except KeyError:

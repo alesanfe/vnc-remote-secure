@@ -11,6 +11,7 @@ without affecting the caller or the other channels. Nothing is sent
 unless ``ALERTS_ENABLED=true`` (force=True bypasses this gate, e.g. for
 explicit ``vnc-remote`` invocations).
 """
+
 import json
 import logging
 import os
@@ -41,30 +42,38 @@ def _alert_id() -> str:
     two deduped incidents are indistinguishable on the channel.
     """
     import uuid
+
     return uuid.uuid4().hex[:12]
 
 
-def send_discord_alert(title, message, severity='info', alert_id=''):
+def send_discord_alert(title, message, severity="info", alert_id=""):
     """Post an embed to the configured Discord webhook."""
-    url = os.environ.get('DISCORD_WEBHOOK_URL', '')
+    url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not url:
         return False
-    colors = {'info': 0x3498DB, 'warning': 0xF1C40F, 'error': 0xE74C3C, 'success': 0x2ECC71}
-    desc = message + (f'\n`id: {alert_id}`' if alert_id else '')
-    payload = {'embeds': [{'title': title, 'description': desc,
-                           'color': colors.get(severity, 0x3498DB)}]}
+    colors = {"info": 0x3498DB, "warning": 0xF1C40F, "error": 0xE74C3C, "success": 0x2ECC71}
+    desc = message + (f"\n`id: {alert_id}`" if alert_id else "")
+    payload = {
+        "embeds": [{"title": title, "description": desc, "color": colors.get(severity, 0x3498DB)}]
+    }
     return _post_json(url, payload)
 
 
-def send_webhook_alert(title, message, severity='info', alert_id=''):
+def send_webhook_alert(title, message, severity="info", alert_id=""):
     """POST a JSON payload to the generic alert webhook."""
-    url = os.environ.get('ALERT_WEBHOOK_URL', '')
+    url = os.environ.get("ALERT_WEBHOOK_URL", "")
     if not url:
         return False
-    return _post_json(url, {'title': title, 'message': message,
-                            'severity': severity,
-                            'source': 'vnc-remote-secure',
-                            'id': alert_id})
+    return _post_json(
+        url,
+        {
+            "title": title,
+            "message": message,
+            "severity": severity,
+            "source": "vnc-remote-secure",
+            "id": alert_id,
+        },
+    )
 
 
 def _post_pinned(url, body, headers) -> bool:
@@ -78,14 +87,14 @@ def _post_pinned(url, body, headers) -> bool:
     alerting must never crash callers.
     """
     import httpx
+
     try:
         status = secure_post(url, body, headers)
     except (httpx.TransportError, OSError):
         return False
     ok = 200 <= status < 300
     if not ok:
-        logger.warning("Webhook %s returned HTTP %s",
-                       _redact_url(url), status)
+        logger.warning("Webhook %s returned HTTP %s", _redact_url(url), status)
     return ok
 
 
@@ -96,28 +105,27 @@ def _post_json(url, payload):
     # against loopback/LAN/metadata endpoints or a file:// reader.
     err = _validate_webhook_url(url)
     if err:
-        logger.warning("Webhook URL rejected (%s): %s",
-                       err, _redact_url(url))
+        logger.warning("Webhook URL rejected (%s): %s", err, _redact_url(url))
         from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_alerts_dropped_total',
-                    'reason=url_rejected')
+
+        inc_counter("vnc_remote_alerts_dropped_total", "reason=url_rejected")
         return False
-    body = json.dumps(payload).encode('utf-8')
-    headers = {'Content-Type': 'application/json'}
+    body = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
     # HMAC signature (ALERT_WEBHOOK_SECRET): lets the receiver verify
     # the alert came from this deployment — a leaked webhook URL alone
     # cannot forge notifications (GitHub-style `sha256=` scheme).
-    secret = os.environ.get('ALERT_WEBHOOK_SECRET', '')
+    secret = os.environ.get("ALERT_WEBHOOK_SECRET", "")
     if secret:
         import hashlib
         import hmac as _hmac
+
         sig = _hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-        headers['X-VncRemote-Signature'] = f'sha256={sig}'
+        headers["X-VncRemote-Signature"] = f"sha256={sig}"
     try:
         return _post_pinned(url, body, headers)
     except Exception as exc:  # noqa: BLE001 - alerting must never crash callers
-        logger.warning("Webhook POST to %s failed: %s",
-                       _redact_url(url), exc)
+        logger.warning("Webhook POST to %s failed: %s", _redact_url(url), exc)
         return False
 
 
@@ -128,23 +136,22 @@ def send_email_alert(title, message, to_addr=None):
     mailbox. Share-link delivery passes the recipient explicitly; the
     sender is always the configured ALERT_EMAIL_FROM so a caller cannot
     forge the origin."""
-    to_addr = (to_addr or os.environ.get('ALERT_EMAIL_TO', '')).strip()
-    smtp_server = os.environ.get('ALERT_SMTP_SERVER', '')
+    to_addr = (to_addr or os.environ.get("ALERT_EMAIL_TO", "")).strip()
+    smtp_server = os.environ.get("ALERT_SMTP_SERVER", "")
     if not to_addr or not smtp_server:
         return False
     # CR/LF in the recipient would forge headers — reject early.
-    if '\r' in to_addr or '\n' in to_addr:
+    if "\r" in to_addr or "\n" in to_addr:
         return False
 
-    host, _, port = smtp_server.partition(':')
+    host, _, port = smtp_server.partition(":")
     try:
         # Inside the try: header assignment rejects CR/LF (ValueError)
         # and must not crash the caller.
         msg = EmailMessage()
-        msg['Subject'] = f"[VNC Remote Secure] {title}"
-        msg['From'] = os.environ.get(
-            'ALERT_EMAIL_FROM', 'vnc-remote-secure@localhost')
-        msg['To'] = to_addr
+        msg["Subject"] = f"[VNC Remote Secure] {title}"
+        msg["From"] = os.environ.get("ALERT_EMAIL_FROM", "vnc-remote-secure@localhost")
+        msg["To"] = to_addr
         msg.set_content(message)
 
         with smtplib.SMTP(host, int(port or 25), timeout=_HTTP_TIMEOUT) as smtp:
@@ -154,16 +161,18 @@ def send_email_alert(title, message, to_addr=None):
             # continuing would transmit credentials and the alert body
             # in cleartext. Set ALERT_SMTP_TLS=false only for a known
             # plaintext relay.
-            if env_flag('ALERT_SMTP_TLS', 'true'):
+            if env_flag("ALERT_SMTP_TLS", "true"):
                 try:
                     smtp.starttls()
                 except smtplib.SMTPException as exc:
                     logger.warning(
                         "SMTP STARTTLS failed and ALERT_SMTP_TLS=true — "
-                        "refusing to send cleartext: %s", exc)
+                        "refusing to send cleartext: %s",
+                        exc,
+                    )
                     return False
-            user = os.environ.get('ALERT_SMTP_USER', '')
-            password = os.environ.get('ALERT_SMTP_PASS', '')
+            user = os.environ.get("ALERT_SMTP_USER", "")
+            password = os.environ.get("ALERT_SMTP_PASS", "")
             if user and password:
                 smtp.login(user, password)
             smtp.send_message(msg)
@@ -181,7 +190,7 @@ _DEDUP_WINDOW_S = 60
 _last_sent: dict = {}
 
 
-def notify(title, message, severity='info', force=False):
+def notify(title, message, severity="info", force=False):
     """Dispatch an alert to every configured channel.
 
     Args:
@@ -193,39 +202,38 @@ def notify(title, message, severity='info', force=False):
     Returns:
         Number of channels that accepted the alert.
     """
-    if not (force or env_flag('ALERTS_ENABLED')):
+    if not (force or env_flag("ALERTS_ENABLED")):
         return 0
 
     import time as _time
+
     key = (title, message, severity)
     now = _time.monotonic()
     if now - _last_sent.get(key, -_DEDUP_WINDOW_S) < _DEDUP_WINDOW_S:
-        logger.debug("Alert deduplicated (sent < %ds ago): %s",
-                     _DEDUP_WINDOW_S, title)
+        logger.debug("Alert deduplicated (sent < %ds ago): %s", _DEDUP_WINDOW_S, title)
         from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_alerts_dropped_total',
-                    'reason=dedup')
+
+        inc_counter("vnc_remote_alerts_dropped_total", "reason=dedup")
         return 0
     _last_sent[key] = now
 
     alert_id = _alert_id()
     sent = 0
-    if env_flag('DISCORD_ENABLED') and send_discord_alert(
-            title, message, severity, alert_id=alert_id):
+    if env_flag("DISCORD_ENABLED") and send_discord_alert(
+        title, message, severity, alert_id=alert_id
+    ):
         sent += 1
     if send_webhook_alert(title, message, severity, alert_id=alert_id):
         sent += 1
-    if send_email_alert(
-            title, f'{message}\n\n(alert id: {alert_id})'):
+    if send_email_alert(title, f"{message}\n\n(alert id: {alert_id})"):
         sent += 1
     if sent == 0:
         logger.debug("No alert channel configured or reachable for: %s", title)
         from vnc_remote_secure.monitoring.prometheus import inc_counter
-        inc_counter('vnc_remote_alerts_dropped_total',
-                    'reason=no_channel')
+
+        inc_counter("vnc_remote_alerts_dropped_total", "reason=no_channel")
     else:
         # The id lands in the local log so an inbound alert can be
         # correlated back to the event that raised it.
-        logger.info("Alert dispatched (id=%s, channels=%d): %s",
-                    alert_id, sent, title)
+        logger.info("Alert dispatched (id=%s, channels=%d): %s", alert_id, sent, title)
     return sent

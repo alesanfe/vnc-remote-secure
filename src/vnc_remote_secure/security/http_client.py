@@ -15,6 +15,7 @@ Redirects are never followed: a webhook must go where the operator
 pointed it — following would bounce an HMAC-signed POST to whatever
 the redirector chooses, reopening SSRF after destination vetting.
 """
+
 import http.client
 import ipaddress
 import logging
@@ -39,9 +40,9 @@ _RETRY = tenacity.retry(
     wait=tenacity.wait_random(0.3, 1.0),
     # Only transport failures are retried — an HTTP status is the
     # receiver's intentional answer, not a transient error.
-    retry=tenacity.retry_if_exception_type(
-        (httpx.TransportError, OSError)),
-    reraise=True)
+    retry=tenacity.retry_if_exception_type((httpx.TransportError, OSError)),
+    reraise=True,
+)
 
 
 def _resolve_addrs(hostname: str) -> list:
@@ -49,8 +50,7 @@ def _resolve_addrs(hostname: str) -> list:
     try:
         return [
             sockaddr[0]
-            for _fam, _typ, _proto, _canon, sockaddr
-            in socket.getaddrinfo(hostname, None)
+            for _fam, _typ, _proto, _canon, sockaddr in socket.getaddrinfo(hostname, None)
         ]
     except OSError:
         return []
@@ -75,10 +75,11 @@ def _resolved_addrs_public(hostname: str) -> bool:
     return True
 
 
-def validate_url(url: str,
-                 allow_http_env: str = 'ALERT_WEBHOOK_ALLOW_HTTP',
-                 allow_private_env: str =
-                 'ALERT_WEBHOOK_ALLOW_PRIVATE') -> str | None:
+def validate_url(
+    url: str,
+    allow_http_env: str = "ALERT_WEBHOOK_ALLOW_HTTP",
+    allow_private_env: str = "ALERT_WEBHOOK_ALLOW_PRIVATE",
+) -> str | None:
     """Return an error string, or None when the URL is safe to POST to.
 
     Default policy: HTTPS only, public unicast destinations only.
@@ -89,16 +90,16 @@ def validate_url(url: str,
     try:
         p = urlparse(url)
     except ValueError:
-        return 'unparseable URL'
-    if p.scheme == 'http' and not env_flag(allow_http_env):
-        return f'http:// requires {allow_http_env}=true'
-    if p.scheme not in ('https', 'http'):
-        return f'disallowed scheme {p.scheme!r}'
+        return "unparseable URL"
+    if p.scheme == "http" and not env_flag(allow_http_env):
+        return f"http:// requires {allow_http_env}=true"
+    if p.scheme not in ("https", "http"):
+        return f"disallowed scheme {p.scheme!r}"
     if not p.hostname:
-        return 'no hostname'
+        return "no hostname"
     if not env_flag(allow_private_env):
         if not _resolved_addrs_public(p.hostname):
-            return 'resolves to a non-public address'
+            return "resolves to a non-public address"
     return None
 
 
@@ -112,9 +113,9 @@ def redact_url(url: str) -> str:
     """
     try:
         p = urlparse(url)
-        return f'{p.scheme}://{p.netloc}/…'
+        return f"{p.scheme}://{p.netloc}/…"
     except ValueError:
-        return '<invalid-url>'
+        return "<invalid-url>"
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -122,15 +123,12 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     real hostname — DNS pinning without breaking SNI/cert checks."""
 
     def __init__(self, ip, hostname, port, context, timeout):
-        super().__init__(ip, port=port, timeout=timeout,
-                         context=context)
+        super().__init__(ip, port=port, timeout=timeout, context=context)
         self._sni_host = hostname
 
     def connect(self):
-        sock = socket.create_connection(
-            (self.host, self.port), self.timeout)
-        self.sock = self._context.wrap_socket(
-            sock, server_hostname=self._sni_host)
+        sock = socket.create_connection((self.host, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self._sni_host)
 
 
 class PinnedTransport(httpx.BaseTransport):
@@ -141,77 +139,74 @@ class PinnedTransport(httpx.BaseTransport):
     a fresh DNS-pinned connection — exactly one request, no redirects.
     """
 
-    def __init__(self, allow_private: bool = False,
-                 timeout: float = DEFAULT_TIMEOUT):
+    def __init__(self, allow_private: bool = False, timeout: float = DEFAULT_TIMEOUT):
         self._allow_private = allow_private
         self._timeout = timeout
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         url = request.url
         host = url.host
-        port = url.port or (443 if url.scheme == 'https' else 80)
-        path = url.raw_path.decode('ascii', 'replace')
+        port = url.port or (443 if url.scheme == "https" else 80)
+        path = url.raw_path.decode("ascii", "replace")
+        dial: str | None
         if self._allow_private:
             dial = host
         else:
             try:
                 dial = next(
-                    (a for a in _resolve_addrs(host)
-                     if ipaddress.ip_address(a).is_global), None)
+                    (a for a in _resolve_addrs(host) if ipaddress.ip_address(a).is_global), None
+                )
             except ValueError:
                 dial = None
             if dial is None:
-                raise httpx.ConnectError(
-                    'no public address for pinned connect',
-                    request=request)
-        if url.scheme == 'https':
+                raise httpx.ConnectError("no public address for pinned connect", request=request)
+        conn: http.client.HTTPConnection
+        if url.scheme == "https":
             conn = _PinnedHTTPSConnection(
-                dial, host, port, ssl.create_default_context(),
-                self._timeout)
+                dial, host, port, ssl.create_default_context(), self._timeout
+            )
         else:
-            conn = http.client.HTTPConnection(
-                dial, port, timeout=self._timeout)
+            conn = http.client.HTTPConnection(dial, port, timeout=self._timeout)
         try:
-            conn.request(request.method, path,
-                         body=request.read(),
-                         headers=dict(request.headers))
+            conn.request(request.method, path, body=request.read(), headers=dict(request.headers))
             resp = conn.getresponse()
             data = resp.read(MAX_RESPONSE_BYTES + 1)
             if len(data) > MAX_RESPONSE_BYTES:
-                raise httpx.ReadError(
-                    'response exceeds MAX_RESPONSE_BYTES',
-                    request=request)
+                raise httpx.ReadError("response exceeds MAX_RESPONSE_BYTES", request=request)
             return httpx.Response(
-                resp.status,
-                headers=httpx.Headers(resp.getheaders()),
-                content=data,
-                request=request)
+                resp.status, headers=httpx.Headers(resp.getheaders()), content=data, request=request
+            )
         finally:
             conn.close()
 
 
-def secure_client(*, allow_private: bool = False,
-                  timeout: float = DEFAULT_TIMEOUT,
-                  transport: httpx.BaseTransport | None = None
-                  ) -> httpx.Client:
+def secure_client(
+    *,
+    allow_private: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    transport: httpx.BaseTransport | None = None,
+) -> httpx.Client:
     """An httpx.Client with the pinned transport and no redirects.
 
     ``transport`` is injectable for tests (respx.MockTransport).
     """
     return httpx.Client(
-        transport=transport or PinnedTransport(allow_private=allow_private,
-                                               timeout=timeout),
+        transport=transport or PinnedTransport(allow_private=allow_private, timeout=timeout),
         follow_redirects=False,
-        timeout=timeout)
+        timeout=timeout,
+    )
 
 
-def secure_request(method: str, url: str, *,
-                   body: bytes | None = None,
-                   headers: dict | None = None,
-                   allow_private_env: str = 'ALERT_WEBHOOK_ALLOW_PRIVATE',
-                   timeout: float = DEFAULT_TIMEOUT,
-                   transport: httpx.BaseTransport | None = None
-                   ) -> httpx.Response:
+def secure_request(
+    method: str,
+    url: str,
+    *,
+    body: bytes | None = None,
+    headers: dict | None = None,
+    allow_private_env: str = "ALERT_WEBHOOK_ALLOW_PRIVATE",
+    timeout: float = DEFAULT_TIMEOUT,
+    transport: httpx.BaseTransport | None = None,
+) -> httpx.Response:
     """Issue one pinned request; returns the httpx.Response.
 
     Retries once on transport failure (tenacity). Status codes are
@@ -221,19 +216,23 @@ def secure_request(method: str, url: str, *,
 
     @_RETRY
     def _attempt() -> httpx.Response:
-        with secure_client(allow_private=allow_private,
-                           timeout=timeout,
-                           transport=transport) as client:
-            return client.request(method, url, content=body,
-                                  headers=headers or {})
+        with secure_client(
+            allow_private=allow_private, timeout=timeout, transport=transport
+        ) as client:
+            return client.request(method, url, content=body, headers=headers or {})
 
     return _attempt()
 
 
-def secure_post(url: str, body: bytes, headers: dict,
-                *, allow_private_env: str = 'ALERT_WEBHOOK_ALLOW_PRIVATE',
-                timeout: float = DEFAULT_TIMEOUT,
-                transport: httpx.BaseTransport | None = None) -> int:
+def secure_post(
+    url: str,
+    body: bytes,
+    headers: dict,
+    *,
+    allow_private_env: str = "ALERT_WEBHOOK_ALLOW_PRIVATE",
+    timeout: float = DEFAULT_TIMEOUT,
+    transport: httpx.BaseTransport | None = None,
+) -> int:
     """POST ``body`` to ``url``; returns the HTTP status code.
 
     Retries once on transport failure (tenacity). Callers decide what
@@ -241,6 +240,11 @@ def secure_post(url: str, body: bytes, headers: dict,
     vetted, pinned destination.
     """
     return secure_request(
-        'POST', url, body=body, headers=headers,
-        allow_private_env=allow_private_env, timeout=timeout,
-        transport=transport).status_code
+        "POST",
+        url,
+        body=body,
+        headers=headers,
+        allow_private_env=allow_private_env,
+        timeout=timeout,
+        transport=transport,
+    ).status_code

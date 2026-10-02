@@ -4,6 +4,7 @@ Provides Basic-auth and Bearer-token validation plus shared helpers
 so that landing, terminal, health, and the API layer use a single auth
 model instead of each service implementing its own.
 """
+
 import base64
 import hmac
 import logging
@@ -20,11 +21,11 @@ def check_basic_auth(auth_header, expected_username, expected_password):
     Returns ``True`` if the decoded ``username:password`` matches the
     expected credentials (constant-time comparison).
     """
-    if not auth_header or not auth_header.startswith('Basic '):
+    if not auth_header or not auth_header.startswith("Basic "):
         return False
     try:
-        decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
-        expected = f'{expected_username}:{expected_password}'
+        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+        expected = f"{expected_username}:{expected_password}"
         return hmac.compare_digest(decoded, expected)
     except Exception as exc:
         logger.warning("Basic auth check failed: %s", exc)
@@ -36,7 +37,7 @@ def check_bearer_token(auth_header, expected_token):
 
     Returns ``True`` if the token matches (constant-time comparison).
     """
-    if not auth_header or not auth_header.startswith('Bearer '):
+    if not auth_header or not auth_header.startswith("Bearer "):
         return False
     token = auth_header[7:]
     # compare_digest on str rejects non-ASCII — the http.server header
@@ -44,8 +45,8 @@ def check_bearer_token(auth_header, expected_token):
     # Bearer value would raise TypeError instead of failing closed.
     try:
         return hmac.compare_digest(
-            token.encode('utf-8', 'replace'),
-            expected_token.encode('utf-8', 'replace'))
+            token.encode("utf-8", "replace"), expected_token.encode("utf-8", "replace")
+        )
     except Exception:
         return False
 
@@ -62,15 +63,15 @@ def request_headers_safe(headers) -> bool:
 
     Returns ``True`` when the headers are unambiguous.
     """
-    get_all = getattr(headers, 'get_all', None)
+    get_all = getattr(headers, "get_all", None)
     if get_all:
-        if get_all('Transfer-Encoding'):
+        if get_all("Transfer-Encoding"):
             return False
-        cl = get_all('Content-Length')
+        cl = get_all("Content-Length")
         if cl is not None and len([v for v in cl if v.strip()]) > 1:
             return False
     else:
-        if headers.get('Transfer-Encoding'):
+        if headers.get("Transfer-Encoding"):
             return False
     return True
 
@@ -85,12 +86,13 @@ def _peer_is_trusted_proxy(peer_ip: str, proxy_ips: set) -> bool:
     if peer_ip in proxy_ips:
         return True
     import ipaddress
+
     try:
         peer = ipaddress.ip_address(peer_ip)
     except ValueError:
         return False
     for entry in proxy_ips:
-        if '/' not in entry:
+        if "/" not in entry:
             continue
         try:
             if peer in ipaddress.ip_network(entry, strict=False):
@@ -114,7 +116,7 @@ def client_ip_from(headers, peer_ip):
         peer_ip: the socket peer address.
     """
     load_env_file()
-    trusted = env_flag('TRUSTED_PROXY', 'false')
+    trusted = env_flag("TRUSTED_PROXY", "false")
     # XFF is only meaningful when the request actually came through the
     # trusted proxy. Honoring it for any peer lets a client that can
     # reach a service port directly spoof its identity — rotating
@@ -123,14 +125,14 @@ def client_ip_from(headers, peer_ip):
     # TRUSTED_PROXY_IPS (comma-separated exact IPs or CIDR ranges,
     # e.g. an off-box proxy or a proxy pool).
     if trusted and headers is not None and peer_ip:
-        proxy_ips = {'127.0.0.1', '::1', 'localhost'}
-        extra = os.environ.get('TRUSTED_PROXY_IPS', '')
-        proxy_ips.update(p.strip() for p in extra.split(',') if p.strip())
+        proxy_ips = {"127.0.0.1", "::1", "localhost"}
+        extra = os.environ.get("TRUSTED_PROXY_IPS", "")
+        proxy_ips.update(p.strip() for p in extra.split(",") if p.strip())
         if not _peer_is_trusted_proxy(peer_ip, proxy_ips):
             return peer_ip
-        get = getattr(headers, 'get', None)
+        get = getattr(headers, "get", None)
         if callable(get):
-            forwarded = get('X-Forwarded-For', '')
+            forwarded = get("X-Forwarded-For", "")
             if forwarded:
                 # Take the LAST non-empty entry, not the first: nginx
                 # appends the real peer ($proxy_add_x_forwarded_for)
@@ -139,7 +141,7 @@ def client_ip_from(headers, peer_ip):
                 # set one. A trailing comma ('1.2.3.4,') must not yield
                 # an empty key — empty keys collapse into a shared
                 # rate-limit bucket and can bypass allowed_ip binds.
-                for hop in reversed(forwarded.split(',')):
+                for hop in reversed(forwarded.split(",")):
                     hop = hop.strip()
                     if hop:
                         return hop
@@ -154,23 +156,23 @@ def cookie_value(cookie_header: str, name: str) -> str:
     WS auth paths used to re-implement per service.
     """
     if not cookie_header:
-        return ''
-    prefix = name + '='
-    for part in cookie_header.split(';'):
+        return ""
+    prefix = name + "="
+    for part in cookie_header.split(";"):
         part = part.strip()
         if part.startswith(prefix):
-            return part.split('=', 1)[1].strip()
-    return ''
+            return part.split("=", 1)[1].strip()
+    return ""
 
 
-def header_get(headers, name: str, default: str = '') -> str:
+def header_get(headers, name: str, default: str = "") -> str:
     """Read a header value from anything with ``.get``, else default.
 
     WS handlers receive headers as dicts, Tornado header objects, or
     tuples — each used to re-implement
     ``headers.get(k, d) if hasattr(headers, 'get') else d``.
     """
-    get = getattr(headers, 'get', None)
+    get = getattr(headers, "get", None)
     if callable(get):
         return get(name, default)
     return default
@@ -182,9 +184,9 @@ def extract_bearer_token(auth_header: str) -> str:
     Case-insensitive scheme match; ``''`` when absent. Validation is
     separate — see :func:`check_bearer_token`.
     """
-    if auth_header and auth_header.lower().startswith('bearer '):
+    if auth_header and auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip()
-    return ''
+    return ""
 
 
 def ws_peer_ip(websocket) -> str:
@@ -194,8 +196,8 @@ def ws_peer_ip(websocket) -> str:
     transports — every WS service used to inline the
     ``ws.remote_address[0] if ws.remote_address else None`` ternary.
     """
-    addr = getattr(websocket, 'remote_address', None)
-    return addr[0] if addr else ''
+    addr = getattr(websocket, "remote_address", None)
+    return addr[0] if addr else ""
 
 
 def _is_locked(limiter, client_ip):
@@ -207,8 +209,7 @@ def _is_locked(limiter, client_ip):
     verify the same credentials. Check both so one shared credential
     gets one shared lockout budget.
     """
-    return (limiter.is_locked(client_ip)
-            or limiter.is_locked(f'ip:{client_ip}'))
+    return limiter.is_locked(client_ip) or limiter.is_locked(f"ip:{client_ip}")
 
 
 def check_landing_auth(auth_header, client_ip=None):
@@ -229,7 +230,7 @@ def check_landing_auth(auth_header, client_ip=None):
             session-cookie auth.
     """
     load_env_file()
-    password = os.environ.get('LANDING_PASSWORD', '')
+    password = os.environ.get("LANDING_PASSWORD", "")
     if not password:
         # Persisted auto-generated credential: get_config() writes it
         # to <run_dir>/generated_credentials.env — a process that did
@@ -238,18 +239,20 @@ def check_landing_auth(auth_header, client_ip=None):
             from vnc_remote_secure.core.config import (
                 _load_generated_credential,
             )
-            password = _load_generated_credential('LANDING_PASSWORD')
+
+            password = _load_generated_credential("LANDING_PASSWORD")
         except Exception:  # noqa: BLE001 - fallback is best-effort
-            password = ''
+            password = ""
     if not password:
         return False  # fail-closed: no password => no access
     limiter = None
     if client_ip:
         from vnc_remote_secure.security.rate_limit import get_auth_limiter
+
         limiter = get_auth_limiter()
         if _is_locked(limiter, client_ip):
             return False
-    ok = check_basic_auth(auth_header, 'admin', password)
+    ok = check_basic_auth(auth_header, "admin", password)
     if limiter is not None:
         if ok:
             limiter.record_success(client_ip)
@@ -258,6 +261,42 @@ def check_landing_auth(auth_header, client_ip=None):
             # only real credential submissions burn the budget.
             limiter.record_failure(client_ip)
     return ok
+
+
+def _record_auth_outcome(limiter, client_ip, ok: bool, presented: bool) -> None:
+    """Rate-limit bookkeeping — exactly one outcome per attempt.
+
+    A credentialless probe (the SPA's /me check before a session
+    exists) is not a brute-force attempt — only requests that
+    actually presented credentials burn the lockout budget.
+    """
+    if limiter is None:
+        return
+    if ok:
+        limiter.record_success(client_ip)
+    elif presented:
+        limiter.record_failure(client_ip)
+
+
+def _operator_store_auth(username: str, password, limiter, client_ip):
+    """Authenticate a stored operator. Returns ``(ok, operator)``, or
+    ``None`` when the username is not in the store / the store is
+    unreadable — the caller then falls back to the env bootstrap
+    path (a stored user never falls back — that would silently widen
+    their credentials; a corrupt store must not 500 the request, but
+    silently bypassing RBAC must be visible)."""
+    try:
+        from vnc_remote_secure.security.operator_users import load_store, verify
+
+        if username not in load_store():
+            return None
+        rec = verify(username, password or "")
+        if limiter is not None:
+            (limiter.record_success if rec else limiter.record_failure)(client_ip)
+        return (True, rec) if rec else (False, None)
+    except Exception as exc:  # noqa: BLE001 - store failure falls back to env
+        logger.warning("Operator store unreadable (%s) — falling back to " "env credentials", exc)
+        return None
 
 
 def authenticate_landing(auth_header, client_ip=None):
@@ -279,48 +318,30 @@ def authenticate_landing(auth_header, client_ip=None):
     limiter = None
     if client_ip:
         from vnc_remote_secure.security.rate_limit import get_auth_limiter
+
         limiter = get_auth_limiter()
         if _is_locked(limiter, client_ip):
             return False, None
     username = None
     password = None
-    if auth_header.startswith('Basic '):
+    if auth_header.startswith("Basic "):
         try:
-            decoded = base64.b64decode(
-                auth_header[6:]).decode('utf-8', 'replace')
-            username, _, password = decoded.partition(':')
+            decoded = base64.b64decode(auth_header[6:]).decode("utf-8", "replace")
+            username, _, password = decoded.partition(":")
         except ValueError:
             username = None
     if username:
-        try:
-            from vnc_remote_secure.security.operator_users import load_store, verify
-            if username in load_store():
-                rec = verify(username, password or '')
-                if limiter is not None:
-                    (limiter.record_success if rec else
-                     limiter.record_failure)(client_ip)
-                return (True, rec) if rec else (False, None)
-        except Exception as exc:  # noqa: BLE001 - store failure falls back to env
-            # A corrupt/unreadable store must not 500 the request —
-            # but silently bypassing RBAC must be visible.
-            logger.warning(
-                "Operator store unreadable (%s) — falling back to "
-                "env credentials", exc)
+        stored = _operator_store_auth(username, password, limiter, client_ip)
+        if stored is not None:
+            return stored
     ok = check_landing_auth(auth_header, client_ip=None)
-    if limiter is not None:
-        if ok:
-            limiter.record_success(client_ip)
-        elif auth_header.strip():
-            # A credentialless probe (the SPA's /me check before a
-            # session exists) is not a brute-force attempt — only
-            # requests that actually presented credentials burn the
-            # lockout budget.
-            limiter.record_failure(client_ip)
+    _record_auth_outcome(limiter, client_ip, ok, presented=bool(auth_header.strip()))
     if not ok:
         return False, None
     return True, {
-        'username': 'admin', 'role': 'admin',
-        'permissions': ['admin:*'],
+        "username": "admin",
+        "role": "admin",
+        "permissions": ["admin:*"],
     }
 
 
@@ -332,30 +353,33 @@ def check_terminal_auth(auth_header, client_ip=None):
     load_env_file()
     # Accept ephemeral Bearer tokens (used by session create --no-terminal
     # restrictions and per-action authorization).
-    if auth_header.startswith('Bearer '):
+    if auth_header.startswith("Bearer "):
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
+
         # Same rate-limit gate as the Basic path below — without it the
         # Bearer surface is an unthrottled check_permission oracle (and
         # probes can burn a captured single-use token).
         if client_ip:
             from vnc_remote_secure.security.rate_limit import get_auth_limiter
+
             limiter = get_auth_limiter()
             if _is_locked(limiter, client_ip):
                 return False
             ok = check_permission(
-                auth_header[7:].strip(), 'terminal:use', resource='terminal',
-                client_ip=client_ip)
+                auth_header[7:].strip(), "terminal:use", resource="terminal", client_ip=client_ip
+            )
             if ok:
                 limiter.record_success(client_ip)
             else:
                 limiter.record_failure(client_ip)
             return ok
         return check_permission(
-            auth_header[7:].strip(), 'terminal:use', resource='terminal',
-            client_ip=client_ip)
+            auth_header[7:].strip(), "terminal:use", resource="terminal", client_ip=client_ip
+        )
     from vnc_remote_secure.core.constants import DEFAULT_TTYD_USERNAME
-    username = os.environ.get('TTYD_USERNAME', DEFAULT_TTYD_USERNAME)
-    password = os.environ.get('TTYD_PASSWD', '')
+
+    username = os.environ.get("TTYD_USERNAME", DEFAULT_TTYD_USERNAME)
+    password = os.environ.get("TTYD_PASSWD", "")
     if not password:
         # Persisted auto-generated credential: get_config() writes it
         # to <run_dir>/generated_credentials.env — a process that did
@@ -364,9 +388,10 @@ def check_terminal_auth(auth_header, client_ip=None):
             from vnc_remote_secure.core.config import (
                 _load_generated_credential,
             )
-            password = _load_generated_credential('TTYD_PASSWD')
+
+            password = _load_generated_credential("TTYD_PASSWD")
         except Exception:  # noqa: BLE001 - fallback is best-effort
-            password = ''
+            password = ""
     if not password:
         return False
     # Feed the shared auth limiter like check_landing_auth — otherwise
@@ -375,6 +400,7 @@ def check_terminal_auth(auth_header, client_ip=None):
     limiter = None
     if client_ip:
         from vnc_remote_secure.security.rate_limit import get_auth_limiter
+
         limiter = get_auth_limiter()
         if _is_locked(limiter, client_ip):
             return False
@@ -389,22 +415,20 @@ def check_terminal_auth(auth_header, client_ip=None):
 
 def _loopback_bind(host: str) -> bool:
     """Return True when ``host`` resolves to a loopback-only bind."""
-    return (host or '').strip() in (
-        '127.0.0.1', '::1', 'localhost', '127.0.0.0/8')
+    return (host or "").strip() in ("127.0.0.1", "::1", "localhost", "127.0.0.0/8")
 
 
 def _loopback_peer(client_ip) -> bool:
     """Return True when the request's socket peer is loopback."""
     import ipaddress
+
     try:
-        return ipaddress.ip_address(
-            (client_ip or '').strip()).is_loopback
+        return ipaddress.ip_address((client_ip or "").strip()).is_loopback
     except ValueError:
-        return (client_ip or '').strip() in ('localhost',)
+        return (client_ip or "").strip() in ("localhost",)
 
 
-def check_health_auth(auth_header, client_ip=None, peer_ip=None,
-                      scope=None):
+def check_health_auth(auth_header, client_ip=None, peer_ip=None, scope=None):
     """Check health endpoint auth using optional ``HEALTH_AUTH_TOKEN``.
 
     Returns ``True`` if no token is configured — but ONLY when every
@@ -425,30 +449,9 @@ def check_health_auth(auth_header, client_ip=None, peer_ip=None,
     unset, the general token still works (backward compatible).
     """
     load_env_file()
-    token = os.environ.get('HEALTH_AUTH_TOKEN', '')
-    scope_env = {'audit': 'AUDIT_AUTH_TOKEN',
-                 'metrics': 'METRICS_AUTH_TOKEN'}.get(scope)
-    if scope_env:
-        scoped_token = os.environ.get(scope_env, '')
-        if scoped_token:
-            token = scoped_token
+    token = _health_token(scope)
     if not token:
-        base = os.environ.get('BIND_HOST', '127.0.0.1')
-        ui_host = os.environ.get('USER_UI_HOST', '') or base
-        health_host = os.environ.get('HEALTH_WEB_HOST', '') or base
-        if _loopback_bind(ui_host) and _loopback_bind(health_host):
-            peer = peer_ip if peer_ip is not None else client_ip
-            if peer is None or _loopback_peer(peer):
-                return True  # Open access is safe: loopback only.
-            logger.warning(
-                "Health request from non-loopback peer %s with no "
-                "HEALTH_AUTH_TOKEN — denying", peer)
-            return False
-        logger.warning(
-            "HEALTH_AUTH_TOKEN unset but health endpoints bind "
-            "non-loopback (%s, %s) — requiring Bearer auth",
-            ui_host, health_host)
-        return False  # fail-closed on public binds
+        return _health_no_token_access(client_ip, peer_ip)
     # Feed the shared auth limiter like the landing/terminal checkers —
     # otherwise the Bearer endpoints are an unthrottled token
     # brute-force oracle (only exploitable for a weak token, but the
@@ -458,6 +461,7 @@ def check_health_auth(auth_header, client_ip=None, peer_ip=None,
     limiter = None
     if limiter_ip:
         from vnc_remote_secure.security.rate_limit import get_auth_limiter
+
         limiter = get_auth_limiter()
         if _is_locked(limiter, limiter_ip):
             return False
@@ -468,3 +472,44 @@ def check_health_auth(auth_header, client_ip=None, peer_ip=None,
         else:
             limiter.record_failure(limiter_ip)
     return ok
+
+
+def _health_token(scope) -> str:
+    """Resolve the token for the requested scope — a scoped token
+    (``AUDIT_AUTH_TOKEN``/``METRICS_AUTH_TOKEN``) overrides the
+    general ``HEALTH_AUTH_TOKEN`` when set; unset falls back to the
+    general one (backward compatible)."""
+    token = os.environ.get("HEALTH_AUTH_TOKEN", "")
+    scope_env = {"audit": "AUDIT_AUTH_TOKEN", "metrics": "METRICS_AUTH_TOKEN"}.get(scope)
+    if scope_env:
+        scoped_token = os.environ.get(scope_env, "")
+        if scoped_token:
+            token = scoped_token
+    return token
+
+
+def _health_no_token_access(client_ip, peer_ip) -> bool:
+    """Open access without a token is safe ONLY when every host the
+    endpoints bind is loopback AND the request's socket peer is
+    loopback — a reverse proxy in front of the loopback port would
+    otherwise expose /audit, /metrics and service state. Public
+    binds fail closed."""
+    base = os.environ.get("BIND_HOST", "127.0.0.1")
+    ui_host = os.environ.get("USER_UI_HOST", "") or base
+    health_host = os.environ.get("HEALTH_WEB_HOST", "") or base
+    if not (_loopback_bind(ui_host) and _loopback_bind(health_host)):
+        logger.warning(
+            "HEALTH_AUTH_TOKEN unset but health endpoints bind "
+            "non-loopback (%s, %s) — requiring Bearer auth",
+            ui_host,
+            health_host,
+        )
+        return False  # fail-closed on public binds
+    peer = peer_ip if peer_ip is not None else client_ip
+    if peer is None or _loopback_peer(peer):
+        return True  # Open access is safe: loopback only.
+    logger.warning(
+        "Health request from non-loopback peer %s with no " "HEALTH_AUTH_TOKEN — denying",
+        peer,
+    )
+    return False

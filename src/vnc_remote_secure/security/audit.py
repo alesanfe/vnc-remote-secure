@@ -21,6 +21,7 @@ Log rotation: when the log exceeds ``AUDIT_LOG_MAX_BYTES`` (default
 10 MB), it is rotated to ``audit.jsonl.1`` and a new anchor entry is
 written to the fresh log.
 """
+
 import contextlib
 import hashlib
 import json
@@ -45,11 +46,12 @@ def _audit_log_file() -> str:
     (non-root Linux), or ``%ProgramData%\\VncRemoteSecure\\logs``
     (Windows). ``AUDIT_LOG_FILE`` overrides entirely.
     """
-    override = os.environ.get('AUDIT_LOG_FILE', '')
+    override = os.environ.get("AUDIT_LOG_FILE", "")
     if override:
         return override
     from vnc_remote_secure.core.paths import get_log_dir
-    return os.path.join(get_log_dir(), 'audit.jsonl')
+
+    return os.path.join(get_log_dir(), "audit.jsonl")
 
 
 # Rotation threshold (default 10 MB). Resolved lazily — audit.py is
@@ -60,8 +62,7 @@ _AUDIT_LOG_MAX_BYTES_DEFAULT = 10 * 1024 * 1024
 
 def _audit_log_max_bytes() -> int:
     try:
-        return int(os.environ.get(
-            'AUDIT_LOG_MAX_BYTES', str(_AUDIT_LOG_MAX_BYTES_DEFAULT)))
+        return int(os.environ.get("AUDIT_LOG_MAX_BYTES", str(_AUDIT_LOG_MAX_BYTES_DEFAULT)))
     except (ValueError, TypeError):
         return _AUDIT_LOG_MAX_BYTES_DEFAULT
 
@@ -69,12 +70,12 @@ def _audit_log_max_bytes() -> int:
 # The genesis anchor hash — a fixed, well-known value that starts
 # every fresh audit chain. This is verified on startup to detect
 # truncation attacks.
-_ANCHOR_HASH = '0000000000000000000000000000000000000000000000000000000000000000'
+_ANCHOR_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
 
 # In-memory chain hash cache. For multi-process deployments, the
 # hash is re-read from the file before each write to ensure the chain
 # remains consistent across processes.
-_chain_hash = ''
+_chain_hash = ""
 _chain_lock = threading.Lock()
 _startup_verified = False
 
@@ -90,17 +91,17 @@ _startup_verified = False
 # It is a pure cache: any inconsistency falls back to a full rebuild,
 # and verification paths keep reading the file verbatim.
 _idx_lock = threading.Lock()
-_idx_cache: dict = {}   # path -> {'first': bytes-hash, 'size': int,
-                        #          'offsets': [int]}
+_idx_cache: dict = {}  # path -> {'first': bytes-hash, 'size': int,
+#          'offsets': [int]}
 
 
 def _first_line_digest(path) -> bytes:
     """Identity of the current log generation — changes on rotation."""
     try:
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             return hashlib.sha256(f.readline()).digest()
     except OSError:
-        return b''
+        return b""
 
 
 def _audit_offsets(path) -> list:
@@ -117,28 +118,28 @@ def _audit_offsets(path) -> list:
     with _idx_lock:
         ent = _idx_cache.get(key)
         first = _first_line_digest(path)
-        if not ent or ent['first'] != first or size < ent['size']:
-            ent = {'first': first, 'size': 0, 'offsets': []}
+        if not ent or ent["first"] != first or size < ent["size"]:
+            ent = {"first": first, "size": 0, "offsets": []}
             _idx_cache[key] = ent
-        if size == ent['size']:
-            return ent['offsets']
+        if size == ent["size"]:
+            return ent["offsets"]
         try:
-            with open(path, 'rb') as f:
-                f.seek(ent['size'])
-                tail = f.read(size - ent['size'])
+            with open(path, "rb") as f:
+                f.seek(ent["size"])
+                tail = f.read(size - ent["size"])
             # Extend the index over COMPLETE lines only; a partial
             # tail (crash mid-write) stays unindexed until its
             # newline lands — never exposed as an entry.
-            pos = ent['size']
+            pos = ent["size"]
             seg = 0
             while True:
-                nl = tail.find(b'\n', seg)
+                nl = tail.find(b"\n", seg)
                 if nl < 0:
                     break
-                ent['offsets'].append(pos + seg)
+                ent["offsets"].append(pos + seg)
                 seg = nl + 1
-            ent['size'] = pos + seg
-            return ent['offsets']
+            ent["size"] = pos + seg
+            return ent["offsets"]
         except OSError:
             return []
 
@@ -150,11 +151,10 @@ def _read_lines(path, start: int, stop: int) -> list:
         return []
     out = []
     try:
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             for i in range(max(0, start), min(stop, len(offsets))):
                 f.seek(offsets[i])
-                out.append(f.readline().decode('utf-8',
-                                               errors='replace'))
+                out.append(f.readline().decode("utf-8", errors="replace"))
     except OSError:
         return []
     return out
@@ -169,10 +169,10 @@ def _last_audit_line(path):
         if lines:
             return lines[-1]
     try:
-        text = Path(path).read_text(encoding='utf-8').strip()
-        return text.split('\n')[-1] if text else ''
+        text = Path(path).read_text(encoding="utf-8").strip()
+        return text.split("\n")[-1] if text else ""
     except OSError:
-        return ''
+        return ""
 
 
 def _load_chain_hash():
@@ -183,10 +183,10 @@ def _load_chain_hash():
         if path.exists():
             last = _last_audit_line(path)
             if last:
-                _chain_hash = json.loads(last).get('hash', '')
+                _chain_hash = json.loads(last).get("hash", "")
     except (OSError, json.JSONDecodeError) as exc:
         logger.debug("Could not load audit chain hash: %s", exc)
-        _chain_hash = ''
+        _chain_hash = ""
 
 
 def _load_last_seq() -> int:
@@ -196,7 +196,7 @@ def _load_last_seq() -> int:
         if path.exists():
             last = _last_audit_line(path)
             if last:
-                seq = json.loads(last).get('seq')
+                seq = json.loads(last).get("seq")
                 if isinstance(seq, int):
                     return seq
     except (OSError, json.JSONDecodeError):
@@ -208,10 +208,10 @@ def _compute_hash(prev_hash: str, entry: dict) -> str:
     """Compute the chain hash for a new entry."""
     # Hash includes the previous hash and the entry content (excluding
     # the hash field itself) to form a tamper-evident chain.
-    entry_copy = {k: v for k, v in entry.items() if k != 'hash'}
-    entry_copy['prev_hash'] = prev_hash
-    canonical = json.dumps(entry_copy, sort_keys=True, separators=(',', ':'))
-    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+    entry_copy = {k: v for k, v in entry.items() if k != "hash"}
+    entry_copy["prev_hash"] = prev_hash
+    canonical = json.dumps(entry_copy, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 # Shared-state namespace holding the last-known chain tip. Persisting
@@ -219,7 +219,7 @@ def _compute_hash(prev_hash: str, entry: dict) -> str:
 # the hash chain catches mid-file edits, but a peer deleting tail
 # lines leaves a perfectly valid (shorter) chain. The stored tip is
 # the cross-restart witness for that.
-_TIP_NS = 'audit_chain'
+_TIP_NS = "audit_chain"
 _audit_write_alerted_at = 0.0
 
 
@@ -237,21 +237,25 @@ def _alert_audit_write_failure() -> None:
     _audit_write_alerted_at = now
     try:
         from vnc_remote_secure.monitoring.alerts import notify
-        notify('Audit log write failure',
-               'The audit log (or its mirror) could not be written — '
-               'security events are not being persisted. Check disk '
-               'space and permissions, or set AUDIT_STRICT=true to '
-               'fail actions instead.',
-               severity='critical')
+
+        notify(
+            "Audit log write failure",
+            "The audit log (or its mirror) could not be written — "
+            "security events are not being persisted. Check disk "
+            "space and permissions, or set AUDIT_STRICT=true to "
+            "fail actions instead.",
+            severity="critical",
+        )
     except Exception:  # noqa: BLE001
         pass
     from vnc_remote_secure.monitoring.prometheus import inc_counter
-    inc_counter('vnc_remote_audit_write_errors_total')
+
+    inc_counter("vnc_remote_audit_write_errors_total")
 
 
 def _tip_sidecar_path() -> str:
     """Path of the HMAC-signed tip sidecar next to the audit log."""
-    return _audit_log_file() + '.tip'
+    return _audit_log_file() + ".tip"
 
 
 def _tip_signature(chain_hash: str) -> str:
@@ -265,21 +269,23 @@ def _tip_signature(chain_hash: str) -> str:
     import hmac
 
     from vnc_remote_secure.security.token_signing import _get_secret as _auth_secret
+
     return hmac.new(
-        _auth_secret(), f'audit-tip:{chain_hash}'.encode('utf-8'),
-        hashlib.sha256).hexdigest()
+        _auth_secret(), f"audit-tip:{chain_hash}".encode("utf-8"), hashlib.sha256
+    ).hexdigest()
 
 
 def _record_tip(chain_hash: str) -> None:
     """Persist the chain tip (shared state + signed sidecar)."""
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        get_backend().set_ttl(_TIP_NS, 'tip', chain_hash, 86400 * 365)
+
+        get_backend().set_ttl(_TIP_NS, "tip", chain_hash, 86400 * 365)
     except Exception:  # noqa: BLE001 - checkpoint must not break logging
         pass
     try:
         side = Path(_tip_sidecar_path())
-        side.write_text(f'{chain_hash} {_tip_signature(chain_hash)}')
+        side.write_text(f"{chain_hash} {_tip_signature(chain_hash)}")
         _set_secure_perms(side)
     except Exception:  # noqa: BLE001 - best-effort; shared state remains
         pass
@@ -296,22 +302,24 @@ def _stored_tip() -> str | None:
     try:
         side = Path(_tip_sidecar_path())
         if side.exists():
-            parts = side.read_text(
-                encoding='utf-8').strip().split()
+            parts = side.read_text(encoding="utf-8").strip().split()
             if len(parts) == 2:
                 tip, sig = parts
                 import hmac as _hmac
+
                 if _hmac.compare_digest(sig, _tip_signature(tip)):
                     return tip
                 logger.warning(
                     "Audit tip sidecar signature mismatch — possible "
-                    "tampering; treating as corrupted witness")
-                return 'INVALID-TIP-SIDECAR'
+                    "tampering; treating as corrupted witness"
+                )
+                return "INVALID-TIP-SIDECAR"
     except Exception:  # noqa: BLE001
         pass
     try:
         from vnc_remote_secure.security.shared_state import get_backend
-        return get_backend().get(_TIP_NS, 'tip')
+
+        return get_backend().get(_TIP_NS, "tip")
     except Exception:  # noqa: BLE001
         return None
 
@@ -326,24 +334,24 @@ def _write_anchor(prev_tip: str | None = None):
     """
     global _chain_hash
     entry = {
-        'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        'seq': 0,
-        'event': 'anchor',
-        'user': 'system',
-        'ip': 'unknown',
-        'result': 'success',
-        'detail': 'Audit chain anchor — genesis entry',
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "seq": 0,
+        "event": "anchor",
+        "user": "system",
+        "ip": "unknown",
+        "result": "success",
+        "detail": "Audit chain anchor — genesis entry",
     }
     if prev_tip:
-        entry['prev_tip'] = prev_tip
-    entry['hash'] = _compute_hash(_ANCHOR_HASH, entry)
-    _chain_hash = str(entry['hash'])
+        entry["prev_tip"] = prev_tip
+    entry["hash"] = _compute_hash(_ANCHOR_HASH, entry)
+    _chain_hash = str(entry["hash"])
     path = Path(_audit_log_file())
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(json.dumps(entry, separators=(',', ':')) + '\n')
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(entry, separators=(",", ":")) + "\n")
     _set_secure_perms(path)
-    _record_tip(str(entry['hash']))
+    _record_tip(str(entry["hash"]))
 
 
 def _set_secure_perms(path):
@@ -355,6 +363,7 @@ def _set_secure_perms(path):
     """
     try:
         from vnc_remote_secure.security.certificates import _restrict_key_permissions
+
         _restrict_key_permissions(str(path), writable=True)
         return
     except Exception:  # noqa: BLE001
@@ -373,7 +382,7 @@ def _audit_file_lock():
     Windows; degrades to the process-local threading lock when neither
     is available.
     """
-    lock_path = Path(_audit_log_file()).with_suffix('.lock')
+    lock_path = Path(_audit_log_file()).with_suffix(".lock")
     try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
     except OSError:
@@ -383,21 +392,23 @@ def _audit_file_lock():
     try:
         try:
             import fcntl
+
             fcntl.flock(fd, fcntl.LOCK_EX)
-            acquired = 'fcntl'
+            acquired = "fcntl"
         except ImportError:
             try:
                 import msvcrt
+
                 msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
-                acquired = 'msvcrt'
+                acquired = "msvcrt"
             except (ImportError, OSError):
                 pass
         yield
     finally:
         try:
-            if acquired == 'fcntl':
+            if acquired == "fcntl":
                 fcntl.flock(fd, fcntl.LOCK_UN)
-            elif acquired == 'msvcrt':
+            elif acquired == "msvcrt":
                 os.lseek(fd, 0, os.SEEK_SET)
                 msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         except OSError:
@@ -426,10 +437,10 @@ def _maybe_rotate():
     # fabricated log then fails chain continuity at the anchor.
     prev_tip = None
     try:
-        prev_tip = json.loads(_last_audit_line(path)).get('hash')
+        prev_tip = json.loads(_last_audit_line(path)).get("hash")
     except (OSError, json.JSONDecodeError, IndexError):
         prev_tip = None
-    rotated = path.with_suffix('.jsonl.1')
+    rotated = path.with_suffix(".jsonl.1")
     try:
         if rotated.exists():
             rotated.unlink()
@@ -460,7 +471,8 @@ def verify_chain_on_startup():
         if stored:
             logger.warning(
                 "Audit log missing but a previous chain tip exists — "
-                "the log was deleted or moved outside the service")
+                "the log was deleted or moved outside the service"
+            )
         _write_anchor()
         logger.info("Created fresh audit log with anchor entry")
         return
@@ -476,7 +488,9 @@ def verify_chain_on_startup():
             logger.warning(
                 "Audit chain tip mismatch — log truncated or rolled "
                 "back (recorded tip %s…, file tip %s…)",
-                stored[:12], _chain_hash[:12])
+                stored[:12],
+                _chain_hash[:12],
+            )
     else:
         logger.warning("Audit chain verification FAILED on startup: %s", msg)
     _set_secure_perms(path)
@@ -484,10 +498,10 @@ def verify_chain_on_startup():
 
 def audit_log(
     event: str,
-    user: str = 'anonymous',
-    ip: str = 'unknown',
-    result: str = 'success',
-    detail: str = '',
+    user: str = "anonymous",
+    ip: str = "unknown",
+    result: str = "success",
+    detail: str = "",
     extra: dict | None = None,
 ) -> dict:
     """Write a structured audit log entry.
@@ -530,28 +544,28 @@ def audit_log(
         from vnc_remote_secure.security.redaction import redact_text
 
         entry = {
-            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            'seq': entry_seq,
-            'event': event,
-            'user': user,
-            'ip': ip,
-            'result': result,
-            'detail': redact_text(detail) if detail else detail,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "seq": entry_seq,
+            "event": event,
+            "user": user,
+            "ip": ip,
+            "result": result,
+            "detail": redact_text(detail) if detail else detail,
         }
         if extra:
             for k, v in extra.items():
                 entry[k] = redact_text(v) if isinstance(v, str) else v
 
         # Compute chain hash for tamper-evidence.
-        entry['hash'] = _compute_hash(_chain_hash, entry)
+        entry["hash"] = _compute_hash(_chain_hash, entry)
 
         # Append to log file (create parent dirs if needed).
-        line = json.dumps(entry, separators=(',', ':')) + '\n'
+        line = json.dumps(entry, separators=(",", ":")) + "\n"
         path = Path(_audit_log_file())
         persisted = False
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, 'a', encoding='utf-8') as f:
+            with open(path, "a", encoding="utf-8") as f:
                 f.write(line)
             _set_secure_perms(path)
             # Advance the chain only AFTER the entry reached disk —
@@ -559,13 +573,13 @@ def audit_log(
             # the next entry chains onto a hash whose line never
             # persisted, and verification then reports "tampered" for
             # what was merely a full disk.
-            _chain_hash = str(entry['hash'])
+            _chain_hash = str(entry["hash"])
             _record_tip(_chain_hash)
             persisted = True
         except Exception:
             logger.exception("Failed to write audit log:")
             _alert_audit_write_failure()
-            if env_flag('AUDIT_STRICT', ''):
+            if env_flag("AUDIT_STRICT", ""):
                 # Fail-closed mode: the audited action aborts when its
                 # record cannot persist — for deployments where an
                 # unaudited action is worse than a failed one. Callers
@@ -580,13 +594,12 @@ def audit_log(
         # time so a later load_env_file() still applies. A mirror equal
         # to the primary path is skipped — duplicating a line would
         # break chain verification.
-        mirror = os.environ.get('AUDIT_MIRROR_FILE', '').strip()
-        if mirror and os.path.abspath(mirror) != os.path.abspath(
-                str(path)):
+        mirror = os.environ.get("AUDIT_MIRROR_FILE", "").strip()
+        if mirror and os.path.abspath(mirror) != os.path.abspath(str(path)):
             try:
                 mpath = Path(mirror)
                 mpath.parent.mkdir(parents=True, exist_ok=True)
-                with open(mpath, 'a', encoding='utf-8') as mf:
+                with open(mpath, "a", encoding="utf-8") as mf:
                     mf.write(line)
             except Exception:
                 logger.exception("Failed to write audit mirror:")
@@ -598,12 +611,17 @@ def audit_log(
     # SIEM a record absent from the verified chain.
     if persisted:
         from vnc_remote_secure.security.audit_export import export_entry
+
         export_entry(entry, line)
 
     # Also log at INFO level for console visibility.
     logger.info(
         "AUDIT: %s %s by %s from %s — %s",
-        event, result, user, ip, detail,
+        event,
+        result,
+        user,
+        ip,
+        detail,
     )
     return entry
 
@@ -632,48 +650,51 @@ def verify_chain() -> tuple:
     """
     path = Path(_audit_log_file())
     if not path.exists():
-        return True, 'No audit log file'
+        return True, "No audit log file"
 
-    lines = path.read_text(encoding='utf-8').strip().split('\n')
-    if not lines or lines == ['']:
-        return True, 'Empty audit log'
+    lines = path.read_text(encoding="utf-8").strip().split("\n")
+    if not lines or lines == [""]:
+        return True, "Empty audit log"
 
-    prev_hash = ''
+    prev_hash = ""
     prev_seq = None
     for i, line in enumerate(lines):
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
-            return False, f'Invalid JSON at line {i + 1}'
-        stored_hash = entry.pop('hash', '')
+            return False, f"Invalid JSON at line {i + 1}"
+        stored_hash = entry.pop("hash", "")
         # The first entry must be the anchor, chained from _ANCHOR_HASH.
         if i == 0:
-            if entry.get('event') != 'anchor':
-                return False, 'Missing anchor entry at line 1'
+            if entry.get("event") != "anchor":
+                return False, "Missing anchor entry at line 1"
             prev_hash = _ANCHOR_HASH
         # Sequence continuity: entries written before seq existed
         # have no field — skip those; a present-but-non-consecutive
         # seq means a middle deletion that survived hashing.
-        seq = entry.get('seq')
-        if seq is not None and prev_seq is not None \
-                and seq != prev_seq + 1:
+        seq = entry.get("seq")
+        if seq is not None and prev_seq is not None and seq != prev_seq + 1:
             return False, (
-                f'Sequence gap at line {i + 1}: expected '
-                f'{prev_seq + 1}, found {seq} — entries deleted')
+                f"Sequence gap at line {i + 1}: expected "
+                f"{prev_seq + 1}, found {seq} — entries deleted"
+            )
         if seq is not None:
             prev_seq = seq
         computed = _compute_hash(prev_hash, entry)
         if computed != stored_hash:
-            return False, f'Hash mismatch at line {i + 1}: chain broken'
+            return False, f"Hash mismatch at line {i + 1}: chain broken"
         prev_hash = stored_hash
 
-    return True, f'Chain intact ({len(lines)} entries)'
+    return True, f"Chain intact ({len(lines)} entries)"
 
 
-def get_audit_entries(limit: int = 100, event: str | None = None,
-                      before_seq: int | None = None,
-                      user: str | None = None,
-                      result: str | None = None) -> list:
+def get_audit_entries(
+    limit: int = 100,
+    event: str | None = None,
+    before_seq: int | None = None,
+    user: str | None = None,
+    result: str | None = None,
+) -> list:
     """Read recent audit log entries.
 
     Args:
@@ -693,22 +714,20 @@ def get_audit_entries(limit: int = 100, event: str | None = None,
 
     offsets = _audit_offsets(path)
     if offsets:
-        return _entries_indexed(path, offsets, limit, event,
-                                before_seq, user, result)
+        return _entries_indexed(path, offsets, limit, event, before_seq, user, result)
     # Fallback: unreadable index (e.g. empty file) — verbatim scan.
-    lines = path.read_text(encoding='utf-8').strip().split('\n')
+    lines = path.read_text(encoding="utf-8").strip().split("\n")
     entries = []
     for line in reversed(lines):
         try:
             entry = json.loads(line)
-            if before_seq is not None and \
-                    int(entry.get('seq', 0)) >= before_seq:
+            if before_seq is not None and int(entry.get("seq", 0)) >= before_seq:
                 continue
-            if event is not None and entry.get('event') != event:
+            if event is not None and entry.get("event") != event:
                 continue
-            if user is not None and entry.get('user') != user:
+            if user is not None and entry.get("user") != user:
                 continue
-            if result is not None and entry.get('result') != result:
+            if result is not None and entry.get("result") != result:
                 continue
             entries.append(entry)
             if len(entries) >= limit:
@@ -718,11 +737,49 @@ def get_audit_entries(limit: int = 100, event: str | None = None,
     return entries
 
 
-def _entries_indexed(path, offsets: list, limit: int,
-                     event: str | None, before_seq: int | None,
-                     user: str | None, result: str | None) -> list:
+def _entries_indexed(
+    path,
+    offsets: list,
+    limit: int,
+    event: str | None,
+    before_seq: int | None,
+    user: str | None,
+    result: str | None,
+) -> list:
     """Indexed read of ``get_audit_entries`` — seeks lines instead of
     scanning the whole file.
+
+    ``before_seq`` fast path: seq is assigned 0,1,2… per appended
+    entry, so when the line at index ``before_seq`` carries
+    ``seq == before_seq`` the chain is dense and every newer line is
+    excludable in O(1). Older files written before ``seq`` existed
+    have sparse seqs — the probe then fails and we scan from the tail
+    like the unindexed path, still correct but no faster.
+    """
+    start = _dense_seq_start(path, offsets, before_seq)
+    entries: list[dict] = []
+    # Read backwards in page-sized windows: 'seek per line' would be
+    # one syscall per entry; a windowed read amortizes it.
+    window = max(limit * 2, 64)
+    top = start + 1
+    while top > 0 and len(entries) < limit:
+        lo = max(0, top - window)
+        for line in reversed(_read_lines(path, lo, top)):
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not _entry_matches(entry, event, before_seq, user, result):
+                continue
+            entries.append(entry)
+            if len(entries) >= limit:
+                break
+        top = lo
+    return entries
+
+
+def _dense_seq_start(path, offsets: list, before_seq: int | None) -> int:
+    """Tail start index for the windowed scan.
 
     ``before_seq`` fast path: seq is assigned 0,1,2… per appended
     entry, so when the line at index ``before_seq`` carries
@@ -736,31 +793,23 @@ def _entries_indexed(path, offsets: list, limit: int,
         probe = _read_lines(path, before_seq, before_seq + 1)
         if probe:
             with contextlib.suppress(json.JSONDecodeError):
-                if json.loads(probe[0]).get('seq') == before_seq:
+                if json.loads(probe[0]).get("seq") == before_seq:
                     start = before_seq - 1
-    entries = []
-    # Read backwards in page-sized windows: 'seek per line' would be
-    # one syscall per entry; a windowed read amortizes it.
-    window = max(limit * 2, 64)
-    top = start + 1
-    while top > 0 and len(entries) < limit:
-        lo = max(0, top - window)
-        for line in reversed(_read_lines(path, lo, top)):
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if before_seq is not None and \
-                    int(entry.get('seq', 0)) >= before_seq:
-                continue
-            if event is not None and entry.get('event') != event:
-                continue
-            if user is not None and entry.get('user') != user:
-                continue
-            if result is not None and entry.get('result') != result:
-                continue
-            entries.append(entry)
-            if len(entries) >= limit:
-                break
-        top = lo
-    return entries
+    return start
+
+
+def _entry_matches(
+    entry: dict,
+    event: str | None,
+    before_seq: int | None,
+    user: str | None,
+    result: str | None,
+) -> bool:
+    """All given filters must pass; ``None`` filter = don't care."""
+    if before_seq is not None and int(entry.get("seq", 0)) >= before_seq:
+        return False
+    if event is not None and entry.get("event") != event:
+        return False
+    if user is not None and entry.get("user") != user:
+        return False
+    return result is None or entry.get("result") == result
