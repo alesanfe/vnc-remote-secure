@@ -50,6 +50,7 @@ export default function FilesPage() {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const controllers = useRef(new Map<number, AbortController>());
 
   const list = useQuery({
     queryKey: ['files', path],
@@ -85,17 +86,23 @@ export default function FilesPage() {
           continue;
         }
         patch(id, { status: 'uploading' });
+        const ctrl = new AbortController();
+        controllers.current.set(id, ctrl);
         try {
           const b64 = await toBase64(f);
           await api.filesUpload(
-            path ? `${path}/${f.name}` : f.name, b64);
+            path ? `${path}/${f.name}` : f.name, b64, false,
+            ctrl.signal);
           patch(id, { status: 'done' });
         } catch (e) {
           patch(id, {
             status: 'error',
-            error: e instanceof ApiError ? e.message
+            error: ctrl.signal.aborted ? t('files.st.cancelled')
+                 : e instanceof ApiError ? e.message
                                        : t('files.uploadError'),
           });
+        } finally {
+          controllers.current.delete(id);
         }
       }
       void qc.invalidateQueries({ queryKey: ['files'] });
@@ -239,6 +246,13 @@ export default function FilesPage() {
                   {fmtSize(x.size)} · {t(`files.st.${x.status}`)}
                   {x.error ? ` — ${x.error}` : ''}
                 </span>
+                {x.status === 'uploading' && (
+                  <button type="button" className="ghost"
+                          aria-label={t('files.cancelUpload')}
+                          onClick={() => controllers.current.get(x.id)?.abort()}>
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                )}
               </li>
             ))}
           </ul>

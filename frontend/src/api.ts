@@ -189,10 +189,11 @@ export const api = {
     request<FileListResult>(
       `files?path=${encodeURIComponent(path)}`),
   filesUpload: (path: string, content_b64: string,
-                overwrite = false) =>
+                overwrite = false, signal?: AbortSignal) =>
     request<{ path: string; size: number }>('files/upload', {
       method: 'POST',
       body: JSON.stringify({ path, content_b64, overwrite }),
+      signal,
     }),
   filesMkdir: (path: string) =>
     request<{ path: string }>('files/mkdir', {

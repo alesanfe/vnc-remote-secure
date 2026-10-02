@@ -331,6 +331,8 @@ function PowerPanel() {
           className="mono"
           placeholder="AA:BB:CC:DD:EE:FF"
           aria-label={t('overview.power.wolMac')}
+          aria-invalid={mac.trim() !== '' && !MAC_RE.test(mac.trim())}
+          aria-describedby="wol-mac-hint"
           value={mac}
           onChange={(e) => setMac(e.target.value)}
         />{' '}
@@ -340,6 +342,11 @@ function PowerPanel() {
           {t('overview.power.wolSend')}
         </button>
       </p>
+      {mac.trim() !== '' && !MAC_RE.test(mac.trim()) && (
+        <p className="muted" id="wol-mac-hint">
+          {t('overview.power.wolMacInvalid')}
+        </p>
+      )}
       {flash && <div className="info-box">{flash}</div>}
       {err && <div className="error-box" role="alert">{err}</div>}
 
