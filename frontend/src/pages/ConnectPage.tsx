@@ -121,7 +121,7 @@ export default function ConnectPage() {
                 }
               />
               {a.available && a.key === 'desktop' && (
-                <Link to="/remote">{t('nav.remote')}</Link>
+                <Link to="/remote">{t('remote.title')}</Link>
               )}
               {a.available && <a href={a.url}>{t('common.open')}</a>}
             </div>

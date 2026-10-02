@@ -276,12 +276,17 @@ a { color: var(--accent-text); }
   padding: 0;
 }
 .cap-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.35rem 0;
   border-bottom: 1px dashed var(--border);
 }
+.cap-list li svg { flex-shrink: 0; }
+.cap-yes svg { color: var(--ok-text); }
+.cap-no svg { color: var(--text-dim); }
 .cap-list li:last-child { border-bottom: 0; }
 .cap-yes { color: var(--text); }
-.cap-yes::first-letter { color: var(--ok-text); }
 .cap-no { color: var(--text-dim); }
 .cap-strong { font-weight: 600; }
 .cap-warn { font-size: 0.85rem; }
