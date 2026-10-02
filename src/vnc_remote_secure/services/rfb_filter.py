@@ -33,6 +33,7 @@ dropped unless the session holds ``desktop:clipboard_read``
 one per message, and un-negotiated or unknown encodings/message types
 close the connection rather than pass unparseable bytes.
 """
+
 import logging
 import secrets
 
@@ -40,21 +41,21 @@ logger = logging.getLogger(__name__)
 
 # RFB client-to-server message types with fixed lengths.
 _FIXED_LEN = {
-    0: 20,   # SetPixelFormat
-    3: 10,   # FramebufferUpdateRequest
-    4: 8,    # KeyEvent
-    5: 6,    # PointerEvent
+    0: 20,  # SetPixelFormat
+    3: 10,  # FramebufferUpdateRequest
+    4: 8,  # KeyEvent
+    5: 6,  # PointerEvent
     150: 6,  # EnableContinuousUpdates: type pad w(2) h(2)
 }
 
 # Message types whose tail length is computed from a header field.
 # Maps type -> (header_len, tail_fn(header_bytes)).
 _VAR_LEN = {
-    1: (6, lambda h: 6 * int.from_bytes(h[4:6], 'big')),   # FixColourMapEntries
-    2: (4, lambda h: 4 * int.from_bytes(h[2:4], 'big')),   # SetEncodings
-    6: (8, lambda h: int.from_bytes(h[4:8], 'big')),       # ClientCutText
-    248: (9, lambda h: h[4]),                              # Fence: len@4
-    251: (8, lambda h: 16 * h[4]),                          # SetDesktopSize
+    1: (6, lambda h: 6 * int.from_bytes(h[4:6], "big")),  # FixColourMapEntries
+    2: (4, lambda h: 4 * int.from_bytes(h[2:4], "big")),  # SetEncodings
+    6: (8, lambda h: int.from_bytes(h[4:8], "big")),  # ClientCutText
+    248: (9, lambda h: h[4]),  # Fence: len@4
+    251: (8, lambda h: 16 * h[4]),  # SetDesktopSize
 }
 
 # SetDesktopSize resizes the remote framebuffer — control-plane input,
@@ -91,16 +92,16 @@ _MAX_RFB_BUF = 8 * 1024 * 1024
 # connection dies (fail closed), it never passes unparseable bytes.
 # ---------------------------------------------------------------------------
 _SRV_FIXED_LEN = {
-    1: 6,    # SetColourMapEntries: type pad first(2) count(2)
-    2: 1,    # Bell
-    4: 6,    # ResizeFrameBuffer (UltraVNC)
+    1: 6,  # SetColourMapEntries: type pad first(2) count(2)
+    2: 1,  # Bell
+    4: 6,  # ResizeFrameBuffer (UltraVNC)
     150: 1,  # EndOfContinuousUpdates
     173: 8,  # ServerState (UltraVNC)
 }
 _SRV_VAR_LEN = {
-    3: (8, lambda h: int.from_bytes(h[4:8], 'big')),   # ServerCutText
-    128: (8, lambda h: int.from_bytes(h[4:8], 'big')),  # TextChat (UltraVNC)
-    248: (9, lambda h: h[4]),                          # Fence: type pad(3)
+    3: (8, lambda h: int.from_bytes(h[4:8], "big")),  # ServerCutText
+    128: (8, lambda h: int.from_bytes(h[4:8], "big")),  # TextChat (UltraVNC)
+    248: (9, lambda h: h[4]),  # Fence: type pad(3)
     # length(1) flags(4) payload[length]
 }
 _SRV_TYPE_FB_UPDATE = 0
@@ -110,10 +111,18 @@ _SRV_TYPE_CUT_TEXT = 3
 # pixels. Anything else is stripped from SetEncodings, so it can never
 # legitimately arrive; if it does anyway the stream is dead.
 _SAFE_ENCODINGS = {
-    0, 1, 2, 5, 16,           # Raw, CopyRect, RRE, Hextile, ZRLE
-    -223, -224,               # DesktopSize, LastRect
-    -239, -240, -241,         # Cursor, XCursor, RichCursor
-    -307, -308,               # DesktopName, ExtendedDesktopSize
+    0,
+    1,
+    2,
+    5,
+    16,  # Raw, CopyRect, RRE, Hextile, ZRLE
+    -223,
+    -224,  # DesktopSize, LastRect
+    -239,
+    -240,
+    -241,  # Cursor, XCursor, RichCursor
+    -307,
+    -308,  # DesktopName, ExtendedDesktopSize
 }
 
 _INCOMPLETE = -1  # sentinel: need more bytes to size a rect
@@ -122,9 +131,9 @@ _INCOMPLETE = -1  # sentinel: need more bytes to size a rect
 def _max_clipboard() -> int:
     """Max bytes for a single ClientCutText (default 1 MiB)."""
     import os
+
     try:
-        return max(1024, int(
-            os.environ.get('RFB_MAX_CLIPBOARD', str(1024 * 1024))))
+        return max(1024, int(os.environ.get("RFB_MAX_CLIPBOARD", str(1024 * 1024))))
     except (TypeError, ValueError):
         return 1024 * 1024
 
@@ -140,10 +149,9 @@ def _sanitize_cut_text(raw: bytes) -> bytes:
     empty cut text, which the caller drops.
     """
     payload = bytes(
-        b for b in raw[8:]
-        if (b >= 0x20 and not 0x7F <= b <= 0x9F)
-        or b in (0x09, 0x0A, 0x0D))
-    return raw[:4] + len(payload).to_bytes(4, 'big') + payload
+        b for b in raw[8:] if (b >= 0x20 and not 0x7F <= b <= 0x9F) or b in (0x09, 0x0A, 0x0D)
+    )
+    return raw[:4] + len(payload).to_bytes(4, "big") + payload
 
 
 def _ws_frame(payload: bytes) -> bytes:
@@ -159,10 +167,10 @@ def _ws_frame(payload: bytes) -> bytes:
         header.append(0x80 | n)
     elif n <= 0xFFFF:
         header.append(0x80 | 126)
-        header += n.to_bytes(2, 'big')
+        header += n.to_bytes(2, "big")
     else:
         header.append(0x80 | 127)
-        header += n.to_bytes(8, 'big')
+        header += n.to_bytes(8, "big")
     header += mask
     masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
     return bytes(header) + masked
@@ -180,10 +188,10 @@ def _ws_server_frame(payload: bytes) -> bytes:
         header.append(n)
     elif n <= 0xFFFF:
         header.append(126)
-        header += n.to_bytes(2, 'big')
+        header += n.to_bytes(2, "big")
     else:
         header.append(127)
-        header += n.to_bytes(8, 'big')
+        header += n.to_bytes(8, "big")
     return bytes(header) + payload
 
 
@@ -196,18 +204,60 @@ def _rewrite_encodings(raw: bytes) -> bytes:
     survives, CopyRect+Raw are injected so the client still gets
     video. The count field is rewritten to match.
     """
-    count = int.from_bytes(raw[2:4], 'big')
-    encs = [int.from_bytes(raw[4 + 4 * i:8 + 4 * i], 'big', signed=True)
-            for i in range(count)]
+    count = int.from_bytes(raw[2:4], "big")
+    encs = [int.from_bytes(raw[4 + 4 * i : 8 + 4 * i], "big", signed=True) for i in range(count)]
     keep = [e for e in encs if e in _SAFE_ENCODINGS]
     if not keep:
         keep = [1, 0]  # CopyRect + Raw — every server implements them
-    return (raw[:2] + len(keep).to_bytes(2, 'big')
-            + b''.join(e.to_bytes(4, 'big', signed=True) for e in keep))
+    return (
+        raw[:2]
+        + len(keep).to_bytes(2, "big")
+        + b"".join(e.to_bytes(4, "big", signed=True) for e in keep)
+    )
 
 
-def _hextile_len(buf: bytearray | bytes, w: int, h: int,
-                 pix: int) -> int:
+def _avail(buf: bytearray | bytes, off: int, size: int) -> int:
+    """``off + size`` when ``size`` bytes remain at ``off``, else ``_INCOMPLETE``."""
+    return off + size if len(buf) - off >= size else _INCOMPLETE
+
+
+def _hextile_counted(buf: bytearray | bytes, off: int, rec: int) -> int:
+    """Consume a 1-byte subrect count + ``rec`` bytes per subrect."""
+    if off >= len(buf):
+        return _INCOMPLETE
+    return _avail(buf, off + 1, rec * buf[off])
+
+
+# Hextile subencoding fields beyond the Raw bit, in wire order. Each
+# entry is ``(bit, counted, mul, add)``: the field is ``mul * pix + add``
+# bytes long, preceded by a 1-byte subrect count when ``counted`` is
+# set (in which case the size is per subrect).
+_HEXTILE_FIELDS = (
+    (0x02, False, 1, 0),  # background colour
+    (0x04, False, 1, 0),  # foreground colour
+    (0x08, True, 0, 2),  # AnySubrects
+    (0x10, True, 1, 2),  # SubrectsColoured
+)
+
+
+def _hextile_tile(buf: bytearray | bytes, off: int, tw: int, th: int, pix: int) -> int:
+    """Offset past the tile starting at ``off``, or ``_INCOMPLETE``."""
+    if off >= len(buf):
+        return _INCOMPLETE
+    sub = buf[off]
+    off += 1
+    if sub & 0x01:  # Raw tile
+        return _avail(buf, off, tw * th * pix)
+    for bit, counted, mul, add in _HEXTILE_FIELDS:
+        if sub & bit:
+            size = mul * pix + add
+            off = _hextile_counted(buf, off, size) if counted else _avail(buf, off, size)
+            if off == _INCOMPLETE:
+                return _INCOMPLETE
+    return off
+
+
+def _hextile_len(buf: bytearray | bytes, w: int, h: int, pix: int) -> int:
     """Total data bytes of a Hextile rect, or ``_INCOMPLETE``.
 
     Tiles run row-major, each up to 16x16. Per tile: 1-byte
@@ -223,40 +273,9 @@ def _hextile_len(buf: bytearray | bytes, w: int, h: int,
         x = 0
         while x < w:
             tw = min(16, w - x)
-            if off >= len(buf):
+            off = _hextile_tile(buf, off, tw, th, pix)
+            if off == _INCOMPLETE:
                 return _INCOMPLETE
-            sub = buf[off]
-            off += 1
-            if sub & 0x01:                       # Raw tile
-                need = tw * th * pix
-                if len(buf) - off < need:
-                    return _INCOMPLETE
-                off += need
-            else:
-                if sub & 0x02:                   # background colour
-                    if len(buf) - off < pix:
-                        return _INCOMPLETE
-                    off += pix
-                if sub & 0x04:                   # foreground colour
-                    if len(buf) - off < pix:
-                        return _INCOMPLETE
-                    off += pix
-                if sub & 0x08:                   # AnySubrects
-                    if off >= len(buf):
-                        return _INCOMPLETE
-                    n = buf[off]
-                    off += 1
-                    if len(buf) - off < 2 * n:
-                        return _INCOMPLETE
-                    off += 2 * n
-                if sub & 0x10:                   # SubrectsColoured
-                    if off >= len(buf):
-                        return _INCOMPLETE
-                    n = buf[off]
-                    off += 1
-                    if len(buf) - off < (pix + 2) * n:
-                        return _INCOMPLETE
-                    off += (pix + 2) * n
             x += 16
         y += 16
     return off
@@ -284,25 +303,25 @@ def _parse_ws_frames(buf: bytearray):
         if ln == 126:
             if len(buf) - pos < 2:
                 break
-            ln = int.from_bytes(buf[pos:pos + 2], 'big')
+            ln = int.from_bytes(buf[pos : pos + 2], "big")
             pos += 2
         elif ln == 127:
             if len(buf) - pos < 8:
                 break
-            ln = int.from_bytes(buf[pos:pos + 8], 'big')
+            ln = int.from_bytes(buf[pos : pos + 8], "big")
             pos += 8
         if ln > _MAX_WS_PAYLOAD:
             return None
         if masked:
             if len(buf) - pos < 4:
                 break
-            mask = bytes(buf[pos:pos + 4])
+            mask = bytes(buf[pos : pos + 4])
             pos += 4
         else:
             mask = None
         if len(buf) - pos < ln:
             break
-        payload = bytes(buf[pos:pos + ln])
+        payload = bytes(buf[pos : pos + ln])
         pos += ln
         if mask is not None:
             payload = bytes(c ^ mask[j % 4] for j, c in enumerate(payload))
@@ -324,7 +343,7 @@ class _ServerHandshake:
 
     def __init__(self):
         self.buf = bytearray()
-        self.state = 'version'
+        self.state = "version"
         # None until the client's security-type byte is seen — the
         # sec-data phase length depends on it, and server bytes can
         # arrive before the client byte does.
@@ -334,69 +353,97 @@ class _ServerHandshake:
         # Bytes-per-pixel from ServerInit's pixel format — the rect
         # length of Raw/Hextile/RRE depends on it.
         self.pix_size = 4
+        # Per-state step functions: each consumes what it can and
+        # returns False when it needs more buffered bytes (``feed``
+        # returns and retries once more data arrives).
+        self._step = {
+            "version": self._step_version,
+            "sectypes": self._step_sectypes,
+            "sectype_list": self._step_sectype_list,
+            "secdata": self._step_secdata,
+            "result": self._step_result,
+            "serverinit": self._step_serverinit,
+            "name_data": self._step_name_data,
+        }
 
     def feed(self, data: bytes):
         self.buf += data
-        while self.state not in ('done', 'dead') and self.buf:
-            if self.state == 'version':
-                if len(self.buf) < 12:
-                    return
-                del self.buf[:12]
-                self.state = 'sectypes'
-            elif self.state == 'sectypes':
-                self._sec_count = self.buf[0]
-                del self.buf[0]
-                if self._sec_count == 0:
-                    # Server offers no security types — it sends a
-                    # failure reason and closes. Nothing to filter.
-                    self.state = 'dead'
-                else:
-                    self.state = 'sectype_list'
-            elif self.state == 'sectype_list':
-                if len(self.buf) < self._sec_count:
-                    return
-                del self.buf[:self._sec_count]
-                self.state = 'secdata'
-            elif self.state == 'secdata':
-                # Length depends on the type the client picks
-                # (recorded by RfbInputFilter when it sees the byte).
-                if self.sec_type is None:
-                    return  # wait for the client's type byte
-                need = 16 if self.sec_type == 2 else 0
-                if len(self.buf) < need:
-                    return
-                del self.buf[:need]
-                self.state = 'result'
-            elif self.state == 'result':
-                if len(self.buf) < 4:
-                    return
-                result = int.from_bytes(self.buf[:4], 'big')
-                del self.buf[:4]
-                if result != 0:
-                    # Auth failure — server sends a reason and closes.
-                    self.state = 'dead'
-                else:
-                    self.state = 'serverinit'
-            elif self.state == 'serverinit':
-                # ServerInit fixed part is 24 bytes INCLUDING the
-                # 4-byte name-length at offset 20 — read it before
-                # consuming the block, then expect ``name`` bytes.
-                if len(self.buf) < 24:
-                    return
-                self._name_len = int.from_bytes(self.buf[20:24], 'big')
-                # Pixel-format byte 0 = bits-per-pixel.
-                self.pix_size = max(1, self.buf[4] // 8)
-                del self.buf[:24]
-                self.state = 'name_data'
-            elif self.state == 'name_data':
-                if len(self.buf) < self._name_len:
-                    return
-                del self.buf[:self._name_len]
-                self.state = 'done'
+        while self.state not in ("done", "dead") and self.buf:
+            if not self._step[self.state]():
+                return
+
+    def _step_version(self) -> bool:
+        if len(self.buf) < 12:
+            return False
+        del self.buf[:12]
+        self.state = "sectypes"
+        return True
+
+    def _step_sectypes(self) -> bool:
+        self._sec_count = self.buf[0]
+        del self.buf[0]
+        if self._sec_count == 0:
+            # Server offers no security types — it sends a
+            # failure reason and closes. Nothing to filter.
+            self.state = "dead"
+        else:
+            self.state = "sectype_list"
+        return True
+
+    def _step_sectype_list(self) -> bool:
+        if len(self.buf) < self._sec_count:
+            return False
+        del self.buf[: self._sec_count]
+        self.state = "secdata"
+        return True
+
+    def _step_secdata(self) -> bool:
+        # Length depends on the type the client picks
+        # (recorded by RfbInputFilter when it sees the byte).
+        if self.sec_type is None:
+            return False  # wait for the client's type byte
+        need = 16 if self.sec_type == 2 else 0
+        if len(self.buf) < need:
+            return False
+        del self.buf[:need]
+        self.state = "result"
+        return True
+
+    def _step_result(self) -> bool:
+        if len(self.buf) < 4:
+            return False
+        result = int.from_bytes(self.buf[:4], "big")
+        del self.buf[:4]
+        if result != 0:
+            # Auth failure — server sends a reason and closes.
+            self.state = "dead"
+        else:
+            self.state = "serverinit"
+        return True
+
+    def _step_serverinit(self) -> bool:
+        # ServerInit fixed part is 24 bytes INCLUDING the
+        # 4-byte name-length at offset 20 — read it before
+        # consuming the block, then expect ``name`` bytes.
+        if len(self.buf) < 24:
+            return False
+        self._name_len = int.from_bytes(self.buf[20:24], "big")
+        # Pixel-format byte 0 = bits-per-pixel.
+        self.pix_size = max(1, self.buf[4] // 8)
+        del self.buf[:24]
+        self.state = "name_data"
+        return True
+
+    def _step_name_data(self) -> bool:
+        if len(self.buf) < self._name_len:
+            return False
+        del self.buf[: self._name_len]
+        self.state = "done"
+        return True
 
     @property
     def done(self):
-        return self.state == 'done'
+        return self.state == "done"
 
 
 class _ServerMsgParser:
@@ -418,7 +465,7 @@ class _ServerMsgParser:
         self.buf = bytearray()
         self.pix = max(1, pix_size)
         self.allow_read = allow_clipboard_read
-        self.state = 'idle'   # idle | fbu_hdr | rect_hdr | rect_data
+        self.state = "idle"  # idle | fbu_hdr | rect_hdr | rect_data
         self._rects_left = 0
         self._rect_pending = 0
 
@@ -428,11 +475,11 @@ class _ServerMsgParser:
         self.buf += data
         out = bytearray()
         while True:
-            if self.state == 'idle':
+            if self.state == "idle":
                 step = self._feed_idle(out)
-            elif self.state == 'fbu_hdr':
+            elif self.state == "fbu_hdr":
                 step = self._feed_fbu_hdr(out)
-            elif self.state == 'rect_hdr':
+            elif self.state == "rect_hdr":
                 step = self._feed_rect_hdr(out)
             else:  # rect_data
                 step = self._feed_rect_data(out)
@@ -448,7 +495,7 @@ class _ServerMsgParser:
             return self._WAIT
         t = self.buf[0]
         if t == _SRV_TYPE_FB_UPDATE:
-            self.state = 'fbu_hdr'
+            self.state = "fbu_hdr"
             return self._MORE
         if t in _SRV_FIXED_LEN:
             need = _SRV_FIXED_LEN[t]
@@ -471,54 +518,51 @@ class _ServerMsgParser:
                     return self._MORE  # no desktop:clipboard_read
                 if need > _max_clipboard():
                     logger.warning(
-                        "RFB filter: ServerCutText %d bytes "
-                        "exceeds cap %d — dropped",
-                        need, _max_clipboard())
+                        "RFB filter: ServerCutText %d bytes " "exceeds cap %d — dropped",
+                        need,
+                        _max_clipboard(),
+                    )
                     return self._MORE
                 raw = _sanitize_cut_text(raw)
                 if len(raw) <= 8:
                     return self._MORE
             out += raw
             return self._MORE
-        logger.warning(
-            "RFB filter: unknown server message type %d — "
-            "closing", t)
+        logger.warning("RFB filter: unknown server message type %d — " "closing", t)
         return self._DEAD
 
     def _feed_fbu_hdr(self, out: bytearray) -> int:
         """Consume the FramebufferUpdate header (rect count)."""
         if len(self.buf) < 4:
             return self._WAIT
-        self._rects_left = int.from_bytes(self.buf[2:4], 'big')
+        self._rects_left = int.from_bytes(self.buf[2:4], "big")
         del self.buf[:4]
         if self._rects_left == 0:
-            out += b'\x00\x00\x00\x00'  # empty update, verbatim
-            self.state = 'idle'
+            out += b"\x00\x00\x00\x00"  # empty update, verbatim
+            self.state = "idle"
         else:
-            self.state = 'rect_hdr'
+            self.state = "rect_hdr"
         return self._MORE
 
     def _feed_rect_hdr(self, out: bytearray) -> int:
         """Consume one rect header; emit a single-rect update."""
         if len(self.buf) < 12:
             return self._WAIT
-        w = int.from_bytes(self.buf[4:6], 'big')
-        h = int.from_bytes(self.buf[6:8], 'big')
-        enc = int.from_bytes(self.buf[8:12], 'big', signed=True)
+        w = int.from_bytes(self.buf[4:6], "big")
+        h = int.from_bytes(self.buf[6:8], "big")
+        enc = int.from_bytes(self.buf[8:12], "big", signed=True)
         datalen = self._rect_data_len(enc, w, h)
         if datalen == _INCOMPLETE:
             return self._WAIT  # length field not fully buffered yet
         if datalen is None:
-            logger.warning(
-                "RFB filter: un-negotiated/unknown rect "
-                "encoding %d — closing", enc)
+            logger.warning("RFB filter: un-negotiated/unknown rect " "encoding %d — closing", enc)
             return self._DEAD
         # Re-emit as a single-rect FramebufferUpdate.
-        out += b'\x00\x00\x00\x01' + bytes(self.buf[:12])
+        out += b"\x00\x00\x00\x01" + bytes(self.buf[:12])
         del self.buf[:12]
         self._rect_pending = datalen
         self._rects_left -= 1
-        self.state = 'rect_data'
+        self.state = "rect_data"
         return self._MORE
 
     def _feed_rect_data(self, out: bytearray) -> int:
@@ -530,8 +574,7 @@ class _ServerMsgParser:
         del self.buf[:n]
         self._rect_pending -= n
         if self._rect_pending == 0:
-            self.state = ('idle' if self._rects_left == 0
-                          else 'rect_hdr')
+            self.state = "idle" if self._rects_left == 0 else "rect_hdr"
         return self._MORE
 
     def _rect_data_len(self, enc: int, w: int, h: int):
@@ -543,35 +586,35 @@ class _ServerMsgParser:
         """
         b = self.buf
         mask = ((w + 7) // 8) * h
-        if enc == 0:                      # Raw
+        if enc == 0:  # Raw
             return w * h * self.pix
-        if enc == 1:                      # CopyRect
+        if enc == 1:  # CopyRect
             return 4
-        if enc == 2:                      # RRE
+        if enc == 2:  # RRE
             if len(b) < 16:
                 return _INCOMPLETE
-            n = int.from_bytes(b[12:16], 'big')
+            n = int.from_bytes(b[12:16], "big")
             return 4 + self.pix + n * (self.pix + 8)
-        if enc == 5:                      # Hextile
+        if enc == 5:  # Hextile
             return _hextile_len(b[12:], w, h, self.pix)
-        if enc == 16:                     # ZRLE — length-prefixed
+        if enc == 16:  # ZRLE — length-prefixed
             if len(b) < 16:
                 return _INCOMPLETE
-            return 4 + int.from_bytes(b[12:16], 'big')
-        if enc in (-223, -224):           # DesktopSize, LastRect
+            return 4 + int.from_bytes(b[12:16], "big")
+        if enc in (-223, -224):  # DesktopSize, LastRect
             return 0
-        if enc in (-239, -241):           # Cursor, RichCursor
+        if enc in (-239, -241):  # Cursor, RichCursor
             return w * h * self.pix + mask
-        if enc == -240:                   # XCursor: type pad rgb(6)
+        if enc == -240:  # XCursor: type pad rgb(6)
             return 8 + w * h * self.pix + mask
-        if enc == -307:                   # DesktopName
+        if enc == -307:  # DesktopName
             if len(b) < 16:
                 return _INCOMPLETE
-            return 4 + int.from_bytes(b[12:16], 'big')
-        if enc == -308:                   # ExtendedDesktopSize
+            return 4 + int.from_bytes(b[12:16], "big")
+        if enc == -308:  # ExtendedDesktopSize
             if len(b) < 16:
                 return _INCOMPLETE
-            return 4 + 16 * int.from_bytes(b[12:16], 'big')
+            return 4 + 16 * int.from_bytes(b[12:16], "big")
         return None
 
 
@@ -590,28 +633,30 @@ class RfbInputFilter:
     be closed — fail closed, never pass unparseable input through.
     """
 
-    def __init__(self, allow_clipboard: bool | None = None,
-                 allow_control: bool | None = None,
-                 allow_keyboard: bool = False,
-                 allow_pointer: bool = False,
-                 allow_clipboard_write: bool = False,
-                 allow_clipboard_read: bool = True):
+    def __init__(
+        self,
+        allow_clipboard: bool | None = None,
+        allow_control: bool | None = None,
+        allow_keyboard: bool = False,
+        allow_pointer: bool = False,
+        allow_clipboard_write: bool = False,
+        allow_clipboard_read: bool = True,
+    ):
         # Umbrella flags set the fine-grained pair — fine-grained
         # kwargs let a session grant pointer-without-keyboard or
         # keyboard-without-pointer. allow_control/allow_clipboard
         # remain as convenience aliases for full input/clipboard.
         self.allow_keyboard = allow_keyboard or bool(allow_control)
         self.allow_pointer = allow_pointer or bool(allow_control)
-        self.allow_clipboard_write = (
-            allow_clipboard_write or bool(allow_clipboard))
+        self.allow_clipboard_write = allow_clipboard_write or bool(allow_clipboard)
         self.allow_clipboard_read = allow_clipboard_read
         # Introspection aliases (a permission is "full" only when all
         # its members are granted).
         self.allow_control = self.allow_keyboard and self.allow_pointer
         self.allow_clipboard = self.allow_clipboard_write
-        self._ws_cbuf = bytearray()   # raw client WS bytes
-        self._ws_sbuf = bytearray()   # raw server WS bytes
-        self._rfb = bytearray()       # client RFB stream (payloads)
+        self._ws_cbuf = bytearray()  # raw client WS bytes
+        self._ws_sbuf = bytearray()  # raw server WS bytes
+        self._rfb = bytearray()  # client RFB stream (payloads)
         self._srv = _ServerHandshake()
         # _ServerMsgParser post-handshake (created on transition).
         self._srv_parser: _ServerMsgParser | None = None
@@ -622,7 +667,7 @@ class RfbInputFilter:
         # Client handshake: 'version'(12B echo) -> 'sectype'(1B)
         #   -> ['secresp'(16B)] -> 'clientinit'(1B)
         #   -> 'wait_serverinit' -> 'messages'
-        self._cstate = 'version'
+        self._cstate = "version"
         self._dead = False
 
     # ------------------------------------------------------------------
@@ -643,19 +688,16 @@ class RfbInputFilter:
         out = bytearray()
         frames = _parse_ws_frames(self._ws_sbuf)
         if frames is None:
-            logger.warning(
-                "RFB filter: oversized/invalid server WS frame — "
-                "closing")
+            logger.warning("RFB filter: oversized/invalid server WS frame — " "closing")
             self._dead = True
             return None
         for opcode, payload, raw, fin in frames:
             if opcode in (0x8, 0x9, 0xA):
-                out += raw      # close/ping/pong — verbatim
+                out += raw  # close/ping/pong — verbatim
                 continue
             if opcode == 0x0:
                 if self._sfrag_op is None:
-                    logger.warning(
-                        "RFB filter: stray server continuation frame")
+                    logger.warning("RFB filter: stray server continuation frame")
                     self._dead = True
                     return None
                 self._sfrag += payload
@@ -670,37 +712,42 @@ class RfbInputFilter:
                     self._sfrag += payload
                     continue
             else:
-                logger.warning(
-                    "RFB filter: unknown server WS opcode %d — closing",
-                    opcode)
+                logger.warning("RFB filter: unknown server WS opcode %d — closing", opcode)
                 self._dead = True
                 return None
-            if self._srv_parser is None:
-                self._srv.feed(payload)
-                if not self._srv.done:
-                    # Handshake bytes pass through verbatim.
-                    out += _ws_server_frame(payload)
-                    continue
-                # Handshake just completed inside this payload — the
-                # tracker left any trailing message bytes buffered;
-                # split the payload: handshake part verbatim, message
-                # part to the decoder (never both — no double send).
-                self._srv_parser = _ServerMsgParser(
-                    self._srv.pix_size, self.allow_clipboard_read)
-                leftover = bytes(self._srv.buf)
-                self._srv.buf.clear()
-                hs_len = len(payload) - len(leftover)
-                if hs_len:
-                    out += _ws_server_frame(payload[:hs_len])
-                payload = payload[hs_len:]
-            assert self._srv_parser is not None  # set above or pre-existed
-            res = self._srv_parser.feed(payload)
-            if res is None:
+            if not self._track_server_payload(out, payload):
                 self._dead = True
                 return None
-            if res:
-                out += _ws_server_frame(res)
         return bytes(out)
+
+    def _track_server_payload(self, out: bytearray, payload: bytes) -> bool:
+        """Route one complete server payload through the filter.
+
+        Returns False when the stream is unparseable — the caller
+        must mark the connection dead. Handshake bytes pass through
+        verbatim; once ServerInit completes the payload is split:
+        handshake part verbatim, trailing message bytes to the
+        decoder (never both — no double send).
+        """
+        if self._srv_parser is None:
+            self._srv.feed(payload)
+            if not self._srv.done:
+                # Handshake bytes pass through verbatim.
+                out += _ws_server_frame(payload)
+                return True
+            self._srv_parser = _ServerMsgParser(self._srv.pix_size, self.allow_clipboard_read)
+            leftover = bytes(self._srv.buf)
+            self._srv.buf.clear()
+            hs_len = len(payload) - len(leftover)
+            if hs_len:
+                out += _ws_server_frame(payload[:hs_len])
+            payload = payload[hs_len:]
+        res = self._srv_parser.feed(payload)
+        if res is None:
+            return False
+        if res:
+            out += _ws_server_frame(res)
+        return True
 
     # ------------------------------------------------------------------
     # Client -> server direction (filtered)
@@ -769,12 +816,12 @@ class RfbInputFilter:
         """
         out = bytearray()
         while self._rfb:
-            if self._cstate != 'messages':
+            if self._cstate != "messages":
                 consumed = self._client_handshake()
                 if consumed < 0:
                     return None
                 if consumed == 0:
-                    if self._cstate == 'messages':
+                    if self._cstate == "messages":
                         continue  # just transitioned — parse buffered msg
                     break
                 out += _ws_frame(bytes(self._rfb[:consumed]))
@@ -785,83 +832,93 @@ class RfbInputFilter:
                 break  # incomplete message — wait for more data
             mtype, mlen = parsed
             if mtype is None:
-                logger.warning(
-                    "RFB filter: unknown client message type %d — closing",
-                    mlen)
+                logger.warning("RFB filter: unknown client message type %d — closing", mlen)
                 return None
             raw = bytes(self._rfb[:mlen])
             del self._rfb[:mlen]
-            if mtype == _TYPE_SET_ENCODINGS:
-                # Server-side filtering can only parse encodings whose
-                # rect length is decidable — renegotiate to the safe
-                # subset so Tight/TRLE never legitimately arrive.
-                raw = _rewrite_encodings(raw)
-            elif mtype == _TYPE_SET_PIXEL_FORMAT:
-                # SetPixelFormat changes rect byte sizes mid-stream —
-                # the server parser must track it or it desyncs.
-                new_pix = max(1, raw[4] // 8)
-                self._srv.pix_size = new_pix
-                if self._srv_parser is not None:
-                    self._srv_parser.pix = new_pix
-            elif mtype == _TYPE_KEY_EVENT and not self.allow_keyboard:
-                continue  # dropped: no desktop:keyboard/control
-            elif mtype in (_TYPE_POINTER_EVENT, _TYPE_SET_DESKTOP_SIZE) \
-                    and not self.allow_pointer:
-                continue  # dropped: no desktop:pointer/control
-            if mtype == _TYPE_CUT_TEXT:
-                if not self.allow_clipboard_write:
-                    continue  # dropped: no desktop:clipboard_write/clipboard
-                if mlen > _max_clipboard():
-                    # Clipboard size cap: a cut-text is bounded memory
-                    # on the server and a potential exfil channel —
-                    # drop oversized payloads, keep the stream in sync.
-                    logger.warning(
-                        "RFB filter: ClientCutText %d bytes exceeds "
-                        "cap %d — dropped", mlen, _max_clipboard())
-                    continue
-                raw = _sanitize_cut_text(raw)
-                if len(raw) <= 8:
-                    continue  # payload was all control bytes — drop
-            out += _ws_frame(raw)
+            raw = self._filter_message(mtype, mlen, raw)
+            if raw is not None:
+                out += _ws_frame(raw)
         return bytes(out)
+
+    def _filter_message(self, mtype, mlen, raw):
+        """Apply the permission policy to one complete message.
+
+        Returns the bytes to forward (possibly rewritten), or
+        ``None`` to drop the message — the stream stays in sync
+        because the caller already consumed ``raw`` from the buffer.
+        """
+        if mtype == _TYPE_SET_ENCODINGS:
+            # Server-side filtering can only parse encodings whose
+            # rect length is decidable — renegotiate to the safe
+            # subset so Tight/TRLE never legitimately arrive.
+            return _rewrite_encodings(raw)
+        if mtype == _TYPE_SET_PIXEL_FORMAT:
+            # SetPixelFormat changes rect byte sizes mid-stream —
+            # the server parser must track it or it desyncs.
+            new_pix = max(1, raw[4] // 8)
+            self._srv.pix_size = new_pix
+            if self._srv_parser is not None:
+                self._srv_parser.pix = new_pix
+            return raw
+        if mtype == _TYPE_KEY_EVENT and not self.allow_keyboard:
+            return None  # dropped: no desktop:keyboard/control
+        if mtype in (_TYPE_POINTER_EVENT, _TYPE_SET_DESKTOP_SIZE) and not self.allow_pointer:
+            return None  # dropped: no desktop:pointer/control
+        if mtype == _TYPE_CUT_TEXT:
+            if not self.allow_clipboard_write:
+                return None  # dropped: no desktop:clipboard_write/clipboard
+            if mlen > _max_clipboard():
+                # Clipboard size cap: a cut-text is bounded memory
+                # on the server and a potential exfil channel —
+                # drop oversized payloads, keep the stream in sync.
+                logger.warning(
+                    "RFB filter: ClientCutText %d bytes exceeds " "cap %d — dropped",
+                    mlen,
+                    _max_clipboard(),
+                )
+                return None
+            raw = _sanitize_cut_text(raw)
+            if len(raw) <= 8:
+                return None  # payload was all control bytes — drop
+        return raw
 
     def _client_handshake(self):
         """Consume handshake bytes; returns count consumed, 0, or -1."""
-        if self._cstate == 'version':
+        if self._cstate == "version":
             if len(self._rfb) < 12:
                 return 0
-            self._cstate = 'sectype'
+            self._cstate = "sectype"
             return 12
-        if self._cstate == 'sectype':
+        if self._cstate == "sectype":
             if len(self._rfb) < 1:
                 return 0
             sec = self._rfb[0]
             self._srv.sec_type = sec
             # Resume the server tracker — it may be parked at 'secdata'
             # waiting for this type byte.
-            self._srv.feed(b'')
+            self._srv.feed(b"")
             if sec == 2:
-                self._cstate = 'secresp'
+                self._cstate = "secresp"
             elif sec == 1:
-                self._cstate = 'clientinit'
+                self._cstate = "clientinit"
             else:
-                logger.warning(
-                    "RFB filter: unsupported security type %d — closing", sec)
+                logger.warning("RFB filter: unsupported security type %d — closing", sec)
                 return -1
             return 1
-        if self._cstate == 'secresp':
+        if self._cstate == "secresp":
             if len(self._rfb) < 16:
                 return 0
-            self._cstate = 'clientinit'
+            self._cstate = "clientinit"
             return 16
-        if self._cstate == 'clientinit':
+        if self._cstate == "clientinit":
             if len(self._rfb) < 1:
                 return 0
-            self._cstate = 'wait_serverinit'
+            self._cstate = "wait_serverinit"
             return 1
-        if self._cstate == 'wait_serverinit':
+        if self._cstate == "wait_serverinit":
             if self._srv.done:
-                self._cstate = 'messages'
+                self._cstate = "messages"
                 return 0
             # Buffer extra client bytes until ServerInit completes —
             # forwarding them unfiltered would let a client smuggle
