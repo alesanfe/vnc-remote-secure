@@ -439,6 +439,11 @@
       "maximum": 65535,
       "description": "Loopback-only websockify bridge port (WebSocket->RFB). Proxied by the noVNC server after auth."
     },
+    "OP_SESSION_IP_BIND": {
+      "type": "boolean",
+      "default": false,
+      "description": "Bind the vnc_op operator-session cookie to the issuing client IP (HMAC-folded): a stolen cookie cannot be replayed from another address. Breaks roaming clients on CGNAT/mobile networks."
+    },
     "PUBLIC_BIND_HOST": {
       "type": "string",
       "description": "Public-facing bind address set by hardened profiles (overrides BIND_HOST for exposed services)."
