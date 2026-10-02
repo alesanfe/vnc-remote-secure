@@ -249,7 +249,9 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
                 >
                   {s.label
                     ? <span className="badge dim">{s.label}</span>
-                    : '—'}
+                    : <span className="muted">
+                        {t('sessions.labelAdd')}
+                      </span>}
                   {' ✎'}
                 </button>
               )}

@@ -142,7 +142,7 @@ export default function FilesPage() {
     >
       <h1 className="page-title">{t('files.title')}</h1>
       <p className="muted">
-        {t('files.subtitle')} {t('files.dropHint')}
+        {t('files.subtitle')}{' '}{t('files.dropHint')}
       </p>
 
       <div className="toolbar" aria-label={t('files.breadcrumb')}>

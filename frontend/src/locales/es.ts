@@ -822,6 +822,7 @@ export const es = {
   'sessions.label': 'Etiqueta (opcional)',
   'sessions.labelPh': 'p. ej. soporte Juan, demo Q3',
   'sessions.labelEditAria': 'Editar etiqueta (Enter guarda, Esc cancela)',
+  'sessions.labelAdd': 'Añadir etiqueta',
   'sessions.labelError': 'No se pudo guardar la etiqueta.',
   'sessions.emailedOk': 'Enlace enviado por email a {{to}}.',
   'sessions.emailedFail':

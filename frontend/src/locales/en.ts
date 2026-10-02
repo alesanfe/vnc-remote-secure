@@ -814,6 +814,7 @@ export const en: Messages = {
   'sessions.label': 'Label (optional)',
   'sessions.labelPh': 'e.g. Juan support, Q3 demo',
   'sessions.labelEditAria': 'Edit label (Enter saves, Esc cancels)',
+  'sessions.labelAdd': 'Add label',
   'sessions.labelError': 'Could not save the label.',
   'sessions.emailedOk': 'Link emailed to {{to}}.',
   'sessions.emailedFail':
