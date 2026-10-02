@@ -277,7 +277,7 @@ export default function TerminalPage() {
         className={`status status-${state}`}
         role="status"
         aria-live="polite"
-        style={{ position: 'fixed', top: 5, right: 10, zIndex: 100 }}
+        style={{ position: 'fixed', top: 46, right: 10, zIndex: 100 }}
       >
         {authError
           ? t('terminal.unauthorized')
@@ -287,7 +287,7 @@ export default function TerminalPage() {
         <button
           type="button"
           className="ghost"
-          style={{ position: 'fixed', top: 30, right: 10,
+          style={{ position: 'fixed', top: 74, right: 10,
                    zIndex: 100 }}
           onClick={() => {
             setAuthError(false);

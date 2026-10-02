@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -245,9 +245,16 @@ export default function Sessions() {
     if (s.no_terminal) flags.push('no-terminal');
     if (s.allowed_ip) flags.push(`ip:${s.allowed_ip}`);
     return flags.length
-      ? <span className="muted mono" style={{ fontSize: '0.8rem' }}>
-          {flags.join(' · ')}
-        </span>
+      ? (
+          <span className="muted mono" style={{ fontSize: '0.8rem' }}>
+            {flags.map((f, i) => (
+              <Fragment key={f}>
+                {i > 0 ? ' · ' : null}
+                <span style={{ whiteSpace: 'nowrap' }}>{f}</span>
+              </Fragment>
+            ))}
+          </span>
+        )
       : '—';
   };
 
@@ -616,7 +623,11 @@ export default function Sessions() {
           {
             key: 'perms',
             header: t('sessions.col.perms'),
-            render: (s) => t('sessions.permCount', { count: s.permissions.length }),
+            render: (s) => (
+              <span style={{ whiteSpace: 'nowrap' }}>
+                {t('sessions.permCount', { count: s.permissions.length })}
+              </span>
+            ),
             sortValue: (s) => s.permissions.length,
             title: (s) => s.permissions.join(', '),
           },

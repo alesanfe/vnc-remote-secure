@@ -1,6 +1,5 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
 import {
   Activity,
   Cpu,
@@ -24,7 +23,6 @@ import {
 } from 'lucide-react';
 import { api, ApiError, type PortalData, type SessionContext } from '../api';
 import { RelativeTime } from '../components/bits';
-import { ShareAccept } from './SharePage';
 import { useI18n } from '../i18n';
 
 const METRICS: Array<[LucideIcon, string, string]> = [
@@ -326,21 +324,14 @@ function GamepadSwitch({ p }: { p: PortalData }) {
 }
 
 /** The public portal page — replaces the server-rendered landing.
-    Legacy `?session=<token>` links render the share consent flow
-    (the token is wiped from the URL immediately). */
+    Share links are fragment URLs (/share#t=...) so the token never
+    reaches the server. */
 export default function PortalPage() {
   const { t } = useI18n();
-  const [searchParams] = useSearchParams();
-  const shareToken = searchParams.get('session');
-  useEffect(() => {
-    if (shareToken) window.history.replaceState(null, '', '/');
-  }, [shareToken]);
-
   const portal = useQuery({
     queryKey: ['portal'],
     queryFn: () => api.portal(),
     retry: false,
-    enabled: !shareToken,
   });
 
   // Share-link recipients get a banner describing their own grant —
@@ -351,12 +342,8 @@ export default function PortalPage() {
     queryKey: ['session-context'],
     queryFn: () => api.sessionContext(),
     retry: false,
-    enabled: !shareToken && portal.isSuccess && !isOperator,
+    enabled: portal.isSuccess && !isOperator,
   });
-
-  if (shareToken) {
-    return <ShareAccept token={shareToken} />;
-  }
 
   if (portal.isError) {
     const status =

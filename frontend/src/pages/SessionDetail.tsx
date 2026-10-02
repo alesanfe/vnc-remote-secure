@@ -203,7 +203,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
           <dl className="kv">
             <dt>{t('sessions.col.role')}</dt>
             <dd><code>{s.role}</code></dd>
-            <dt>{t('sessions.wizard.permission')}</dt>
+            <dt>{t('sessions.col.perms')}</dt>
             <dd>
               {s.permissions.map((p) => (
                 <span key={p} className="chip">{p}</span>

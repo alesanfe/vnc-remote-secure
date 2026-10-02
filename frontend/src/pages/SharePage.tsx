@@ -181,14 +181,13 @@ export function ShareAccept({ token }: { token: string }) {
  */
 export default function SharePage() {
   const [token] = useState(() => {
-    // Fragment links (/share#t=…) are the primary form; legacy query
-    // links (/?session=…) land here too via the main.tsx dispatch.
-    // Either way the credential leaves the URL before first render.
+    // Fragment links (/share#t=…) are the only accepted form — the
+    // credential leaves the URL before first render and never reaches
+    // the server (hash is not sent in the HTTP request).
     const hash = window.location.hash || '';
-    const query = new URLSearchParams(window.location.search);
     const t = hash.startsWith('#t=') ? hash.slice(3)
       : hash.length > 1 ? hash.slice(1)
-      : query.get('session') || '';
+      : '';
     window.history.replaceState(null, '', '/');
     return t;
   });

@@ -390,12 +390,28 @@ export function OperatorDetailPanel({ username }: { username: string }) {
     queryFn: () =>
       api.get<{ operator: OperatorDetail }>(`operators/${username}`),
   });
+  // Server-side WebAuthn capability — /auth/methods reports
+  // passkey:false when the optional `webauthn` extra is missing or
+  // the RP config gate refuses (the passkey endpoints answer 503).
+  // Same queryKey/staleTime as the login page → shared cache.
+  const methods = useQuery({
+    queryKey: ['auth-methods'],
+    queryFn: () => api.authMethods(),
+    staleTime: 60_000,
+  });
   const keys = useQuery({
     queryKey: ['operator-passkeys', username],
     queryFn: () =>
       api.get<{ passkeys: PasskeyItem[] }>(
         `operators/${username}/passkeys`),
+    // Skip a doomed request once the server says passkeys are off.
+    enabled: methods.data?.passkey !== false,
   });
+  // Unavailable when the capability probe says so OR when the list
+  // call itself came back 503 (probe raced or failed).
+  const passkeysUnavailable =
+    methods.data?.passkey === false ||
+    (keys.error instanceof ApiError && keys.error.status === 503);
   const [regErr, setRegErr] = useState('');
   const [regBusy, setRegBusy] = useState(false);
   const [stepUpFor, setStepUpFor] =
@@ -470,7 +486,7 @@ export function OperatorDetailPanel({ username }: { username: string }) {
       <h2>{op.username}</h2>
       <p>
         {t('users.role')} <strong>{op.role}</strong> ·{' '}
-        {op.passkey_count ?? 0} {t('users.passkeyCount')}
+        {t('users.passkeyCount', { count: op.passkey_count ?? 0 })}
       </p>
       {op.deletion_allowed === false && (
         <p className="notice">
@@ -481,10 +497,15 @@ export function OperatorDetailPanel({ username }: { username: string }) {
         {t('users.perms')}: {op.permissions.join(', ') || '—'}
       </p>
       <h3>{t('users.passkeys')}</h3>
-      {keys.data && keys.data.passkeys.length === 0 && (
+      {passkeysUnavailable && (
+        <p className="muted">{t('users.passkeysUnavailable')}</p>
+      )}
+      {!passkeysUnavailable && keys.data &&
+        keys.data.passkeys.length === 0 && (
         <p className="muted">{t('users.noPasskeys')}</p>
       )}
-      {keys.data && keys.data.passkeys.length > 0 && (
+      {!passkeysUnavailable && keys.data &&
+        keys.data.passkeys.length > 0 && (
         <table className="data">
           <thead>
             <tr><th>Ref</th><th>{t('users.passkeyName')}</th>
@@ -537,7 +558,7 @@ export function OperatorDetailPanel({ username }: { username: string }) {
           </tbody>
         </table>
       )}
-      {isSelf && webauthnSupported() && (
+      {isSelf && webauthnSupported() && !passkeysUnavailable && (
         <p className="row">
           <input
             aria-label={t('users.passkeyNameAria')}
@@ -553,7 +574,7 @@ export function OperatorDetailPanel({ username }: { username: string }) {
         </p>
       )}
       {regErr && <div className="error-box" role="alert">{regErr}</div>}
-      {isSelf && !webauthnSupported() && (
+      {isSelf && !webauthnSupported() && !passkeysUnavailable && (
         <p className="muted">
           {t('users.webauthnUnsupported')}
         </p>

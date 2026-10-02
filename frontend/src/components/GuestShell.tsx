@@ -46,9 +46,19 @@ export default function GuestShell({ children }: { children: ReactNode }) {
     },
   });
 
-  // Loading, errors and operator/non-ephemeral sessions keep the
-  // resource unwrapped — never block a resource on shell data.
-  if (ctx.isLoading || ctx.isError || !ctx.data?.ephemeral) {
+  // Loading keeps a skeleton bar so the layout does not shift once
+  // the session context resolves; errors and operator/non-ephemeral
+  // sessions keep the resource unwrapped — never block a resource on
+  // shell data.
+  if (ctx.isLoading) {
+    return (
+      <div className="guest-shell">
+        <nav className="guest-bar guest-bar-loading" aria-hidden="true" />
+        {children}
+      </div>
+    );
+  }
+  if (ctx.isError || !ctx.data?.ephemeral) {
     return <>{children}</>;
   }
   const c = ctx.data;

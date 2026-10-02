@@ -172,7 +172,7 @@ export default function App() {
         { to: '/identities', label: t('nav.users'),
           icon: UsersIcon },
         { to: '/security', label: t('nav.security'),
-          icon: ShieldCheck },
+          icon: ShieldCheck, end: true },
         { to: '/security/audit', label: t('nav.audit'),
           icon: ScrollText },
       ],

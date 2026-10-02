@@ -20,23 +20,36 @@ import { desktopUrl } from './GuestPage';
 
 /** Embedded noVNC frame — cookie auth ignores the port, so the
     ephemeral/operator cookie reaches both the same-origin /vnc/ path
-    and the direct novnc port. */
-function DesktopFrame({ url, frameRef }: {
+    and the direct novnc port. An overlay covers the black framebuffer
+    until the frame reports a load, so a slow/failed connect does not
+    look like a broken render. */
+function DesktopFrame({ url, frameRef, loadingLabel }: {
   url: string;
   frameRef: React.RefObject<HTMLIFrameElement>;
+  loadingLabel: string;
 }) {
+  const [loaded, setLoaded] = useState(false);
   return (
-    <iframe
-      ref={frameRef}
-      src={url}
-      title="Remote desktop"
-      allow="fullscreen"
-      allowFullScreen
-      style={{
-        flex: 1, border: 0, minHeight: 420,
-        borderRadius: 8, background: '#000', width: '100%',
-      }}
-    />
+    <div style={{ position: 'relative', flex: 1, minHeight: 420 }}>
+      <iframe
+        ref={frameRef}
+        src={url}
+        title="Remote desktop"
+        allow="fullscreen"
+        allowFullScreen
+        onLoad={() => setLoaded(true)}
+        style={{
+          border: 0, minHeight: 420,
+          borderRadius: 8, background: '#000', width: '100%',
+          height: '100%', position: 'absolute',
+        }}
+      />
+      {!loaded && (
+        <div className="desktop-loading" role="status">
+          {loadingLabel}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -214,7 +227,8 @@ export default function RemoteConsole({ guest = false }: {
 
       <div style={{ display: 'flex', gap: '0.75rem',
                     alignItems: 'stretch' }}>
-        <DesktopFrame url={url} frameRef={frameRef} />
+        <DesktopFrame url={url} frameRef={frameRef}
+                      loadingLabel={t('common.loading')} />
         {guest && chatOpen && (
           <aside style={{ width: 320, flexShrink: 0 }}
                  aria-label={t('remote.chat')}>

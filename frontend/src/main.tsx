@@ -36,8 +36,8 @@ const queryClient = new QueryClient({
 // hands index.html for /, /share, /audio, /gamepad AND /admin/*.
 // /admin/* mounts the operator console (App) under the /admin
 // basename; the public paths mount the recipient-facing pages. All
-// of them need a router context (PortalPage reads ?session= via
-// useSearchParams), so the public surface gets a bare BrowserRouter.
+// of them use react-router primitives, so the public surface gets a
+// bare BrowserRouter.
 /** Public 404 — unknown paths used to fall through to the portal;
     now they get an explicit not-found view (the admin SPA has its
     own). */
