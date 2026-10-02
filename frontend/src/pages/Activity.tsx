@@ -150,7 +150,7 @@ export default function Activity() {
           <option value="error">{t('activity.sev.error')}</option>
         </select>
         <input
-          style={{ maxWidth: 200 }}
+          className="toolbar-search"
           aria-label={t('activity.filter.user')}
           placeholder={t('activity.filter.user')}
           value={user}
@@ -179,6 +179,7 @@ export default function Activity() {
         loading={audit.isLoading || jobs.isLoading}
         error={audit.isError}
         errorText={t('audit.loadError')}
+        onRetry={() => { audit.refetch(); jobs.refetch(); }}
         emptyText={t('activity.empty')}
         rows={filtered}
         rowKey={(r) => r.key}

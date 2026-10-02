@@ -95,6 +95,10 @@ export default function Users() {
       {ops.isError && (
         <div className="error-box" role="alert">
           {t('users.loadError')}
+          <button type="button" className="ghost"
+                  onClick={() => ops.refetch()}>
+            {t('common.retry')}
+          </button>
         </div>
       )}
       {act.isError &&
@@ -113,7 +117,7 @@ export default function Users() {
         </button>
         <span className="spacer" />
         <input
-          style={{ maxWidth: 200 }}
+          className="toolbar-search"
           aria-label={t('common.search')}
           placeholder={t('common.search')}
           value={query}
@@ -479,7 +483,14 @@ export function OperatorDetailPanel({ username }: { username: string }) {
 
   if (detail.isLoading) return <p className="muted">{t('common.loading')}</p>;
   if (detail.isError || !detail.data)
-    return <p className="error-box" role="alert">{t('users.detailError')}</p>;
+    return (
+      <p className="error-box" role="alert">
+        {t('users.detailError')}{' '}
+        <button type="button" className="ghost"
+                onClick={() => detail.refetch()}>
+          {t('common.retry')}
+        </button>
+      </p>);
   const op = detail.data.operator;
   return (
     <div className="card">

@@ -174,6 +174,7 @@ function LifecyclePanel() {
         <p>
           <input
             style={{ maxWidth: 280 }}
+            aria-label={t('overview.upgrade.placeholder')}
             placeholder={t('overview.upgrade.placeholder')}
             value={upgradeSource}
             onChange={(e) => setUpgradeSource(e.target.value)}

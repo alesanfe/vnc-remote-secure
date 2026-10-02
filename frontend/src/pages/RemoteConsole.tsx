@@ -167,7 +167,7 @@ export default function RemoteConsole({ guest = false }: {
                   {t('rec.stop')}
                 </button>
               ) : (
-                <button type="button" className="ghost rec-arm"
+                <button type="button" className="ghost"
                         onClick={() => startRec.mutate()}
                         disabled={startRec.isPending}>
                   <Disc size={14} aria-hidden="true" />

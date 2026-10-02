@@ -362,6 +362,16 @@ a { color: var(--accent-text); }
 }
 .page-crumbs .crumb-page { color: var(--text); font-weight: 600; }
 .page-crumbs .crumb-sep { opacity: 0.5; }
+.page-crumbs a { color: var(--text-dim); }
+.page-crumbs a:hover { color: var(--accent); }
+
+/* CTA under an empty table state — a bare "no rows" cell is a dead
+   end without a next step. */
+.empty-action { margin-top: 0.5rem; }
+
+/* Toolbar search/filter input — the repeated inline maxWidth on
+   table search boxes, extracted so they stay consistent. */
+.toolbar-search { max-width: 200px; }
 
 /* Global status strip — one-line host health pinned above the page
    content (Kubernetes-dashboard style). Cells hide when idle. */
@@ -594,6 +604,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.danger { background: #c0392b; }
 button.danger:hover { background: #a02e22; }
 button.ghost { background: var(--surface-2); color: var(--text); }
+button.ghost:hover { background: var(--surface-3, var(--surface-2)); filter: brightness(1.06); }
+/* ghost + danger must stay red - declared after .ghost so the
+   destructive style wins over the neutral one (same specificity). */
+button.ghost.danger {
+  background: var(--surface-2);
+  color: #c0392b;
+  border: 1px solid #c0392b;
+}
+button.ghost.danger:hover { background: #c0392b; color: #fff; }
 
 /* Forms */
 input, select, textarea {

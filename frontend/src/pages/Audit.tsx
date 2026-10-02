@@ -126,6 +126,7 @@ export default function Audit() {
           loading={entries.isLoading}
           error={entries.isError}
           errorText={t('audit.loadError')}
+          onRetry={() => entries.refetch()}
           emptyText={t('audit.empty')}
           rows={rows}
           rowKey={(r) => String(r.seq ?? JSON.stringify(r))}

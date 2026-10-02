@@ -153,6 +153,9 @@ export default function LoginPage({
         <p className="muted" style={{ marginTop: '1rem' }}>
           {t('login.auditNote')}
         </p>
+        <p className="muted" style={{ marginTop: '0.25rem' }}>
+          <a href="/">{t('nav.backToPortal')}</a>
+        </p>
       </div>
     </main>
   );

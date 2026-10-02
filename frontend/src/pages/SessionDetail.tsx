@@ -7,6 +7,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { RelativeTime, StatusBadge } from '../components/bits';
 import { desktopUrl } from './GuestPage';
 import { useI18n } from '../i18n';
+import { useTabsNav } from '../components/useTabsNav';
 
 /** Human-readable duration (seconds → '1 h 05 m' style). */
 function fmtDuration(seconds: number): string {
@@ -22,6 +23,7 @@ function fmtDuration(seconds: number): string {
 export default function SessionDetail({ tokenId }: { tokenId: string }) {
   const { t } = useI18n();
   const qc = useQueryClient();
+  const tabsNav = useTabsNav();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [mutError, setMutError] = useState('');
   // The session is the working context: summary, live activity and
@@ -139,7 +141,14 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
           {detail.error instanceof ApiError &&
           detail.error.status === 404
             ? t('sessions.detail.notFound')
-            : t('sessions.loadError')}
+            : t('sessions.loadError')}{' '}
+          {!(detail.error instanceof ApiError &&
+            detail.error.status === 404) && (
+            <button type="button" className="ghost"
+                    onClick={() => detail.refetch()}>
+              {t('common.retry')}
+            </button>
+          )}
         </div>
       )}
       {mutError && (
@@ -148,7 +157,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
 
       {s && (
         <div role="tablist" aria-label={t('sessions.detail.tabsAria')}
-             className="toolbar">
+             className="toolbar" onKeyDown={tabsNav}>
           {(['summary', 'desktop', 'activity', 'chat'] as const)
             .map((k) => (
             <button
@@ -388,7 +397,6 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
         <iframe
           src={desktopUrl(portal.data)}
           title={t('nav.remote')}
-          className="desktop-frame"
           style={{ width: '100%', height: '70vh',
                    border: '1px solid var(--border)',
                    borderRadius: 'var(--radius)' }}

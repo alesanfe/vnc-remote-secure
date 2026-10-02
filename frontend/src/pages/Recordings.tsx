@@ -324,7 +324,13 @@ export default function Recordings() {
       {error && <div className="error-box" role="alert">{error}</div>}
 
       {list.isError && (
-        <div className="error-box" role="alert">{t('rec.loadError')}</div>
+        <div className="error-box" role="alert">
+          {t('rec.loadError')}{' '}
+          <button type="button" className="ghost"
+                  onClick={() => list.refetch()}>
+            {t('common.retry')}
+          </button>
+        </div>
       )}
       {list.isLoading && <p className="muted">{t('rec.loading')}</p>}
       {list.data && rows.length === 0 && (

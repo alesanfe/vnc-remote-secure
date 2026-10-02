@@ -68,6 +68,7 @@ export default function Jobs() {
         loading={jobs.isLoading}
         error={jobs.isError}
         errorText={t('jobs.loadError')}
+        onRetry={() => jobs.refetch()}
         emptyText={t('jobs.empty')}
         rows={jobs.data ? list : undefined}
         rowKey={(j) => j.id}

@@ -23,6 +23,7 @@ import {
   copyText,
 } from '../components/bits';
 import { useI18n } from '../i18n';
+import { useTabsNav } from '../components/useTabsNav';
 import { SESSION_TABS, type SessionTab } from './sessionTabs';
 
 const ROLES = ['viewer', 'support', 'operator', 'administrator'];
@@ -68,6 +69,7 @@ export default function Sessions() {
   const { t } = useI18n();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const tabsNav = useTabsNav();
   const { segment } = useParams();
   const tab: SessionTab = (SESSION_TABS as readonly string[])
     .includes(segment ?? '')
@@ -262,7 +264,7 @@ export default function Sessions() {
     <>
       <h1 className="page-title">{t('sessions.title')}</h1>
 
-      <div className="card">
+      <div className="card" id="session-wizard">
         <h3>{t('sessions.createTitle')}</h3>
         <ol className="wizard-steps">
           {WIZARD_STEPS.map((s, i) => (
@@ -554,6 +556,7 @@ export default function Sessions() {
           {t('sessions.inventory')}
         </h2>
         <div role="tablist" aria-label={t('sessions.viewsAria')}
+             onKeyDown={tabsNav}
              style={{ display: 'flex', gap: '0.5rem' }}>
           {(['invitations', 'connections', 'history'] as const).map(
             (tabKey) => (
@@ -571,7 +574,7 @@ export default function Sessions() {
         </div>
         <span className="spacer" />
         <input
-          style={{ maxWidth: 200 }}
+          className="toolbar-search"
           aria-label={t('common.search')}
           placeholder={t('common.search')}
           value={query}
@@ -593,7 +596,13 @@ export default function Sessions() {
         loading={sessions.isLoading}
         error={sessions.isError}
         errorText={t('sessions.loadError')}
+        onRetry={() => sessions.refetch()}
         emptyText={t(`sessions.empty.${tab}`)}
+        emptyAction={
+          tab === 'invitations' ? (
+            <a href="#session-wizard">{t('sessions.empty.createCta')}</a>
+          ) : undefined
+        }
         rows={filtered}
         rowKey={(s) => s.token_id}
         columns={[

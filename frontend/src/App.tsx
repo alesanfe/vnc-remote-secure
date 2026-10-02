@@ -110,14 +110,27 @@ function PageCrumbs({ groups }: {
   const tail = pathname === best.to || best.to === '/'
     ? ''
     : pathname.slice(best.to.length).replace(/^\//, '');
+  const groupTo = best.group
+    ? groups.find((g) => g.group === best!.group)?.items[0]?.to
+    : undefined;
   return (
-    <div className="page-crumbs" aria-hidden="true">
-      {best.group && <span>{best.group}</span>}
-      {best.group && <span className="crumb-sep">›</span>}
-      <span className="crumb-page">{best.label}</span>
-      {tail && <span className="crumb-sep">›</span>}
+    <nav className="page-crumbs" aria-label="Breadcrumb">
+      {best.group && groupTo && groupTo !== best.to && (
+        <NavLink to={groupTo}>{best.group}</NavLink>
+      )}
+      {best.group && groupTo && groupTo !== best.to && (
+        <span className="crumb-sep" aria-hidden="true">›</span>
+      )}
+      {best.group && (!groupTo || groupTo === best.to) && (
+        <>
+          <span>{best.group}</span>
+          <span className="crumb-sep" aria-hidden="true">›</span>
+        </>
+      )}
+      <span className="crumb-page" aria-current="page">{best.label}</span>
+      {tail && <span className="crumb-sep" aria-hidden="true">›</span>}
       {tail && <span className="mono">{decodeURIComponent(tail)}</span>}
-    </div>
+    </nav>
   );
 }
 
@@ -241,6 +254,9 @@ export default function App() {
 
   return (
     <div className="layout">
+      <a href="#main-content" className="skip-link">
+        {t('nav.skipToContent')}
+      </a>
       <Toaster
         position="bottom-right"
         toastOptions={{
@@ -360,7 +376,7 @@ export default function App() {
           ) : null}
         </nav>
       </aside>
-      <main className="main">
+      <main className="main" id="main-content">
         <PageCrumbs groups={NAV_GROUPS} />
         <StatusStrip />
         <Boundary>
@@ -408,7 +424,8 @@ export default function App() {
             path="*"
             element={
               <div className="error-box" role="alert">
-                {t('nav.notFound')}
+                {t('nav.notFound')}{' '}
+                <NavLink to="/">{t('nav.backToSummary')}</NavLink>
               </div>
             }
           />

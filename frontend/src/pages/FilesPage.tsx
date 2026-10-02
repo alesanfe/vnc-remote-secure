@@ -187,6 +187,7 @@ export default function FilesPage() {
         </button>
         <input
           style={{ maxWidth: 140 }}
+          aria-label={t('files.newDir')}
           placeholder={t('files.newDir')}
           value={newDir}
           onChange={(e) => setNewDir(e.target.value)}
@@ -248,7 +249,11 @@ export default function FilesPage() {
         <div className="error-box" role="alert">
           {list.error instanceof ApiError
             ? list.error.message
-            : t('files.loadError')}
+            : t('files.loadError')}{' '}
+          <button type="button" className="ghost"
+                  onClick={() => list.refetch()}>
+            {t('common.retry')}
+          </button>
         </div>
       )}
       {list.isLoading && <p className="muted">{t('common.loading')}</p>}

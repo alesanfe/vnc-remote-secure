@@ -24,7 +24,12 @@ interface Props<T> {
   loading?: boolean;
   error?: boolean;
   errorText?: string;
+  /** Retry affordance inside the error box — pass query.refetch. */
+  onRetry?: () => void;
   emptyText?: string;
+  /** Optional CTA rendered under the empty-state text — a bare "no
+      rows" message without a next step is a dead end. */
+  emptyAction?: React.ReactNode;
 }
 
 type SortDir = 'asc' | 'desc';
@@ -39,7 +44,9 @@ export default function DataTable<T>({
   loading = false,
   error = false,
   errorText,
+  onRetry,
   emptyText,
+  emptyAction,
 }: Props<T>) {
   const { t } = useI18n();
   const errorLabel = errorText ?? t('table.errorText');
@@ -70,7 +77,17 @@ export default function DataTable<T>({
       : s.dir === 'asc' ? { key, dir: 'desc' } : null);
 
   if (error) {
-    return <div className="error-box" role="alert">{errorLabel}</div>;
+    return (
+      <div className="error-box" role="alert">
+        {errorLabel}
+        {onRetry && (
+          <button type="button" className="ghost"
+                  onClick={onRetry}>
+            {t('common.retry')}
+          </button>
+        )}
+      </div>
+    );
   }
   if (loading && !rows) {
     return <div className="muted" role="status">{t('common.loading')}</div>;
@@ -117,6 +134,9 @@ export default function DataTable<T>({
           <tr>
             <td colSpan={columns.length} className="muted">
               {emptyLabel}
+              {emptyAction && (
+                <div className="empty-action">{emptyAction}</div>
+              )}
             </td>
           </tr>
         )}
