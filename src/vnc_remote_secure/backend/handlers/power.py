@@ -1,4 +1,5 @@
 """Host power handlers: shutdown/restart/sleep + Wake-on-LAN."""
+
 import logging
 
 from vnc_remote_secure.backend.handlers.common import (
@@ -23,21 +24,20 @@ def _post_power(handler, query):
     if error:
         _err(handler, *error)
         return
-    action = str(body.get('action') or '').strip()
+    action = str(body.get("action") or "").strip()
     try:
         from vnc_remote_secure.engine.application.power import host_power
         from vnc_remote_secure.engine.domain.decision import UseCaseError
+
         try:
-            _ok(handler, host_power(
-                action, operator.get('username', '?'),
-                _auth_ctx(handler)))
+            _ok(handler, host_power(action, operator.get("username", "?"), _auth_ctx(handler)))
         except UseCaseError as exc:
             _uc_err(handler, exc)
     except ValueError as exc:
         _err(handler, str(exc), 400)
     except Exception as e:  # noqa: BLE001
-        log_exception(e, 'api /power')
-        _err(handler, 'Power action failed', 500)
+        log_exception(e, "api /power")
+        _err(handler, "Power action failed", 500)
 
 
 def _post_power_wol(handler, query):
@@ -47,19 +47,19 @@ def _post_power_wol(handler, query):
     if error:
         _err(handler, *error)
         return
-    mac = str(body.get('mac') or '')
-    broadcast = str(body.get('broadcast') or '255.255.255.255')
+    mac = str(body.get("mac") or "")
+    broadcast = str(body.get("broadcast") or "255.255.255.255")
     try:
-        port = int(body.get('port') or 9)
+        port = int(body.get("port") or 9)
     except (TypeError, ValueError):
-        _err(handler, 'invalid port', 400)
+        _err(handler, "invalid port", 400)
         return
     try:
         from vnc_remote_secure.engine.application.power import wake_on_lan
-        _ok(handler, wake_on_lan(
-            mac, broadcast, port, actor=operator.get('username', '?')))
+
+        _ok(handler, wake_on_lan(mac, broadcast, port, actor=operator.get("username", "?")))
     except ValueError as exc:
         _err(handler, str(exc), 400)
     except Exception as e:  # noqa: BLE001
-        log_exception(e, 'api /power/wol')
-        _err(handler, 'Wake-on-LAN failed', 500)
+        log_exception(e, "api /power/wol")
+        _err(handler, "Wake-on-LAN failed", 500)

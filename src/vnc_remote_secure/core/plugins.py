@@ -28,6 +28,7 @@ class OptionalPlugin:
         default_enabled: Value when the config key is absent.
         linux_only: Skip silently on Windows (no binary to supervise).
     """
+
     name: str
     config_key: str
     permission: str | None
@@ -40,21 +41,25 @@ class OptionalPlugin:
 # startup sequencing is reproducible.
 _PLUGINS: tuple[OptionalPlugin, ...] = (
     OptionalPlugin(
-        'health', 'health_web_enabled', 'metrics:read',
-        'Standalone health/metrics/audit HTTP server on :8080',
-        default_enabled=True),
+        "health",
+        "health_web_enabled",
+        "metrics:read",
+        "Standalone health/metrics/audit HTTP server on :8080",
+        default_enabled=True,
+    ),
+    OptionalPlugin("user_ui", "user_ui_enabled", "user:manage", "Health/metrics web surface"),
     OptionalPlugin(
-        'user_ui', 'user_ui_enabled', 'user:manage',
-        'Health/metrics web surface'),
+        "audio",
+        "audio_stream_enabled",
+        "audio:listen",
+        "PulseAudio -> Icecast audio stream (Linux only)",
+    ),
     OptionalPlugin(
-        'audio', 'audio_stream_enabled', 'audio:listen',
-        'PulseAudio -> Icecast audio stream (Linux only)'),
+        "gamepad", "gamepad_enabled", "gamepad:attach", "VirtualHere / USB-IP gamepad passthrough"
+    ),
     OptionalPlugin(
-        'gamepad', 'gamepad_enabled', 'gamepad:attach',
-        'VirtualHere / USB-IP gamepad passthrough'),
-    OptionalPlugin(
-        'nginx', 'nginx_enabled', None,
-        'Reverse proxy + TLS terminator', linux_only=True),
+        "nginx", "nginx_enabled", None, "Reverse proxy + TLS terminator", linux_only=True
+    ),
 )
 
 
@@ -71,8 +76,7 @@ def plugin_for(service: str) -> OptionalPlugin | None:
     return None
 
 
-def plugin_enabled(plugin: OptionalPlugin, config: dict,
-                   is_windows: bool) -> bool:
+def plugin_enabled(plugin: OptionalPlugin, config: dict, is_windows: bool) -> bool:
     """Whether *plugin* should start under *config*."""
     if plugin.linux_only and is_windows:
         return False
@@ -81,13 +85,9 @@ def plugin_enabled(plugin: OptionalPlugin, config: dict,
 
 def enabled_plugins(config: dict, is_windows: bool) -> list[str]:
     """Names of optional plugins enabled under *config*."""
-    return [p.name for p in _PLUGINS
-            if plugin_enabled(p, config, is_windows)]
+    return [p.name for p in _PLUGINS if plugin_enabled(p, config, is_windows)]
 
 
 def attack_surface(config: dict, is_windows: bool) -> dict:
     """Enabled plugin -> required capability, for posture reports."""
-    return {
-        p.name: p.permission for p in _PLUGINS
-        if plugin_enabled(p, config, is_windows)
-    }
+    return {p.name: p.permission for p in _PLUGINS if plugin_enabled(p, config, is_windows)}

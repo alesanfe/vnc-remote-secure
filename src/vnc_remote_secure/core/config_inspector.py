@@ -10,6 +10,7 @@ Layers (in priority order, first match wins):
 4. Platform defaults (Linux/Windows)
 5. Hardcoded defaults (constants.py)
 """
+
 import logging
 import os
 
@@ -38,7 +39,7 @@ CREDENTIAL_VARS = SECRET_VARS
 # profiles — kept in sync with the runtime via
 # ``security.profiles.locked_vars_for``.
 LOCKED_VARS = {
-    'BACKEND_BIND_HOST': '127.0.0.1',
+    "BACKEND_BIND_HOST": "127.0.0.1",
 }
 
 
@@ -51,9 +52,11 @@ def _resolve_profile_name(env_snapshot: dict[str, str]) -> str:
     names so profile-scoped checks agree with apply_profile() at
     runtime.
     """
-    name = (env_snapshot.get('SECURITY_PROFILE')
-            or env_snapshot.get('VNC_REMOTE_PROFILE')
-            or 'development')
+    name = (
+        env_snapshot.get("SECURITY_PROFILE")
+        or env_snapshot.get("VNC_REMOTE_PROFILE")
+        or "development"
+    )
     return _PROFILE_ALIASES.get(name, name)
 
 
@@ -68,6 +71,7 @@ def _locked_vars_for_profile(profile_name: str) -> dict[str, str]:
     """
     try:
         from vnc_remote_secure.security.profiles import locked_vars_for
+
         return locked_vars_for(profile_name)
     except Exception:  # noqa: BLE001 - inspection must not hard-fail
         return LOCKED_VARS
@@ -85,20 +89,19 @@ def _get_platform_defaults() -> dict[str, str]:
     """
     from vnc_remote_secure.core.config import _parse_env_file
 
-    platform_file = 'windows.env' if os.name == 'nt' else 'linux.env'
+    platform_file = "windows.env" if os.name == "nt" else "linux.env"
     candidates = []
     try:
         from importlib.resources import files
-        candidates.append(
-            str(files('vnc_remote_secure') / 'config' / 'defaults'))
+
+        candidates.append(str(files("vnc_remote_secure") / "config" / "defaults"))
     except Exception:  # noqa: BLE001 - package resources unavailable
         pass
-    candidates.append(os.path.join(
-        os.path.dirname(__file__), '..', 'config', 'defaults'))
+    candidates.append(os.path.join(os.path.dirname(__file__), "..", "config", "defaults"))
     for defaults_dir in candidates:
         if defaults_dir and os.path.isdir(defaults_dir):
             merged: dict[str, str] = {}
-            for name in ('common.env', platform_file):
+            for name in ("common.env", platform_file):
                 path = os.path.join(defaults_dir, name)
                 if os.path.isfile(path):
                     merged.update(_parse_env_file(path))
@@ -110,12 +113,12 @@ def _get_platform_defaults() -> dict[str, str]:
 def _get_hardcoded_defaults() -> dict[str, str]:
     """Return hardcoded default values from constants."""
     return {
-        'BIND_HOST': DEFAULT_BIND_HOST,
-        'NOVNC_PORT': str(DEFAULT_NOVNC_PORT),
-        'TTYD_PORT': str(DEFAULT_TTYD_PORT),
-        'LANDING_PORT': str(DEFAULT_LANDING_PORT),
-        'HEALTH_WEB_PORT': str(DEFAULT_HEALTH_PORT),
-        'VNC_PORT': str(DEFAULT_VNC_PORT),
+        "BIND_HOST": DEFAULT_BIND_HOST,
+        "NOVNC_PORT": str(DEFAULT_NOVNC_PORT),
+        "TTYD_PORT": str(DEFAULT_TTYD_PORT),
+        "LANDING_PORT": str(DEFAULT_LANDING_PORT),
+        "HEALTH_WEB_PORT": str(DEFAULT_HEALTH_PORT),
+        "VNC_PORT": str(DEFAULT_VNC_PORT),
     }
 
 
@@ -125,8 +128,13 @@ def _get_hardcoded_defaults() -> dict[str, str]:
 # (e.g. ``BIND_HOST=0.0.0.0`` propagates to these) instead of a
 # misleading 'not-set'.
 _SERVICE_HOST_VARS = {
-    'AUDIO_STREAM_HOST', 'GAMEPAD_HOST', 'HEALTH_WEB_HOST',
-    'LANDING_HOST', 'SERVE_NOVNC_HOST', 'TTYD_HOST', 'USER_UI_HOST',
+    "AUDIO_STREAM_HOST",
+    "GAMEPAD_HOST",
+    "HEALTH_WEB_HOST",
+    "LANDING_HOST",
+    "SERVE_NOVNC_HOST",
+    "TTYD_HOST",
+    "USER_UI_HOST",
 }
 
 
@@ -134,13 +142,13 @@ def _get_profile_values(profile_name: str) -> dict[str, str]:
     """Return the values set by a security profile."""
     resolved = _PROFILE_ALIASES.get(profile_name, profile_name)
     profile = PROFILES.get(resolved, {})
-    return {k: str(v) for k, v in profile.items() if k != 'description'}
+    return {k: str(v) for k, v in profile.items() if k != "description"}
 
 
 def _redact_value(name: str, value: str) -> str:
     """Redact credential values."""
     if name in CREDENTIAL_VARS and value:
-        return f'[REDACTED:{len(value)}chars]'
+        return f"[REDACTED:{len(value)}chars]"
     return value
 
 
@@ -153,7 +161,8 @@ def _load_env_file_values() -> dict[str, str]:
     """
     from vnc_remote_secure.core.config import _parse_env_file
     from vnc_remote_secure.core.paths import find_project_root
-    env_path = os.path.join(find_project_root(), '.env')
+
+    env_path = os.path.join(find_project_root(), ".env")
     if not os.path.exists(env_path):
         return {}
     try:
@@ -166,21 +175,23 @@ def _load_env_file_values() -> dict[str, str]:
 def _schema_known_vars() -> set:
     """Return variable names declared in the JSON schema."""
     import json as _json
+
     candidates = []
     try:
         from importlib.resources import files
-        candidates.append(str(
-            files('vnc_remote_secure') / 'config' / 'schema'
-            / 'config.schema.json'))
+
+        candidates.append(
+            str(files("vnc_remote_secure") / "config" / "schema" / "config.schema.json")
+        )
     except Exception:  # noqa: BLE001
         pass
-    candidates.append(os.path.join(
-        os.path.dirname(__file__), '..', 'config', 'schema',
-        'config.schema.json'))
+    candidates.append(
+        os.path.join(os.path.dirname(__file__), "..", "config", "schema", "config.schema.json")
+    )
     for path in candidates:
         try:
-            with open(path, encoding='utf-8') as f:
-                return set(_json.load(f).get('properties', {}))
+            with open(path, encoding="utf-8") as f:
+                return set(_json.load(f).get("properties", {}))
         except (OSError, ValueError):
             continue
     return set()
@@ -228,7 +239,7 @@ def compute_effective_config(
     all_vars.update(_SERVICE_HOST_VARS)
     # Include every var the runtime can lock so locked entries appear
     # in the report even when no source defines them.
-    for _p in ('public-hardened', 'private-overlay', 'trusted-lan'):
+    for _p in ("public-hardened", "private-overlay", "trusted-lan"):
         all_vars.update(_locked_vars_for_profile(_p).keys())
 
     # Filter out non-config env vars (PATH, HOME, etc.). The schema is
@@ -237,22 +248,56 @@ def compute_effective_config(
     # schema key must ALWAYS survive the filter; the contract test
     # test_schema_keys_survive_effective_config guards this.
     config_prefixes = (
-        'VNC_', 'NOVNC_', 'TTYD_', 'LANDING_', 'HEALTH_', 'BIND_',
-        'SECURITY_', 'TLS_', 'DISABLE_', 'SSL_', 'MFA_', 'TOTP_',
-        'AUTH_', 'SESSION_', 'ALLOWED_', 'DUCK_', 'NGINX_', 'BACKEND_',
-        'PUBLIC_', 'AUDIO_', 'GAMEPAD_', 'KEEP_',
-        'FLASK_', 'RECOVERY_', 'SHOW_', 'LOG_', 'WEBTERM_',
-        'USER_UI_', 'HEALTHCHECK_', 'VNC_REMOTE_',
-        'ALERTS_', 'ALERT_',
-        'TEMP_', 'DISCORD_', 'FAIL2BAN_', 'CSP_', 'TRUSTED_',
-        'SHARED_STATE_', 'ULTRAVNC_',
-        'AUDIT_', 'METRICS_', 'WEBAUTHN_', 'MAINTENANCE_',
+        "VNC_",
+        "NOVNC_",
+        "TTYD_",
+        "LANDING_",
+        "HEALTH_",
+        "BIND_",
+        "SECURITY_",
+        "TLS_",
+        "DISABLE_",
+        "SSL_",
+        "MFA_",
+        "TOTP_",
+        "AUTH_",
+        "SESSION_",
+        "ALLOWED_",
+        "DUCK_",
+        "NGINX_",
+        "BACKEND_",
+        "PUBLIC_",
+        "AUDIO_",
+        "GAMEPAD_",
+        "KEEP_",
+        "FLASK_",
+        "RECOVERY_",
+        "SHOW_",
+        "LOG_",
+        "WEBTERM_",
+        "USER_UI_",
+        "HEALTHCHECK_",
+        "VNC_REMOTE_",
+        "ALERTS_",
+        "ALERT_",
+        "TEMP_",
+        "DISCORD_",
+        "FAIL2BAN_",
+        "CSP_",
+        "TRUSTED_",
+        "SHARED_STATE_",
+        "ULTRAVNC_",
+        "AUDIT_",
+        "METRICS_",
+        "WEBAUTHN_",
+        "MAINTENANCE_",
     )
     # Unprefixed variables that are still configuration.
-    explicit_vars = {'EMAIL', 'SERVE_NOVNC_HOST'}
+    explicit_vars = {"EMAIL", "SERVE_NOVNC_HOST"}
     schema_keys = _schema_known_vars()
     all_vars = {
-        v for v in all_vars
+        v
+        for v in all_vars
         if any(v.startswith(p) for p in config_prefixes)
         or v in LOCKED_VARS
         or v in explicit_vars
@@ -265,14 +310,21 @@ def compute_effective_config(
     result: list[dict[str, str]] = []
     for var in sorted_vars:
         value, source = _resolve_var(
-            var, env_snapshot, env_file_values, profile_values,
-            platform_defaults, hardcoded_defaults, profile_name,
+            var,
+            env_snapshot,
+            env_file_values,
+            profile_values,
+            platform_defaults,
+            hardcoded_defaults,
+            profile_name,
         )
-        result.append({
-            'name': var,
-            'value': _redact_value(var, value),
-            'source': source,
-        })
+        result.append(
+            {
+                "name": var,
+                "value": _redact_value(var, value),
+                "source": source,
+            }
+        )
 
     return result
 
@@ -290,47 +342,53 @@ def _resolve_var(
     locked = _locked_vars_for_profile(profile_name)
 
     # 1. Environment variable (highest priority).
-    env_val = env_snapshot.get(var, '')
+    env_val = env_snapshot.get(var, "")
     if env_val:
         # Check if this var is locked by security policy.
         if var in locked and env_val != locked[var]:
-            return locked[var], 'security-policy (override blocked)'
-        return env_val, 'env'
+            return locked[var], "security-policy (override blocked)"
+        return env_val, "env"
 
     # 2. .env file.
-    file_val = env_file_values.get(var, '')
+    file_val = env_file_values.get(var, "")
     if file_val:
         if var in locked and file_val != locked[var]:
-            return locked[var], 'security-policy (override blocked)'
-        return file_val, '.env'
+            return locked[var], "security-policy (override blocked)"
+        return file_val, ".env"
 
     # 3. Security profile.
-    profile_val = profile_values.get(var, '')
+    profile_val = profile_values.get(var, "")
     if profile_val:
-        return profile_val, f'profile:{profile_name}'
+        return profile_val, f"profile:{profile_name}"
 
     # 4. Platform default.
-    plat_val = platform_defaults.get(var, '')
+    plat_val = platform_defaults.get(var, "")
     if plat_val:
-        return plat_val, 'platform-default'
+        return plat_val, "platform-default"
 
     # 5. Hardcoded default.
-    hc_val = hardcoded_defaults.get(var, '')
+    hc_val = hardcoded_defaults.get(var, "")
     if hc_val:
-        return str(hc_val), 'hardcoded-default'
+        return str(hc_val), "hardcoded-default"
 
     # 5b. Service bind hosts fall back to the effective BIND_HOST —
     # same chain ``config._env_host`` applies at runtime.
     if var in _SERVICE_HOST_VARS:
         bh_val, bh_src = _resolve_var(
-            'BIND_HOST', env_snapshot, env_file_values, profile_values,
-            platform_defaults, hardcoded_defaults, profile_name)
+            "BIND_HOST",
+            env_snapshot,
+            env_file_values,
+            profile_values,
+            platform_defaults,
+            hardcoded_defaults,
+            profile_name,
+        )
         if bh_val:
-            return bh_val, f'fallback:BIND_HOST ({bh_src})'
-        return DEFAULT_BIND_HOST, 'hardcoded-default'
+            return bh_val, f"fallback:BIND_HOST ({bh_src})"
+        return DEFAULT_BIND_HOST, "hardcoded-default"
 
     # 6. Not set.
-    return '', 'not-set'
+    return "", "not-set"
 
 
 def _check_tls_required(effective_dict, profile_name, findings):
@@ -340,17 +398,18 @@ def _check_tls_required(effective_dict, profile_name, findings):
     DISABLE_SSL=true kills TLS even when TLS_ENABLED=true — reading only
     TLS_ENABLED would certify a deployment whose runtime TLS is off.
     """
-    disable_ssl = effective_dict.get('DISABLE_SSL', '').strip().lower()
-    tls_enabled = effective_dict.get('TLS_ENABLED', 'true')
-    tls_off = (disable_ssl in ('true', '1', 'yes')
-               or tls_enabled.lower() not in ('true', '1', 'yes'))
-    if profile_name in ('public-hardened', 'private-overlay', 'trusted-lan') and tls_off:
-        findings.append({
-            'severity': 'critical',
-            'message': f'TLS disabled (TLS_ENABLED={tls_enabled}, '
-                       f'DISABLE_SSL={disable_ssl or "unset"}) in profile '
-                       f'{profile_name} — TLS required',
-        })
+    disable_ssl = effective_dict.get("DISABLE_SSL", "").strip().lower()
+    tls_enabled = effective_dict.get("TLS_ENABLED", "true")
+    tls_off = disable_ssl in ("true", "1", "yes") or tls_enabled.lower() not in ("true", "1", "yes")
+    if profile_name in ("public-hardened", "private-overlay", "trusted-lan") and tls_off:
+        findings.append(
+            {
+                "severity": "critical",
+                "message": f"TLS disabled (TLS_ENABLED={tls_enabled}, "
+                f'DISABLE_SSL={disable_ssl or "unset"}) in profile '
+                f"{profile_name} — TLS required",
+            }
+        )
 
 
 def _check_vnc_password(env_snapshot, findings):
@@ -362,27 +421,32 @@ def _check_vnc_password(env_snapshot, findings):
     a deployment relying on the generated password would report a false
     critical.
     """
-    vnc_pass = env_snapshot.get('VNC_PASSWORD', '').strip()
+    vnc_pass = env_snapshot.get("VNC_PASSWORD", "").strip()
     if not vnc_pass:
         try:
             from vnc_remote_secure.core.config import (
                 _load_generated_credential,
             )
-            vnc_pass = _load_generated_credential('VNC_PASSWORD')
+
+            vnc_pass = _load_generated_credential("VNC_PASSWORD")
         except Exception:  # noqa: BLE001 — fallback is best-effort
             pass
     if not vnc_pass:
-        findings.append({
-            'severity': 'critical',
-            'message': 'VNC_PASSWORD is empty — VNC server will reject connections',
-        })
+        findings.append(
+            {
+                "severity": "critical",
+                "message": "VNC_PASSWORD is empty — VNC server will reject connections",
+            }
+        )
         return
     weak_lower = {p.lower() for p in WEAK_PASSWORDS}
     if vnc_pass.lower() in weak_lower:
-        findings.append({
-            'severity': 'critical',
-            'message': 'VNC_PASSWORD is a known weak password',
-        })
+        findings.append(
+            {
+                "severity": "critical",
+                "message": "VNC_PASSWORD is a known weak password",
+            }
+        )
 
 
 def _check_port_vars(env_snapshot, findings):
@@ -392,28 +456,39 @@ def _check_port_vars(env_snapshot, findings):
     crash ``get_config()`` at runtime.
     """
     port_vars = (
-        'VNC_PORT', 'VNC_HTTP_PORT', 'NOVNC_PORT', 'TTYD_PORT',
-        'HEALTH_WEB_PORT', 'LANDING_PORT', 'USER_UI_PORT',
-        'AUDIO_STREAM_PORT', 'GAMEPAD_PORT',
-        'NGINX_HTTP_PORT', 'NGINX_HTTPS_PORT',
+        "VNC_PORT",
+        "VNC_HTTP_PORT",
+        "NOVNC_PORT",
+        "TTYD_PORT",
+        "HEALTH_WEB_PORT",
+        "LANDING_PORT",
+        "USER_UI_PORT",
+        "AUDIO_STREAM_PORT",
+        "GAMEPAD_PORT",
+        "NGINX_HTTP_PORT",
+        "NGINX_HTTPS_PORT",
     )
     for var in port_vars:
         raw = env_snapshot.get(var)
-        if raw is None or raw == '':
+        if raw is None or raw == "":
             continue
         try:
             val = int(raw)
         except (ValueError, TypeError):
-            findings.append({
-                'severity': 'critical',
-                'message': f'{var}={raw!r} is not a valid integer',
-            })
+            findings.append(
+                {
+                    "severity": "critical",
+                    "message": f"{var}={raw!r} is not a valid integer",
+                }
+            )
             continue
         if val < 1 or val > 65535:
-            findings.append({
-                'severity': 'critical',
-                'message': f'{var}={val} is out of valid port range (1-65535)',
-            })
+            findings.append(
+                {
+                    "severity": "critical",
+                    "message": f"{var}={val} is out of valid port range (1-65535)",
+                }
+            )
 
 
 def _check_tigervnc_port_mismatch(env_snapshot, findings):
@@ -428,29 +503,221 @@ def _check_tigervnc_port_mismatch(env_snapshot, findings):
     """
     try:
         from vnc_remote_secure.platform.detection import is_windows
+
         if is_windows():
             return
-        raw_display = (env_snapshot.get('VNC_DISPLAY', ':1') or ':1')
-        display_num = int(str(raw_display).lstrip(':'))
-        vnc_port_raw = env_snapshot.get('VNC_PORT', '').strip()
+        raw_display = env_snapshot.get("VNC_DISPLAY", ":1") or ":1"
+        display_num = int(str(raw_display).lstrip(":"))
+        vnc_port_raw = env_snapshot.get("VNC_PORT", "").strip()
         if not vnc_port_raw:
             return
         vnc_port = int(vnc_port_raw)
         expected = TIGERVNC_BASE_PORT + display_num
         if vnc_port != expected:
-            findings.append({
-                'severity': 'warning',
-                'message': (
-                    f'VNC_PORT={vnc_port} is ignored on Linux — '
-                    f'TigerVNC binds {TIGERVNC_BASE_PORT}+display '
-                    f'({expected} for display {raw_display}); '
-                    f'set VNC_PORT={expected} or '
-                    f'VNC_DISPLAY=:{vnc_port - TIGERVNC_BASE_PORT} '
-                    'to silence this warning.'
-                ),
-            })
+            findings.append(
+                {
+                    "severity": "warning",
+                    "message": (
+                        f"VNC_PORT={vnc_port} is ignored on Linux — "
+                        f"TigerVNC binds {TIGERVNC_BASE_PORT}+display "
+                        f"({expected} for display {raw_display}); "
+                        f"set VNC_PORT={expected} or "
+                        f"VNC_DISPLAY=:{vnc_port - TIGERVNC_BASE_PORT} "
+                        "to silence this warning."
+                    ),
+                }
+            )
     except (ValueError, TypeError):
         pass
+
+
+def _check_unknown_env_keys(findings: list[dict[str, str]]) -> None:
+    """Unknown keys in .env: a typo like VNC_PASWORD silently does
+    nothing while the operator believes a credential is set. Only
+    file keys are checked — os.environ holds hundreds of unrelated
+    system variables that must not be flagged."""
+    known = _schema_known_vars()
+    if not known:
+        return
+    for key in sorted(set(_load_env_file_values()) - known):
+        findings.append(
+            {
+                "severity": "warning",
+                "message": f"Unknown config key in .env: {key} — "
+                "not declared in the schema (typo?)",
+            }
+        )
+
+
+def _check_backend_bind_host(
+    effective_dict: dict[str, str], findings: list[dict[str, str]]
+) -> None:
+    """BACKEND_BIND_HOST must be 127.0.0.1 in all profiles."""
+    backend_bind = effective_dict.get("BACKEND_BIND_HOST", "127.0.0.1")
+    if backend_bind != "127.0.0.1":
+        findings.append(
+            {
+                "severity": "critical",
+                "message": f"BACKEND_BIND_HOST={backend_bind} — must be 127.0.0.1 (Zero Trust)",
+            }
+        )
+
+
+def _check_mfa_required(
+    effective_dict: dict[str, str], profile_name: str, findings: list[dict[str, str]]
+) -> None:
+    """MFA required in public-hardened and private-overlay."""
+    mfa_required = effective_dict.get("MFA_REQUIRED", "false")
+    if profile_name in ("public-hardened", "private-overlay") and mfa_required.lower() not in (
+        "true",
+        "1",
+        "yes",
+    ):
+        findings.append(
+            {
+                "severity": "critical",
+                "message": f"MFA_REQUIRED={mfa_required} in profile {profile_name} — MFA required",
+            }
+        )
+
+
+def _check_nginx_required(
+    effective_dict: dict[str, str], profile_name: str, findings: list[dict[str, str]]
+) -> None:
+    """nginx enabled in non-development profiles."""
+    nginx_enabled = effective_dict.get("NGINX_ENABLED", "false")
+    if profile_name in (
+        "public-hardened",
+        "private-overlay",
+        "trusted-lan",
+    ) and nginx_enabled.lower() not in ("true", "1", "yes"):
+        findings.append(
+            {
+                "severity": "critical",
+                "message": f"NGINX_ENABLED={nginx_enabled} in profile {profile_name} — reverse proxy required",
+            }
+        )
+
+
+def _check_scoped_tokens(
+    effective_dict: dict[str, str], profile_name: str, findings: list[dict[str, str]]
+) -> None:
+    """Scoped health tokens: under a hardened profile the metrics
+    scraper and the audit reader must hold DIFFERENT credentials —
+    otherwise one leaked scraper token exposes the audit trail.
+    Missing tokens are an error in overlay/hardened (the profile
+    claims separation; starting without it is a false guarantee),
+    a strong warning in trusted-lan."""
+    if profile_name not in ("public-hardened", "private-overlay", "trusted-lan"):
+        return
+    severity = "warning" if profile_name == "trusted-lan" else "critical"
+    for var in ("AUDIT_AUTH_TOKEN", "METRICS_AUTH_TOKEN"):
+        if not effective_dict.get(var):
+            findings.append(
+                {
+                    "severity": severity,
+                    "message": f"{var} unset in profile {profile_name} "
+                    "— /audit and /metrics fall back to "
+                    "HEALTH_AUTH_TOKEN (set scoped tokens)",
+                }
+            )
+    # Pairwise collisions: any two identical tokens collapse that
+    # scope boundary (e.g. METRICS==AUDIT lets the scraper read
+    # the audit trail even when HEALTH differs).
+    vals = {
+        v: effective_dict.get(v, "")
+        for v in ("HEALTH_AUTH_TOKEN", "AUDIT_AUTH_TOKEN", "METRICS_AUTH_TOKEN")
+    }
+    for a, b in (
+        ("HEALTH_AUTH_TOKEN", "AUDIT_AUTH_TOKEN"),
+        ("HEALTH_AUTH_TOKEN", "METRICS_AUTH_TOKEN"),
+        ("AUDIT_AUTH_TOKEN", "METRICS_AUTH_TOKEN"),
+    ):
+        if vals[a] and vals[a] == vals[b]:
+            findings.append(
+                {
+                    "severity": "critical",
+                    "message": f"{a} == {b} — scoped tokens must " "differ to separate credentials",
+                }
+            )
+
+
+def _check_flask_secret(
+    env_snapshot: dict[str, str], profile_name: str, findings: list[dict[str, str]]
+) -> None:
+    """FLASK_SECRET_KEY set in non-development profiles. The persisted
+    auth_secret.key fallback only applies in development —
+    web/application.py raises RuntimeError on hardened profiles when
+    the env var is missing, so the critical here matches the startup
+    blocker (and doctor's secrets.flask_key, which treats the
+    persisted file as 'Set' for dev-mode state)."""
+    flask_secret = env_snapshot.get("FLASK_SECRET_KEY", "").strip()
+    if profile_name in ("public-hardened", "private-overlay", "trusted-lan") and not flask_secret:
+        findings.append(
+            {
+                "severity": "critical",
+                "message": "FLASK_SECRET_KEY not set — sessions invalidated on restart",
+            }
+        )
+
+
+def _policy_unsat_fields(req, methods_props: list, enforce_all: bool) -> list:
+    """Requirement fields of one policy that no enabled auth method
+    can satisfy under the given enforcement scope."""
+    enforced_fields = []
+    if req.require_mfa:
+        enforced_fields.append("mfa")
+    if enforce_all and req.require_phishing_resistant:
+        enforced_fields.append("phishing_resistant")
+    if enforce_all and req.require_user_verified:
+        enforced_fields.append("user_verified")
+    unsat = [f for f in enforced_fields if not any(f in mp for mp in methods_props)]
+    # Alternatives: enforced under every profile that reaches
+    # here (mfa/recency always enforced in trusted-lan+).
+    if req.alternatives and not any(
+        any(set(alt) <= mp for mp in methods_props) for alt in req.alternatives
+    ):
+        unsat.append("/".join("+".join(a) for a in req.alternatives))
+    return unsat
+
+
+def _check_auth_policy_satisfiability(
+    effective_dict: dict[str, str], profile_name: str, findings: list[dict[str, str]]
+) -> None:
+    """Auth-policy satisfiability by REAL properties: TOTP satisfies
+    mfa but never phishing_resistant — "some second factor exists"
+    is not proof every enforced policy is reachable."""
+    if profile_name not in ("public-hardened", "private-overlay", "trusted-lan"):
+        return
+    from vnc_remote_secure.security.auth_policy import _ENFORCE_ALL, AUTH_POLICIES
+
+    truthy = ("true", "1", "yes")
+    # Properties each enabled method can deliver at ceremony time.
+    methods_props = [{"recent_auth"}]  # password is always there
+    if effective_dict.get("MFA_REQUIRED", "").lower() in truthy:
+        methods_props.append({"recent_auth", "mfa"})
+    if effective_dict.get("WEBAUTHN_ENABLED", "").lower() in truthy:
+        # UV 'preferred' lets the authenticator skip verification —
+        # a ceremony CAN yield user_verified=false, so the property
+        # only counts when UV is required at request time.
+        uv = effective_dict.get("WEBAUTHN_USER_VERIFICATION", "preferred").lower()
+        wn = {"recent_auth", "phishing_resistant"}
+        if uv == "required":
+            wn.add("user_verified")
+        methods_props.append(wn)
+    enforce_all = profile_name in _ENFORCE_ALL
+    for op, req in AUTH_POLICIES.items():
+        unsat = _policy_unsat_fields(req, methods_props, enforce_all)
+        if unsat:
+            findings.append(
+                {
+                    "severity": "critical",
+                    "message": f"policy {op} unsatisfiable in profile "
+                    f"{profile_name}: no enabled auth "
+                    f"method provides {unsat} (enable "
+                    "WebAuthn or MFA before this profile)",
+                }
+            )
 
 
 def validate_config(
@@ -469,146 +736,16 @@ def validate_config(
 
     findings: list[dict[str, str]] = []
     effective = compute_effective_config(env_snapshot, profile_name)
-    effective_dict = {e['name']: e['value'] for e in effective}
+    effective_dict = {e["name"]: e["value"] for e in effective}
 
-    # Unknown keys in .env: a typo like VNC_PASWORD silently does
-    # nothing while the operator believes a credential is set. Only
-    # file keys are checked — os.environ holds hundreds of unrelated
-    # system variables that must not be flagged.
-    known = _schema_known_vars()
-    if known:
-        for key in sorted(set(_load_env_file_values()) - known):
-            findings.append({
-                'severity': 'warning',
-                'message': f'Unknown config key in .env: {key} — '
-                           'not declared in the schema (typo?)',
-            })
-
-    # BACKEND_BIND_HOST must be 127.0.0.1 in all profiles.
-    backend_bind = effective_dict.get('BACKEND_BIND_HOST', '127.0.0.1')
-    if backend_bind != '127.0.0.1':
-        findings.append({
-            'severity': 'critical',
-            'message': f'BACKEND_BIND_HOST={backend_bind} — must be 127.0.0.1 (Zero Trust)',
-        })
-
+    _check_unknown_env_keys(findings)
+    _check_backend_bind_host(effective_dict, findings)
     _check_tls_required(effective_dict, profile_name, findings)
-
-    # MFA required in public-hardened and private-overlay.
-    mfa_required = effective_dict.get('MFA_REQUIRED', 'false')
-    if (profile_name in ('public-hardened', 'private-overlay')
-            and mfa_required.lower() not in ('true', '1', 'yes')):
-        findings.append({
-            'severity': 'critical',
-            'message': f'MFA_REQUIRED={mfa_required} in profile {profile_name} — MFA required',
-        })
-
-    # nginx enabled in non-development profiles.
-    nginx_enabled = effective_dict.get('NGINX_ENABLED', 'false')
-    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
-            and nginx_enabled.lower() not in ('true', '1', 'yes')):
-        findings.append({
-            'severity': 'critical',
-            'message': f'NGINX_ENABLED={nginx_enabled} in profile {profile_name} — reverse proxy required',
-        })
-
-    # Scoped health tokens: under a hardened profile the metrics
-    # scraper and the audit reader must hold DIFFERENT credentials —
-    # otherwise one leaked scraper token exposes the audit trail.
-    # Missing tokens are an error in overlay/hardened (the profile
-    # claims separation; starting without it is a false guarantee),
-    # a strong warning in trusted-lan.
-    if profile_name in ('public-hardened', 'private-overlay',
-                        'trusted-lan'):
-        severity = ('warning' if profile_name == 'trusted-lan'
-                    else 'critical')
-        for var in ('AUDIT_AUTH_TOKEN', 'METRICS_AUTH_TOKEN'):
-            if not effective_dict.get(var):
-                findings.append({
-                    'severity': severity,
-                    'message': f'{var} unset in profile {profile_name} '
-                               '— /audit and /metrics fall back to '
-                               'HEALTH_AUTH_TOKEN (set scoped tokens)',
-                })
-        # Pairwise collisions: any two identical tokens collapse that
-        # scope boundary (e.g. METRICS==AUDIT lets the scraper read
-        # the audit trail even when HEALTH differs).
-        vals = {v: effective_dict.get(v, '')
-                for v in ('HEALTH_AUTH_TOKEN', 'AUDIT_AUTH_TOKEN',
-                          'METRICS_AUTH_TOKEN')}
-        for a, b in (('HEALTH_AUTH_TOKEN', 'AUDIT_AUTH_TOKEN'),
-                     ('HEALTH_AUTH_TOKEN', 'METRICS_AUTH_TOKEN'),
-                     ('AUDIT_AUTH_TOKEN', 'METRICS_AUTH_TOKEN')):
-            if vals[a] and vals[a] == vals[b]:
-                findings.append({
-                    'severity': 'critical',
-                    'message': f'{a} == {b} — scoped tokens must '
-                               'differ to separate credentials',
-                })
-
-    # FLASK_SECRET_KEY set in non-development profiles. The persisted
-    # auth_secret.key fallback only applies in development —
-    # web/application.py raises RuntimeError on hardened profiles when
-    # the env var is missing, so the critical here matches the startup
-    # blocker (and doctor's secrets.flask_key, which treats the
-    # persisted file as 'Set' for dev-mode state).
-    flask_secret = env_snapshot.get('FLASK_SECRET_KEY', '').strip()
-    if (profile_name in ('public-hardened', 'private-overlay', 'trusted-lan')
-            and not flask_secret):
-        findings.append({
-            'severity': 'critical',
-            'message': 'FLASK_SECRET_KEY not set — sessions invalidated on restart',
-        })
-
-    # Auth-policy satisfiability by REAL properties: TOTP satisfies
-    # mfa but never phishing_resistant — "some second factor exists"
-    # is not proof every enforced policy is reachable.
-    if profile_name in ('public-hardened', 'private-overlay',
-                        'trusted-lan'):
-        from vnc_remote_secure.security.auth_policy import _ENFORCE_ALL, AUTH_POLICIES
-        truthy = ('true', '1', 'yes')
-        # Properties each enabled method can deliver at ceremony time.
-        methods_props = [{'recent_auth'}]  # password is always there
-        if effective_dict.get('MFA_REQUIRED', '').lower() in truthy:
-            methods_props.append({'recent_auth', 'mfa'})
-        if effective_dict.get('WEBAUTHN_ENABLED', '').lower() in truthy:
-            # UV 'preferred' lets the authenticator skip verification —
-            # a ceremony CAN yield user_verified=false, so the property
-            # only counts when UV is required at request time.
-            uv = effective_dict.get(
-                'WEBAUTHN_USER_VERIFICATION', 'preferred'
-            ).lower()
-            wn = {'recent_auth', 'phishing_resistant'}
-            if uv == 'required':
-                wn.add('user_verified')
-            methods_props.append(wn)
-        enforce_all = profile_name in _ENFORCE_ALL
-        for op, req in AUTH_POLICIES.items():
-            enforced_fields = []
-            if req.require_mfa:
-                enforced_fields.append('mfa')
-            if enforce_all and req.require_phishing_resistant:
-                enforced_fields.append('phishing_resistant')
-            if enforce_all and req.require_user_verified:
-                enforced_fields.append('user_verified')
-            unsat = [f for f in enforced_fields
-                     if not any(f in mp for mp in methods_props)]
-            # Alternatives: enforced under every profile that reaches
-            # here (mfa/recency always enforced in trusted-lan+).
-            if req.alternatives and not any(
-                    any(set(alt) <= mp for mp in methods_props)
-                    for alt in req.alternatives):
-                unsat.append('/'.join('+'.join(a)
-                                      for a in req.alternatives))
-            if unsat:
-                findings.append({
-                    'severity': 'critical',
-                    'message': f'policy {op} unsatisfiable in profile '
-                               f'{profile_name}: no enabled auth '
-                               f'method provides {unsat} (enable '
-                               'WebAuthn or MFA before this profile)',
-                })
-
+    _check_mfa_required(effective_dict, profile_name, findings)
+    _check_nginx_required(effective_dict, profile_name, findings)
+    _check_scoped_tokens(effective_dict, profile_name, findings)
+    _check_flask_secret(env_snapshot, profile_name, findings)
+    _check_auth_policy_satisfiability(effective_dict, profile_name, findings)
     _check_vnc_password(env_snapshot, findings)
     _check_port_vars(env_snapshot, findings)
     _check_tigervnc_port_mismatch(env_snapshot, findings)
@@ -630,19 +767,21 @@ def diff_configs(
         List of diffs with keys: name, value_a, value_b, source_a, source_b.
         Only includes variables that differ.
     """
-    dict_a = {e['name']: e for e in config_a}
-    dict_b = {e['name']: e for e in config_b}
+    dict_a = {e["name"]: e for e in config_a}
+    dict_b = {e["name"]: e for e in config_b}
     all_names = sorted(set(dict_a.keys()) | set(dict_b.keys()))
     diffs = []
     for name in all_names:
-        a = dict_a.get(name, {'value': '', 'source': 'not-set'})
-        b = dict_b.get(name, {'value': '', 'source': 'not-set'})
-        if a['value'] != b['value']:
-            diffs.append({
-                'name': name,
-                'value_a': a['value'],
-                'source_a': a['source'],
-                'value_b': b['value'],
-                'source_b': b['source'],
-            })
+        a = dict_a.get(name, {"value": "", "source": "not-set"})
+        b = dict_b.get(name, {"value": "", "source": "not-set"})
+        if a["value"] != b["value"]:
+            diffs.append(
+                {
+                    "name": name,
+                    "value_a": a["value"],
+                    "source_a": a["source"],
+                    "value_b": b["value"],
+                    "source_b": b["source"],
+                }
+            )
     return diffs

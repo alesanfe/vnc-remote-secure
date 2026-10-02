@@ -2,6 +2,7 @@
 
 Internal to ``vnc_remote_secure.cli`` — not part of the public API.
 """
+
 import sys
 
 from vnc_remote_secure.cli._parser import create_parser
@@ -16,16 +17,16 @@ def main():
     # Wire the global verbosity flags to the logging level — they were
     # parsed but never reached setup_logging, so --verbose/--quiet had
     # no effect on log output.
-    if getattr(args, 'verbose', False) or getattr(args, 'quiet', False):
+    if getattr(args, "verbose", False) or getattr(args, "quiet", False):
         import logging
 
         from vnc_remote_secure.core.logging import setup_logging
-        setup_logging(verbose=getattr(args, 'verbose', False))
-        if getattr(args, 'quiet', False):
-            logging.getLogger('vnc_remote_secure').setLevel(
-                logging.WARNING)
 
-    if not hasattr(args, 'func'):
+        setup_logging(verbose=getattr(args, "verbose", False))
+        if getattr(args, "quiet", False):
+            logging.getLogger("vnc_remote_secure").setLevel(logging.WARNING)
+
+    if not hasattr(args, "func"):
         parser.print_help()
         return 0
 
@@ -37,8 +38,7 @@ def main():
     except Exception as e:
         # Honour both `--verbose` and the documented `VERBOSE` env var so
         # operators can get full tracebacks without modifying the command.
-        verbose = (hasattr(args, 'verbose') and args.verbose) or \
-            env_flag('VERBOSE', 'false')
+        verbose = (hasattr(args, "verbose") and args.verbose) or env_flag("VERBOSE", "false")
         if verbose:
             raise
         print(f"Error: {e}", file=sys.stderr)

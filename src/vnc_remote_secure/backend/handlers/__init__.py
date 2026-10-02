@@ -1,4 +1,4 @@
-﻿"""Route handlers for ``/api/v1/*``, grouped by domain.
+"""Route handlers for ``/api/v1/*``, grouped by domain.
 
 Each module owns one resource family; shared envelope/identity/body
 plumbing lives in ``common``. ``services/api_v1.py`` keeps the

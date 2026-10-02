@@ -1,4 +1,5 @@
 """Logging configuration for VNC Remote Secure."""
+
 import logging
 import os
 import sys
@@ -22,8 +23,9 @@ class _SecretScrubFilter(logging.Filter):
         values = []
         try:
             from vnc_remote_secure.security.redaction import SECRET_VARS
+
             for name in SECRET_VARS:
-                val = os.environ.get(name, '')
+                val = os.environ.get(name, "")
                 if isinstance(val, str) and len(val) >= 6:
                     values.append(val)
         except Exception:  # noqa: BLE001 - never break logging
@@ -36,7 +38,7 @@ class _SecretScrubFilter(logging.Filter):
             scrubbed = False
             for val in self._secret_values():
                 if val and val in msg:
-                    msg = msg.replace(val, '***REDACTED***')
+                    msg = msg.replace(val, "***REDACTED***")
                     scrubbed = True
             if scrubbed:
                 record.msg = msg
@@ -59,15 +61,15 @@ def _json_formatter():
     import structlog
 
     def _rename_fields(_logger, _name, event_dict):
-        exc = event_dict.pop('exception', None)
+        exc = event_dict.pop("exception", None)
         renamed = {
-            'ts': event_dict.pop('timestamp', ''),
-            'level': str(event_dict.pop('level', '')).upper(),
-            'logger': event_dict.pop('logger', _name),
-            'msg': event_dict.pop('event', ''),
+            "ts": event_dict.pop("timestamp", ""),
+            "level": str(event_dict.pop("level", "")).upper(),
+            "logger": event_dict.pop("logger", _name),
+            "msg": event_dict.pop("event", ""),
         }
         if exc:
-            renamed['exception'] = exc
+            renamed["exception"] = exc
         renamed.update(event_dict)
         return renamed
 
@@ -75,7 +77,7 @@ def _json_formatter():
         processors=[
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
-            structlog.processors.TimeStamper(fmt='iso'),
+            structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.format_exc_info,
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             _rename_fields,
@@ -99,11 +101,11 @@ def setup_logging(verbose=False, json_output=False):
     # LOG_LEVEL env is honored (config['log_level'] reads the same
     # var) — without this the documented knob silently did nothing.
     # --verbose still wins over the env var.
-    env_level = os.environ.get('LOG_LEVEL', '').strip().upper()
+    env_level = os.environ.get("LOG_LEVEL", "").strip().upper()
     if verbose:
         level = logging.DEBUG
-    elif env_level in ('DEBUG', 'INFO', 'WARNING', 'WARN', 'ERROR', 'CRITICAL', 'FATAL'):
-        level = {'WARN': 'WARNING', 'FATAL': 'CRITICAL'}.get(env_level, env_level)
+    elif env_level in ("DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL", "FATAL"):
+        level = {"WARN": "WARNING", "FATAL": "CRITICAL"}.get(env_level, env_level)
         level = getattr(logging, level)
     else:
         level = logging.INFO
@@ -111,12 +113,10 @@ def setup_logging(verbose=False, json_output=False):
     if json_output:
         formatter = _json_formatter()
     else:
-        formatter = logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-        )
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     handler.setFormatter(formatter)
     handler.addFilter(_SecretScrubFilter())
-    logger = logging.getLogger('vnc_remote_secure')
+    logger = logging.getLogger("vnc_remote_secure")
     logger.setLevel(level)
     # Avoid duplicate handlers when called multiple times.
     if not logger.handlers:

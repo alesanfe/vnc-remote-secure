@@ -1,4 +1,5 @@
 """Miscellaneous commands: version, help."""
+
 import json
 import platform
 
@@ -6,6 +7,7 @@ import platform
 def cmd_version(args):
     """Show version information."""
     from vnc_remote_secure.core.constants import APP_NAME, APP_VERSION
+
     info = {
         "version": APP_VERSION,
         "name": APP_NAME,
@@ -28,6 +30,7 @@ def cmd_help(args):
     # Deferred import: _parser imports this module for set_defaults,
     # so a top-level import would be circular.
     from vnc_remote_secure.cli._parser import create_parser
+
     parser = create_parser()
     parser.print_help()
     return 0

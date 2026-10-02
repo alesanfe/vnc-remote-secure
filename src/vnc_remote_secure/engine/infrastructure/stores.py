@@ -6,13 +6,15 @@ persistence layer moves (SQLite store, secret backend, remote audit
 sink) only this module changes. Each function is intentionally thin —
 a delegation, not a re-implementation.
 """
+
 from __future__ import annotations
 
 
-def env(name: str, default: str = '') -> str:
+def env(name: str, default: str = "") -> str:
     """Configuration read — env access stays in the infrastructure
     layer so use cases never touch ``os.environ`` directly."""
     import os
+
     return os.environ.get(name, default)
 
 
@@ -22,18 +24,20 @@ def env(name: str, default: str = '') -> str:
 def session_store():
     """The process/shared session store (create/get/revoke/list)."""
     from vnc_remote_secure.security.ephemeral_sessions import get_session_store
+
     return get_session_store()
 
 
 def revoke_ephemeral_token(token_id: str) -> bool:
     from vnc_remote_secure.security.ephemeral_sessions import revoke_session
+
     return revoke_session(token_id)
 
 
 def session_refresh(store) -> None:
     """Re-read persisted sessions when the backend supports it —
     tests and future adapters may not need the hook."""
-    fn = getattr(store, '_load_if_changed', None)
+    fn = getattr(store, "_load_if_changed", None)
     if callable(fn):
         fn()
 
@@ -46,12 +50,14 @@ def session_set_label(token_id: str, label: str | None) -> bool:
 def session_roles() -> dict:
     """Role → default permission set for share links."""
     from vnc_remote_secure.security.ephemeral_sessions import ROLES
+
     return ROLES
 
 
 def expand_session_permissions(perms: set) -> set:
     """Expand umbrella permissions (e.g. admin:* covers all)."""
     from vnc_remote_secure.security.ephemeral_sessions import expand_permissions
+
     return expand_permissions(perms)
 
 
@@ -60,41 +66,49 @@ def expand_session_permissions(perms: set) -> set:
 
 def operator_load_store() -> dict:
     from vnc_remote_secure.security.operator_users import load_store
+
     return load_store()
 
 
 def operator_add(username: str, password: str, role: str) -> None:
     from vnc_remote_secure.security.operator_users import add_user
+
     return add_user(username, password, role)
 
 
 def operator_set_disabled(username: str, disabled: bool) -> bool:
     from vnc_remote_secure.security.operator_users import set_disabled
+
     return set_disabled(username, disabled)
 
 
 def operator_remove(username: str) -> bool:
     from vnc_remote_secure.security.operator_users import remove_user
+
     return remove_user(username)
 
 
 def operator_roles() -> dict:
     from vnc_remote_secure.security.operator_users import ROLE_PERMISSIONS
+
     return ROLE_PERMISSIONS
 
 
 def operator_set_password(username: str, password: str) -> bool:
     from vnc_remote_secure.security.operator_users import set_password
+
     return set_password(username, password)
 
 
 def operator_set_role(username: str, role: str) -> bool:
     from vnc_remote_secure.security.operator_users import set_role
+
     return set_role(username, role)
 
 
 def operator_permissions(username: str) -> set:
     from vnc_remote_secure.security.operator_users import get_permissions
+
     return get_permissions(username)
 
 
@@ -103,6 +117,7 @@ def operator_permissions(username: str) -> set:
 
 def shared_backend():
     from vnc_remote_secure.security.shared_state import get_backend
+
     return get_backend()
 
 
@@ -111,35 +126,37 @@ def shared_backend():
 
 def maintenance_active() -> bool:
     from vnc_remote_secure.security.maintenance import maintenance_active
+
     return maintenance_active()
 
 
 def maintenance_info() -> dict | None:
     from vnc_remote_secure.security.maintenance import maintenance_info
+
     return maintenance_info()
 
 
-def maintenance_set(active: bool, by: str, reason: str = '',
-                    drain_at: float | None = None) -> None:
+def maintenance_set(active: bool, by: str, reason: str = "", drain_at: float | None = None) -> None:
     from vnc_remote_secure.security.maintenance import set_maintenance
-    return set_maintenance(active, by=by, reason=reason,
-                           drain_at=drain_at)
+
+    return set_maintenance(active, by=by, reason=reason, drain_at=drain_at)
 
 
 def maintenance_drain() -> int:
     from vnc_remote_secure.security.maintenance import drain_sessions
+
     return drain_sessions()
 
 
 # --- Audit -------------------------------------------------------------
 
 
-def audit(event: str, user: str, detail: str = '',
-          result: str = '') -> None:
+def audit(event: str, user: str, detail: str = "", result: str = "") -> None:
     from vnc_remote_secure.security.audit import audit_event
-    kw = {'detail': detail}
+
+    kw = {"detail": detail}
     if result:
-        kw['result'] = result
+        kw["result"] = result
     audit_event(event, user=user, **kw)
 
 
@@ -148,6 +165,7 @@ def audit(event: str, user: str, detail: str = '',
 
 def step_up_error(username: str, action: str) -> str | None:
     from vnc_remote_secure.security.step_up_auth import require_step_up
+
     return require_step_up(username, action)
 
 
@@ -156,36 +174,42 @@ def step_up_error(username: str, action: str) -> str | None:
 
 def credential_list(username: str) -> list:
     from vnc_remote_secure.security.webauthn import list_credentials
+
     return list_credentials(username)
 
 
 def credential_delete(credential_id: str, username: str) -> bool:
     from vnc_remote_secure.security.webauthn import delete_credential
+
     return delete_credential(credential_id, username)
 
 
 def credential_rename(credential_id: str, name: str) -> bool:
     from vnc_remote_secure.security.webauthn import rename_credential
+
     return rename_credential(credential_id, name)
 
 
 def webauthn_gate_error() -> str | None:
     from vnc_remote_secure.security.webauthn import rp_config_error, webauthn_available
+
     if not webauthn_available():
-        return 'WebAuthn is not enabled'
+        return "WebAuthn is not enabled"
     return rp_config_error()
 
 
 def webauthn_begin(username: str, rp_id: str, rp_name: str) -> dict:
     from vnc_remote_secure.security.webauthn import begin_registration
+
     return begin_registration(username, username, rp_id, rp_name)
 
 
-def webauthn_complete(username: str, credential: dict, rp_id: str,
-                      origin: str, name: str) -> tuple[bool, str]:
+def webauthn_complete(
+    username: str, credential: dict, rp_id: str, origin: str, name: str
+) -> tuple[bool, str]:
     from vnc_remote_secure.security.webauthn import complete_registration
-    return complete_registration(username, credential, rp_id, origin,
-                                 name=name)
+
+    return complete_registration(username, credential, rp_id, origin, name=name)
 
 
 # --- MFA policy ----------------------------------------------------------
@@ -193,17 +217,20 @@ def webauthn_complete(username: str, credential: dict, rp_id: str,
 
 def mfa_required() -> bool:
     from vnc_remote_secure.security.mfa import mfa_required_for_login
+
     return mfa_required_for_login()
 
 
 def mfa_available() -> bool:
     from vnc_remote_secure.security.mfa import is_mfa_enabled
+
     return is_mfa_enabled()
 
 
 # --- System (OS) users -------------------------------------------------
 # The platform adapter owns the OS calls; the engine only sees narrow
 # primitives. Validation lives in core.validation — a domain concern.
+
 
 def system_users_list() -> list:
     """Non-reserved OS users: {username, uid|None, home|None}.
@@ -216,31 +243,43 @@ def system_users_list() -> list:
         RESERVED_USERNAMES,
         WINDOWS_BUILTIN_USERNAMES,
     )
+
     users = []
-    if _platform.system() == 'Windows':
+    if _platform.system() == "Windows":
         try:
             from vnc_remote_secure.platform.windows.permissions import list_users
+
             for u in list_users():
-                name = u.get('username', '')
-                if (name and name not in RESERVED_USERNAMES
-                        and name not in WINDOWS_BUILTIN_USERNAMES):
-                    users.append({
-                        'username': name,
-                        'uid': u.get('uid'),
-                        'home': u.get('home'),
-                    })
+                name = u.get("username", "")
+                if (
+                    name
+                    and name not in RESERVED_USERNAMES
+                    and name not in WINDOWS_BUILTIN_USERNAMES
+                ):
+                    users.append(
+                        {
+                            "username": name,
+                            "uid": u.get("uid"),
+                            "home": u.get("home"),
+                        }
+                    )
         except Exception:  # noqa: BLE001 - listing is best-effort
             pass
         return users
     try:
         import pwd
-        for u in pwd.getpwall():
+
+        # getattr: pwd has no getpwall stub on Windows (POSIX-only
+        # module) — the except below already guards the ImportError.
+        for u in getattr(pwd, "getpwall")():
             if u.pw_uid >= 100 and u.pw_name not in RESERVED_USERNAMES:
-                users.append({
-                    'username': u.pw_name,
-                    'uid': u.pw_uid,
-                    'home': u.pw_dir,
-                })
+                users.append(
+                    {
+                        "username": u.pw_name,
+                        "uid": u.pw_uid,
+                        "home": u.pw_dir,
+                    }
+                )
     except (ImportError, AttributeError):
         pass
     return users
@@ -251,9 +290,10 @@ def system_user_create(username: str, password: str) -> None:
     import platform as _platform
 
     from vnc_remote_secure.platform.base import get_adapter
+
     if not get_adapter().create_runtime_user(username):
-        raise RuntimeError('user creation failed')
-    if _platform.system() == 'Windows':
+        raise RuntimeError("user creation failed")
+    if _platform.system() == "Windows":
         from vnc_remote_secure.platform.windows.permissions import set_user_password
     else:
         from vnc_remote_secure.platform.linux.permissions import set_user_password
@@ -262,6 +302,7 @@ def system_user_create(username: str, password: str) -> None:
 
 def system_user_delete(username: str) -> bool:
     from vnc_remote_secure.platform.base import get_adapter
+
     return bool(get_adapter().remove_runtime_user(username))
 
 
@@ -270,11 +311,13 @@ def system_usernames_reserved() -> set:
         RESERVED_USERNAMES,
         WINDOWS_BUILTIN_USERNAMES,
     )
+
     return RESERVED_USERNAMES | WINDOWS_BUILTIN_USERNAMES
 
 
 def system_current_user() -> str:
     import getpass
+
     return getpass.getuser()
 
 
@@ -282,27 +325,29 @@ def system_current_user() -> str:
 # OS command selection lives here — the use case schedules/audits the
 # action, it does not know what ``shutdown`` means on Windows.
 
+
 def power_command(action: str) -> list[str]:
     """Platform command for 'shutdown'/'restart'/'sleep'."""
     import os as _os
-    if _os.name == 'nt':
-        if action == 'shutdown':
-            return ['shutdown', '/s', '/t', '0']
-        if action == 'restart':
-            return ['shutdown', '/r', '/t', '0']
-        return ['rundll32.exe', 'powrprof.dll,SetSuspendState',
-                '0,1,0']
-    if action == 'shutdown':
-        return ['systemctl', 'poweroff']
-    if action == 'restart':
-        return ['systemctl', 'reboot']
-    return ['systemctl', 'suspend']
+
+    if _os.name == "nt":
+        if action == "shutdown":
+            return ["shutdown", "/s", "/t", "0"]
+        if action == "restart":
+            return ["shutdown", "/r", "/t", "0"]
+        return ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]
+    if action == "shutdown":
+        return ["systemctl", "poweroff"]
+    if action == "restart":
+        return ["systemctl", "reboot"]
+    return ["systemctl", "suspend"]
 
 
 def run_command(cmd: list[str], timeout: int = 15) -> None:
     """Run a platform command — the seam tests patch so no real OS
     call is ever made."""
     import subprocess
+
     subprocess.run(cmd, check=False, timeout=timeout)
 
 
@@ -310,131 +355,154 @@ def run_command(cmd: list[str], timeout: int = 15) -> None:
 # Pure reads the admin views consume — the application layer shapes
 # them; transport stays out of the store details.
 
-def audit_read(limit: int, event: str | None = None,
-               before_seq: int | None = None,
-               user: str | None = None,
-               result: str | None = None) -> list:
+
+def audit_read(
+    limit: int,
+    event: str | None = None,
+    before_seq: int | None = None,
+    user: str | None = None,
+    result: str | None = None,
+) -> list:
     from vnc_remote_secure.security.audit import get_audit_entries
+
     return get_audit_entries(
-        limit=limit, event=event, before_seq=before_seq,
-        user=user, result=result)
+        limit=limit, event=event, before_seq=before_seq, user=user, result=result
+    )
 
 
 def audit_verify_chain() -> tuple[bool, str]:
     from vnc_remote_secure.security.audit import verify_chain
+
     return verify_chain()
 
 
 def config_effective() -> list:
     """Redacted effective-config entries (ConfigEntry dicts)."""
     from vnc_remote_secure.core.config_inspector import compute_effective_config
+
     return compute_effective_config()
 
 
 def backups_paths() -> list:
     """Backup file paths (stat'ing is left to the transport)."""
     from vnc_remote_secure.core.backup import list_backups
+
     return list(list_backups())
 
 
 def posture_report() -> dict:
     from vnc_remote_secure.security.posture import calculate_posture
+
     return calculate_posture()
 
 
 def doctor_report() -> dict:
     from vnc_remote_secure.core.doctor import run_doctor
+
     return run_doctor(as_json=True)
 
 
 def health_report() -> dict:
     from vnc_remote_secure.monitoring.health import get_all_health
+
     return get_all_health()
 
 
-def alert_notify(title: str, message: str,
-                 severity: str = 'info') -> None:
+def alert_notify(title: str, message: str, severity: str = "info") -> None:
     """Alert-channel dispatch (Discord/webhook/email)."""
     from vnc_remote_secure.monitoring.alerts import notify
+
     return notify(title, message, severity)
 
 
 def ws_connection_info(session_id: str) -> list:
     """Live WebSocket connections carrying a session's grant."""
     from vnc_remote_secure.security.websocket_registry import get_registry
+
     return get_registry().get_connection_info(session_id)
 
 
 # --- Job tracking + operator tombstones ---------------------------------
 
-def job_start(kind: str, actor: str, target: str = '',
-              detail: str = '') -> str:
+
+def job_start(kind: str, actor: str, target: str = "", detail: str = "") -> str:
     from vnc_remote_secure.security.jobs import job_start
+
     return job_start(kind, actor, target, detail)
 
 
-def job_finish(jid: str, detail: str = '') -> None:
+def job_finish(jid: str, detail: str = "") -> None:
     from vnc_remote_secure.security.jobs import job_finish
+
     job_finish(jid, detail)
 
 
 def job_fail(jid: str, error: str) -> None:
     from vnc_remote_secure.security.jobs import job_fail
+
     job_fail(jid, error)
 
 
-def job_enqueue(kind: str, actor: str, target: str = '',
-                payload: dict | None = None) -> str:
+def job_enqueue(kind: str, actor: str, target: str = "", payload: dict | None = None) -> str:
     """Persist a QUEUED job before any work starts (claim model)."""
     from vnc_remote_secure.security.jobs import job_enqueue
+
     return job_enqueue(kind, actor, target, payload)
 
 
 def job_get(jid: str) -> dict | None:
     from vnc_remote_secure.security.jobs import job_get
+
     return job_get(jid)
 
 
 def job_lock(name: str, jid: str) -> bool:
     """Op-class mutex across processes (set_if_absent lease)."""
     from vnc_remote_secure.security.jobs import job_lock
+
     return job_lock(name, jid)
 
 
 def job_unlock(name: str, jid: str) -> None:
     from vnc_remote_secure.security.jobs import job_unlock
+
     job_unlock(name, jid)
 
 
-def step_up_consume(username: str, operation: str, resource: str = '',
-                    sid: str = '') -> bool:
+def step_up_consume(username: str, operation: str, resource: str = "", sid: str = "") -> bool:
     """Consume a single-use bound step-up grant."""
     from vnc_remote_secure.security.step_up_auth import consume_step_up
+
     return consume_step_up(username, operation, resource, sid)
 
 
 def jobs_list(limit: int = 100) -> list:
     from vnc_remote_secure.security.jobs import list_jobs
+
     return list_jobs(limit)
 
 
 def tombstone_save(username: str, record: dict) -> None:
     from vnc_remote_secure.security.jobs import tombstone_save
+
     tombstone_save(username, record)
 
 
 def tombstone_get(username: str) -> dict | None:
     from vnc_remote_secure.security.jobs import tombstone_get
+
     return tombstone_get(username)
 
 
 def tombstone_remove(username: str) -> None:
     from vnc_remote_secure.security.jobs import tombstone_remove
+
     tombstone_remove(username)
 
 
 def tombstones() -> list:
     from vnc_remote_secure.security.jobs import tombstones
+
     return tombstones()
 
 
@@ -444,32 +512,38 @@ def tombstones() -> list:
 def portal_config() -> dict:
     """The runtime config (lazy, honours .env reload)."""
     from vnc_remote_secure.core.portal import portal_config as _pc
+
     return _pc()
 
 
 def service_list(protocol: str, external_base: str | None = None) -> list:
     """Service cards for the portal page (name/url/port/running)."""
     from vnc_remote_secure.core.portal import build_service_list
+
     return build_service_list(protocol, external_base)
 
 
 def lan_ips() -> list:
     from vnc_remote_secure.core.portal import get_lan_ips
+
     return get_lan_ips()
 
 
 def system_metrics() -> dict:
     from vnc_remote_secure.core.portal import get_system_metrics
+
     return get_system_metrics()
 
 
-def port_listening(port: int, host: str = '127.0.0.1') -> bool:
+def port_listening(port: int, host: str = "127.0.0.1") -> bool:
     from vnc_remote_secure.core.portal import check_port
+
     return check_port(port, host)
 
 
 def is_windows() -> bool:
     from vnc_remote_secure.platform.detection import is_windows as _iw
+
     return _iw()
 
 
@@ -477,24 +551,28 @@ def vnc_effective_port() -> int:
     """The RFB port actually bound — TigerVNC derives 5900+display on
     Linux regardless of an explicit VNC_PORT."""
     from vnc_remote_secure.core.portal import vnc_effective_port as _vp
+
     return _vp()
 
 
 def tls_available(cfg: dict) -> bool:
     """True when the configured cert/key yield a usable TLS context."""
     from vnc_remote_secure.core.portal import tls_available as _ta
+
     return _ta(cfg)
 
 
 def session_preview(signed: str) -> dict | None:
     """Non-consuming grant summary for a share-link token."""
     from vnc_remote_secure.security.ephemeral_sessions import preview_session
+
     return preview_session(signed)
 
 
 def activate_share_session(signed: str, client_ip: str | None = None):
     """Consume a share-link token; returns the internal session token."""
     from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+
     return activate_ephemeral_session(signed, client_ip=client_ip)
 
 
@@ -504,7 +582,7 @@ def audio_capture_active() -> bool:
     services/audio refreshes 'audio_indicator:capture' with a 120 s
     TTL while ffmpeg runs)."""
     try:
-        return bool(shared_backend().get('audio_indicator', 'capture'))
+        return bool(shared_backend().get("audio_indicator", "capture"))
     except Exception:  # noqa: BLE001 - flag is best-effort
         return False
 
@@ -512,7 +590,7 @@ def audio_capture_active() -> bool:
 def gamepad_stopped() -> bool:
     """Shared kill-switch flag read by the gamepad service per message."""
     try:
-        return bool(shared_backend().get('gamepad', 'stopped'))
+        return bool(shared_backend().get("gamepad", "stopped"))
     except Exception:  # noqa: BLE001 - flag is best-effort
         return False
 
@@ -520,9 +598,9 @@ def gamepad_stopped() -> bool:
 def gamepad_set_stopped(stop: bool) -> None:
     """Set/clear the shared kill-switch flag (1y ttl while stopped)."""
     if stop:
-        shared_backend().set_ttl('gamepad', 'stopped', '1', 86400 * 365)
+        shared_backend().set_ttl("gamepad", "stopped", "1", 86400 * 365)
     else:
-        shared_backend().delete('gamepad', 'stopped')
+        shared_backend().delete("gamepad", "stopped")
 
 
 # --- Operations parity (CLI <-> API use cases) --------------------------
@@ -531,19 +609,23 @@ def gamepad_set_stopped(stop: bool) -> None:
 def version_info() -> str:
     """Installed package version (``vnc-remote version``)."""
     from vnc_remote_secure import __version__
+
     return __version__
 
 
 def backup_create() -> str:
     """Create a backup archive; returns its path."""
     from vnc_remote_secure.core.backup import create_backup
+
     return create_backup()
 
 
 def backup_verify(path: str) -> tuple[bool, str, int]:
     """Decrypt (if needed) + CRC-check every tar member."""
     from vnc_remote_secure.core.backup import verify_backup
+
     return verify_backup(path)
+
 
 # No backup_restore wrapper here: restores run inside the detached
 # job runner (core/deferred_lifecycle.py), which calls
@@ -554,54 +636,63 @@ def backup_verify(path: str) -> tuple[bool, str, int]:
 def secret_status_map() -> dict:
     """Per-secret status (set/missing/weak) — never values."""
     from vnc_remote_secure.security.secret_rotation import secret_status
+
     return secret_status()
 
 
 def secret_redact(name: str) -> str:
     """Fingerprinted redaction for one secret name."""
     from vnc_remote_secure.security.secret_rotation import redact_secret
+
     return redact_secret(name)
 
 
 def secret_rotatable_names() -> set:
     """The allowlist of rotatable env-var credential names."""
     from vnc_remote_secure.security.secret_rotation import ROTATABLE
+
     return set(ROTATABLE)
 
 
 def secret_rotate(name: str) -> dict:
     """Rotate one env-var credential; returns metadata only."""
     from vnc_remote_secure.security.secret_rotation import rotate_secret
+
     return rotate_secret(name)
 
 
 def secret_rotate_signing() -> dict:
     """Rotate the signing secret with a coexistence window."""
     from vnc_remote_secure.security.secret_rotation import rotate_signing_key
+
     return rotate_signing_key()
 
 
 def secrets_check(fix: bool = False):
     """TLS config + secret-file permission findings."""
     from vnc_remote_secure.security.secret_rotation import secrets_check
+
     return secrets_check(fix=fix)
 
 
 def recovery_codes_generate(count: int = 8) -> list:
     """New MFA recovery codes — plaintext returned once, hashes persist."""
     from vnc_remote_secure.security.secret_rotation import generate_recovery_codes
+
     return generate_recovery_codes(count)
 
 
 def config_effective_profile(profile_name: str | None = None) -> list:
     """Effective config entries for a named profile."""
     from vnc_remote_secure.core.config_inspector import compute_effective_config
+
     return compute_effective_config(profile_name=profile_name)
 
 
 def config_validate(profile_name: str | None = None) -> list:
     """Contradiction/policy findings for a named profile."""
     from vnc_remote_secure.core.config_inspector import validate_config
+
     return validate_config(profile_name=profile_name)
 
 
@@ -611,60 +702,72 @@ def config_diff(profile_a: str, profile_b: str) -> list:
         compute_effective_config,
         diff_configs,
     )
-    return diff_configs(compute_effective_config(profile_name=profile_a),
-                        compute_effective_config(profile_name=profile_b))
+
+    return diff_configs(
+        compute_effective_config(profile_name=profile_a),
+        compute_effective_config(profile_name=profile_b),
+    )
 
 
-def config_migrate(dry_run: bool = False, actor: str = '') -> dict:
+def config_migrate(dry_run: bool = False, actor: str = "") -> dict:
     """Legacy .env migration (names + profile-value renames)."""
     from vnc_remote_secure.core.config_migration import migrate_env
+
     return migrate_env(dry_run=dry_run, actor=actor)
 
 
 def config_history() -> list:
     """Env-file snapshot records, newest first (no contents)."""
     from vnc_remote_secure.core.config_history import list_history
+
     return list_history()
 
 
-def config_rollback(snapshot_id: str, actor: str = '') -> dict:
+def config_rollback(snapshot_id: str, actor: str = "") -> dict:
     """Restore a config snapshot over the env file it came from."""
     from vnc_remote_secure.core.config_history import rollback
+
     return rollback(snapshot_id, actor=actor)
 
 
 def service_status() -> dict:
     """PID/enabled/running per managed service + port health."""
     from vnc_remote_secure.core.service_manager import status_all
+
     try:
         from vnc_remote_secure.monitoring.health import get_service_health
+
         port_health = get_service_health()
     except (ImportError, RuntimeError):
         port_health = {}
-    return {'services': status_all(), 'port_health': port_health}
+    return {"services": status_all(), "port_health": port_health}
 
 
 def lifecycle_spawn(jid: str, delay: float = 1.5) -> int:
     """Spawn the detached runner that claims/executes job ``jid``."""
     from vnc_remote_secure.core.deferred_lifecycle import spawn_job_runner
+
     return spawn_job_runner(jid, delay=delay)
 
 
 def upgrade_check() -> dict:
     """Installed vs available version info."""
     from vnc_remote_secure.core.upgrader import upgrade_check
+
     return upgrade_check()
 
 
 def upgrade_run(source: str | None = None) -> dict:
     """Self-upgrade with automatic rollback."""
     from vnc_remote_secure.core.upgrader import perform_upgrade
+
     return perform_upgrade(source=source)
 
 
 def upgrade_rollback() -> dict:
     """Rollback to the pre-upgrade snapshot."""
     from vnc_remote_secure.core.upgrader import perform_rollback
+
     return perform_rollback()
 
 
@@ -674,34 +777,40 @@ def upgrade_rollback() -> dict:
 def desktop_screenshot() -> bytes:
     """PNG of the current host framebuffer via the RFB capture client."""
     from vnc_remote_secure.core.rfb_capture import capture_screenshot
+
     return capture_screenshot()
 
 
 def recordings_list() -> list:
     """Metadata for every .vrsrec on disk, newest first."""
     from vnc_remote_secure.core.rfb_capture import list_recordings
+
     return list_recordings()
 
 
 def recording_start(actor: str) -> dict:
     """Spawn the background desktop recorder."""
     from vnc_remote_secure.core.rfb_capture import start_recording
+
     return start_recording(actor)
 
 
 def recording_stop(rec_id: str) -> bool:
     """Signal a live recorder to finish cleanly."""
     from vnc_remote_secure.core.rfb_capture import stop_recording
+
     return stop_recording(rec_id)
 
 
 def recording_read(rec_id: str) -> tuple:
     """(blob bytes, download filename) for one recording."""
     from vnc_remote_secure.core.rfb_capture import recording_file
+
     return recording_file(rec_id)
 
 
 def recording_delete(rec_id: str) -> bool:
     """Remove a finished recording from the run dir."""
     from vnc_remote_secure.core.rfb_capture import delete_recording
+
     return delete_recording(rec_id)

@@ -19,13 +19,14 @@ Design notes:
 * every message is audited so the immutable log keeps who-said-what
   even though the channel itself is TTL'd.
 """
+
 from __future__ import annotations
 
 import time
 
 from vnc_remote_secure.engine.infrastructure import stores
 
-_NS = 'session_chat'
+_NS = "session_chat"
 _MAX_MESSAGES = 200
 _MAX_TEXT = 500
 # Messages outlive the session slightly so the final exchange is
@@ -38,7 +39,7 @@ def _session_for_key(token_id: str):
     store = stores.session_store()
     stores.session_refresh(store)
     for s in store.list_all():
-        if s.get('token_id') == token_id:
+        if s.get("token_id") == token_id:
             return s
     return None
 
@@ -59,39 +60,37 @@ def post_message(token_id: str, author: str, text: str) -> dict:
     """
     session = _session_for_key(token_id)
     if session is None:
-        raise ValueError('session not found')
-    if session.get('revoked') or float(session.get('expires_at') or 0) \
-            <= time.time():
-        raise ValueError('session is no longer active')
-    text = (text or '').strip()
+        raise ValueError("session not found")
+    if session.get("revoked") or float(session.get("expires_at") or 0) <= time.time():
+        raise ValueError("session is no longer active")
+    text = (text or "").strip()
     if not text:
-        raise ValueError('empty message')
+        raise ValueError("empty message")
     text = text[:_MAX_TEXT]
-    author = (author or '?')[:64]
+    author = (author or "?")[:64]
 
     be = stores.shared_backend()
-    lock_key = f'lock:{token_id}'
+    lock_key = f"lock:{token_id}"
     # Short lease: a poster that dies mid-write frees the channel in
     # 5 s; waiters retry briefly before proceeding best-effort.
     deadline = time.monotonic() + 2.0
     locked = False
     while time.monotonic() < deadline:
-        if be.set_if_absent(_NS, lock_key, '1', ttl_seconds=5):
+        if be.set_if_absent(_NS, lock_key, "1", ttl_seconds=5):
             locked = True
             break
         time.sleep(0.02)
-    record = {'author': author, 'at': time.time(), 'text': text}
+    record = {"author": author, "at": time.time(), "text": text}
     try:
         messages = be.get(_NS, token_id)
         messages = messages if isinstance(messages, list) else []
         messages.append(record)
         messages = messages[-_MAX_MESSAGES:]
-        ttl = max(60, session['expires_at'] - time.time() + _TTL_GRACE)
+        ttl = max(60, session["expires_at"] - time.time() + _TTL_GRACE)
         be.set_ttl(_NS, token_id, messages, ttl)
     finally:
         if locked:
             be.delete(_NS, lock_key)
 
-    stores.audit('session_chat_message', author,
-                 f'token_id={token_id} len={len(text)}')
+    stores.audit("session_chat_message", author, f"token_id={token_id} len={len(text)}")
     return record

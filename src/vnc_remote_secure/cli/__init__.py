@@ -25,6 +25,10 @@ Commands:
     status      Check system status
     doctor      Diagnose system readiness
     session     Manage ephemeral remote sessions
+    recording   Manage desktop recordings (.vrsrec)
+    desktop     Desktop capture (screenshot)
+    power       Host power actions and Wake-on-LAN
+    system-user Manage runtime OS accounts
     secrets     Manage secrets (status, rotate, redact, check)
     config      Configuration management (show-effective, validate, diff, migrate)
     backup      Create a backup
@@ -34,6 +38,7 @@ Commands:
     version     Show version information
     help        Show this help message
 """
+
 # Re-export the public surface so ``vnc_remote_secure.cli:main`` (the
 # declared project script) and ``python -m vnc_remote_secure.cli``
 # keep working after the cli.py -> cli/ package refactor.
@@ -63,10 +68,22 @@ from vnc_remote_secure.cli.commands.secrets import cmd_secrets
 from vnc_remote_secure.cli.commands.session import cmd_session
 
 __all__ = [
-    'main',
-    'create_parser',
-    'cmd_install', 'cmd_start', 'cmd_stop', 'cmd_restart',
-    'cmd_status', 'cmd_doctor', 'cmd_backup', 'cmd_restore',
-    'cmd_uninstall', 'cmd_service', 'cmd_version', 'cmd_session',
-    'cmd_secrets', 'cmd_config', 'cmd_verify', 'cmd_help',
+    "main",
+    "create_parser",
+    "cmd_install",
+    "cmd_start",
+    "cmd_stop",
+    "cmd_restart",
+    "cmd_status",
+    "cmd_doctor",
+    "cmd_backup",
+    "cmd_restore",
+    "cmd_uninstall",
+    "cmd_service",
+    "cmd_version",
+    "cmd_session",
+    "cmd_secrets",
+    "cmd_config",
+    "cmd_verify",
+    "cmd_help",
 ]

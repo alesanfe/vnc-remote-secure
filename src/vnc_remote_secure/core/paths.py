@@ -18,13 +18,14 @@ under an MSIX-packaged interpreter (Store Python), where
 ``%LOCALAPPDATA%`` is virtualized per package and would split shared
 state between interpreters.
 """
+
 import contextlib
 import os
 
 from vnc_remote_secure.platform.detection import is_windows
 
-_APP_DIR_NAME = 'vnc-remote-secure'
-_APP_DIR_NAME_WIN = 'VncRemoteSecure'
+_APP_DIR_NAME = "vnc-remote-secure"
+_APP_DIR_NAME_WIN = "VncRemoteSecure"
 
 
 def find_project_root():
@@ -35,9 +36,9 @@ def find_project_root():
     """
     current = os.path.dirname(os.path.abspath(__file__))
     for _ in range(10):
-        if os.path.exists(os.path.join(current, '.env.example')):
+        if os.path.exists(os.path.join(current, ".env.example")):
             return current
-        if os.path.exists(os.path.join(current, '.env')):
+        if os.path.exists(os.path.join(current, ".env")):
             return current
         current = os.path.dirname(current)
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,10 +46,11 @@ def find_project_root():
 
 def _is_elevated_windows() -> bool:
     """Return True when the process runs elevated on Windows."""
-    if os.name != 'nt':
+    if os.name != "nt":
         return False
     try:
         import ctypes
+
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:  # noqa: BLE001 - best-effort elevation probe
         return False
@@ -69,12 +71,13 @@ def _is_msix_packaged() -> bool:
     a venv created from Store Python runs its own un-packaged
     interpreter and is not virtualized.
     """
-    if os.name != 'nt':
+    if os.name != "nt":
         return False
     try:
         import sys
+
         exe = os.path.realpath(sys.executable).lower()
-        return 'windowsapps' in exe
+        return "windowsapps" in exe
     except Exception:  # noqa: BLE001 - best-effort probe
         return False
 
@@ -93,14 +96,14 @@ def _win_base():
     VFS mapping and stays stable across interpreters.
     """
     if not _is_elevated_windows():
-        local = os.environ.get('LOCALAPPDATA')
+        local = os.environ.get("LOCALAPPDATA")
         if local:
             if _is_msix_packaged():
-                locallow = os.path.join(os.path.dirname(local), 'LocalLow')
+                locallow = os.path.join(os.path.dirname(local), "LocalLow")
                 if os.path.isdir(locallow):
                     return locallow
             return local
-    return os.environ.get('ProgramData', r'C:\ProgramData')
+    return os.environ.get("ProgramData", r"C:\ProgramData")
 
 
 def _is_root():
@@ -116,26 +119,26 @@ def _xdg_path(env_var, default_subdir):
     value = os.environ.get(env_var)
     if value:
         return os.path.join(value, _APP_DIR_NAME)
-    home = os.path.expanduser('~')
+    home = os.path.expanduser("~")
     return os.path.join(home, default_subdir, _APP_DIR_NAME)
 
 
 def get_config_dir():
     """Return the configuration directory for the current platform."""
     if is_windows():
-        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, 'config')
+        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, "config")
     if _is_root():
-        return os.path.join('/etc', _APP_DIR_NAME)
-    return _xdg_path('XDG_CONFIG_HOME', '.config')
+        return os.path.join("/etc", _APP_DIR_NAME)
+    return _xdg_path("XDG_CONFIG_HOME", ".config")
 
 
 def get_data_dir():
     """Return the data directory for the current platform."""
     if is_windows():
-        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, 'data')
+        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, "data")
     if _is_root():
-        return os.path.join('/var/lib', _APP_DIR_NAME)
-    return _xdg_path('XDG_DATA_HOME', '.local/share')
+        return os.path.join("/var/lib", _APP_DIR_NAME)
+    return _xdg_path("XDG_DATA_HOME", ".local/share")
 
 
 def get_log_dir():
@@ -153,14 +156,14 @@ def get_log_dir():
     ``XDG_STATE_HOME=/var/log`` so the service writes to
     ``/var/log/vnc-remote-secure``, matching the FHS layout.
     """
-    override = os.environ.get('LOG_DIR', '').strip()
+    override = os.environ.get("LOG_DIR", "").strip()
     if override:
         return override
     if is_windows():
-        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, 'logs')
+        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, "logs")
     if _is_root():
-        return os.path.join('/var/log', _APP_DIR_NAME)
-    return _xdg_path('XDG_STATE_HOME', '.local/state')
+        return os.path.join("/var/log", _APP_DIR_NAME)
+    return _xdg_path("XDG_STATE_HOME", ".local/state")
 
 
 def get_run_dir():
@@ -171,21 +174,21 @@ def get_run_dir():
     ``XDG_RUNTIME_DIR`` is used when available.
     """
     if is_windows():
-        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, 'run')
+        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, "run")
     if _is_root():
-        return os.path.join('/run', _APP_DIR_NAME)
-    xdg_runtime = os.environ.get('XDG_RUNTIME_DIR')
+        return os.path.join("/run", _APP_DIR_NAME)
+    xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
     if xdg_runtime:
         return os.path.join(xdg_runtime, _APP_DIR_NAME)
     # justification: runtime dir, perms hardened by callers
-    return os.path.join('/tmp', _APP_DIR_NAME)  # nosec B108
+    return os.path.join("/tmp", _APP_DIR_NAME)  # nosec B108
 
 
 def get_ssl_dir():
     """Return the SSL certificate directory for the current platform."""
     if is_windows():
-        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, 'ssl')
-    return os.path.join(get_data_dir(), 'ssl')
+        return os.path.join(_win_base(), _APP_DIR_NAME_WIN, "ssl")
+    return os.path.join(get_data_dir(), "ssl")
 
 
 def _restrict_dir(path):
@@ -197,27 +200,29 @@ def _restrict_dir(path):
     generated credentials — world-readable dirs would let any local
     user enumerate or (on filesystems ignoring file modes) read them.
     """
-    if os.name == 'nt':
+    if os.name == "nt":
         import subprocess
 
         from vnc_remote_secure.core.processes import run_cmd
-        user = os.environ.get('USERNAME', '')
+
+        user = os.environ.get("USERNAME", "")
         # (OI)(CI) so the grant propagates to files created inside.
         # NOTE: 'M' (Modify), not 'R,W' — plain R+W omits DELETE /
         # FILE_DELETE_CHILD, which breaks os.replace()-based atomic
         # writes (PID files, shared-state, credential rotation all
         # rename a tmp file into place).
-        rights = '(OI)(CI)(M)'
-        grants = [f'*S-1-5-18:{rights}', f'*S-1-5-32-544:{rights}']
+        rights = "(OI)(CI)(M)"
+        grants = [f"*S-1-5-18:{rights}", f"*S-1-5-32-544:{rights}"]
         if user:
-            grants.append(f'{user}:{rights}')
+            grants.append(f"{user}:{rights}")
         try:
+            run_cmd(["icacls", path, "/reset"], capture_output=True, timeout=15, check=False)
             run_cmd(
-                ['icacls', path, '/reset'],
-                capture_output=True, timeout=15, check=False)
-            run_cmd(
-                ['icacls', path, '/inheritance:r', '/grant:r', *grants],
-                capture_output=True, timeout=15, check=False)
+                ["icacls", path, "/inheritance:r", "/grant:r", *grants],
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
         except (OSError, subprocess.SubprocessError):
             pass
     else:
@@ -228,8 +233,7 @@ def _restrict_dir(path):
 
 def ensure_dirs():
     """Create all standard directories if they do not already exist."""
-    for path in (get_config_dir(), get_data_dir(), get_log_dir(),
-                 get_run_dir(), get_ssl_dir()):
+    for path in (get_config_dir(), get_data_dir(), get_log_dir(), get_run_dir(), get_ssl_dir()):
         os.makedirs(path, exist_ok=True)
     # /tmp fallback (non-root Linux without XDG_RUNTIME_DIR) is shared —
     # an attacker could pre-create the dir with planted PID/state files
@@ -239,9 +243,12 @@ def ensure_dirs():
     # attacker-controlled state. Only checked for the /tmp fallback: the
     # root and XDG paths may legitimately be owned by the service user
     # while the CLI runs as root.
-    if (not is_windows() and os.name != 'nt'
-            and not _is_root()
-            and not os.environ.get('XDG_RUNTIME_DIR')):
+    if (
+        not is_windows()
+        and os.name != "nt"
+        and not _is_root()
+        and not os.environ.get("XDG_RUNTIME_DIR")
+    ):
         try:
             run_dir = get_run_dir()
             st = os.lstat(run_dir)
@@ -251,18 +258,19 @@ def ensure_dirs():
                     f"{st.st_uid}, not {os.geteuid()} — refusing to "
                     "start on possibly-squatted /tmp state. Set "
                     "XDG_RUNTIME_DIR (e.g. via systemd/logind) and "
-                    "remove the foreign directory.")
+                    "remove the foreign directory."
+                )
             if not os.path.isdir(run_dir):
                 raise RuntimeError(
-                    f"Runtime dir {run_dir} exists but is not a "
-                    "directory — refusing to use it.")
+                    f"Runtime dir {run_dir} exists but is not a " "directory — refusing to use it."
+                )
         except AttributeError:
             pass
     # run/ssl/config hold secrets (session stores, auth_secret.key,
     # generated_credentials.env, private keys) — keep them owner-only.
     for path in (get_config_dir(), get_run_dir(), get_ssl_dir()):
         _restrict_dir(path)
-    if os.name == 'nt':
+    if os.name == "nt":
         _repair_state_file_acls()
 
 
@@ -278,28 +286,30 @@ def _repair_state_file_acls():
     import subprocess
 
     from vnc_remote_secure.core.processes import run_cmd
+
     run_dir = get_run_dir()
     try:
         entries = os.listdir(run_dir)
     except OSError:
         return
-    user = os.environ.get('USERNAME', '')
+    user = os.environ.get("USERNAME", "")
     for name in entries:
         p = os.path.join(run_dir, name)
         if not os.path.isfile(p):
             continue
         # Skip transient/lock artifacts — only durable state files.
-        if name.endswith(('.tmp', '.lock')):
+        if name.endswith((".tmp", ".lock")):
             continue
-        grants = ['*S-1-5-18:(M)', '*S-1-5-32-544:(M)']
+        grants = ["*S-1-5-18:(M)", "*S-1-5-32-544:(M)"]
         if user:
-            grants.append(f'{user}:(M)')
+            grants.append(f"{user}:(M)")
         try:
+            run_cmd(["icacls", p, "/reset"], capture_output=True, timeout=15, check=False)
             run_cmd(
-                ['icacls', p, '/reset'],
-                capture_output=True, timeout=15, check=False)
-            run_cmd(
-                ['icacls', p, '/inheritance:r', '/grant:r', *grants],
-                capture_output=True, timeout=15, check=False)
+                ["icacls", p, "/inheritance:r", "/grant:r", *grants],
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
         except (OSError, subprocess.SubprocessError):
             pass

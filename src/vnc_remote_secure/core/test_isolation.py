@@ -13,6 +13,7 @@ directories (``VRS_DATA_DIR``/``VRS_RUN_DIR``/``VRS_CONFIG_DIR``/
 there). Detached process spawns and package upgrades are never
 allowed unless ``VRS_TEST_ALLOW_SPAWN=1``.
 """
+
 from __future__ import annotations
 
 import os
@@ -25,13 +26,12 @@ class TestIsolationError(RuntimeError):
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_OVERRIDE_VARS = (
-    'VRS_DATA_DIR', 'VRS_RUN_DIR', 'VRS_CONFIG_DIR', 'VRS_BACKUP_DIR')
-_ALLOW_SPAWN = 'VRS_TEST_ALLOW_SPAWN'
+_OVERRIDE_VARS = ("VRS_DATA_DIR", "VRS_RUN_DIR", "VRS_CONFIG_DIR", "VRS_BACKUP_DIR")
+_ALLOW_SPAWN = "VRS_TEST_ALLOW_SPAWN"
 
 
 def in_test_mode() -> bool:
-    return os.environ.get('VRS_TEST_MODE') == '1'
+    return os.environ.get("VRS_TEST_MODE") == "1"
 
 
 def _allowed_roots() -> list[Path]:
@@ -43,7 +43,7 @@ def _allowed_roots() -> list[Path]:
     return roots
 
 
-def guard_write(path: str | os.PathLike, what: str = 'write') -> None:
+def guard_write(path: str | os.PathLike, what: str = "write") -> None:
     """Abort (test mode only) when ``path`` lands inside the repo."""
     if not in_test_mode():
         return
@@ -56,16 +56,18 @@ def guard_write(path: str | os.PathLike, what: str = 'write') -> None:
     if any(p.is_relative_to(root) for root in _allowed_roots()):
         return
     raise TestIsolationError(
-        f'{what}: refusing to touch repo path in test mode: {p} '
-        f'(set VRS_CONFIG_DIR/VRS_DATA_DIR/… to a tmp dir)')
+        f"{what}: refusing to touch repo path in test mode: {p} "
+        f"(set VRS_CONFIG_DIR/VRS_DATA_DIR/… to a tmp dir)"
+    )
 
 
-def guard_spawn(what: str = 'spawn') -> None:
+def guard_spawn(what: str = "spawn") -> None:
     """Abort detached spawns / package installs under test mode."""
     if not in_test_mode():
         return
-    if os.environ.get(_ALLOW_SPAWN) == '1':
+    if os.environ.get(_ALLOW_SPAWN) == "1":
         return
     raise TestIsolationError(
-        f'{what}: detached process spawn is disabled in test mode '
-        f'(set {_ALLOW_SPAWN}=1 to opt in)')
+        f"{what}: detached process spawn is disabled in test mode "
+        f"(set {_ALLOW_SPAWN}=1 to opt in)"
+    )

@@ -1,4 +1,5 @@
 """Operational commands: doctor, backup, restore."""
+
 import json
 import os
 import sys
@@ -15,12 +16,13 @@ def cmd_doctor(args):
     delegating to Bash or PowerShell.
     """
     from vnc_remote_secure.core.doctor import format_doctor, run_doctor
+
     result = run_doctor(as_json=args.json)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
         print(format_doctor(result))
-    return 0 if result['healthy'] else 1
+    return 0 if result["healthy"] else 1
 
 
 def cmd_backup(args):
@@ -29,8 +31,9 @@ def cmd_backup(args):
         print("[DRY RUN] Would create backup")
         return 0
 
-    if getattr(args, 'list', False):
+    if getattr(args, "list", False):
         from vnc_remote_secure.core.backup import list_backups
+
         backups = list_backups()
         if not backups:
             print("No backups found.")
@@ -41,14 +44,15 @@ def cmd_backup(args):
         return 0
 
     from vnc_remote_secure.core.backup import create_backup
+
     try:
         path = create_backup()
         print(f"Backup created: {path}")
-        _audit_cli('backup_create', 'success', os.path.basename(path))
+        _audit_cli("backup_create", "success", os.path.basename(path))
         return 0
     except Exception as e:
         print(f"Backup failed: {e}", file=sys.stderr)
-        _audit_cli('backup_create', 'failure', str(e))
+        _audit_cli("backup_create", "failure", str(e))
         return 1
 
 
@@ -64,20 +68,20 @@ def cmd_restore(args):
         # archive without copying anything into place — "would
         # restore" tells the operator nothing about restorability.
         from vnc_remote_secure.core.backup import restore_backup
+
         try:
             ok = restore_backup(args.backup_file, dry_run=True)
         except (FileNotFoundError, RuntimeError) as e:
             print(f"[DRY RUN] Restore would fail: {e}", file=sys.stderr)
             return 1
         if not ok:
-            print("[DRY RUN] Restore would fail: see logs.",
-                  file=sys.stderr)
+            print("[DRY RUN] Restore would fail: see logs.", file=sys.stderr)
             return 1
-        print("[DRY RUN] Backup validated — "
-              f"{args.backup_file} is restorable")
+        print("[DRY RUN] Backup validated — " f"{args.backup_file} is restorable")
         return 0
 
     from vnc_remote_secure.core.backup import restore_backup
+
     try:
         ok = restore_backup(args.backup_file)
     except (FileNotFoundError, RuntimeError) as e:
@@ -85,10 +89,10 @@ def cmd_restore(args):
         return 1
     if not ok:
         print("Restore failed: see logs for details.", file=sys.stderr)
-        _audit_cli('backup_restore', 'failure', args.backup_file)
+        _audit_cli("backup_restore", "failure", args.backup_file)
         return 1
     print(f"Restored from: {args.backup_file}")
-    _audit_cli('backup_restore', 'success', args.backup_file)
+    _audit_cli("backup_restore", "success", args.backup_file)
     return 0
 
 
@@ -103,25 +107,28 @@ def cmd_verify(args):
     ``verify backup [FILE]`` decrypts (if needed) and CRC-checks every
     tar member. Without FILE it verifies the newest backup.
     """
-    action = getattr(args, 'verify_action', None)
+    action = getattr(args, "verify_action", None)
 
-    if action == 'audit':
+    if action == "audit":
         from vnc_remote_secure.security.audit import verify_chain
+
         intact, message = verify_chain()
         if args.json:
-            print(json.dumps({'intact': intact, 'message': message},
-                             indent=2))
+            print(json.dumps({"intact": intact, "message": message}, indent=2))
         else:
-            print(f"Audit chain: {'INTACT' if intact else 'BROKEN'}"
-                  f"{' — ' + message if message else ''}")
+            print(
+                f"Audit chain: {'INTACT' if intact else 'BROKEN'}"
+                f"{' — ' + message if message else ''}"
+            )
         return 0 if intact else 1
 
-    if action == 'backup':
+    if action == "backup":
         from vnc_remote_secure.core.backup import (
             list_backups,
             verify_backup,
         )
-        backup_file = getattr(args, 'backup_file', None)
+
+        backup_file = getattr(args, "backup_file", None)
         if not backup_file:
             backups = list_backups()
             if not backups:
@@ -130,9 +137,11 @@ def cmd_verify(args):
             backup_file = backups[0]
         ok, message, count = verify_backup(backup_file)
         if args.json:
-            print(json.dumps({'file': backup_file, 'ok': ok,
-                              'members': count, 'message': message},
-                             indent=2))
+            print(
+                json.dumps(
+                    {"file": backup_file, "ok": ok, "members": count, "message": message}, indent=2
+                )
+            )
         else:
             print(f"{backup_file}: {message}")
         return 0 if ok else 1

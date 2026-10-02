@@ -13,6 +13,7 @@ Error responses follow a structured schema:
         "request_id": "Optional correlation ID"
     }
 """
+
 import json
 import logging
 
@@ -31,22 +32,19 @@ def error_json(
     Returns (body_string, status_code) where body_string is a JSON
     object with a structured error schema.
     """
-    body = {'error': True, 'message': str(message)}
+    body = {"error": True, "message": str(message)}
     if code:
-        body['code'] = code
+        body["code"] = code
     if detail is not None:
-        body['detail'] = str(detail)
+        body["detail"] = str(detail)
     if request_id:
-        body['request_id'] = request_id
+        body["request_id"] = request_id
     return json.dumps(body), status_code
 
 
-def log_exception(exc, context: str = ''):
+def log_exception(exc, context: str = ""):
     """Log an exception with optional context string."""
     if context:
         logger.warning("%s: %s", context, exc, exc_info=True)
     else:
         logger.warning("Unhandled exception: %s", exc, exc_info=True)
-
-
-

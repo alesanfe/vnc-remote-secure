@@ -2,6 +2,7 @@
 
 Internal to ``vnc_remote_secure.cli`` — not part of the public API.
 """
+
 import argparse
 
 from vnc_remote_secure.cli._common import (
@@ -32,80 +33,105 @@ from vnc_remote_secure.cli.commands.session import cmd_session
 
 def _add_install_args(subparsers):
     """Create the ``install`` subparser."""
-    p_install = subparsers.add_parser('install', help='Install and configure the system')
+    p_install = subparsers.add_parser("install", help="Install and configure the system")
     _add_common_args(p_install)
     p_install.set_defaults(func=cmd_install)
 
 
 def _add_start_args(subparsers):
     """Create the ``start`` subparser with its arguments."""
-    p_start = subparsers.add_parser('start', help='Start all services')
+    p_start = subparsers.add_parser("start", help="Start all services")
     _add_common_args(p_start)
-    p_start.add_argument('--no-ssl', action='store_true',
-                         help='Start without SSL/TLS (HTTP only)')
-    p_start.add_argument('--foreground', action='store_true',
-                         help='Run in the foreground (used by the Windows '
-                              'Service wrapper; blocks until interrupted)')
+    p_start.add_argument("--no-ssl", action="store_true", help="Start without SSL/TLS (HTTP only)")
+    p_start.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Run in the foreground (used by the Windows "
+        "Service wrapper; blocks until interrupted)",
+    )
     p_start.set_defaults(func=cmd_start)
 
 
 def _add_session_args(subparsers):
     """Create the ``session`` subparser with its sub-actions."""
     # Session (ephemeral remote sessions)
-    p_session = subparsers.add_parser('session', help='Manage ephemeral remote sessions')
+    p_session = subparsers.add_parser("session", help="Manage ephemeral remote sessions")
     # Common args on the PARENT too: wrappers (VncRemote.ps1) insert
     # --json/--verbose right after the subcommand name, before the
     # leaf action — argparse must accept them at both levels.
     _add_common_args(p_session)
-    p_session_sub = p_session.add_subparsers(dest='session_action', required=True)
-    p_create = p_session_sub.add_parser('create', help='Create a new ephemeral session')
-    p_create.add_argument('--expires', default='30m', help='Duration (e.g. 30m, 2h, 1d)')
-    p_create.add_argument('--role', default='viewer', choices=['viewer', 'support', 'operator', 'administrator'], help='Role (viewer, support, operator, administrator)')
-    p_create.add_argument('--view-only', action='store_true',
-                          help='View-only: blocks control channels (gamepad/terminal) '
-                               'and drops RFB input messages at the protocol layer')
-    p_create.add_argument('--no-terminal', action='store_true', help='Disable terminal access')
+    p_session_sub = p_session.add_subparsers(dest="session_action", required=True)
+    p_create = p_session_sub.add_parser("create", help="Create a new ephemeral session")
+    p_create.add_argument("--expires", default="30m", help="Duration (e.g. 30m, 2h, 1d)")
     p_create.add_argument(
-        '--permissions', default=None, metavar='LIST',
-        help='Comma-separated permission set overriding the role '
-             '(e.g. view,pointer,terminal_view or '
-             'view,keyboard,clipboard_write,terminal_write)')
-    p_create.add_argument('--single-use', action='store_true', help='Session expires after first use')
-    p_create.add_argument('--max-uses', type=int, default=0,
-                          help='Maximum number of uses (0 = unlimited)')
+        "--role",
+        default="viewer",
+        choices=["viewer", "support", "operator", "administrator"],
+        help="Role (viewer, support, operator, administrator)",
+    )
     p_create.add_argument(
-        '--allowed-ip',
+        "--view-only",
+        action="store_true",
+        help="View-only: blocks control channels (gamepad/terminal) "
+        "and drops RFB input messages at the protocol layer",
+    )
+    p_create.add_argument("--no-terminal", action="store_true", help="Disable terminal access")
+    p_create.add_argument(
+        "--permissions",
+        default=None,
+        metavar="LIST",
+        help="Comma-separated permission set overriding the role "
+        "(e.g. view,pointer,terminal_view or "
+        "view,keyboard,clipboard_write,terminal_write)",
+    )
+    p_create.add_argument(
+        "--single-use", action="store_true", help="Session expires after first use"
+    )
+    p_create.add_argument(
+        "--max-uses", type=int, default=0, help="Maximum number of uses (0 = unlimited)"
+    )
+    p_create.add_argument(
+        "--allowed-ip",
         help="Restrict to an IP, CIDR range, or 'first-observed' "
-             "(pins to whoever activates the link first)")
-    p_create.add_argument('--resource', default=None,
-                          choices=['desktop', 'terminal', 'audio',
-                                   'gamepad', 'files'],
-                          help='Bind the token to a single resource '
-                               '(RECOMMENDED — unbound tokens reach '
-                               'every resource their permissions allow)')
-    p_create.add_argument('--label', default=None,
-                          help='Free-text tag shown in the session '
-                               'inventory (e.g. "soporte Juan")')
+        "(pins to whoever activates the link first)",
+    )
+    p_create.add_argument(
+        "--resource",
+        default=None,
+        choices=["desktop", "terminal", "audio", "gamepad", "files"],
+        help="Bind the token to a single resource "
+        "(RECOMMENDED — unbound tokens reach "
+        "every resource their permissions allow)",
+    )
+    p_create.add_argument(
+        "--label",
+        default=None,
+        help="Free-text tag shown in the session " 'inventory (e.g. "soporte Juan")',
+    )
     _add_common_args(p_create, suppress_defaults=True)
-    p_list = p_session_sub.add_parser('list', help='List active sessions')
+    p_list = p_session_sub.add_parser("list", help="List active sessions")
     _add_common_args(p_list, suppress_defaults=True)
-    p_revoke = p_session_sub.add_parser('revoke', help='Revoke a session')
-    p_revoke.add_argument('token_pos', nargs='?', metavar='TOKEN',
-                          help='Session token to revoke (positional)')
-    p_revoke.add_argument('--token', default=None,
-                          help='Session token to revoke')
-    p_revoke.add_argument('--all', action='store_true',
-                          help='Revoke ALL active sessions (emergency)')
-    p_revoke.add_argument('--by-user', default=None, metavar='USER',
-                          help='Revoke all sessions created by USER')
+    p_revoke = p_session_sub.add_parser("revoke", help="Revoke a session")
+    p_revoke.add_argument(
+        "token_pos", nargs="?", metavar="TOKEN", help="Session token to revoke (positional)"
+    )
+    p_revoke.add_argument("--token", default=None, help="Session token to revoke")
+    p_revoke.add_argument(
+        "--all", action="store_true", help="Revoke ALL active sessions (emergency)"
+    )
+    p_revoke.add_argument(
+        "--by-user", default=None, metavar="USER", help="Revoke all sessions created by USER"
+    )
     _add_common_args(p_revoke, suppress_defaults=True)
-    p_label = p_session_sub.add_parser(
-        'label', help='Set or clear the inventory tag on a session')
-    p_label.add_argument('token_pos', metavar='TOKEN_ID',
-                         help='Session fingerprint (session list)')
-    p_label.add_argument('label', nargs='?', default=None,
-                         metavar='LABEL',
-                         help='New tag text; empty string clears it')
+    p_label = p_session_sub.add_parser("label", help="Set or clear the inventory tag on a session")
+    p_label.add_argument("token_pos", metavar="TOKEN_ID", help="Session fingerprint (session list)")
+    p_label.add_argument(
+        "label",
+        nargs="?",
+        default=None,
+        metavar="LABEL",
+        help="New tag text; empty string clears it",
+    )
     _add_common_args(p_label, suppress_defaults=True)
     p_session.set_defaults(func=cmd_session)
 
@@ -113,44 +139,55 @@ def _add_session_args(subparsers):
 def _add_secrets_args(subparsers):
     """Create the ``secrets`` subparser with its sub-actions."""
     # Secrets (status, rotate, redact)
-    p_secrets = subparsers.add_parser('secrets', help='Manage secrets (status, rotate, redact, check)')
+    p_secrets = subparsers.add_parser(
+        "secrets", help="Manage secrets (status, rotate, redact, check)"
+    )
     _add_common_args(p_secrets)
-    p_secrets_sub = p_secrets.add_subparsers(dest='secrets_action', required=True)
-    p_sstatus = p_secrets_sub.add_parser('status', help='Show secret status (no values)')
+    p_secrets_sub = p_secrets.add_subparsers(dest="secrets_action", required=True)
+    p_sstatus = p_secrets_sub.add_parser("status", help="Show secret status (no values)")
     _add_common_args(p_sstatus, suppress_defaults=True)
-    p_srotate = p_secrets_sub.add_parser('rotate', help='Rotate a secret (generates new value)')
-    p_srotate.add_argument('--name', dest='secret_name', required=True, help='Secret to rotate (TTYD_PASSWD, TEMP_USER_PASS, VNC_PASSWORD, HEALTH_AUTH_TOKEN, LANDING_PASSWORD, USER_UI_PASSWORD, AUTH_SECRET, FLASK_SECRET_KEY, BACKUP_PASSWORD)')
+    p_srotate = p_secrets_sub.add_parser("rotate", help="Rotate a secret (generates new value)")
+    p_srotate.add_argument(
+        "--name",
+        dest="secret_name",
+        required=True,
+        help="Secret to rotate (TTYD_PASSWD, TEMP_USER_PASS, VNC_PASSWORD, HEALTH_AUTH_TOKEN, LANDING_PASSWORD, USER_UI_PASSWORD, AUTH_SECRET, FLASK_SECRET_KEY, BACKUP_PASSWORD)",
+    )
     _add_common_args(p_srotate, suppress_defaults=True)
     p_srotsign = p_secrets_sub.add_parser(
-        'rotate-signing',
-        help='Rotate the token signing secret with a 7-day coexistence '
-             'window (in-flight tokens stay valid)')
+        "rotate-signing",
+        help="Rotate the token signing secret with a 7-day coexistence "
+        "window (in-flight tokens stay valid)",
+    )
     _add_common_args(p_srotsign, suppress_defaults=True)
-    p_sredact = p_secrets_sub.add_parser('redact', help='Show redacted value of a secret')
-    p_sredact.add_argument('--name', dest='secret_name', required=True, help='Secret name to redact')
+    p_sredact = p_secrets_sub.add_parser("redact", help="Show redacted value of a secret")
+    p_sredact.add_argument(
+        "--name", dest="secret_name", required=True, help="Secret name to redact"
+    )
     _add_common_args(p_sredact, suppress_defaults=True)
     p_srecov = p_secrets_sub.add_parser(
-        'recovery-codes',
-        help='Generate MFA recovery codes (hashes written to env, '
-             'codes printed once)')
+        "recovery-codes",
+        help="Generate MFA recovery codes (hashes written to env, " "codes printed once)",
+    )
     _add_common_args(p_srecov, suppress_defaults=True)
-    p_scheck = p_secrets_sub.add_parser('check', help='Validate TLS config and secret file permissions')
+    p_scheck = p_secrets_sub.add_parser(
+        "check", help="Validate TLS config and secret file permissions"
+    )
     _add_common_args(p_scheck, suppress_defaults=True)
     p_scheck.add_argument(
-        '--fix', action='store_true',
-        help='Attempt to repair permissions on flagged secret files')
+        "--fix", action="store_true", help="Attempt to repair permissions on flagged secret files"
+    )
     p_secrets.set_defaults(func=cmd_secrets)
 
     # Security (aggregated audit)
     from vnc_remote_secure.cli.commands.security import cmd_security
-    p_sec = subparsers.add_parser(
-        'security', help='Security audit (check)')
+
+    p_sec = subparsers.add_parser("security", help="Security audit (check)")
     _add_common_args(p_sec)
-    p_sec_sub = p_sec.add_subparsers(
-        dest='security_action', required=True)
+    p_sec_sub = p_sec.add_subparsers(dest="security_action", required=True)
     p_schk = p_sec_sub.add_parser(
-        'check',
-        help='Aggregated audit: posture + config + listeners + doctor')
+        "check", help="Aggregated audit: posture + config + listeners + doctor"
+    )
     _add_common_args(p_schk, suppress_defaults=True)
     p_sec.set_defaults(func=cmd_security)
 
@@ -158,60 +195,64 @@ def _add_secrets_args(subparsers):
 def _add_upgrade_args(subparsers):
     """Create the ``upgrade`` subparser."""
     from vnc_remote_secure.cli.commands.upgrade import cmd_upgrade
+
     p_up = subparsers.add_parser(
-        'upgrade',
-        help='Upgrade the package (backup-first, automatic rollback)')
+        "upgrade", help="Upgrade the package (backup-first, automatic rollback)"
+    )
     _add_common_args(p_up)
     p_up.add_argument(
-        '--check', action='store_true',
-        help='Only report installed vs available versions')
+        "--check", action="store_true", help="Only report installed vs available versions"
+    )
     p_up.add_argument(
-        '--from', dest='source', metavar='SPEC',
-        help='Install source: wheel/sdist path, VCS URL, or a '
-             'version pin (default: package name on PyPI)')
+        "--from",
+        dest="source",
+        metavar="SPEC",
+        help="Install source: wheel/sdist path, VCS URL, or a "
+        "version pin (default: package name on PyPI)",
+    )
+    p_up.add_argument("--yes", action="store_true", help="Skip the interactive confirmation")
     p_up.add_argument(
-        '--yes', action='store_true',
-        help='Skip the interactive confirmation')
-    p_up.add_argument(
-        '--rollback', action='store_true',
-        help='Restore the state recorded by the last upgrade')
+        "--rollback", action="store_true", help="Restore the state recorded by the last upgrade"
+    )
     p_up.set_defaults(func=cmd_upgrade)
 
 
 def _add_config_args(subparsers):
     """Create the ``config`` subparser with its sub-actions."""
     # Config
-    p_config = subparsers.add_parser('config', help='Configuration management')
+    p_config = subparsers.add_parser("config", help="Configuration management")
     _add_common_args(p_config)
-    p_config_sub = p_config.add_subparsers(dest='config_action', required=True)
-    p_ceff = p_config_sub.add_parser('show-effective', help='Show effective config with provenance')
-    p_ceff.add_argument('--profile', help='Profile to evaluate (default: from .env)')
+    p_config_sub = p_config.add_subparsers(dest="config_action", required=True)
+    p_ceff = p_config_sub.add_parser("show-effective", help="Show effective config with provenance")
+    p_ceff.add_argument("--profile", help="Profile to evaluate (default: from .env)")
     _add_common_args(p_ceff, suppress_defaults=True)
     p_cexp = p_config_sub.add_parser(
-        'explain',
-        help='Explain how one variable resolves (value, source, precedence)')
-    p_cexp.add_argument('var_name', help='Variable name to explain')
-    p_cexp.add_argument('--profile', help='Profile to evaluate (default: from .env)')
+        "explain", help="Explain how one variable resolves (value, source, precedence)"
+    )
+    p_cexp.add_argument("var_name", help="Variable name to explain")
+    p_cexp.add_argument("--profile", help="Profile to evaluate (default: from .env)")
     _add_common_args(p_cexp, suppress_defaults=True)
-    p_cval = p_config_sub.add_parser('validate', help='Validate config for contradictions')
-    p_cval.add_argument('--profile', help='Profile to validate against')
+    p_cval = p_config_sub.add_parser("validate", help="Validate config for contradictions")
+    p_cval.add_argument("--profile", help="Profile to validate against")
     _add_common_args(p_cval, suppress_defaults=True)
-    p_cdiff = p_config_sub.add_parser('diff', help='Diff two profiles')
-    p_cdiff.add_argument('--profile-a', required=True, help='First profile')
-    p_cdiff.add_argument('--profile-b', required=True, help='Second profile')
+    p_cdiff = p_config_sub.add_parser("diff", help="Diff two profiles")
+    p_cdiff.add_argument("--profile-a", required=True, help="First profile")
+    p_cdiff.add_argument("--profile-b", required=True, help="Second profile")
     _add_common_args(p_cdiff, suppress_defaults=True)
-    p_cmig = p_config_sub.add_parser('migrate', help='Migrate config to current version format')
+    p_cmig = p_config_sub.add_parser("migrate", help="Migrate config to current version format")
     _add_common_args(p_cmig, suppress_defaults=True)
     p_chist = p_config_sub.add_parser(
-        'history', help='List env-file snapshots (auto-saved before mutations)')
+        "history", help="List env-file snapshots (auto-saved before mutations)"
+    )
     _add_common_args(p_chist, suppress_defaults=True)
-    p_crb = p_config_sub.add_parser(
-        'rollback', help='Restore .env from a history snapshot')
-    p_crb.add_argument('snapshot', help='Snapshot id from `config history`')
+    p_crb = p_config_sub.add_parser("rollback", help="Restore .env from a history snapshot")
+    p_crb.add_argument("snapshot", help="Snapshot id from `config history`")
     p_crb.add_argument(
-        '--restart', action='store_true',
-        help='Queue a deferred service restart so the restored config '
-             'takes effect immediately (same step-up grant)')
+        "--restart",
+        action="store_true",
+        help="Queue a deferred service restart so the restored config "
+        "takes effect immediately (same step-up grant)",
+    )
     _add_common_args(p_crb, suppress_defaults=True)
     p_config.set_defaults(func=cmd_config)
 
@@ -219,44 +260,127 @@ def _add_config_args(subparsers):
 def _add_operator_args(subparsers):
     """Create the ``operator`` subparser with its sub-actions."""
     from vnc_remote_secure.cli.commands.operator import cmd_operator
-    p_op = subparsers.add_parser(
-        'operator',
-        help='Manage operator accounts (multi-user RBAC)')
+
+    p_op = subparsers.add_parser("operator", help="Manage operator accounts (multi-user RBAC)")
     _add_common_args(p_op)
-    sub = p_op.add_subparsers(dest='operator_action', required=True)
-    p_list = sub.add_parser('list', help='List operator accounts')
+    sub = p_op.add_subparsers(dest="operator_action", required=True)
+    p_list = sub.add_parser("list", help="List operator accounts")
     _add_common_args(p_list, suppress_defaults=True)
-    p_add = sub.add_parser('add', help='Add an operator account')
-    p_add.add_argument('username')
-    p_add.add_argument('--role', default='viewer',
-                       choices=['admin', 'operator', 'viewer'],
-                       help='admin (all), operator (sessions+audit), '
-                            'viewer (read-only portal)')
+    p_add = sub.add_parser("add", help="Add an operator account")
+    p_add.add_argument("username")
+    p_add.add_argument(
+        "--role",
+        default="viewer",
+        choices=["admin", "operator", "viewer"],
+        help="admin (all), operator (sessions+audit), " "viewer (read-only portal)",
+    )
     _add_common_args(p_add, suppress_defaults=True)
     for name, helptext in (
-            ('remove', 'Remove an operator account'),
-            ('passwd', 'Set an operator password'),
-            ('role', 'Change an operator role'),
-            ('disable', 'Disable an operator account'),
-            ('enable', 'Re-enable an operator account')):
+        ("remove", "Remove an operator account"),
+        ("passwd", "Set an operator password"),
+        ("role", "Change an operator role"),
+        ("disable", "Disable an operator account"),
+        ("enable", "Re-enable an operator account"),
+        (
+            "restore",
+            "Restore a deleted operator from its tombstone "
+            "(returns disabled with a random password)",
+        ),
+        ("revoke-sessions", "Revoke all live sessions of an " "operator account"),
+    ):
         p = sub.add_parser(name, help=helptext)
-        p.add_argument('username')
-        if name == 'role':
-            p.add_argument('role',
-                           choices=['admin', 'operator', 'viewer'])
+        p.add_argument("username")
+        if name == "role":
+            p.add_argument("role", choices=["admin", "operator", "viewer"])
         _add_common_args(p, suppress_defaults=True)
     p_op.set_defaults(func=cmd_operator)
+
+
+def _add_desktop_args(subparsers):
+    """Create the ``desktop`` and ``recording`` subparsers."""
+    from vnc_remote_secure.cli.commands.recordings import (
+        cmd_desktop,
+        cmd_recording,
+    )
+
+    p_desk = subparsers.add_parser("desktop", help="Desktop capture (screenshot)")
+    _add_common_args(p_desk)
+    dsub = p_desk.add_subparsers(dest="desktop_action", required=True)
+    p_shot = dsub.add_parser("screenshot", help="Capture a PNG of the host screen")
+    p_shot.add_argument(
+        "--output", "-o", default=None, help="Output file (default: screenshot.png)"
+    )
+    _add_common_args(p_shot, suppress_defaults=True)
+    p_desk.set_defaults(func=cmd_desktop)
+
+    p_rec = subparsers.add_parser("recording", help="Manage desktop recordings (.vrsrec)")
+    _add_common_args(p_rec)
+    rsub = p_rec.add_subparsers(dest="recording_action", required=True)
+    p_rlist = rsub.add_parser("list", help="List recordings")
+    _add_common_args(p_rlist, suppress_defaults=True)
+    p_rdl = rsub.add_parser("download", help="Download a recording (.vrsrec)")
+    p_rdl.add_argument("recording_id")
+    p_rdl.add_argument("--output", "-o", default=None, help="Output file (default: <id>.vrsrec)")
+    _add_common_args(p_rdl, suppress_defaults=True)
+    p_rstart = rsub.add_parser("start", help="Start a desktop recording")
+    _add_common_args(p_rstart, suppress_defaults=True)
+    p_rstop = rsub.add_parser("stop", help="Stop a running recording")
+    p_rstop.add_argument("recording_id")
+    _add_common_args(p_rstop, suppress_defaults=True)
+    p_rdel = rsub.add_parser("delete", help="Delete a finished recording")
+    p_rdel.add_argument("recording_id")
+    _add_common_args(p_rdel, suppress_defaults=True)
+    p_rec.set_defaults(func=cmd_recording)
+
+
+def _add_power_args(subparsers):
+    """Create the ``power`` subparser (host power + Wake-on-LAN)."""
+    from vnc_remote_secure.cli.commands.power import cmd_power
+
+    p_pow = subparsers.add_parser("power", help="Host power actions and Wake-on-LAN")
+    _add_common_args(p_pow)
+    sub = p_pow.add_subparsers(dest="power_action", required=True)
+    p_act = sub.add_parser("action", help="Shut down / restart / suspend THIS host")
+    p_act.add_argument("action", choices=["shutdown", "restart", "sleep"])
+    p_act.add_argument("--yes", action="store_true", help="Skip the interactive confirmation")
+    _add_common_args(p_act, suppress_defaults=True)
+    p_wol = sub.add_parser("wol", help="Send a Wake-on-LAN magic packet")
+    p_wol.add_argument("mac", help="Target MAC address")
+    p_wol.add_argument(
+        "--broadcast", default="255.255.255.255", help="Broadcast address (must stay broadcast)"
+    )
+    p_wol.add_argument("--port", type=int, default=9, help="UDP port (default: 9)")
+    _add_common_args(p_wol, suppress_defaults=True)
+    p_pow.set_defaults(func=cmd_power)
+
+
+def _add_system_user_args(subparsers):
+    """Create the ``system-user`` subparser (runtime OS accounts)."""
+    from vnc_remote_secure.cli.commands.system_users import (
+        cmd_system_user,
+    )
+
+    p_su = subparsers.add_parser("system-user", help="Manage runtime OS accounts")
+    _add_common_args(p_su)
+    sub = p_su.add_subparsers(dest="system_user_action", required=True)
+    p_suc = sub.add_parser("create", help="Create a runtime OS account")
+    p_suc.add_argument("username")
+    _add_common_args(p_suc, suppress_defaults=True)
+    p_sud = sub.add_parser("delete", help="Delete a runtime OS account")
+    p_sud.add_argument("username")
+    _add_common_args(p_sud, suppress_defaults=True)
+    p_su.set_defaults(func=cmd_system_user)
 
 
 def create_parser():
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog='vnc-remote',
-        description='VNC Remote Secure - Secure browser-based remote access',
+        prog="vnc-remote",
+        description="VNC Remote Secure - Secure browser-based remote access",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Install
     _add_install_args(subparsers)
@@ -265,58 +389,63 @@ def create_parser():
     _add_start_args(subparsers)
 
     # Stop
-    p_stop = subparsers.add_parser('stop', help='Stop all services')
+    p_stop = subparsers.add_parser("stop", help="Stop all services")
     _add_common_args(p_stop)
-    p_stop.add_argument('--force', action='store_true',
-                        help='Kill PIDs whose ownership cannot be '
-                             'verified (e.g. cmdline unreadable)')
+    p_stop.add_argument(
+        "--force",
+        action="store_true",
+        help="Kill PIDs whose ownership cannot be " "verified (e.g. cmdline unreadable)",
+    )
     p_stop.set_defaults(func=cmd_stop)
 
     # Restart
-    p_restart = subparsers.add_parser('restart', help='Restart all services')
+    p_restart = subparsers.add_parser("restart", help="Restart all services")
     _add_common_args(p_restart)
-    p_restart.add_argument('--no-ssl', action='store_true',
-                           help='Restart services without TLS (HTTP only)')
+    p_restart.add_argument(
+        "--no-ssl", action="store_true", help="Restart services without TLS (HTTP only)"
+    )
     p_restart.set_defaults(func=cmd_restart)
 
     # Status
-    p_status = subparsers.add_parser('status', help='Check system status')
+    p_status = subparsers.add_parser("status", help="Check system status")
     _add_common_args(p_status)
     p_status.set_defaults(func=cmd_status)
 
     # Doctor
-    p_doctor = subparsers.add_parser('doctor', help='Diagnose system readiness')
+    p_doctor = subparsers.add_parser("doctor", help="Diagnose system readiness")
     _add_common_args(p_doctor)
     p_doctor.set_defaults(func=cmd_doctor)
 
     # Backup
-    p_backup = subparsers.add_parser('backup', help='Create a backup')
-    p_backup.add_argument('--list', action='store_true', help='List available backups')
+    p_backup = subparsers.add_parser("backup", help="Create a backup")
+    p_backup.add_argument("--list", action="store_true", help="List available backups")
     _add_common_args(p_backup)
     p_backup.set_defaults(func=cmd_backup)
 
     # Restore
-    p_restore = subparsers.add_parser('restore', help='Restore from a backup')
-    p_restore.add_argument('backup_file', nargs='?', help='Backup file path')
+    p_restore = subparsers.add_parser("restore", help="Restore from a backup")
+    p_restore.add_argument("backup_file", nargs="?", help="Backup file path")
     _add_common_args(p_restore)
     p_restore.set_defaults(func=cmd_restore)
 
     # Uninstall
-    p_uninstall = subparsers.add_parser('uninstall', help='Remove all project changes')
-    p_uninstall.add_argument('--keep-data', action='store_true',
-                             help='Keep SSL certs, data, and backups')
+    p_uninstall = subparsers.add_parser("uninstall", help="Remove all project changes")
+    p_uninstall.add_argument(
+        "--keep-data", action="store_true", help="Keep SSL certs, data, and backups"
+    )
     _add_common_args(p_uninstall)
     p_uninstall.set_defaults(func=cmd_uninstall)
 
     # Service (systemd / Windows service mode)
-    p_service = subparsers.add_parser('service', help='Run in service mode (systemd/Windows)')
-    p_service.add_argument('--run', action='store_true',
-                           help='Start all services in foreground (service mode)')
+    p_service = subparsers.add_parser("service", help="Run in service mode (systemd/Windows)")
+    p_service.add_argument(
+        "--run", action="store_true", help="Start all services in foreground (service mode)"
+    )
     _add_common_args(p_service)
     p_service.set_defaults(func=cmd_service)
 
     # Version
-    p_version = subparsers.add_parser('version', help='Show version information')
+    p_version = subparsers.add_parser("version", help="Show version information")
     _add_common_args(p_version)
     p_version.set_defaults(func=cmd_version)
 
@@ -335,50 +464,54 @@ def create_parser():
     # Operator accounts (multi-user RBAC)
     _add_operator_args(subparsers)
 
+    # Desktop capture (screenshot + recordings)
+    _add_desktop_args(subparsers)
+
+    # Host power (shutdown/restart/sleep + Wake-on-LAN)
+    _add_power_args(subparsers)
+
+    # System users (runtime OS accounts)
+    _add_system_user_args(subparsers)
+
     # Verify (audit chain / backup integrity)
-    p_verify = subparsers.add_parser(
-        'verify', help='Verify audit chain or backup integrity')
+    p_verify = subparsers.add_parser("verify", help="Verify audit chain or backup integrity")
     _add_common_args(p_verify)
-    p_verify_sub = p_verify.add_subparsers(dest='verify_action',
-                                           required=True)
-    p_vaudit = p_verify_sub.add_parser(
-        'audit', help='Verify the hash-chained audit log')
+    p_verify_sub = p_verify.add_subparsers(dest="verify_action", required=True)
+    p_vaudit = p_verify_sub.add_parser("audit", help="Verify the hash-chained audit log")
     _add_common_args(p_vaudit, suppress_defaults=True)
-    p_vbackup = p_verify_sub.add_parser(
-        'backup', help='Verify a backup archive (decrypt + CRC)')
-    p_vbackup.add_argument('backup_file', nargs='?',
-                           help='Backup file (default: newest)')
+    p_vbackup = p_verify_sub.add_parser("backup", help="Verify a backup archive (decrypt + CRC)")
+    p_vbackup.add_argument("backup_file", nargs="?", help="Backup file (default: newest)")
     _add_common_args(p_vbackup, suppress_defaults=True)
     p_verify.set_defaults(func=cmd_verify)
 
     # Maintenance mode (drain new sessions during upgrades/repairs)
     p_maint = subparsers.add_parser(
-        'maintenance',
-        help='Toggle maintenance mode (blocks new non-admin sessions)')
-    p_maint_sub = p_maint.add_subparsers(dest='maintenance_action',
-                                       required=True)
-    p_mon = p_maint_sub.add_parser(
-        'on', help='Enable maintenance mode')
-    p_mon.add_argument('--reason', default='',
-                       help='Reason shown on the portal banner')
-    p_mon.add_argument('--drain', action='store_true',
-                       help='Also revoke all active ephemeral share '
-                            'sessions (default: they run out their TTL)')
-    p_mon.add_argument('--drain-timeout', type=int, default=0,
-                       metavar='SECONDS',
-                       help='Grace period before existing share '
-                            'sessions fail closed (deferred drain)')
+        "maintenance", help="Toggle maintenance mode (blocks new non-admin sessions)"
+    )
+    p_maint_sub = p_maint.add_subparsers(dest="maintenance_action", required=True)
+    p_mon = p_maint_sub.add_parser("on", help="Enable maintenance mode")
+    p_mon.add_argument("--reason", default="", help="Reason shown on the portal banner")
+    p_mon.add_argument(
+        "--drain",
+        action="store_true",
+        help="Also revoke all active ephemeral share " "sessions (default: they run out their TTL)",
+    )
+    p_mon.add_argument(
+        "--drain-timeout",
+        type=int,
+        default=0,
+        metavar="SECONDS",
+        help="Grace period before existing share " "sessions fail closed (deferred drain)",
+    )
     _add_common_args(p_mon, suppress_defaults=True)
-    p_moff = p_maint_sub.add_parser(
-        'off', help='Disable maintenance mode')
+    p_moff = p_maint_sub.add_parser("off", help="Disable maintenance mode")
     _add_common_args(p_moff, suppress_defaults=True)
-    p_mst = p_maint_sub.add_parser(
-        'status', help='Show maintenance mode state')
+    p_mst = p_maint_sub.add_parser("status", help="Show maintenance mode state")
     _add_common_args(p_mst, suppress_defaults=True)
     p_maint.set_defaults(func=cmd_maintenance)
 
     # Help
-    p_help = subparsers.add_parser('help', help='Show this help message')
+    p_help = subparsers.add_parser("help", help="Show this help message")
     _add_verbosity_args(p_help)
     p_help.set_defaults(func=cmd_help)
 

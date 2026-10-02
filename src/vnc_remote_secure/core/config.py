@@ -45,10 +45,11 @@ def _find_project_root():
     Delegates to the canonical helper in ``core.paths``.
     """
     from vnc_remote_secure.core.paths import find_project_root
+
     return find_project_root()
 
 
-def normalize_duck_domain(value: str = '') -> str:
+def normalize_duck_domain(value: str = "") -> str:
     """Normalize ``DUCK_DOMAIN`` to a full hostname.
 
     Operators enter both forms — ``mysub`` (the DuckDNS "subdomain")
@@ -59,11 +60,11 @@ def normalize_duck_domain(value: str = '') -> str:
     interpreted as a DuckDNS subdomain; anything containing a dot is
     returned as-is (real custom domains pass through untouched).
     """
-    d = (value or '').strip()
+    d = (value or "").strip()
     if not d:
-        return ''
-    if '.' not in d:
-        return f'{d}.duckdns.org'
+        return ""
+    if "." not in d:
+        return f"{d}.duckdns.org"
     return d
 
 
@@ -76,21 +77,21 @@ def _is_tls_enabled_env() -> bool:
     HTTP — otherwise the documented "both are equivalent" claim is
     false and the kill-switch is silently ignored.
     """
-    disable_val = os.environ.get('DISABLE_SSL', '').strip()
-    if disable_val.lower() in ('true', '1', 'yes'):
+    disable_val = os.environ.get("DISABLE_SSL", "").strip()
+    if disable_val.lower() in ("true", "1", "yes"):
         return False
-    tls_val = os.environ.get('TLS_ENABLED', '').strip()
+    tls_val = os.environ.get("TLS_ENABLED", "").strip()
     if tls_val:
-        return tls_val.lower() in ('true', '1', 'yes')
+        return tls_val.lower() in ("true", "1", "yes")
     if disable_val:
-        return disable_val.lower() not in ('true', '1', 'yes')
+        return disable_val.lower() not in ("true", "1", "yes")
     return True
 
 
-_ENV_TRUE = frozenset({'1', 'true', 'yes', 'on'})
+_ENV_TRUE = frozenset({"1", "true", "yes", "on"})
 
 
-def env_flag(name: str, default: str = 'false') -> bool:
+def env_flag(name: str, default: str = "false") -> bool:
     """Parse a boolean environment flag.
 
     Truthy values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive);
@@ -113,6 +114,7 @@ def _parse_env_file(path):
     """
     try:
         from dotenv import dotenv_values
+
         parsed = dotenv_values(path)
     except Exception as e:
         logger.warning("Failed to load env file '%s': %s", path, e)
@@ -120,9 +122,8 @@ def _parse_env_file(path):
     for key, val in parsed.items():
         if val is None:
             continue  # bare 'KEY' line — no value
-        if '$(' in val or '`' in val:
-            logger.warning(
-                "Skipping %s: value contains shell substitution", key)
+        if "$(" in val or "`" in val:
+            logger.warning("Skipping %s: value contains shell substitution", key)
             continue
         yield key, val
 
@@ -144,14 +145,15 @@ def _load_platform_defaults(project_root):
     # importlib.resources (works for pip-installed wheels).
     candidates = []
     if project_root:
-        candidates.append(os.path.join(
-            project_root, 'src', 'vnc_remote_secure', 'config', 'defaults'))
-        candidates.append(os.path.join(project_root, 'config', 'defaults'))
+        candidates.append(
+            os.path.join(project_root, "src", "vnc_remote_secure", "config", "defaults")
+        )
+        candidates.append(os.path.join(project_root, "config", "defaults"))
     # Package-relative fallback (works for pip-installed wheels).
     try:
         from importlib.resources import files
 
-        pkg_defaults = os.path.join(str(files('vnc_remote_secure') / 'config' / 'defaults'))
+        pkg_defaults = os.path.join(str(files("vnc_remote_secure") / "config" / "defaults"))
         candidates.append(pkg_defaults)
     except Exception:  # noqa: BLE001 - importlib.resources not available or package missing
         pass
@@ -161,9 +163,10 @@ def _load_platform_defaults(project_root):
         return
     # Load common.env, then platform-specific.
     import platform as _platform
-    is_windows = _platform.system() == 'Windows'
-    platform_file = 'windows.env' if is_windows else 'linux.env'
-    for name in ('common.env', platform_file):
+
+    is_windows = _platform.system() == "Windows"
+    platform_file = "windows.env" if is_windows else "linux.env"
+    for name in ("common.env", platform_file):
         path = os.path.join(defaults_dir, name)
         if not os.path.isfile(path):
             continue
@@ -185,18 +188,18 @@ _DEFAULT_INJECTED: dict = {}
 
 def _is_injected_default(key: str) -> bool:
     """Return True if ``key`` still holds a value we injected as a default."""
-    return (_DEFAULT_INJECTED.get(key) is not None
-            and os.environ.get(key) == _DEFAULT_INJECTED[key])
+    return _DEFAULT_INJECTED.get(key) is not None and os.environ.get(key) == _DEFAULT_INJECTED[key]
 
 
 def _system_env_path():
     """Return the system config.env path for this platform, or None."""
     from vnc_remote_secure.platform.detection import is_windows
+
     if is_windows():
         return os.path.join(
-            os.environ.get('ProgramData', r'C:\ProgramData'),
-            'VncRemoteSecure', 'config.env')
-    return '/etc/vnc-remote-secure/config.env'
+            os.environ.get("ProgramData", r"C:\ProgramData"), "VncRemoteSecure", "config.env"
+        )
+    return "/etc/vnc-remote-secure/config.env"
 
 
 def set_env_persistent(name: str, value: str) -> bool:
@@ -217,21 +220,22 @@ def set_env_persistent(name: str, value: str) -> bool:
     # The value lands as a raw line in the env file — a CR/LF would
     # inject additional variables. Reject rather than sanitise so a
     # caller bug surfaces loudly instead of silently mangling config.
-    if '\r' in str(value) or '\n' in str(value):
+    if "\r" in str(value) or "\n" in str(value):
         logger.error("Refusing to persist env value containing CR/LF")
         return False
-    if not name or '=' in name or '\r' in name or '\n' in name:
+    if not name or "=" in name or "\r" in name or "\n" in name:
         logger.error("Refusing to persist invalid env var name %r", name)
         return False
     env_path = _env_file_for(name)
     try:
         from vnc_remote_secure.core import config_history
-        config_history.snapshot(env_path, reason=f'env persist {name}',
-                                changed_keys=[name])
+
+        config_history.snapshot(env_path, reason=f"env persist {name}", changed_keys=[name])
     except OSError:
         pass  # history is best-effort — never blocks the write
     from vnc_remote_secure.core.test_isolation import guard_write
-    guard_write(env_path, 'env persist')
+
+    guard_write(env_path, "env persist")
     if not _rewrite_env_key(env_path, name, value):
         return False
     os.environ[name] = value
@@ -241,8 +245,8 @@ def set_env_persistent(name: str, value: str) -> bool:
 def _env_line_key(ln: str) -> str | None:
     """Return the variable name a file line defines, or None."""
     stripped = ln.strip()
-    if stripped and not stripped.startswith('#') and '=' in ln:
-        return ln.split('=', 1)[0].strip()
+    if stripped and not stripped.startswith("#") and "=" in ln:
+        return ln.split("=", 1)[0].strip()
     return None
 
 
@@ -256,12 +260,12 @@ def _env_file_for(name: str) -> str:
     service (which reads config.env via EnvironmentFile). Falls back
     to the project ``.env`` when the key lives nowhere else.
     """
-    env_path = os.path.join(_find_project_root(), '.env')
+    env_path = os.path.join(_find_project_root(), ".env")
     for candidate in (_system_env_path(), env_path):
         if not candidate or not os.path.isfile(candidate):
             continue
         try:
-            with open(candidate, encoding='utf-8') as f:
+            with open(candidate, encoding="utf-8") as f:
                 content = f.read()
         except OSError:
             continue
@@ -275,29 +279,29 @@ def _rewrite_env_key(env_path: str, name: str, value: str) -> bool:
     lines = []
     if os.path.isfile(env_path):
         try:
-            with open(env_path, encoding='utf-8') as f:
+            with open(env_path, encoding="utf-8") as f:
                 lines = f.read().splitlines()
         except OSError:
             return False
     out, found = [], False
     for ln in lines:
         if _env_line_key(ln) == name:
-            out.append(f'{name}={value}')
+            out.append(f"{name}={value}")
             found = True
             continue
         out.append(ln)
     if not found:
-        out.append(f'{name}={value}')
+        out.append(f"{name}={value}")
     try:
         # Write to a temp file then os.replace() — a crash mid-write
         # of the target file would truncate the .env in place and lose
         # every other variable.
         import tempfile
-        fd, tmp = tempfile.mkstemp(
-            dir=os.path.dirname(env_path) or '.', suffix='.tmp')
+
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(env_path) or ".", suffix=".tmp")
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(out) + '\n')
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(out) + "\n")
             os.replace(tmp, env_path)
         except BaseException:
             with contextlib.suppress(OSError):
@@ -339,25 +343,10 @@ def load_env_file(env_path=None):
     project_root = _find_project_root()
     # Precedence (highest wins):
     #   real env > project .env > system config.env > platform defaults
-    #
-    # The system config file (/etc/vnc-remote-secure/config.env on
-    # Linux, %ProgramData%\VncRemoteSecure\config.env on Windows) is
-    # what the packaged installer writes. systemd injects it for the
-    # service via EnvironmentFile=, but manual CLI invocations must
-    # read it explicitly or they would silently run with defaults.
-    system_env = {}
-    for candidate in (
-            '/etc/vnc-remote-secure/config.env',
-            os.path.join(os.environ.get(
-                'ProgramData', r'C:\ProgramData'),
-                'VncRemoteSecure', 'config.env'),
-    ):
-        if os.path.isfile(candidate):
-            system_env = dict(_parse_env_file(candidate))
-            break
+    system_env = _system_config_env()
 
     if env_path is None:
-        env_path = os.path.join(project_root, '.env')
+        env_path = os.path.join(project_root, ".env")
     proj_env = {}
     if env_path and os.path.exists(env_path):
         proj_env = dict(_parse_env_file(env_path))
@@ -368,8 +357,11 @@ def load_env_file(env_path=None):
     # 2. System config.env — fills keys absent from real env AND from
     #    the project .env (which outranks it).
     for key, val in system_env.items():
-        if (key not in real_env_keys and key not in proj_env
-                and (key not in os.environ or _is_injected_default(key))):
+        if (
+            key not in real_env_keys
+            and key not in proj_env
+            and (key not in os.environ or _is_injected_default(key))
+        ):
             os.environ[key] = val
             _DEFAULT_INJECTED[key] = val
     # 3. Project .env — overrides system config and platform defaults
@@ -382,13 +374,33 @@ def load_env_file(env_path=None):
         _ENV_LOADED = True
 
 
+def _system_config_env() -> dict:
+    """Read the system-wide config file, if present.
+
+    The system config file (/etc/vnc-remote-secure/config.env on
+    Linux, %ProgramData%\\VncRemoteSecure\\config.env on Windows) is
+    what the packaged installer writes. systemd injects it for the
+    service via EnvironmentFile=, but manual CLI invocations must
+    read it explicitly or they would silently run with defaults.
+    """
+    for candidate in (
+        "/etc/vnc-remote-secure/config.env",
+        os.path.join(
+            os.environ.get("ProgramData", r"C:\ProgramData"), "VncRemoteSecure", "config.env"
+        ),
+    ):
+        if os.path.isfile(candidate):
+            return dict(_parse_env_file(candidate))
+    return {}
+
+
 def generate_random_password(length=16):
     """Generate a strong random password.
 
     Guarantees at least one uppercase, one lowercase, one digit, and
     one special character so the result always passes ``validate_password``.
     """
-    specials = '!@#$%^&*'
+    specials = "!@#$%^&*"
     # Guarantee one of each required class, then fill the rest randomly.
     required = [
         secrets.choice(string.ascii_uppercase),
@@ -400,7 +412,7 @@ def generate_random_password(length=16):
     remaining = [secrets.choice(alphabet) for _ in range(length - len(required))]
     pool = required + remaining
     secrets.SystemRandom().shuffle(pool)
-    return ''.join(pool)
+    return "".join(pool)
 
 
 def _load_generated_credential(name):
@@ -413,14 +425,15 @@ def _load_generated_credential(name):
     """
     try:
         from vnc_remote_secure.core.paths import get_run_dir
-        cred_file = os.path.join(get_run_dir(), 'generated_credentials.env')
+
+        cred_file = os.path.join(get_run_dir(), "generated_credentials.env")
         if os.path.isfile(cred_file):
             for key, val in _parse_env_file(cred_file):
                 if key == name:
                     return val
     except OSError:
         pass
-    return ''
+    return ""
 
 
 def _persist_generated_credential(name, value):
@@ -436,7 +449,8 @@ def _persist_generated_credential(name, value):
     """
     try:
         from vnc_remote_secure.core.paths import get_run_dir
-        cred_file = os.path.join(get_run_dir(), 'generated_credentials.env')
+
+        cred_file = os.path.join(get_run_dir(), "generated_credentials.env")
         # The run dir is normally created by ensure_dirs() during
         # startup(), but get_config() can run before it (bare CLI
         # invocations) — mkstemp would fail and the credential would
@@ -452,12 +466,12 @@ def _persist_generated_credential(name, value):
         # what this file exists to prevent). Same tmp+os.replace
         # treatment as set_env_persistent().
         import tempfile
-        fd, tmp = tempfile.mkstemp(
-            dir=os.path.dirname(cred_file) or '.', suffix='.tmp')
+
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(cred_file) or ".", suffix=".tmp")
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 for k, v in lines.items():
-                    f.write(f'{k}={v}\n')
+                    f.write(f"{k}={v}\n")
             os.chmod(tmp, 0o600)
             os.replace(tmp, cred_file)
         except BaseException:
@@ -470,11 +484,16 @@ def _persist_generated_credential(name, value):
         logger.warning(
             "%s not set; generated a random password — stored in %s "
             "(owner-only). Set it explicitly in .env to control it.",
-            name, cred_file)
+            name,
+            cred_file,
+        )
     except Exception as exc:  # noqa: BLE001 - persistence is best-effort
         logger.warning(
             "%s not set; generated a random password (not shown for "
-            "security; persistence failed: %s)", name, exc)
+            "security; persistence failed: %s)",
+            name,
+            exc,
+        )
 
 
 def _remove_generated_credential(name):
@@ -487,7 +506,8 @@ def _remove_generated_credential(name):
     """
     try:
         from vnc_remote_secure.core.paths import get_run_dir
-        cred_file = os.path.join(get_run_dir(), 'generated_credentials.env')
+
+        cred_file = os.path.join(get_run_dir(), "generated_credentials.env")
         if not os.path.isfile(cred_file):
             return
         lines = dict(_parse_env_file(cred_file))
@@ -495,12 +515,12 @@ def _remove_generated_credential(name):
             return
         del lines[name]
         import tempfile
-        fd, tmp = tempfile.mkstemp(
-            dir=os.path.dirname(cred_file) or '.', suffix='.tmp')
+
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(cred_file) or ".", suffix=".tmp")
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 for k, v in lines.items():
-                    f.write(f'{k}={v}\n')
+                    f.write(f"{k}={v}\n")
             os.chmod(tmp, 0o600)
             os.replace(tmp, cred_file)
         except BaseException:
@@ -519,21 +539,21 @@ def _get_vnc_password():
     to ``<run_dir>/generated_credentials.env`` (0600) so the operator
     can retrieve it locally — it is never printed to logs.
     """
-    was_user_set = bool(os.environ.get('VNC_PASSWORD', ''))
-    vnc_password = os.environ.get('VNC_PASSWORD', '')
+    was_user_set = bool(os.environ.get("VNC_PASSWORD", ""))
+    vnc_password = os.environ.get("VNC_PASSWORD", "")
     if not vnc_password:
         # Reuse the previously persisted generated credential so the
         # password stays stable across restarts.
-        vnc_password = _load_generated_credential('VNC_PASSWORD')
+        vnc_password = _load_generated_credential("VNC_PASSWORD")
         if vnc_password:
-            os.environ['VNC_PASSWORD'] = vnc_password
+            os.environ["VNC_PASSWORD"] = vnc_password
         else:
             # VNC legacy DES auth truncates to 8 bytes — generating 12
             # would make the last 4 dead entropy and trigger the
             # "only first 8 used" warning on every start.
             vnc_password = generate_random_password(8)
-            os.environ['VNC_PASSWORD'] = vnc_password
-            _persist_generated_credential('VNC_PASSWORD', vnc_password)
+            os.environ["VNC_PASSWORD"] = vnc_password
+            _persist_generated_credential("VNC_PASSWORD", vnc_password)
     return vnc_password, was_user_set
 
 
@@ -545,17 +565,17 @@ def _get_ttyd_credentials():
     to ``<run_dir>/generated_credentials.env`` (0600) so the operator
     can retrieve it locally — it is never printed to logs.
     """
-    ttyd_username = os.environ.get('TTYD_USERNAME', DEFAULT_TTYD_USERNAME)
-    was_user_set = bool(os.environ.get('TTYD_PASSWD', ''))
-    ttyd_password = os.environ.get('TTYD_PASSWD', '')
+    ttyd_username = os.environ.get("TTYD_USERNAME", DEFAULT_TTYD_USERNAME)
+    was_user_set = bool(os.environ.get("TTYD_PASSWD", ""))
+    ttyd_password = os.environ.get("TTYD_PASSWD", "")
     if not ttyd_password:
-        ttyd_password = _load_generated_credential('TTYD_PASSWD')
+        ttyd_password = _load_generated_credential("TTYD_PASSWD")
         if ttyd_password:
-            os.environ['TTYD_PASSWD'] = ttyd_password
+            os.environ["TTYD_PASSWD"] = ttyd_password
         else:
             ttyd_password = generate_random_password(16)
-            os.environ['TTYD_PASSWD'] = ttyd_password
-            _persist_generated_credential('TTYD_PASSWD', ttyd_password)
+            os.environ["TTYD_PASSWD"] = ttyd_password
+            _persist_generated_credential("TTYD_PASSWD", ttyd_password)
     return ttyd_username, ttyd_password, was_user_set
 
 
@@ -569,22 +589,28 @@ def _get_landing_password():
     are always strong (``was_user_set=False`` skips weak-password
     validation).
     """
-    was_user_set = bool(os.environ.get('LANDING_PASSWORD', ''))
-    landing_password = os.environ.get('LANDING_PASSWORD', '')
+    was_user_set = bool(os.environ.get("LANDING_PASSWORD", ""))
+    landing_password = os.environ.get("LANDING_PASSWORD", "")
     if not landing_password:
-        landing_password = _load_generated_credential('LANDING_PASSWORD')
+        landing_password = _load_generated_credential("LANDING_PASSWORD")
         if landing_password:
-            os.environ['LANDING_PASSWORD'] = landing_password
+            os.environ["LANDING_PASSWORD"] = landing_password
         else:
             landing_password = generate_random_password(16)
-            os.environ['LANDING_PASSWORD'] = landing_password
-            _persist_generated_credential('LANDING_PASSWORD', landing_password)
+            os.environ["LANDING_PASSWORD"] = landing_password
+            _persist_generated_credential("LANDING_PASSWORD", landing_password)
     return landing_password, was_user_set
 
 
-def _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_user_set,
-                             user_ui_password, landing_password,
-                             landing_user_set=False):
+def _validate_user_passwords(
+    vnc_password,
+    vnc_user_set,
+    ttyd_password,
+    ttyd_user_set,
+    user_ui_password,
+    landing_password,
+    landing_user_set=False,
+):
     """Validate user-provided passwords (generated ones are always strong).
 
     Validates VNC_PASSWORD, TTYD_PASSWD, USER_UI_PASSWORD, and
@@ -595,18 +621,20 @@ def _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_use
     crash get_config() on an unlucky roll.
     """
     from vnc_remote_secure.core.validation import validate_password
+
     if vnc_user_set:
-        validate_password(vnc_password, 'VNC_PASSWORD')
+        validate_password(vnc_password, "VNC_PASSWORD")
     if ttyd_user_set:
-        validate_password(ttyd_password, 'TTYD_PASSWD')
+        validate_password(ttyd_password, "TTYD_PASSWD")
     if user_ui_password:
-        validate_password(user_ui_password, 'USER_UI_PASSWORD')
+        validate_password(user_ui_password, "USER_UI_PASSWORD")
     if landing_password and landing_user_set:
-        validate_password(landing_password, 'LANDING_PASSWORD')
+        validate_password(landing_password, "LANDING_PASSWORD")
 
 
-def _safe_int(env_name: str, default: int, minimum: 'int | None' = None,
-              maximum: 'int | None' = None) -> int:
+def _safe_int(
+    env_name: str, default: int, minimum: "int | None" = None, maximum: "int | None" = None
+) -> int:
     """Parse an integer env var with a fallback and optional range check.
 
     Returns ``default`` when the env var is unset or not a valid integer.
@@ -615,7 +643,7 @@ def _safe_int(env_name: str, default: int, minimum: 'int | None' = None,
     crashes ``get_config()``.
     """
     raw = os.environ.get(env_name)
-    if raw is None or raw == '':
+    if raw is None or raw == "":
         return default
     try:
         value = int(raw)
@@ -623,10 +651,14 @@ def _safe_int(env_name: str, default: int, minimum: 'int | None' = None,
         logger.warning("Invalid integer for %s=%r; using default %d", env_name, raw, default)
         return default
     if minimum is not None and value < minimum:
-        logger.warning("%s=%d below minimum %d; using default %d", env_name, value, minimum, default)
+        logger.warning(
+            "%s=%d below minimum %d; using default %d", env_name, value, minimum, default
+        )
         return default
     if maximum is not None and value > maximum:
-        logger.warning("%s=%d above maximum %d; using default %d", env_name, value, maximum, default)
+        logger.warning(
+            "%s=%d above maximum %d; using default %d", env_name, value, maximum, default
+        )
         return default
     return value
 
@@ -641,7 +673,7 @@ def _env_host(*names, default=DEFAULT_BIND_HOST):
     the backend bind switch).
     """
     for name in names:
-        val = os.environ.get(name, '').strip()
+        val = os.environ.get(name, "").strip()
         if val:
             return val
     return default
@@ -649,7 +681,7 @@ def _env_host(*names, default=DEFAULT_BIND_HOST):
 
 def _get_ports_config():
     """Return the ports configuration dict (platform-aware defaults)."""
-    vnc_port = _safe_int('VNC_PORT', DEFAULT_VNC_PORT, 1, 65535)
+    vnc_port = _safe_int("VNC_PORT", DEFAULT_VNC_PORT, 1, 65535)
     # On Linux the RFB port is display-derived (TigerVNC binds 5900+N
     # for display :N). When the configured VNC_PORT still equals the
     # platform default but the configured display would bind elsewhere,
@@ -658,27 +690,28 @@ def _get_ports_config():
     # alone leaves consumers probing a stale default. An explicit
     # non-default VNC_PORT is honoured as documented (operator intent).
     from vnc_remote_secure.platform.detection import is_windows
+
     if not is_windows() and vnc_port == DEFAULT_VNC_PORT:
         try:
-            display = os.environ.get('VNC_DISPLAY', DEFAULT_VNC_DISPLAY)
-            display_port = TIGERVNC_BASE_PORT + int(str(display).lstrip(':'))
+            display = os.environ.get("VNC_DISPLAY", DEFAULT_VNC_DISPLAY)
+            display_port = TIGERVNC_BASE_PORT + int(str(display).lstrip(":"))
             if display_port != DEFAULT_VNC_PORT:
                 vnc_port = display_port
         except ValueError:
             pass
     return {
-        'vnc_port': vnc_port,
-        'vnc_http_port': _safe_int('VNC_HTTP_PORT', DEFAULT_VNC_HTTP_PORT, 1, 65535),
-        'novnc_port': _safe_int('NOVNC_PORT', DEFAULT_NOVNC_PORT, 1, 65535),
-        'ttyd_port': _safe_int('TTYD_PORT', DEFAULT_TTYD_PORT, 1, 65535),
-        'health_port': _safe_int('HEALTH_WEB_PORT', DEFAULT_HEALTH_PORT, 1, 65535),
-        'landing_port': _safe_int('LANDING_PORT', DEFAULT_LANDING_PORT, 1, 65535),
-        'user_ui_port': _safe_int('USER_UI_PORT', DEFAULT_USER_UI_PORT, 1, 65535),
-        'novnc_ws_port': _safe_int('NOVNC_WS_PORT', DEFAULT_NOVNC_WS_PORT, 1, 65535),
-        'audio_stream_port': _safe_int('AUDIO_STREAM_PORT', DEFAULT_AUDIO_STREAM_PORT, 1, 65535),
-        'audio_stream_host': _env_host('AUDIO_STREAM_HOST', 'BIND_HOST'),
-        'gamepad_port': _safe_int('GAMEPAD_PORT', DEFAULT_GAMEPAD_PORT, 1, 65535),
-        'gamepad_host': _env_host('GAMEPAD_HOST', 'BIND_HOST'),
+        "vnc_port": vnc_port,
+        "vnc_http_port": _safe_int("VNC_HTTP_PORT", DEFAULT_VNC_HTTP_PORT, 1, 65535),
+        "novnc_port": _safe_int("NOVNC_PORT", DEFAULT_NOVNC_PORT, 1, 65535),
+        "ttyd_port": _safe_int("TTYD_PORT", DEFAULT_TTYD_PORT, 1, 65535),
+        "health_port": _safe_int("HEALTH_WEB_PORT", DEFAULT_HEALTH_PORT, 1, 65535),
+        "landing_port": _safe_int("LANDING_PORT", DEFAULT_LANDING_PORT, 1, 65535),
+        "user_ui_port": _safe_int("USER_UI_PORT", DEFAULT_USER_UI_PORT, 1, 65535),
+        "novnc_ws_port": _safe_int("NOVNC_WS_PORT", DEFAULT_NOVNC_WS_PORT, 1, 65535),
+        "audio_stream_port": _safe_int("AUDIO_STREAM_PORT", DEFAULT_AUDIO_STREAM_PORT, 1, 65535),
+        "audio_stream_host": _env_host("AUDIO_STREAM_HOST", "BIND_HOST"),
+        "gamepad_port": _safe_int("GAMEPAD_PORT", DEFAULT_GAMEPAD_PORT, 1, 65535),
+        "gamepad_host": _env_host("GAMEPAD_HOST", "BIND_HOST"),
     }
 
 
@@ -693,39 +726,38 @@ def _get_credentials_config(vnc_password, ttyd_username, ttyd_password, user_ui_
     """
     return {
         # Credentials (from .env, never hardcoded)
-        'vnc_password': vnc_password,
-        'ttyd_username': ttyd_username,
-        'ttyd_password': ttyd_password,
-        'user_ui_password': user_ui_password,
-
+        "vnc_password": vnc_password,
+        "ttyd_username": ttyd_username,
+        "ttyd_password": ttyd_password,
+        "user_ui_password": user_ui_password,
         # Secrets
-        'flask_secret_key': os.environ.get('FLASK_SECRET_KEY', ''),
-        'auth_secret': os.environ.get('AUTH_SECRET', ''),
+        "flask_secret_key": os.environ.get("FLASK_SECRET_KEY", ""),
+        "auth_secret": os.environ.get("AUTH_SECRET", ""),
     }
 
 
 def _get_ssl_config():
     """Return the SSL configuration dict, filling default paths if needed."""
-    ssl_cert = os.environ.get('SSL_CERT', '')
-    ssl_key = os.environ.get('SSL_KEY', '')
+    ssl_cert = os.environ.get("SSL_CERT", "")
+    ssl_key = os.environ.get("SSL_KEY", "")
     # Fill SSL paths if not set but cert files exist in the canonical
     # platform SSL dir (ProgramData on Windows, XDG/FHS on Linux), or in
     # the legacy <project>/data/ssl location used by older checkouts.
     if not ssl_cert or not ssl_key:
         from vnc_remote_secure.core.paths import get_ssl_dir
+
         project_root = _find_project_root()
-        for cert_dir in (get_ssl_dir(),
-                         os.path.join(project_root, 'data', 'ssl')):
-            default_cert = os.path.join(cert_dir, 'fullchain.pem')
-            default_key = os.path.join(cert_dir, 'privkey.pem')
+        for cert_dir in (get_ssl_dir(), os.path.join(project_root, "data", "ssl")):
+            default_cert = os.path.join(cert_dir, "fullchain.pem")
+            default_key = os.path.join(cert_dir, "privkey.pem")
             if os.path.exists(default_cert) and os.path.exists(default_key):
                 ssl_cert = default_cert
                 ssl_key = default_key
                 break
     return {
         # SSL
-        'ssl_cert': ssl_cert,
-        'ssl_key': ssl_key,
+        "ssl_cert": ssl_cert,
+        "ssl_key": ssl_key,
     }
 
 
@@ -737,34 +769,36 @@ def _get_hosts_config():
     fallback there. On Linux the portal stays loopback behind nginx.
     """
     from vnc_remote_secure.platform.detection import is_windows
-    landing_fallback = 'PUBLIC_BIND_HOST' if is_windows() else 'BIND_HOST'
+
+    landing_fallback = "PUBLIC_BIND_HOST" if is_windows() else "BIND_HOST"
     return {
-        'health_host': _env_host('HEALTH_WEB_HOST', 'BIND_HOST'),
-        'landing_host': _env_host('LANDING_HOST', landing_fallback),
-        'novnc_host': _env_host('SERVE_NOVNC_HOST', 'NOVNC_HOST', 'BIND_HOST'),
-        'ttyd_host': _env_host('TTYD_HOST', 'BIND_HOST'),
+        "health_host": _env_host("HEALTH_WEB_HOST", "BIND_HOST"),
+        "landing_host": _env_host("LANDING_HOST", landing_fallback),
+        "novnc_host": _env_host("SERVE_NOVNC_HOST", "NOVNC_HOST", "BIND_HOST"),
+        "ttyd_host": _env_host("TTYD_HOST", "BIND_HOST"),
     }
 
 
 def _get_feature_toggles():
     """Return the feature toggles dict (mirrors .env.example; defaults are conservative)."""
     return {
-        'nginx_enabled': env_flag('NGINX_ENABLED', 'false'),
-        'fail2ban_enabled': env_flag('FAIL2BAN_ENABLED', 'false'),
-        'healthcheck_enabled': env_flag('HEALTHCHECK_ENABLED', 'true'),
-        'health_web_enabled': env_flag('HEALTH_WEB_ENABLED', 'true'),
-        'user_ui_enabled': env_flag('USER_UI_ENABLED', 'false'),
-        'alerts_enabled': env_flag('ALERTS_ENABLED', 'false'),
-        'audio_stream_enabled': env_flag('AUDIO_STREAM_ENABLED', 'false'),
-        'gamepad_enabled': env_flag('GAMEPAD_ENABLED', 'false'),
-        'tls_enabled': _is_tls_enabled_env(),
-        'keep_temp_user': env_flag('KEEP_TEMP_USER', 'false'),
+        "nginx_enabled": env_flag("NGINX_ENABLED", "false"),
+        "fail2ban_enabled": env_flag("FAIL2BAN_ENABLED", "false"),
+        "healthcheck_enabled": env_flag("HEALTHCHECK_ENABLED", "true"),
+        "health_web_enabled": env_flag("HEALTH_WEB_ENABLED", "true"),
+        "user_ui_enabled": env_flag("USER_UI_ENABLED", "false"),
+        "alerts_enabled": env_flag("ALERTS_ENABLED", "false"),
+        "audio_stream_enabled": env_flag("AUDIO_STREAM_ENABLED", "false"),
+        "gamepad_enabled": env_flag("GAMEPAD_ENABLED", "false"),
+        "tls_enabled": _is_tls_enabled_env(),
+        "keep_temp_user": env_flag("KEEP_TEMP_USER", "false"),
     }
 
 
 def _profile_name() -> str:
     """Active profile honouring the VNC_REMOTE_PROFILE fallback."""
     from vnc_remote_secure.security.profiles import get_profile
+
     return get_profile()
 
 
@@ -773,36 +807,30 @@ def _get_security_config():
     return {
         # Security profile and binding (consumed by profiles, auth, nginx).
         # get_profile() honours the VNC_REMOTE_PROFILE fallback.
-        'security_profile': _profile_name(),
-        'bind_host': os.environ.get('BIND_HOST', '127.0.0.1'),
-        'backend_bind_host': os.environ.get('BACKEND_BIND_HOST', '127.0.0.1'),
-        'allowed_origins': os.environ.get('ALLOWED_ORIGINS', ''),
-
+        "security_profile": _profile_name(),
+        "bind_host": os.environ.get("BIND_HOST", "127.0.0.1"),
+        "backend_bind_host": os.environ.get("BACKEND_BIND_HOST", "127.0.0.1"),
+        "allowed_origins": os.environ.get("ALLOWED_ORIGINS", ""),
         # Temp user management
-        'temp_user': os.environ.get('TEMP_USER', 'remote'),
-        'temp_user_pass': os.environ.get('TEMP_USER_PASS', ''),
-
+        "temp_user": os.environ.get("TEMP_USER", "remote"),
+        "temp_user_pass": os.environ.get("TEMP_USER_PASS", ""),
         # Landing page auth
-        'landing_password': os.environ.get('LANDING_PASSWORD', ''),
-
+        "landing_password": os.environ.get("LANDING_PASSWORD", ""),
         # Health auth token (optional Bearer token for /health)
-        'health_auth_token': os.environ.get('HEALTH_AUTH_TOKEN', ''),
-
+        "health_auth_token": os.environ.get("HEALTH_AUTH_TOKEN", ""),
         # Auth rate limiting
-        'auth_max_attempts': _safe_int('AUTH_MAX_ATTEMPTS', 5, 1),
-        'auth_lockout_seconds': _safe_int('AUTH_LOCKOUT_SECONDS', 900, 1),
-        'auth_window_seconds': _safe_int('AUTH_WINDOW_SECONDS', 600, 1),
-
+        "auth_max_attempts": _safe_int("AUTH_MAX_ATTEMPTS", 5, 1),
+        "auth_lockout_seconds": _safe_int("AUTH_LOCKOUT_SECONDS", 900, 1),
+        "auth_window_seconds": _safe_int("AUTH_WINDOW_SECONDS", 600, 1),
         # Security hardening
-        'csp_policy': os.environ.get('CSP_POLICY', ''),
-        'ssl_ciphers': os.environ.get('SSL_CIPHERS', ''),
-        'audit_log_file': os.environ.get('AUDIT_LOG_FILE', ''),
-        'allowed_lan_ips': os.environ.get('ALLOWED_LAN_IPS', ''),
-        'trusted_proxy': os.environ.get('TRUSTED_PROXY', ''),
-
+        "csp_policy": os.environ.get("CSP_POLICY", ""),
+        "ssl_ciphers": os.environ.get("SSL_CIPHERS", ""),
+        "audit_log_file": os.environ.get("AUDIT_LOG_FILE", ""),
+        "allowed_lan_ips": os.environ.get("ALLOWED_LAN_IPS", ""),
+        "trusted_proxy": os.environ.get("TRUSTED_PROXY", ""),
         # MFA secrets (optional, set by user)
-        'totp_secret': os.environ.get('TOTP_SECRET', ''),
-        'recovery_codes_hashes': os.environ.get('RECOVERY_CODES_HASHES', ''),
+        "totp_secret": os.environ.get("TOTP_SECRET", ""),
+        "recovery_codes_hashes": os.environ.get("RECOVERY_CODES_HASHES", ""),
     }
 
 
@@ -810,16 +838,13 @@ def _get_session_config():
     """Return the session security dict (timeouts, cookie settings)."""
     return {
         # Session security
-        'session_idle_timeout': _safe_int(
-            'SESSION_IDLE_TIMEOUT', DEFAULT_SESSION_IDLE_TIMEOUT, 1),
-        'session_max_lifetime': _safe_int(
-            'SESSION_MAX_LIFETIME', DEFAULT_SESSION_MAX_LIFETIME, 1),
-        'session_cookie_secure': env_flag('SESSION_COOKIE_SECURE', 'true'),
+        "session_idle_timeout": _safe_int("SESSION_IDLE_TIMEOUT", DEFAULT_SESSION_IDLE_TIMEOUT, 1),
+        "session_max_lifetime": _safe_int("SESSION_MAX_LIFETIME", DEFAULT_SESSION_MAX_LIFETIME, 1),
+        "session_cookie_secure": env_flag("SESSION_COOKIE_SECURE", "true"),
         # Flask's own session cookie — 'vnc_session' is reserved for the
         # raw HMAC session token the non-Flask services verify.
-        'session_cookie_name': os.environ.get(
-            'SESSION_COOKIE_NAME', 'vnc_flask_session'),
-        'session_samesite': resolve_samesite(),
+        "session_cookie_name": os.environ.get("SESSION_COOKIE_NAME", "vnc_flask_session"),
+        "session_samesite": resolve_samesite(),
     }
 
 
@@ -832,90 +857,73 @@ def resolve_samesite() -> str:
     default. Single source for the whitelist shared by Flask sessions,
     the stdlib landing server and profile checks.
     """
-    v = os.environ.get('SESSION_SAMESITE', DEFAULT_SESSION_SAMESITE)
-    return v if v in ('Lax', 'Strict', 'None') else DEFAULT_SESSION_SAMESITE
+    v = os.environ.get("SESSION_SAMESITE", DEFAULT_SESSION_SAMESITE)
+    return v if v in ("Lax", "Strict", "None") else DEFAULT_SESSION_SAMESITE
 
 
 def _get_optional_features_config():
     """Return the optional-features dict (audio, gamepad, MFA, DuckDNS, alerts, etc.)."""
     return {
         # Shell for web terminal
-        'webterm_shell': os.environ.get('WEBTERM_SHELL', DEFAULT_WEBTERM_SHELL),
-
+        "webterm_shell": os.environ.get("WEBTERM_SHELL", DEFAULT_WEBTERM_SHELL),
         # VNC display settings
-        'vnc_geometry': os.environ.get('VNC_GEOMETRY', DEFAULT_VNC_GEOMETRY),
+        "vnc_geometry": os.environ.get("VNC_GEOMETRY", DEFAULT_VNC_GEOMETRY),
         # Schema restricts VNC_DEPTH to {8,16,24,32} — the runtime must
         # agree or `config validate` would reject values it accepts.
-        'vnc_depth': (lambda v: v if v in (8, 16, 24, 32)
-                      else DEFAULT_VNC_DEPTH)(
-                          _safe_int('VNC_DEPTH', DEFAULT_VNC_DEPTH, 8, 32)),
-        'vnc_display': os.environ.get('VNC_DISPLAY', DEFAULT_VNC_DISPLAY),
-
+        "vnc_depth": (lambda v: v if v in (8, 16, 24, 32) else DEFAULT_VNC_DEPTH)(
+            _safe_int("VNC_DEPTH", DEFAULT_VNC_DEPTH, 8, 32)
+        ),
+        "vnc_display": os.environ.get("VNC_DISPLAY", DEFAULT_VNC_DISPLAY),
         # nginx ports (for reverse proxy configuration)
-        'nginx_http_port': _safe_int('NGINX_HTTP_PORT', DEFAULT_NGINX_HTTP_PORT, 1, 65535),
-        'nginx_https_port': _safe_int('NGINX_HTTPS_PORT', DEFAULT_NGINX_HTTPS_PORT, 1, 65535),
-
+        "nginx_http_port": _safe_int("NGINX_HTTP_PORT", DEFAULT_NGINX_HTTP_PORT, 1, 65535),
+        "nginx_https_port": _safe_int("NGINX_HTTPS_PORT", DEFAULT_NGINX_HTTPS_PORT, 1, 65535),
         # Audio settings
-        'audio_device': os.environ.get('AUDIO_DEVICE', ''),
-        'audio_bitrate': _safe_int('AUDIO_BITRATE', 128, 1),
-
+        "audio_device": os.environ.get("AUDIO_DEVICE", ""),
+        "audio_bitrate": _safe_int("AUDIO_BITRATE", 128, 1),
         # MFA
-        'mfa_required': env_flag('MFA_REQUIRED', 'false'),
-
+        "mfa_required": env_flag("MFA_REQUIRED", "false"),
         # DuckDNS (optional dynamic DNS)
-        'duck_domain': os.environ.get('DUCK_DOMAIN', ''),
-        'duckdns_token': os.environ.get('DUCKDNS_TOKEN', ''),
-
+        "duck_domain": os.environ.get("DUCK_DOMAIN", ""),
+        "duckdns_token": os.environ.get("DUCKDNS_TOKEN", ""),
         # Logging
-        'log_dir': os.environ.get('LOG_DIR', ''),
-        'log_level': os.environ.get('LOG_LEVEL', 'INFO'),
-
+        "log_dir": os.environ.get("LOG_DIR", ""),
+        "log_level": os.environ.get("LOG_LEVEL", "INFO"),
         # UltraVNC path (Windows)
-        'ultravnc_path': os.environ.get('ULTRAVNC_PATH', ''),
-        'ultravnc_url': os.environ.get('ULTRAVNC_URL', ''),
-
+        "ultravnc_path": os.environ.get("ULTRAVNC_PATH", ""),
+        "ultravnc_url": os.environ.get("ULTRAVNC_URL", ""),
         # Shared state backend (multi-worker deployments). Default is
         # 'sqlite' — same as shared_state.get_backend() and the schema
         # default; 'memory' is for single-process test/dev only.
-        'shared_state_backend': os.environ.get('SHARED_STATE_BACKEND', 'sqlite'),
-        'shared_state_db_path': os.environ.get('SHARED_STATE_DB_PATH', ''),
-
+        "shared_state_backend": os.environ.get("SHARED_STATE_BACKEND", "sqlite"),
+        "shared_state_db_path": os.environ.get("SHARED_STATE_DB_PATH", ""),
         # Alerts (optional)
-        'alert_webhook_url': os.environ.get('ALERT_WEBHOOK_URL', ''),
-
+        "alert_webhook_url": os.environ.get("ALERT_WEBHOOK_URL", ""),
         # Fail2ban tuning (read by installer)
-        'fail2ban_max_retry': os.environ.get('FAIL2BAN_MAX_RETRY', '5'),
-        'fail2ban_findtime': os.environ.get('FAIL2BAN_FINDTIME', '600'),
-        'fail2ban_bantime': os.environ.get('FAIL2BAN_BANTIME', '3600'),
-
+        "fail2ban_max_retry": os.environ.get("FAIL2BAN_MAX_RETRY", "5"),
+        "fail2ban_findtime": os.environ.get("FAIL2BAN_FINDTIME", "600"),
+        "fail2ban_bantime": os.environ.get("FAIL2BAN_BANTIME", "3600"),
         # Email contact (optional, for Let's Encrypt and alerts)
-        'email': os.environ.get('EMAIL', ''),
-
+        "email": os.environ.get("EMAIL", ""),
         # DuckDNS update interval (seconds). .env.example documents this in
         # minutes for readability; we multiply by 60 to honour that contract.
-        'duckdns_update_interval': _safe_int('DUCKDNS_UPDATE_INTERVAL', 5, 1) * 60,
-
+        "duckdns_update_interval": _safe_int("DUCKDNS_UPDATE_INTERVAL", 5, 1) * 60,
         # Discord notifications (optional)
-        'discord_enabled': env_flag('DISCORD_ENABLED', 'false'),
-        'discord_webhook_url': os.environ.get('DISCORD_WEBHOOK_URL', ''),
-
+        "discord_enabled": env_flag("DISCORD_ENABLED", "false"),
+        "discord_webhook_url": os.environ.get("DISCORD_WEBHOOK_URL", ""),
         # Healthcheck / auto-restart (systemd)
-        'healthcheck_interval': _safe_int('HEALTHCHECK_INTERVAL', 30, 1),
-        'auto_restart': env_flag('AUTO_RESTART', 'false'),
-
+        "healthcheck_interval": _safe_int("HEALTHCHECK_INTERVAL", 30, 1),
+        "auto_restart": env_flag("AUTO_RESTART", "false"),
         # User UI host
-        'user_ui_host': _env_host('USER_UI_HOST', 'BIND_HOST'),
-
+        "user_ui_host": _env_host("USER_UI_HOST", "BIND_HOST"),
         # Email alerts (optional)
-        'alert_email_to': os.environ.get('ALERT_EMAIL_TO', ''),
-        'alert_email_from': os.environ.get('ALERT_EMAIL_FROM', ''),
-        'alert_smtp_server': os.environ.get('ALERT_SMTP_SERVER', ''),
-        'alert_smtp_user': os.environ.get('ALERT_SMTP_USER', ''),
-        'alert_smtp_pass': os.environ.get('ALERT_SMTP_PASS', ''),
-
+        "alert_email_to": os.environ.get("ALERT_EMAIL_TO", ""),
+        "alert_email_from": os.environ.get("ALERT_EMAIL_FROM", ""),
+        "alert_smtp_server": os.environ.get("ALERT_SMTP_SERVER", ""),
+        "alert_smtp_user": os.environ.get("ALERT_SMTP_USER", ""),
+        "alert_smtp_pass": os.environ.get("ALERT_SMTP_PASS", ""),
         # Reserved / informational
-        'vnc_remote_profile': os.environ.get('VNC_REMOTE_PROFILE', ''),
-        'verbose': env_flag('VERBOSE', 'false'),
+        "vnc_remote_profile": os.environ.get("VNC_REMOTE_PROFILE", ""),
+        "verbose": env_flag("VERBOSE", "false"),
     }
 
 
@@ -934,31 +942,40 @@ def get_config():
     # Terminal credentials
     ttyd_username, ttyd_password, ttyd_user_set = _get_ttyd_credentials()
     # User UI password (optional, only validated if set)
-    user_ui_password = os.environ.get('USER_UI_PASSWORD', '')
+    user_ui_password = os.environ.get("USER_UI_PASSWORD", "")
     # Landing page password — auto-generated when unset (fail-closed
     # portal + startup blocker make an empty value unusable).
     landing_password, _landing_user_set = _get_landing_password()
 
     # Validate passwords when they are user-provided (not generated).
-    _validate_user_passwords(vnc_password, vnc_user_set, ttyd_password, ttyd_user_set,
-                             user_ui_password, landing_password,
-                             landing_user_set=_landing_user_set)
+    _validate_user_passwords(
+        vnc_password,
+        vnc_user_set,
+        ttyd_password,
+        ttyd_user_set,
+        user_ui_password,
+        landing_password,
+        landing_user_set=_landing_user_set,
+    )
 
     # A user-set credential makes the persisted generated copy stale:
     # leaving it means deleting the env var later silently resurrects
     # the OLD generated password. ``secrets rotate`` removes the entry
     # too, but a plain .env edit hits the same trap — purge here.
     for _cred_name, _cred_user_set in (
-            ('VNC_PASSWORD', vnc_user_set),
-            ('TTYD_PASSWD', ttyd_user_set),
-            ('LANDING_PASSWORD', _landing_user_set)):
+        ("VNC_PASSWORD", vnc_user_set),
+        ("TTYD_PASSWD", ttyd_user_set),
+        ("LANDING_PASSWORD", _landing_user_set),
+    ):
         if _cred_user_set:
             _remove_generated_credential(_cred_name)
 
     # Merge all configuration sections into a single dict.
     config = {}
     config.update(_get_ports_config())
-    config.update(_get_credentials_config(vnc_password, ttyd_username, ttyd_password, user_ui_password))
+    config.update(
+        _get_credentials_config(vnc_password, ttyd_username, ttyd_password, user_ui_password)
+    )
     config.update(_get_ssl_config())
     config.update(_get_hosts_config())
     config.update(_get_feature_toggles())

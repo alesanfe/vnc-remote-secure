@@ -23,19 +23,21 @@ On Windows the child gets ``CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS``;
 on POSIX ``start_new_session=True`` — either way it survives the
 parent's exit and stdio never holds the parent's console/sockets open.
 """
+
 import logging
 import os
 import subprocess
 import sys
 import time
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_ACTIONS = ('start', 'stop', 'restart')
+_ACTIONS = ("start", "stop", "restart")
 _DEFAULT_DELAY = 1.5
 # Mutex shared by every destructive op class — lifecycle, restore and
 # upgrade must never overlap.
-_OP_LOCK = 'destructive'
+_OP_LOCK = "destructive"
 
 
 def spawn_job_runner(jid: str, delay: float = _DEFAULT_DELAY) -> int:
@@ -45,26 +47,29 @@ def spawn_job_runner(jid: str, delay: float = _DEFAULT_DELAY) -> int:
     already be persisted — the child claims it by id.
     """
     from vnc_remote_secure.core.test_isolation import guard_spawn
-    guard_spawn('lifecycle runner')
-    cmd = [sys.executable, '-m',
-           'vnc_remote_secure.core.deferred_lifecycle',
-           'run', jid, f'{delay:.2f}']
-    devnull = open(os.devnull, 'rb')  # noqa: SIM115 - child's stdin lives past us
-    kwargs = {
-        'stdin': devnull,
-        'stdout': subprocess.DEVNULL,
-        'stderr': subprocess.DEVNULL,
-        'close_fds': True,
+
+    guard_spawn("lifecycle runner")
+    cmd = [
+        sys.executable,
+        "-m",
+        "vnc_remote_secure.core.deferred_lifecycle",
+        "run",
+        jid,
+        f"{delay:.2f}",
+    ]
+    devnull = open(os.devnull, "rb")  # noqa: SIM115 - child's stdin lives past us
+    kwargs: dict[str, Any] = {
+        "stdin": devnull,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
     }
-    if os.name == 'nt':
-        kwargs['creationflags'] = (
-            subprocess.CREATE_NEW_PROCESS_GROUP
-            | subprocess.DETACHED_PROCESS)
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
     else:
-        kwargs['start_new_session'] = True
+        kwargs["start_new_session"] = True
     proc = subprocess.Popen(cmd, **kwargs)  # noqa: S603
-    logger.info('Deferred job runner spawned (pid %s, job %s)',
-                proc.pid, jid)
+    logger.info("Deferred job runner spawned (pid %s, job %s)", proc.pid, jid)
     return proc.pid
 
 
@@ -72,82 +77,89 @@ def spawn_job_runner(jid: str, delay: float = _DEFAULT_DELAY) -> int:
 # Payload execution
 # ---------------------------------------------------------------------------
 
+
 def run_action(action: str) -> int:
     """Run the lifecycle action in THIS process (after the delay)."""
-    if action == 'stop':
+    if action == "stop":
         from vnc_remote_secure.core.service_manager import stop_all
+
         results = stop_all()
-        return 0 if 'error' not in results else 1
-    if action == 'restart':
+        return 0 if "error" not in results else 1
+    if action == "restart":
         from vnc_remote_secure.core.lifecycle import startup
         from vnc_remote_secure.core.service_manager import restart_all
         from vnc_remote_secure.security.profiles import get_blocking_findings
+
         startup()
         if get_blocking_findings():
-            logger.error('Deferred restart refused: blocking findings')
+            logger.error("Deferred restart refused: blocking findings")
             return 1
         results = restart_all()
         return 0 if all(results.values()) else 1
-    if action != 'start':
+    if action != "start":
         return 2
     # 'start' — idempotent; starts whatever is down.
     from vnc_remote_secure.core.lifecycle import startup
     from vnc_remote_secure.core.service_manager import start_all
     from vnc_remote_secure.security.profiles import get_blocking_findings
+
     startup()
     if get_blocking_findings():
-        logger.error('Deferred start refused: blocking findings')
+        logger.error("Deferred start refused: blocking findings")
         return 1
     results = start_all()
     return 0 if all(results.values()) else 1
 
 
 def _exec_lifecycle(payload: dict, progress) -> tuple[bool, str]:
-    action = str(payload.get('action', ''))
-    progress('service_manager', f'lifecycle {action}', pct=40)
+    action = str(payload.get("action", ""))
+    progress("service_manager", f"lifecycle {action}", pct=40)
     rc = run_action(action)
-    return rc == 0, f'lifecycle {action} rc={rc}'
+    return rc == 0, f"lifecycle {action} rc={rc}"
 
 
 def _exec_restore(payload: dict, progress) -> tuple[bool, str]:
-    path = str(payload.get('path', ''))
+    path = str(payload.get("path", ""))
     if not path:
-        return False, 'empty backup path'
-    progress('preflight', f'reading {os.path.basename(path)}',
-             pct=20)
+        return False, "empty backup path"
+    progress("preflight", f"reading {os.path.basename(path)}", pct=20)
     from vnc_remote_secure.core.backup import restore_backup
+
     ok = bool(restore_backup(path))
-    progress('restore', f'{os.path.basename(path)} restored={ok}',
-             pct=90)
-    return ok, f'restored={os.path.basename(path)}' if ok else \
-        'restore failed'
+    progress("restore", f"{os.path.basename(path)} restored={ok}", pct=90)
+    return ok, f"restored={os.path.basename(path)}" if ok else "restore failed"
 
 
 def _exec_upgrade(payload: dict, progress) -> tuple[bool, str]:
-    source = payload.get('source') or None
-    progress('preflight', 'backup + download', pct=15)
+    source = payload.get("source") or None
+    progress("preflight", "backup + download", pct=15)
     from vnc_remote_secure.core.upgrader import perform_upgrade
+
     result = perform_upgrade(source)
-    return bool(result.get('ok')), (
+    return bool(result.get("ok")), (
         f"{result.get('previous', '?')} → {result.get('version', '?')}"
-        if result.get('ok') else str(result.get('error', 'failed')))
+        if result.get("ok")
+        else str(result.get("error", "failed"))
+    )
 
 
 def _exec_rollback(payload: dict, progress) -> tuple[bool, str]:
-    progress('restore', 'rolling back pre-upgrade snapshot',
-             pct=30)
+    progress("restore", "rolling back pre-upgrade snapshot", pct=30)
     from vnc_remote_secure.core.upgrader import perform_rollback
+
     result = perform_rollback()
-    return bool(result.get('ok')), (
-        f"restored={result.get('restored')}" if result.get('ok')
-        else str(result.get('error', 'failed')))
+    return bool(result.get("ok")), (
+        f"restored={result.get('restored')}"
+        if result.get("ok")
+        else str(result.get("error", "failed"))
+    )
 
 
 _EXECUTORS = {
-    'lifecycle.action': _exec_lifecycle,
-    'backup.restore': _exec_restore,
-    'upgrade.run': _exec_upgrade,
-    'upgrade.rollback': _exec_rollback,
+    "lifecycle.action": _exec_lifecycle,
+    "backup.restore": _exec_restore,
+    "upgrade.run": _exec_upgrade,
+    "upgrade.rollback": _exec_rollback,
 }
 
 
@@ -155,38 +167,35 @@ def run_job(jid: str) -> int:
     """Claim and execute a persisted queued job in THIS process."""
     from vnc_remote_secure.security import audit as audit_mod
     from vnc_remote_secure.security import jobs
+
     job = jobs.job_get(jid)
     if job is None:
-        logger.error('job %s not found', jid)
+        logger.error("job %s not found", jid)
         # A phantom job (enqueue failed after the API answered) must
         # still release the op-class mutex the caller took.
         jobs.job_unlock(_OP_LOCK, jid)
         return 2
-    if not jobs.job_claim(jid, f'pid-{os.getpid()}'):
-        logger.warning('job %s already claimed — not re-running', jid)
+    if not jobs.job_claim(jid, f"pid-{os.getpid()}"):
+        logger.warning("job %s already claimed — not re-running", jid)
         jobs.job_unlock(_OP_LOCK, jid)
         return 2
-    payload = job.get('payload') or {}
-    op = str(payload.get('op', ''))
+    payload = job.get("payload") or {}
+    op = str(payload.get("op", ""))
     executor = _EXECUTORS.get(op)
     if executor is None:
-        jobs.job_fail(jid, f'unknown op {op!r}')
+        jobs.job_fail(jid, f"unknown op {op!r}")
         jobs.job_unlock(_OP_LOCK, jid)
         return 2
-    actor = job.get('actor', '?')
-    jobs.job_progress(jid, 'claim', percent=5,
-                      detail=f'pid={os.getpid()}')
+    actor = job.get("actor", "?")
+    jobs.job_progress(jid, "claim", percent=5, detail=f"pid={os.getpid()}")
     try:
         ok, detail = executor(
-            payload,
-            lambda phase, d='', pct=None: jobs.job_progress(
-                jid, phase, d, percent=pct))
+            payload, lambda phase, d="", pct=None: jobs.job_progress(jid, phase, d, percent=pct)
+        )
     except Exception as exc:  # noqa: BLE001 - record and release
         jobs.job_fail(jid, str(exc)[:256])
         jobs.job_unlock(_OP_LOCK, jid)
-        audit_mod.audit_event(
-            op, user=actor, result='failure',
-            detail=f'job {jid}: {exc}'[:256])
+        audit_mod.audit_event(op, user=actor, result="failure", detail=f"job {jid}: {exc}"[:256])
         return 1
     if ok:
         jobs.job_finish(jid, detail)
@@ -194,20 +203,25 @@ def run_job(jid: str) -> int:
         jobs.job_fail(jid, detail)
     jobs.job_unlock(_OP_LOCK, jid)
     audit_mod.audit_event(
-        op, user=actor, result='success' if ok else 'failure',
-        detail=f'job {jid}: {detail}'[:256])
+        op, user=actor, result="success" if ok else "failure", detail=f"job {jid}: {detail}"[:256]
+    )
     return 0 if ok else 1
 
 
 def main(argv=None) -> int:
     argv = argv or sys.argv[1:]
     if not argv:
-        print(f'Usage: python -m {__name__} '
-              f'run <job_id> [delay_s] | <{"|".join(_ACTIONS)}> [delay_s]')
+        print(
+            f"Usage: python -m {__name__} "
+            f'run <job_id> [delay_s] | <{"|".join(_ACTIONS)}> [delay_s]'
+        )
         return 2
     try:
-        delay = float(argv[2] if argv[0] == 'run' and len(argv) > 2
-                      else (argv[1] if len(argv) > 1 else _DEFAULT_DELAY))
+        delay = float(
+            argv[2]
+            if argv[0] == "run" and len(argv) > 2
+            else (argv[1] if len(argv) > 1 else _DEFAULT_DELAY)
+        )
     except ValueError:
         delay = _DEFAULT_DELAY
     # Bound the delay — a huge value would keep a hidden process
@@ -215,7 +229,7 @@ def main(argv=None) -> int:
     delay = max(0.0, min(delay, 60.0))
     logging.basicConfig(level=logging.INFO)
     time.sleep(delay)
-    if argv[0] == 'run':
+    if argv[0] == "run":
         if len(argv) < 2:
             return 2
         return run_job(argv[1])
@@ -225,16 +239,19 @@ def main(argv=None) -> int:
         # path always goes through `run <job_id>`; require an explicit
         # env opt-in so an interactive shell can't silently bypass the
         # audited path.
-        if os.environ.get('VRS_DEFERRED_LEGACY', '') != '1':
-            print('Direct lifecycle execution is disabled. Use '
-                  'vnc-remote start|stop|restart, or set '
-                  'VRS_DEFERRED_LEGACY=1 for a manual debug run.')
+        if os.environ.get("VRS_DEFERRED_LEGACY", "") != "1":
+            print(
+                "Direct lifecycle execution is disabled. Use "
+                "vnc-remote start|stop|restart, or set "
+                "VRS_DEFERRED_LEGACY=1 for a manual debug run."
+            )
             return 2
         return run_action(argv[0])
-    print(f'Usage: python -m {__name__} '
-          f'run <job_id> [delay_s] | <{"|".join(_ACTIONS)}> [delay_s]')
+    print(
+        f"Usage: python -m {__name__} " f'run <job_id> [delay_s] | <{"|".join(_ACTIONS)}> [delay_s]'
+    )
     return 2
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

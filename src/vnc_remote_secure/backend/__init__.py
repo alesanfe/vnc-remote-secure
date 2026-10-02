@@ -23,4 +23,5 @@ Boundary rules (enforced by tests/unit/architecture):
 * Handlers translate ``UseCaseError`` codes into HTTP status via the
   registry metadata; they do not re-implement domain rules.
 """
+
 from __future__ import annotations

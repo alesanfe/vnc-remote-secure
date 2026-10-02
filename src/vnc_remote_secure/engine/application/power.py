@@ -17,6 +17,7 @@ single-use step-up grant bound to the exact action (``power.action``);
 there is deliberately no guest path (halting the host cannot be a
 share-link capability).
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -30,44 +31,46 @@ from vnc_remote_secure.engine.application.ops import (
 )
 from vnc_remote_secure.engine.infrastructure import stores
 
-POWER_ACTIONS = ('shutdown', 'restart', 'sleep')
-_MAC_RE = re.compile(r'^[0-9a-fA-F]{2}([:-]?[0-9a-fA-F]{2}){5}$')
+POWER_ACTIONS = ("shutdown", "restart", "sleep")
+_MAC_RE = re.compile(r"^[0-9a-fA-F]{2}([:-]?[0-9a-fA-F]{2}){5}$")
 # Delay lets the response + audit flush before the OS takes the host
 # down; too short risks a truncated reply, too long invites a second
 # conflicting request.
 _GRACE_SECONDS = 1.0
 
 
-def wake_on_lan(mac: str, broadcast: str = '255.255.255.255',
-                port: int = 9, actor: str = 'operator') -> dict:
+def wake_on_lan(
+    mac: str, broadcast: str = "255.255.255.255", port: int = 9, actor: str = "operator"
+) -> dict:
     """Send a WoL magic packet. Returns {sent, mac, broadcast, port}.
 
     ``broadcast`` is restricted to broadcast/unspecified targets —
     the call must not become a generic UDP sender.
     """
-    mac = (mac or '').strip()
+    mac = (mac or "").strip()
     if not _MAC_RE.match(mac):
-        raise ValueError('invalid MAC address')
-    hex_mac = mac.replace(':', '').replace('-', '')
+        raise ValueError("invalid MAC address")
+    hex_mac = mac.replace(":", "").replace("-", "")
     try:
         addr = ipaddress.ip_address(broadcast)
     except ValueError:
-        raise ValueError('invalid broadcast address')
-    if not addr.is_unspecified and broadcast != '255.255.255.255' \
-            and not str(broadcast).endswith('.255'):
-        raise ValueError('target must be a broadcast address')
+        raise ValueError("invalid broadcast address")
+    if (
+        not addr.is_unspecified
+        and broadcast != "255.255.255.255"
+        and not str(broadcast).endswith(".255")
+    ):
+        raise ValueError("target must be a broadcast address")
 
-    packet = b'\xff' * 6 + bytes.fromhex(hex_mac) * 16
+    packet = b"\xff" * 6 + bytes.fromhex(hex_mac) * 16
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.sendto(packet, (broadcast, port))
-    stores.audit('power_wol', actor, f'mac={mac} bcast={broadcast}')
-    return {'sent': True, 'mac': mac, 'broadcast': broadcast,
-            'port': port}
+    stores.audit("power_wol", actor, f"mac={mac} bcast={broadcast}")
+    return {"sent": True, "mac": mac, "broadcast": broadcast, "port": port}
 
 
-def host_power(action: str, actor: str,
-               auth_ctx: dict | None = None) -> dict:
+def host_power(action: str, actor: str, auth_ctx: dict | None = None) -> dict:
     """Schedule a host power action after a short grace delay.
 
     The command runs in a daemon thread: shutdown/restart kill the
@@ -76,25 +79,23 @@ def host_power(action: str, actor: str,
     ``RuntimeError`` (no usable platform command).
     """
     if action not in POWER_ACTIONS:
-        raise ValueError(f'action must be one of {POWER_ACTIONS}')
-    require_bound_step_up(actor, 'power.action', action, auth_ctx)
+        raise ValueError(f"action must be one of {POWER_ACTIONS}")
+    require_bound_step_up(actor, "power.action", action, auth_ctx)
     cmd = stores.power_command(action)
 
     def _run() -> None:
         # The declared grace delay — without it effective_in_seconds
         # lies: the OS command would race the HTTP response.
         import time
+
         time.sleep(_GRACE_SECONDS)
         try:
             stores.run_command(cmd)
         except Exception as exc:  # noqa: BLE001 - thread: log only
             import logging
-            logging.getLogger(__name__).warning(
-                'Host power %s failed: %s', action, exc)
 
-    threading.Thread(target=_run, daemon=True,
-                     name='host-power').start()
-    stores.audit('power_action', actor,
-                 f'action={action} platform={platform.system()}')
-    return {'action': action, 'accepted': True,
-            'effective_in_seconds': _GRACE_SECONDS}
+            logging.getLogger(__name__).warning("Host power %s failed: %s", action, exc)
+
+    threading.Thread(target=_run, daemon=True, name="host-power").start()
+    stores.audit("power_action", actor, f"action={action} platform={platform.system()}")
+    return {"action": action, "accepted": True, "effective_in_seconds": _GRACE_SECONDS}

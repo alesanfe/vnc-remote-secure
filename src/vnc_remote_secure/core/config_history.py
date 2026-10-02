@@ -19,6 +19,7 @@ contain secrets):
 arbitrary file write) after snapshotting the current content, so a
 rollback is itself reversible.
 """
+
 import contextlib
 import hashlib
 import json
@@ -27,10 +28,9 @@ import re
 import tempfile
 import time
 
-_KEEP = 50          # never retain more than 50 snapshots
-_ID_RE = re.compile(r'^[0-9]+_[0-9a-f]{8}$')
-_KEY_RE = re.compile(
-    rb'^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=')
+_KEEP = 50  # never retain more than 50 snapshots
+_ID_RE = re.compile(r"^[0-9]+_[0-9a-f]{8}$")
+_KEY_RE = re.compile(rb"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 
 def _env_assignments(data: bytes) -> dict:
@@ -42,7 +42,7 @@ def _env_assignments(data: bytes) -> dict:
     for ln in data.splitlines():
         m = _KEY_RE.match(ln)
         if m:
-            out[m.group(1).decode()] = ln[m.end():].strip()
+            out[m.group(1).decode()] = ln[m.end() :].strip()
     return out
 
 
@@ -52,17 +52,16 @@ def _diff_keys(before: bytes, after: bytes) -> list:
     The sidecar records only the names — the operator learns *what*
     changed without the snapshot ever disclosing a value."""
     a, b = _env_assignments(before), _env_assignments(after)
-    return sorted(
-        {k for k in set(a) | set(b) if a.get(k) != b.get(k)})[:100]
+    return sorted({k for k in set(a) | set(b) if a.get(k) != b.get(k)})[:100]
 
 
 def _env_targets() -> set:
     """Real paths a snapshot may legitimately restore onto."""
     from vnc_remote_secure.core.config import _system_env_path
     from vnc_remote_secure.core.paths import find_project_root
+
     out = set()
-    for p in (os.path.join(find_project_root(), '.env'),
-              _system_env_path()):
+    for p in (os.path.join(find_project_root(), ".env"), _system_env_path()):
         with contextlib.suppress(OSError, ValueError):
             out.add(os.path.realpath(p))
     return out
@@ -70,7 +69,8 @@ def _env_targets() -> set:
 
 def _history_dir() -> str:
     from vnc_remote_secure.core.paths import find_project_root
-    d = os.path.join(find_project_root(), 'backups', 'config_history')
+
+    d = os.path.join(find_project_root(), "backups", "config_history")
     os.makedirs(d, exist_ok=True)
     # Snapshots hold plaintext secrets — same hardening as backups/.
     # nosemgrep: python.lang.security.insecure-file-permissions.insecure-file-permissions (0o700 hardens)
@@ -79,9 +79,9 @@ def _history_dir() -> str:
     return d
 
 
-def snapshot(path: str | None = None, actor: str = '',
-             reason: str = '',
-             changed_keys: list | None = None) -> str | None:
+def snapshot(
+    path: str | None = None, actor: str = "", reason: str = "", changed_keys: list | None = None
+) -> str | None:
     """Copy the given env file (default: project .env) into the
     history dir; returns the snapshot id.
 
@@ -93,18 +93,19 @@ def snapshot(path: str | None = None, actor: str = '',
     """
     if path is None:
         from vnc_remote_secure.core.paths import find_project_root
-        path = os.path.join(find_project_root(), '.env')
+
+        path = os.path.join(find_project_root(), ".env")
     if not os.path.isfile(path):
         return None
-    data = open(path, 'rb').read()
+    data = open(path, "rb").read()
     digest = hashlib.sha256(data).hexdigest()[:8]
-    sid = f'{int(time.time() * 1000)}_{digest}'
+    sid = f"{int(time.time() * 1000)}_{digest}"
     d = _history_dir()
-    env_dst = os.path.join(d, f'{sid}.env')
+    env_dst = os.path.join(d, f"{sid}.env")
     # The file carries secrets — write+replace atomically, owner-only.
-    fd, tmp = tempfile.mkstemp(dir=d, suffix='.tmp')
+    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
-        with os.fdopen(fd, 'wb') as f:
+        with os.fdopen(fd, "wb") as f:
             f.write(data)
         with contextlib.suppress(OSError):
             os.chmod(tmp, 0o600)
@@ -114,14 +115,17 @@ def snapshot(path: str | None = None, actor: str = '',
             os.unlink(tmp)
         raise
     sidecar = {
-        'id': sid, 'ts': time.time(), 'actor': actor or '?',
-        'reason': reason[:200], 'size': len(data), 'sha256': digest,
-        'source': os.path.basename(path),
-        'source_path': os.path.realpath(path),
-        'changed_keys': [str(k)[:64] for k in (changed_keys or [])][:100],
+        "id": sid,
+        "ts": time.time(),
+        "actor": actor or "?",
+        "reason": reason[:200],
+        "size": len(data),
+        "sha256": digest,
+        "source": os.path.basename(path),
+        "source_path": os.path.realpath(path),
+        "changed_keys": [str(k)[:64] for k in (changed_keys or [])][:100],
     }
-    with open(os.path.join(d, f'{sid}.json'), 'w',
-              encoding='utf-8') as f:
+    with open(os.path.join(d, f"{sid}.json"), "w", encoding="utf-8") as f:
         json.dump(sidecar, f)
     _rotate(d)
     return sid
@@ -129,10 +133,10 @@ def snapshot(path: str | None = None, actor: str = '',
 
 def _rotate(d: str) -> None:
     """Drop the oldest snapshots beyond ``_KEEP`` (bounded dir)."""
-    entries = [n[:-5] for n in os.listdir(d) if n.endswith('.json')]
+    entries = [n[:-5] for n in os.listdir(d) if n.endswith(".json")]
     entries.sort(reverse=True)
     for sid in entries[_KEEP:]:
-        for ext in ('.env', '.json'):
+        for ext in (".env", ".json"):
             with contextlib.suppress(OSError):
                 os.unlink(os.path.join(d, sid + ext))
 
@@ -146,30 +150,29 @@ def list_history() -> list:
         return []
     out = []
     for name in os.listdir(d):
-        if not name.endswith('.json'):
+        if not name.endswith(".json"):
             continue
         try:
-            with open(os.path.join(d, name), encoding='utf-8') as f:
+            with open(os.path.join(d, name), encoding="utf-8") as f:
                 rec = json.load(f)
-            if _ID_RE.match(str(rec.get('id', ''))):
-                rec.pop('source_path', None)  # don't leak fs layout
+            if _ID_RE.match(str(rec.get("id", ""))):
+                rec.pop("source_path", None)  # don't leak fs layout
                 out.append(rec)
         except (OSError, ValueError):
             continue
-    out.sort(key=lambda r: r.get('ts', 0), reverse=True)
+    out.sort(key=lambda r: r.get("ts", 0), reverse=True)
     return out[:_KEEP]
 
 
 def _sidecar(d: str, sid: str) -> dict | None:
     try:
-        with open(os.path.join(d, f'{sid}.json'),
-                  encoding='utf-8') as f:
+        with open(os.path.join(d, f"{sid}.json"), encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return None
 
 
-def rollback(snapshot_id: str, actor: str = '') -> dict:
+def rollback(snapshot_id: str, actor: str = "") -> dict:
     """Restore ``snapshot_id`` over the env file it was taken from.
 
     The live file is snapshotted first so the rollback itself is
@@ -177,38 +180,40 @@ def rollback(snapshot_id: str, actor: str = '') -> dict:
     re-validated against the known env-file set — a forged sidecar
     pointing at an arbitrary path is rejected.
     """
-    sid = str(snapshot_id or '').strip()
+    sid = str(snapshot_id or "").strip()
     if not _ID_RE.match(sid):
-        raise ValueError(f'invalid snapshot id: {snapshot_id!r}')
+        raise ValueError(f"invalid snapshot id: {snapshot_id!r}")
     d = _history_dir()
-    src = os.path.join(d, f'{sid}.env')
+    src = os.path.join(d, f"{sid}.env")
     if not os.path.isfile(src):
-        raise FileNotFoundError(f'unknown snapshot: {sid}')
+        raise FileNotFoundError(f"unknown snapshot: {sid}")
     rec = _sidecar(d, sid) or {}
-    target = os.path.realpath(rec.get('source_path') or '')
+    target = os.path.realpath(rec.get("source_path") or "")
     if not target or target not in _env_targets():
-        raise ValueError(f'snapshot {sid} has no valid restore target')
-    data = open(src, 'rb').read()
+        raise ValueError(f"snapshot {sid} has no valid restore target")
+    data = open(src, "rb").read()
     # Snapshot the live file before overwriting — undo of undo. The
     # key names that differ survive in the sidecar so the history row
     # answers "what would restoring this flip" without the values.
-    live = b''
+    live = b""
     with contextlib.suppress(OSError):
-        live = open(target, 'rb').read()
-    snapshot(target, actor or '?', f'pre-rollback of {sid}',
-             changed_keys=_diff_keys(live, data))
+        live = open(target, "rb").read()
+    snapshot(target, actor or "?", f"pre-rollback of {sid}", changed_keys=_diff_keys(live, data))
     from vnc_remote_secure.core.test_isolation import guard_write
-    guard_write(target, 'config rollback')
-    fd, tmp = tempfile.mkstemp(
-        dir=os.path.dirname(target) or '.', suffix='.tmp')
+
+    guard_write(target, "config rollback")
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target) or ".", suffix=".tmp")
     try:
-        with os.fdopen(fd, 'wb') as f:
+        with os.fdopen(fd, "wb") as f:
             f.write(data)
         os.replace(tmp, target)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
-    return {'restored': sid, 'target': rec.get('source', 'env'),
-            'size': len(data),
-            'changed_keys': _diff_keys(live, data)}
+    return {
+        "restored": sid,
+        "target": rec.get("source", "env"),
+        "size": len(data),
+        "changed_keys": _diff_keys(live, data),
+    }

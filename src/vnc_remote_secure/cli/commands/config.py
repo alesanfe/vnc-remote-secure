@@ -1,4 +1,5 @@
 """``config`` command: show-effective, validate, diff, migrate."""
+
 import json
 
 
@@ -6,7 +7,7 @@ def _config_show_effective(args):
     """Show the effective configuration for a profile."""
     from vnc_remote_secure.core.config_inspector import compute_effective_config
 
-    profile = getattr(args, 'profile', None)
+    profile = getattr(args, "profile", None)
     effective = compute_effective_config(profile_name=profile)
     if args.json:
         print(json.dumps(effective, indent=2))
@@ -23,9 +24,9 @@ def _config_explain(args):
     from vnc_remote_secure.core.config_inspector import compute_effective_config
 
     name = args.var_name.upper()
-    profile = getattr(args, 'profile', None)
+    profile = getattr(args, "profile", None)
     effective = compute_effective_config(profile_name=profile)
-    entry = next((e for e in effective if e['name'] == name), None)
+    entry = next((e for e in effective if e["name"] == name), None)
     if entry is None:
         print(f"Unknown config variable: {name}")
         return 1
@@ -34,11 +35,9 @@ def _config_explain(args):
     else:
         print(f"{entry['name']} = {entry['value']}")
         print(f"  source: {entry['source']}")
-        print("  precedence: hardcoded-default < platform-default "
-              "< profile < .env < env")
-        if entry['source'] == 'security-policy':
-            print("  note: value enforced by the security profile — "
-                  "cannot be overridden")
+        print("  precedence: hardcoded-default < platform-default " "< profile < .env < env")
+        if entry["source"] == "security-policy":
+            print("  note: value enforced by the security profile — " "cannot be overridden")
     return 0
 
 
@@ -46,7 +45,7 @@ def _config_validate(args):
     """Validate the configuration for a profile."""
     from vnc_remote_secure.core.config_inspector import validate_config
 
-    profile = getattr(args, 'profile', None)
+    profile = getattr(args, "profile", None)
     findings = validate_config(profile_name=profile)
     if args.json:
         print(json.dumps(findings, indent=2))
@@ -55,9 +54,9 @@ def _config_validate(args):
             print("Configuration is valid.")
         else:
             for f in findings:
-                sev = f['severity'].upper()
+                sev = f["severity"].upper()
                 print(f"  [{sev}] {f['message']}")
-    criticals = [f for f in findings if f['severity'] == 'critical']
+    criticals = [f for f in findings if f["severity"] == "critical"]
     return 1 if criticals else 0
 
 
@@ -95,7 +94,7 @@ def _config_migrate(args):
     except FileNotFoundError:
         print("No .env file found.")
         return 1
-    changes = result['changes']
+    changes = result["changes"]
     if not changes:
         print("No migrations needed — config is already up to date.")
         return 0
@@ -113,22 +112,21 @@ def _config_migrate(args):
 def _config_history(args):
     """List env-file snapshots — every mutation checkpoints first."""
     from vnc_remote_secure.engine.application import ops
+
     result = ops.config_history()
-    snaps = result['snapshots']
+    snaps = result["snapshots"]
     if args.json:
         print(json.dumps(result, indent=2))
         return 0
     if not snaps:
-        print("No config snapshots yet — history starts at the "
-              "first mutation.")
+        print("No config snapshots yet — history starts at the " "first mutation.")
         return 0
     import datetime
+
     print(f"{'Snapshot':<26} {'When':<20} {'Actor':<14} Reason")
     for s in snaps:
-        when = datetime.datetime.fromtimestamp(
-            s.get('ts', 0)).strftime('%Y-%m-%d %H:%M:%S')
-        print(f"{s['id']:<26} {when:<20} "
-              f"{s.get('actor', '?'):<14} {s.get('reason', '')}")
+        when = datetime.datetime.fromtimestamp(s.get("ts", 0)).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{s['id']:<26} {when:<20} " f"{s.get('actor', '?'):<14} {s.get('reason', '')}")
     return 0
 
 
@@ -138,21 +136,19 @@ def _config_rollback(args):
 
     from vnc_remote_secure.engine.application.ops import config_rollback
     from vnc_remote_secure.engine.domain.decision import UseCaseError
-    actor = ('cli:'
-             + (os.environ.get('USERNAME') or os.environ.get('USER')
-                or 'admin'))
+
+    actor = "cli:" + (os.environ.get("USERNAME") or os.environ.get("USER") or "admin")
     try:
-        result = config_rollback(
-            actor, args.snapshot,
-            restart=getattr(args, 'restart', False))
+        result = config_rollback(actor, args.snapshot, restart=getattr(args, "restart", False))
     except (UseCaseError, ValueError, FileNotFoundError) as e:
         print(f"Error: {e}")
         return 1
-    print(f"Restored snapshot {result['restored']} "
-          f"({result.get('size', '?')} bytes)")
-    if result.get('restart_job_id'):
-        print(f"Restart queued as job {result['restart_job_id']} — "
-              "services restart shortly to apply the config.")
+    print(f"Restored snapshot {result['restored']} " f"({result.get('size', '?')} bytes)")
+    if result.get("restart_job_id"):
+        print(
+            f"Restart queued as job {result['restart_job_id']} — "
+            "services restart shortly to apply the config."
+        )
     else:
         print("Restart services to apply the restored config.")
     return 0
@@ -165,13 +161,13 @@ def cmd_config(args):
     load_env_file()
 
     actions = {
-        'show-effective': _config_show_effective,
-        'explain': _config_explain,
-        'validate': _config_validate,
-        'diff': _config_diff,
-        'migrate': _config_migrate,
-        'history': _config_history,
-        'rollback': _config_rollback,
+        "show-effective": _config_show_effective,
+        "explain": _config_explain,
+        "validate": _config_validate,
+        "diff": _config_diff,
+        "migrate": _config_migrate,
+        "history": _config_history,
+        "rollback": _config_rollback,
     }
     handler = actions.get(args.config_action)
     if handler is None:
