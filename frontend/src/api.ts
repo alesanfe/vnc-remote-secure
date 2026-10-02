@@ -540,9 +540,11 @@ export type SessionCreateRequest =
 
 export interface PostureCheck {
   name: string;
+  key?: string;
   status: 'ok' | 'warn' | 'fail';
   severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
   detail: string;
+  params?: Record<string, string | number>;
   /** Observed value backing the check — never a secret. */
   evidence: string;
 }

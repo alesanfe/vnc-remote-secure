@@ -382,12 +382,21 @@ components:
       required: [name, status, severity, detail, evidence]
       properties:
         name: { type: string }
+        key:
+          type: string
+          description:
+            Stable slug for UI localization - the SPA translates
+            security.check.<key>.name / .<status> and interpolates params
         status: { type: string, enum: [ok, warn, fail] }
         severity:
           type: string
           enum: [info, low, medium, high, critical]
           description: Derived from status + score weight
         detail: { type: string }
+        params:
+          type: object
+          additionalProperties: true
+          description: Values interpolated into the localized detail
         evidence:
           type: string
           description: Observed value backing the check — never a secret

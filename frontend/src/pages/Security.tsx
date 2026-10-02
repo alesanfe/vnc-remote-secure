@@ -429,7 +429,11 @@ export default function Security() {
                     a.name.localeCompare(b.name))
                 .map((c) => (
                   <tr key={c.name}>
-                    <td className="mono">{c.name}</td>
+                    <td className="mono">
+                      {c.key
+                        ? t(`security.check.${c.key}.name`)
+                        : c.name}
+                    </td>
                     <td>
                       <span
                         className={`badge ${SEVERITY_CLS[c.severity] ?? 'dim'}`}
@@ -440,7 +444,12 @@ export default function Security() {
                     <td>
                       <StatusBadge status={c.status} />
                     </td>
-                    <td>{c.detail}</td>
+                    <td>
+                      {c.key && c.detail
+                        ? t(`security.check.${c.key}.${c.status}`,
+                            c.params)
+                        : c.detail}
+                    </td>
                     <td className="mono muted">
                       {c.evidence || '—'}
                     </td>

@@ -401,6 +401,67 @@ export const es = {
   'security.col.severity': 'Severidad',
   'security.col.status': 'Estado',
   'security.col.evidence': 'Evidencia',
+  // Nombres y detalles de los checks de postura (backend envía `key`)
+  'security.check.tls.name': 'HTTPS/TLS habilitado',
+  'security.check.tls.warn': 'TLS desactivado — el tráfico no está cifrado',
+  'security.check.tls.fail': 'TLS desactivado — todo el tráfico va sin cifrar',
+  'security.check.ssl_cert.name': 'Certificado SSL configurado',
+  'security.check.ssl_cert.warn':
+    'TLS desactivado o sin certificado SSL configurado',
+  'security.check.mfa.name': 'MFA habilitado',
+  'security.check.mfa.warn':
+    'MFA sin configurar — solo autenticación de un factor',
+  'security.check.strong_creds.name': 'Credenciales fuertes configuradas',
+  'security.check.strong_creds.warn':
+    'Las credenciales pueden ser débiles o faltar',
+  'security.check.strong_creds.fail': 'Sin credenciales configuradas',
+  'security.check.rate_limit.name': 'Rate limiting configurado',
+  'security.check.rate_limit.warn': 'Sin rate limiting configurado',
+  'security.check.session_secret.name':
+    'Secreto de sesión persistente (FLASK_SECRET_KEY)',
+  'security.check.session_secret.warn':
+    'FLASK_SECRET_KEY sin definir — las sesiones se invalidan al reiniciar',
+  'security.check.session_secret.ok':
+    'Perfil de desarrollo — secreto efímero aceptable',
+  'security.check.health_endpoint_pub.name': 'Endpoint de salud protegido',
+  'security.check.health_endpoint_pub.warn':
+    'El endpoint de salud no tiene token de autenticación',
+  'security.check.health_endpoint_priv.name': 'Endpoint de salud protegido',
+  'security.check.health_endpoint_priv.warn':
+    'El endpoint de salud no tiene token (solo loopback — aceptable, pero ' +
+    'define HEALTH_AUTH_TOKEN antes de exponerlo)',
+  'security.check.no_placeholder_secrets.name': 'Sin secretos de plantilla',
+  'security.check.no_placeholder_secrets.warn':
+    'Valor de plantilla en DISCORD_WEBHOOK_URL',
+  'security.check.bind_localhost.name': 'Servicios en localhost',
+  'security.check.bind_localhost.warn':
+    'Los servicios escuchan en {{bind}} (expuestos a la red)',
+  'security.check.nginx_proxy.name': 'Reverse proxy (nginx) habilitado',
+  'security.check.nginx_proxy.warn':
+    'Sin reverse proxy — los servicios quedan expuestos directamente',
+  'security.check.domain.name': 'Dominio configurado (DuckDNS)',
+  'security.check.domain.warn': 'Sin dominio — solo acceso local',
+  'security.check.session_idle.name': 'Timeout de sesión configurado',
+  'security.check.session_idle.warn':
+    'El timeout de sesión es {{idle}}s (considera ≤1800s)',
+  'security.check.session_idle_unconfigured.name': 'Timeout de sesión',
+  'security.check.session_idle_unconfigured.warn': 'No configurado',
+  'security.check.temp_user_cleanup.name':
+    'Usuario temporal eliminado al salir',
+  'security.check.temp_user_cleanup.warn':
+    'KEEP_TEMP_USER=true — el usuario temporal persiste tras salir',
+  'security.check.shared_state.name':
+    'Backend de estado compartido (auth entre procesos)',
+  'security.check.shared_state.warn':
+    'SHARED_STATE_BACKEND={{backend}} — la revocación, el uso único y ' +
+    'el rate-limit solo aplican por proceso',
+  'security.check.shared_state_degraded.name':
+    'Backend de estado compartido (auth entre procesos)',
+  'security.check.shared_state_degraded.warn':
+    'SHARED_STATE_BACKEND={{backend}} degradado a memoria — la ' +
+    'revocación, el uso único y el rate-limit solo aplican por proceso',
+  'security.check.attack_surface.name':
+    'Servicios opcionales (superficie de ataque)',
   'security.secrets.title': 'Secretos',
   'security.secrets.forbidden':
     'Gestión de secretos no disponible con este rol (requiere admin:*).',
