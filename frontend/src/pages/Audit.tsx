@@ -7,6 +7,21 @@ import { api, type AuditEntry, type AuditPage } from '../api';
 import DataTable from '../components/DataTable';
 import { useI18n } from '../i18n';
 
+/** The verify endpoint reports raw technical messages in English
+    ("Chain intact (N entries)"); an intact chain is the common case
+    and reads better localized — errors stay verbatim since they are
+    forensic detail. */
+function chainMessage(data: { intact: boolean; message: string },
+                      t: (k: string,
+                          v?: Record<string, string | number>) => string)
+  : string {
+  if (!data.intact) return data.message;
+  const m = /\((\d+) entries?\)/.exec(data.message);
+  return m
+    ? t('audit.chain.intactDetail', { n: Number(m[1]) })
+    : data.message;
+}
+
 export default function Audit() {
   const { t } = useI18n();
   const [eventFilter, setEventFilter] = useState('');
@@ -56,7 +71,7 @@ export default function Audit() {
               ? t('audit.chain.intact')
               : t('audit.chain.broken')}
           </strong>{' '}
-          — {chain.data.message}
+          — {chainMessage(chain.data, t)}
         </div>
       )}
 
@@ -116,7 +131,7 @@ export default function Audit() {
           rowKey={(r) => String(r.seq ?? JSON.stringify(r))}
           columns={cols.map((c) => ({
             key: c,
-            header: c,
+            header: t(`audit.col.${c}`),
             mono: true,
             sortValue: (r: AuditEntry) => {
               const v = r[c];

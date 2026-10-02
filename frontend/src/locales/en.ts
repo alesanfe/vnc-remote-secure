@@ -432,6 +432,7 @@ export const en: Messages = {
   'audit.title': 'Audit',
   'audit.chain': 'Integrity chain:',
   'audit.chain.intact': 'intact',
+  'audit.chain.intactDetail': '{{n}} entries verified',
   'audit.chain.broken': 'BROKEN',
   'audit.filter.event': 'Filter by event',
   'audit.filter.user': 'Filter by user',
@@ -445,6 +446,12 @@ export const en: Messages = {
   'audit.caption': 'Audit events (newest first)',
   'audit.empty': 'No events to show.',
   'audit.loadMore': 'Load more',
+  'audit.col.seq': '#',
+  'audit.col.timestamp': 'Timestamp',
+  'audit.col.event': 'Event',
+  'audit.col.user': 'User',
+  'audit.col.result': 'Result',
+  'audit.col.detail': 'Detail',
 
   // --- Doctor -----------------------------------------------------------------
   'doctor.title': 'Operations',
@@ -712,7 +719,7 @@ export const en: Messages = {
     'Sign-in attempts are recorded in the audit log.',
 
   // --- Sessions ----------------------------------------------------------------
-  'sessions.title': 'Sessions',
+  'sessions.title': 'Access links',
   'sessions.createTitle': 'New shared session',
   'sessions.role': 'Permission',
   'sessions.ttl': 'Duration (TTL)',

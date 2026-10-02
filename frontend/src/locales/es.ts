@@ -437,6 +437,7 @@ export const es = {
   'audit.title': 'Auditoría',
   'audit.chain': 'Cadena de integridad:',
   'audit.chain.intact': 'íntegra',
+  'audit.chain.intactDetail': '{{n}} eventos verificados',
   'audit.chain.broken': 'ROTA',
   'audit.filter.event': 'Filtrar por evento',
   'audit.filter.user': 'Filtrar por usuario',
@@ -450,6 +451,12 @@ export const es = {
   'audit.caption': 'Eventos de auditoría (más recientes primero)',
   'audit.empty': 'Sin eventos que mostrar.',
   'audit.loadMore': 'Cargar más',
+  'audit.col.seq': '#',
+  'audit.col.timestamp': 'Fecha',
+  'audit.col.event': 'Evento',
+  'audit.col.user': 'Usuario',
+  'audit.col.result': 'Resultado',
+  'audit.col.detail': 'Detalle',
 
   // --- Doctor -----------------------------------------------------------------
   'doctor.title': 'Operación',
@@ -719,7 +726,7 @@ export const es = {
     'Los intentos de acceso quedan registrados en la auditoría.',
 
   // --- Sessions ----------------------------------------------------------------
-  'sessions.title': 'Sesiones',
+  'sessions.title': 'Enlaces de acceso',
   'sessions.createTitle': 'Nueva sesión compartida',
   'sessions.role': 'Permiso',
   'sessions.ttl': 'Duración (TTL)',
