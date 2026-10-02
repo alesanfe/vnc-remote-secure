@@ -6,7 +6,7 @@ import ChatPanel from '../components/ChatPanel';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { RelativeTime, StatusBadge } from '../components/bits';
 import { desktopUrl } from './GuestPage';
-import { useI18n } from '../i18n';
+import { roleLabel, useI18n } from '../i18n';
 import { useTabsNav } from '../components/useTabsNav';
 
 /** Human-readable duration (seconds → '1 h 05 m' style). */
@@ -211,7 +211,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
           </div>
           <dl className="kv">
             <dt>{t('sessions.col.role')}</dt>
-            <dd><code>{s.role}</code></dd>
+            <dd><code>{roleLabel(t, s.role)}</code></dd>
             <dt>{t('sessions.col.perms')}</dt>
             <dd>
               {s.permissions.map((p) => (

@@ -70,6 +70,17 @@ export function useI18n() {
   return useContext(Ctx);
 }
 
+/** Human label for a role enum (viewer/operator/admin); falls back to
+    the raw value when the locale has no entry, so new roles never
+    render as a dotted key. */
+export function roleLabel(
+  t: (key: string) => string, role: string,
+): string {
+  const k = `role.${role}`;
+  const v = t(k);
+  return v === k ? role : v;
+}
+
 /** Tiny inline language switcher for chrome areas. */
 export function LangSwitch() {
   const { lang, setLang, t } = useI18n();

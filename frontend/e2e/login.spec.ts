@@ -30,7 +30,7 @@ test('wrong password shows an error, right password enters', async ({
   await page.getByLabel('Contraseña').fill(ADMIN.password);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(
-    page.getByRole('link', { name: 'Sesiones' }),
+    page.getByRole('link', { name: 'Enlaces de acceso' }),
   ).toBeVisible();
 });
 

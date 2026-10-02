@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { api, ApiError, type PortalData, type SessionContext } from '../api';
 import { RelativeTime } from '../components/bits';
-import { useI18n } from '../i18n';
+import { roleLabel, useI18n } from '../i18n';
 
 const METRICS: Array<[LucideIcon, string, string]> = [
   [Monitor, 'portal.metrics.host', 'hostname'],
@@ -247,7 +247,7 @@ function OperatorSessions({ p }: { p: PortalData }) {
                 <td className="mono">
                   {String(s.token_id ?? '').slice(0, 12)}…
                 </td>
-                <td>{s.role}</td>
+                <td>{roleLabel(t, s.role)}</td>
                 <td>
                   {typeof s.expires_at === 'number' ? (
                     <RelativeTime epoch={s.expires_at} />

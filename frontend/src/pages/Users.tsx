@@ -20,7 +20,7 @@ import {
   WebAuthnCancelled,
   webauthnSupported,
 } from '../webauthn';
-import { useI18n } from '../i18n';
+import { roleLabel, useI18n } from '../i18n';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
 
@@ -85,6 +85,12 @@ export default function Users() {
     },
   });
 
+  const qq = query.trim().toLowerCase();
+  const visible = (ops.data?.operators ?? []).filter((u) =>
+    !qq ||
+    [u.username, u.role, ...u.permissions]
+      .some((v) => String(v).toLowerCase().includes(qq)));
+
   return (
     <>
       <h1 className="page-title">{t('users.title')}</h1>
@@ -145,14 +151,7 @@ export default function Users() {
           </tr>
         </thead>
         <tbody>
-          {(() => {
-            const qq = query.trim().toLowerCase();
-            const list = (ops.data?.operators ?? []).filter((u) =>
-              !qq ||
-              [u.username, u.role, ...u.permissions]
-                .some((v) => String(v).toLowerCase().includes(qq)));
-            return list;
-          })().map((u) => (
+          {visible.map((u) => (
             <OperatorRow
               key={u.username}
               u={u}
@@ -169,6 +168,14 @@ export default function Users() {
                 setPending({ kind: 'delete', username: u.username })}
             />
           ))}
+          {ops.data && ops.data.operators.length > 0 &&
+            qq && visible.length === 0 && (
+            <tr>
+              <td colSpan={6} className="muted">
+                {t('common.noResults')}
+              </td>
+            </tr>
+          )}
           {ops.data && ops.data.operators.length === 0 && (
             <tr>
               <td colSpan={6} className="muted">
@@ -296,7 +303,7 @@ function CreateOperatorForm({ onDone }: { onDone: () => void }) {
           onChange={(e) => setRole(e.target.value)}
         >
           {ROLES.map((r) => (
-            <option key={r} value={r}>{r}</option>
+            <option key={r} value={r}>{roleLabel(t, r)}</option>
           ))}
         </select>
       </div>
@@ -337,7 +344,7 @@ function OperatorRow({
             {' '}{u.username}
           </button>
         </td>
-        <td>{u.role}</td>
+        <td>{roleLabel(t, u.role)}</td>
         <td>
           <span className={`badge ${u.disabled ? 'fail' : 'ok'}`}>
             {u.disabled ? t('users.statusDisabled') : t('users.statusActive')}

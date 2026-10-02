@@ -22,7 +22,7 @@ import {
   StatusBadge,
   copyText,
 } from '../components/bits';
-import { useI18n } from '../i18n';
+import { roleLabel, useI18n } from '../i18n';
 import { useTabsNav } from '../components/useTabsNav';
 import { SESSION_TABS, type SessionTab } from './sessionTabs';
 
@@ -597,9 +597,10 @@ export default function Sessions() {
         error={sessions.isError}
         errorText={t('sessions.loadError')}
         onRetry={() => sessions.refetch()}
-        emptyText={t(`sessions.empty.${tab}`)}
+        emptyText={q ? t('common.noResults')
+                     : t(`sessions.empty.${tab}`)}
         emptyAction={
-          tab === 'invitations' ? (
+          !q && tab === 'invitations' ? (
             <a href="#session-wizard">{t('sessions.empty.createCta')}</a>
           ) : undefined
         }
@@ -627,7 +628,8 @@ export default function Sessions() {
                 <StatusBadge status="ok" label={t('sessions.stateActive')} />
               ),
           },
-          { key: 'role', header: t('sessions.col.role'), render: (s) => s.role,
+          { key: 'role', header: t('sessions.col.role'),
+              render: (s) => roleLabel(t, s.role),
             sortValue: (s) => s.role },
           {
             key: 'perms',

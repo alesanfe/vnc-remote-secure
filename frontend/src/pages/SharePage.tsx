@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { api, ApiError, type SessionPreview } from '../api';
 import { Check, X } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { roleLabel, useI18n } from '../i18n';
 
 /** Map the API failure to a user-facing reason — a 403 means the
     link itself was rejected (expired/used/forged); anything else is
@@ -137,7 +137,7 @@ export function ShareAccept({ token }: { token: string }) {
                 <tbody>
                   <tr>
                     <td>{t('share.role')}</td>
-                    <td className="mono">{preview.role}</td>
+                    <td className="mono">{roleLabel(t, preview.role)}</td>
                   </tr>
                   <tr>
                     <td>{t('share.expiresIn')}</td>

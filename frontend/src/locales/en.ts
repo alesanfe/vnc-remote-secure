@@ -39,6 +39,10 @@ export const en: Messages = {
   'nav.sessionError': 'Could not verify the session.',
   'nav.sessionErrorNet': 'Network error — the service may be down.',
   'common.retry': 'Retry',
+  'role.viewer': 'View only',
+  'role.operator': 'Operator',
+  'role.admin': 'Administrator',
+  'common.noResults': 'No results for this filter.',
   'common.open': 'Open',
 
   'login.title': 'Operator console',

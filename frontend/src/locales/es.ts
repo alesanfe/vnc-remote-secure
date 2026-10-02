@@ -39,6 +39,10 @@ export const es = {
   'nav.sessionError': 'No se pudo verificar la sesión.',
   'nav.sessionErrorNet': 'Error de red — el servicio puede estar caído.',
   'common.retry': 'Reintentar',
+  'role.viewer': 'Solo lectura',
+  'role.operator': 'Operador',
+  'role.admin': 'Administrador',
+  'common.noResults': 'Sin resultados para este filtro.',
   'common.open': 'Abrir',
   'common.actions': 'Acciones',
 

@@ -15,7 +15,7 @@ import {
 import { api, type PortalData, type SessionContext } from '../api';
 import ChatPanel from '../components/ChatPanel';
 import { RelativeTime } from '../components/bits';
-import { useI18n } from '../i18n';
+import { roleLabel, useI18n } from '../i18n';
 
 /** noVNC URL for the guest — nginx deployments proxy /vnc/ on the
     same origin; direct deployments expose the noVNC port. */
@@ -156,7 +156,7 @@ export default function GuestPage() {
           </div>
         )}
         <div className="notice">
-          <strong>{t('guest.role')}:</strong> <code>{c.role}</code>
+          <strong>{t('guest.role')}:</strong> <code>{roleLabel(t, c.role ?? '')}</code>
           {c.expires_at ? (
             <>
               {' '}· {t('guest.expires')}{' '}

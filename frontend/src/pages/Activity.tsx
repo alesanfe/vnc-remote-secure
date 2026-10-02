@@ -180,7 +180,8 @@ export default function Activity() {
         error={audit.isError}
         errorText={t('audit.loadError')}
         onRetry={() => { audit.refetch(); jobs.refetch(); }}
-        emptyText={t('activity.empty')}
+        emptyText={needle || sev !== 'all' ? t('common.noResults')
+                                           : t('activity.empty')}
         rows={filtered}
         rowKey={(r) => r.key}
         columns={[

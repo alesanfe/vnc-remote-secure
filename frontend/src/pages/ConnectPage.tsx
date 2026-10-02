@@ -19,7 +19,7 @@ import {
   StatusBadge,
 } from '../components/bits';
 import DataTable from '../components/DataTable';
-import { useI18n } from '../i18n';
+import { roleLabel, useI18n } from '../i18n';
 
 interface ActivePage {
   sessions: EphemeralSessionInfo[];
@@ -164,7 +164,7 @@ export default function ConnectPage() {
             key: 'role',
             header: t('sessions.col.role'),
             sortValue: (s) => s.role,
-            render: (s) => s.role,
+            render: (s) => roleLabel(t, s.role),
           },
           {
             key: 'resource',
