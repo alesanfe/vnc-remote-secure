@@ -7,10 +7,11 @@ Verifies that:
 - Tampered signatures are rejected.
 - Tampered type tags are rejected.
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from vnc_remote_secure.security.token_signing import (
     TOKEN_TYPE_BEARER,
@@ -50,6 +51,7 @@ def test_token_contains_signature_separator():
 # ---------------------------------------------------------------------------
 # Cross-type rejection (INC-092 regression)
 # ---------------------------------------------------------------------------
+
 
 def test_session_token_rejected_as_ephemeral():
     """A persistent session cookie cannot be used as an ephemeral token."""
@@ -97,17 +99,18 @@ def test_unknown_type_tag_rejected():
 # Tamper detection
 # ---------------------------------------------------------------------------
 
+
 def test_tampered_signature_rejected():
     token = sign_token(TOKEN_TYPE_SESSION, "data")
     # Flip the last character of the signature.
-    tampered = token[:-1] + ('0' if token[-1] != '0' else '1')
+    tampered = token[:-1] + ("0" if token[-1] != "0" else "1")
     assert verify_token(TOKEN_TYPE_SESSION, tampered) is None
 
 
 def test_tampered_payload_rejected():
     token = sign_token(TOKEN_TYPE_SESSION, "alice:1:2")
     # Replace the payload while keeping the signature.
-    prefix, sig = token.rsplit('.', 1)
+    prefix, sig = token.rsplit(".", 1)
     tampered = prefix + "X." + sig
     assert verify_token(TOKEN_TYPE_SESSION, tampered) is None
 
@@ -116,7 +119,7 @@ def test_tampered_type_tag_rejected():
     """Changing the type tag in the token string breaks verification."""
     token = sign_token(TOKEN_TYPE_SESSION, "data")
     # Replace 'session:' prefix with 'ephemeral:'.
-    tampered = TOKEN_TYPE_EPHEMERAL + ":" + token[len(TOKEN_TYPE_SESSION) + 1:]
+    tampered = TOKEN_TYPE_EPHEMERAL + ":" + token[len(TOKEN_TYPE_SESSION) + 1 :]
     # The signature was computed over 'session:data', so 'ephemeral:data'
     # will not match.
     assert verify_token(TOKEN_TYPE_EPHEMERAL, tampered) is None
@@ -125,6 +128,7 @@ def test_tampered_type_tag_rejected():
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 def test_empty_token_rejected():
     assert verify_token(TOKEN_TYPE_SESSION, "") is None
@@ -156,9 +160,9 @@ def test_non_ascii_signature_fails_closed():
     auth check into a 500. The verify must return None instead.
     """
     token = sign_token(TOKEN_TYPE_SESSION, "data")
-    prefix = token.rsplit('.', 1)[0]
-    assert verify_token(TOKEN_TYPE_SESSION, prefix + '.café') is None
-    assert verify_token(TOKEN_TYPE_SESSION, 'session:dätä.0' * 1) is None
+    prefix = token.rsplit(".", 1)[0]
+    assert verify_token(TOKEN_TYPE_SESSION, prefix + ".café") is None
+    assert verify_token(TOKEN_TYPE_SESSION, "session:dätä.0" * 1) is None
 
 
 def test_non_ascii_username_authenticate_fails_closed(monkeypatch):
@@ -168,13 +172,14 @@ def test_non_ascii_username_authenticate_fails_closed(monkeypatch):
     with a UTF-8 username/password used to crash the auth path.
     """
     from vnc_remote_secure.security import authentication
-    monkeypatch.setenv('USER_UI_USERNAME', 'admin')
-    monkeypatch.setenv('USER_UI_PASSWORD', 'Str0ng!Pass')
-    assert authentication.authenticate('ádmin', 'Str0ng!Pass') is False
-    assert authentication.authenticate('admin', 'Pássw0rd!') is False
+
+    monkeypatch.setenv("USER_UI_USERNAME", "admin")
+    monkeypatch.setenv("USER_UI_PASSWORD", "Str0ng!Pass")
+    assert authentication.authenticate("ádmin", "Str0ng!Pass") is False
+    assert authentication.authenticate("admin", "Pássw0rd!") is False
     # A UTF-8 configured credential still works when the input matches.
-    monkeypatch.setenv('USER_UI_PASSWORD', 'Café-Päss1!')
-    assert authentication.authenticate('admin', 'Café-Päss1!') is True
+    monkeypatch.setenv("USER_UI_PASSWORD", "Café-Päss1!")
+    assert authentication.authenticate("admin", "Café-Päss1!") is True
 
 
 # ---------------------------------------------------------------------------
@@ -197,8 +202,7 @@ def test_payload_containing_dot_verifies():
 def test_forged_token_dot_in_payload_fails():
     """A hand-crafted token where the payload carries a dot must
     not verify — the signature was never computed over it."""
-    assert verify_token(
-        TOKEN_TYPE_SESSION, "session:a.b:cigsig") is None
+    assert verify_token(TOKEN_TYPE_SESSION, "session:a.b:cigsig") is None
 
 
 def test_non_ascii_signature_returns_none_not_raise():

@@ -3,8 +3,9 @@ import { serverInfo } from './helpers';
 
 /**
  * Public React surfaces: every legacy browser page must now be the
- * SPA shell — the portal at /, share consent at /share and legacy
- * ?session=, plus the audio/gamepad/terminal clients and their
+ * SPA shell — the portal at / and share consent at /share (#t=
+ * fragment links; the legacy ?session= query is ignored), plus the
+ * audio/gamepad/terminal clients and their
  * .html compatibility paths.
  *
  * The e2e landing service runs with LANDING_PUBLIC_VIEW=false, so an
@@ -26,15 +27,22 @@ test.describe('public react surfaces', () => {
     ).toHaveAttribute('href', '/admin');
   });
 
-  test('legacy /?session= token is wiped and previews via React', async ({
+  test('legacy /?session= query token is ignored', async ({
     page,
   }) => {
+    // The compat shim was removed: a ?session= query no longer enters
+    // the share flow — the portal renders instead and the token is
+    // never sent to /api/v1/session/*.
+    const activations: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/api/v1/session/')) activations.push(r.url());
+    });
     await page.goto(`${serverInfo().base}/?session=forged.token.value`);
-    // Wait for the share flow's first render — by then React has
-    // wiped the token from the address bar via history.replaceState.
-    await expect(page.locator('#info')).toContainText(
-      'Enlace expirado o ya utilizado');
-    expect(page.url()).not.toContain('session=');
+    await expect(page.locator('#root > *')).toHaveCount(1);
+    await expect(page.locator('h1')).toContainText('VNC Remote Secure');
+    // The share-consent card (#info) must never appear.
+    await expect(page.locator('#info')).toHaveCount(0);
+    expect(activations).toEqual([]);
   });
 
   test('/share without a token shows the incomplete-link error', async ({

@@ -1,8 +1,9 @@
 """Unit tests for core.constants module."""
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from vnc_remote_secure.core import constants
 
@@ -45,27 +46,27 @@ def test_min_password_length_is_positive():
 
 def test_weak_passwords_contains_common_defaults():
     """WEAK_PASSWORDS should contain known weak passwords."""
-    assert 'changeme' in constants.WEAK_PASSWORDS
-    assert 'admin123' in constants.WEAK_PASSWORDS
-    assert 'password' in constants.WEAK_PASSWORDS
+    assert "changeme" in constants.WEAK_PASSWORDS
+    assert "admin123" in constants.WEAK_PASSWORDS
+    assert "password" in constants.WEAK_PASSWORDS
 
 
 def test_reserved_usernames_contains_root():
     """RESERVED_USERNAMES should contain 'root'."""
-    assert 'root' in constants.RESERVED_USERNAMES
-    assert 'admin' in constants.RESERVED_USERNAMES
+    assert "root" in constants.RESERVED_USERNAMES
+    assert "admin" in constants.RESERVED_USERNAMES
 
 
 def test_default_bind_host_is_localhost():
     """DEFAULT_BIND_HOST should default to localhost for security."""
-    assert constants.DEFAULT_BIND_HOST == '127.0.0.1'
+    assert constants.DEFAULT_BIND_HOST == "127.0.0.1"
 
 
 def test_default_vnc_geometry_format():
     """DEFAULT_VNC_GEOMETRY should be in WxH format."""
     geom = constants.DEFAULT_VNC_GEOMETRY
-    assert 'x' in geom
-    parts = geom.split('x')
+    assert "x" in geom
+    parts = geom.split("x")
     assert len(parts) == 2
     for part in parts:
         assert part.isdigit()

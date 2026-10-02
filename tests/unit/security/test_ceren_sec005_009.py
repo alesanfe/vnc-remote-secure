@@ -6,13 +6,14 @@ TEST-SEC-007: Spoofed proxy headers don't grant authentication.
 TEST-SEC-008: Public-hardened blocks startup without TLS/MFA/proxy/secret.
 TEST-SEC-009: Secrets don't appear in logs, diagnostics, or error responses.
 """
+
 import logging
 import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 import vnc_remote_secure.security.ephemeral_sessions as mod
 from vnc_remote_secure.security.auth_gateway import (
@@ -33,13 +34,14 @@ from vnc_remote_secure.security.profiles import PROFILES, apply_profile
 def fresh_store(monkeypatch):
     """Fresh SessionStore as global."""
     store = SessionStore()
-    monkeypatch.setattr(mod, '_store', store)
+    monkeypatch.setattr(mod, "_store", store)
     return store
 
 
 # ---------------------------------------------------------------------------
 # TEST-SEC-005: Resource binding
 # ---------------------------------------------------------------------------
+
 
 class TestResourceBinding:
     """TEST-SEC-005: A desktop token cannot be used in terminal."""
@@ -55,8 +57,11 @@ class TestResourceBinding:
         from vnc_remote_secure.security.auth_gateway import (
             check_permission_for_action,
         )
+
         signed = create_ephemeral_session(
-            role='operator', ttl_seconds=300, resource='desktop',
+            role="operator",
+            ttl_seconds=300,
+            resource="desktop",
         )
         # Operator normally has terminal permission, but resource binding
         # should block it when accessing terminal.
@@ -65,56 +70,63 @@ class TestResourceBinding:
 
         # But with resource context, it should be blocked
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
-        result = check_permission(signed, PERM_TERMINAL, resource='terminal')
-        assert result is False, 'Desktop token should not access terminal'
+
+        result = check_permission(signed, PERM_TERMINAL, resource="terminal")
+        assert result is False, "Desktop token should not access terminal"
 
     def test_terminal_token_cannot_access_desktop(self, fresh_store):
         """Contrato: un token bound to 'terminal' no puede acceder a desktop."""
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
+
         signed = create_ephemeral_session(
-            role='operator', ttl_seconds=300, resource='terminal',
+            role="operator",
+            ttl_seconds=300,
+            resource="terminal",
         )
-        result = check_permission(signed, PERM_VIEW, resource='desktop')
-        assert result is False, 'Terminal token should not access desktop'
+        result = check_permission(signed, PERM_VIEW, resource="desktop")
+        assert result is False, "Terminal token should not access desktop"
 
     def test_unbound_token_can_access_any_resource(self, fresh_store):
         """Contrato: un token sin resource binding puede acceder a cualquier recurso."""
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
+
         signed = create_ephemeral_session(
-            role='operator', ttl_seconds=300, resource=None,
+            role="operator",
+            ttl_seconds=300,
+            resource=None,
         )
-        assert check_permission(signed, PERM_VIEW, resource='desktop')
-        assert check_permission(signed, PERM_TERMINAL, resource='terminal')
+        assert check_permission(signed, PERM_VIEW, resource="desktop")
+        assert check_permission(signed, PERM_TERMINAL, resource="terminal")
 
     def test_desktop_token_can_access_desktop(self, fresh_store):
         """Contrato: un token bound to 'desktop' SÃ puede acceder a desktop."""
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
-        signed = create_ephemeral_session(
-            role='viewer', ttl_seconds=300, resource='desktop',
-        )
-        assert check_permission(signed, PERM_VIEW, resource='desktop')
 
-    def test_require_resource_rejects_unbound(
-            self, fresh_store, monkeypatch):
+        signed = create_ephemeral_session(
+            role="viewer",
+            ttl_seconds=300,
+            resource="desktop",
+        )
+        assert check_permission(signed, PERM_VIEW, resource="desktop")
+
+    def test_require_resource_rejects_unbound(self, fresh_store, monkeypatch):
         """EPHEMERAL_REQUIRE_RESOURCE=true turns the opt-in binding
         into a hard requirement — an unbound token reaches every
         resource its permissions allow."""
         import pytest as _pytest
-        monkeypatch.setenv('EPHEMERAL_REQUIRE_RESOURCE', 'true')
-        with _pytest.raises(ValueError, match='resource'):
-            fresh_store.create(role='viewer', expires_in=300)
 
-    def test_require_resource_allows_bound(
-            self, fresh_store, monkeypatch):
-        monkeypatch.setenv('EPHEMERAL_REQUIRE_RESOURCE', 'true')
-        session, _signed = fresh_store.create(
-            role='viewer', expires_in=300, resource='desktop')
-        assert session.resource == 'desktop'
+        monkeypatch.setenv("EPHEMERAL_REQUIRE_RESOURCE", "true")
+        with _pytest.raises(ValueError, match="resource"):
+            fresh_store.create(role="viewer", expires_in=300)
+
+    def test_require_resource_allows_bound(self, fresh_store, monkeypatch):
+        monkeypatch.setenv("EPHEMERAL_REQUIRE_RESOURCE", "true")
+        session, _signed = fresh_store.create(role="viewer", expires_in=300, resource="desktop")
+        assert session.resource == "desktop"
 
     def test_require_resource_off_by_default(self, fresh_store):
         """Default remains opt-in — unbound tokens still allowed."""
-        session, _signed = fresh_store.create(
-            role='viewer', expires_in=300)
+        session, _signed = fresh_store.create(role="viewer", expires_in=300)
         assert session.resource is None
 
 
@@ -122,39 +134,40 @@ class TestResourceBinding:
 # TEST-SEC-006: Origin validation
 # ---------------------------------------------------------------------------
 
+
 class TestOriginValidation:
     """TEST-SEC-006: Disallowed Origin is rejected."""
 
     def test_empty_origin_rejected(self):
         """Contrato: Origin vacÃ­o es rechazado."""
-        assert not check_origin('', ['http://localhost:8000'])
+        assert not check_origin("", ["http://localhost:8000"])
 
     def test_null_origin_rejected(self):
         """Contrato: Origin 'null' es rechazado."""
-        assert not check_origin('null', ['http://localhost:8000'])
+        assert not check_origin("null", ["http://localhost:8000"])
 
     def test_origin_not_in_allowlist_rejected(self):
         """Contrato: Origin no en la lista es rechazado."""
-        assert not check_origin('https://evil.com', ['http://localhost:8000'])
+        assert not check_origin("https://evil.com", ["http://localhost:8000"])
 
     def test_origin_in_allowlist_accepted(self):
         """Contrato: Origin en la lista es aceptado."""
-        assert check_origin('http://localhost:8000', ['http://localhost:8000'])
+        assert check_origin("http://localhost:8000", ["http://localhost:8000"])
 
     def test_localhost_origin_accepted_in_default_config(self):
         """Contrato: localhost es aceptado con la config por defecto."""
         origins = get_allowed_origins()
-        assert 'http://localhost:8000' in origins
-        assert check_origin('http://localhost:8000', origins)
+        assert "http://localhost:8000" in origins
+        assert check_origin("http://localhost:8000", origins)
 
     def test_spoofed_subdomain_rejected(self):
         """Contrato: un subdominio spoofed de localhost es rechazado.
 
         CondiciÃ³n lÃ­mite: attacker intenta http://localhost.evil.com
         """
-        origins = ['http://localhost:8000']
-        assert not check_origin('http://localhost.evil.com', origins)
-        assert not check_origin('http://localhost:8000.evil.com', origins)
+        origins = ["http://localhost:8000"]
+        assert not check_origin("http://localhost.evil.com", origins)
+        assert not check_origin("http://localhost:8000.evil.com", origins)
 
     def test_websocket_upgrade_rejects_bad_origin(self, fresh_store):
         """Contrato: check_websocket_upgrade rechaza Origin no permitido.
@@ -163,20 +176,20 @@ class TestOriginValidation:
         AcciÃ³n: check_websocket_upgrade con Origin='https://evil.com'.
         Resultado: rechazado con 'Invalid origin'.
         """
-        signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
+        signed = create_ephemeral_session(role="viewer", ttl_seconds=300)
         allowed, reason = check_websocket_upgrade(
-            origin='https://evil.com',
+            origin="https://evil.com",
             bearer_token=signed,
             required_permission=PERM_VIEW,
         )
         assert allowed is False
-        assert 'origin' in reason.lower()
+        assert "origin" in reason.lower()
 
     def test_websocket_upgrade_accepts_valid_origin(self, fresh_store):
         """Contrato: check_websocket_upgrade acepta Origin permitido."""
-        signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
+        signed = create_ephemeral_session(role="viewer", ttl_seconds=300)
         allowed, reason = check_websocket_upgrade(
-            origin='http://localhost:8000',
+            origin="http://localhost:8000",
             bearer_token=signed,
             required_permission=PERM_VIEW,
         )
@@ -186,6 +199,7 @@ class TestOriginValidation:
 # ---------------------------------------------------------------------------
 # TEST-SEC-007: Spoofed proxy headers
 # ---------------------------------------------------------------------------
+
 
 class TestSpoofedProxyHeaders:
     """TEST-SEC-007: Spoofed proxy headers don't grant authentication.
@@ -197,13 +211,13 @@ class TestSpoofedProxyHeaders:
     """
 
     @pytest.mark.parametrize(
-        'header_name',
+        "header_name",
         [
-            'X-Forwarded-User',
-            'X-Remote-User',
-            'X-Authenticated-User',
-            'X-Forwarded-For',
-            'X-Forwarded-Proto',
+            "X-Forwarded-User",
+            "X-Remote-User",
+            "X-Authenticated-User",
+            "X-Forwarded-For",
+            "X-Forwarded-Proto",
         ],
     )
     def test_spoofed_header_does_not_authenticate(self, header_name):
@@ -218,10 +232,11 @@ class TestSpoofedProxyHeaders:
         verifica que la funciÃ³n no las considere.
         """
         from vnc_remote_secure.security.auth_gateway import check_authenticated
+
         # check_authenticated only accepts cookie_value and bearer_token.
         # It does NOT accept X-Forwarded-User or similar headers.
         # This is by design: the auth gateway never trusts proxy headers.
-        authed, username = check_authenticated(cookie_value='', bearer_token='')
+        authed, username = check_authenticated(cookie_value="", bearer_token="")
         assert authed is False
         assert username is None
 
@@ -234,13 +249,14 @@ class TestSpoofedProxyHeaders:
         import inspect
 
         from vnc_remote_secure.security.auth_gateway import check_authenticated
+
         sig = inspect.signature(check_authenticated)
         param_names = list(sig.parameters.keys())
         # Should only accept cookie_value and bearer_token
-        assert 'X-Forwarded-User' not in param_names
-        assert 'X-Remote-User' not in param_names
-        assert 'headers' not in param_names
-        assert 'proxy_headers' not in param_names
+        assert "X-Forwarded-User" not in param_names
+        assert "X-Remote-User" not in param_names
+        assert "headers" not in param_names
+        assert "proxy_headers" not in param_names
 
     def test_websocket_upgrade_does_not_trust_forwarded_user(self, fresh_store):
         """Contrato: check_websocket_upgrade no acepta X-Forwarded-User.
@@ -248,12 +264,12 @@ class TestSpoofedProxyHeaders:
         Si un atacante envÃ­a X-Forwarded-User: admin, no debe obtener
         acceso WebSocket.
         """
-        signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
+        signed = create_ephemeral_session(role="viewer", ttl_seconds=300)
         # check_websocket_upgrade does not accept X-Forwarded-User
         # It only checks origin, cookie, bearer_token, resource, permission
         allowed, _ = check_websocket_upgrade(
-            origin='http://localhost:8000',
-            cookie_value='',
+            origin="http://localhost:8000",
+            cookie_value="",
             bearer_token=signed,
             required_permission=PERM_VIEW,
         )
@@ -266,26 +282,27 @@ class TestSpoofedProxyHeaders:
 # TEST-SEC-008: Public-hardened blocks insecure startup
 # ---------------------------------------------------------------------------
 
+
 class TestPublicHardenedBlocksInsecureStartup:
     """TEST-SEC-008: Public-hardened blocks startup without TLS/MFA/proxy/secret."""
 
     def test_public_hardened_requires_tls(self):
         """Contrato: public-hardened requiere TLS_ENABLED=true."""
-        profile = PROFILES.get('public-hardened', {})
-        tls = str(profile.get('TLS_ENABLED', '')).lower()
-        assert tls == 'true', f'public-hardened should have TLS_ENABLED=true, got {tls}'
+        profile = PROFILES.get("public-hardened", {})
+        tls = str(profile.get("TLS_ENABLED", "")).lower()
+        assert tls == "true", f"public-hardened should have TLS_ENABLED=true, got {tls}"
 
     def test_public_hardened_requires_mfa(self):
         """Contrato: public-hardened requiere MFA_REQUIRED=true."""
-        profile = PROFILES.get('public-hardened', {})
-        mfa = str(profile.get('MFA_REQUIRED', '')).lower()
-        assert mfa == 'true'
+        profile = PROFILES.get("public-hardened", {})
+        mfa = str(profile.get("MFA_REQUIRED", "")).lower()
+        assert mfa == "true"
 
     def test_public_hardened_requires_nginx(self):
         """Contrato: public-hardened requiere NGINX_ENABLED=true."""
-        profile = PROFILES.get('public-hardened', {})
-        nginx = str(profile.get('NGINX_ENABLED', '')).lower()
-        assert nginx == 'true'
+        profile = PROFILES.get("public-hardened", {})
+        nginx = str(profile.get("NGINX_ENABLED", "")).lower()
+        assert nginx == "true"
 
     def test_public_hardened_enforces_localhost_bind(self, monkeypatch):
         """Contrato: public-hardened fuerza BACKEND_BIND_HOST=127.0.0.1.
@@ -294,23 +311,23 @@ class TestPublicHardenedBlocksInsecureStartup:
         AcciÃ³n: apply_profile('public-hardened').
         Resultado: BACKEND_BIND_HOST se fuerza a 127.0.0.1.
         """
-        monkeypatch.setenv('BACKEND_BIND_HOST', '0.0.0.0')
-        monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
-        apply_profile('public-hardened', overwrite=True)
-        assert os.environ.get('BACKEND_BIND_HOST') == '127.0.0.1'
+        monkeypatch.setenv("BACKEND_BIND_HOST", "0.0.0.0")
+        monkeypatch.setenv("SECURITY_PROFILE", "public-hardened")
+        apply_profile("public-hardened", overwrite=True)
+        assert os.environ.get("BACKEND_BIND_HOST") == "127.0.0.1"
 
     def test_development_allows_external_bind(self, monkeypatch):
         """Contrato: development NO fuerza localhost bind.
 
         Diferencia intencional: development permite 0.0.0.0 para pruebas.
         """
-        monkeypatch.setenv('BACKEND_BIND_HOST', '0.0.0.0')
-        monkeypatch.setenv('SECURITY_PROFILE', 'development')
+        monkeypatch.setenv("BACKEND_BIND_HOST", "0.0.0.0")
+        monkeypatch.setenv("SECURITY_PROFILE", "development")
         # overwrite=False: operator-set vars win over profile defaults â€”
         # and development is not hardened, so BACKEND_BIND_HOST is not
         # in locked_vars (unlike public-hardened, which forces 127.0.0.1).
-        apply_profile('development')
-        assert os.environ.get('BACKEND_BIND_HOST') == '0.0.0.0'
+        apply_profile("development")
+        assert os.environ.get("BACKEND_BIND_HOST") == "0.0.0.0"
 
     def test_config_validate_reports_missing_flask_secret(self, monkeypatch):
         """Contrato: config validate reporta FLASK_SECRET_KEY ausente en hardened.
@@ -320,17 +337,19 @@ class TestPublicHardenedBlocksInsecureStartup:
         Resultado: finding crÃ­tico sobre FLASK_SECRET_KEY.
         """
         from vnc_remote_secure.core.config_inspector import validate_config
-        monkeypatch.setenv('SECURITY_PROFILE', 'public-hardened')
-        monkeypatch.delenv('FLASK_SECRET_KEY', raising=False)
+
+        monkeypatch.setenv("SECURITY_PROFILE", "public-hardened")
+        monkeypatch.delenv("FLASK_SECRET_KEY", raising=False)
         findings = validate_config()
-        secret_findings = [f for f in findings if 'FLASK_SECRET' in f.get('message', '')]
-        assert len(secret_findings) > 0, 'Should report missing FLASK_SECRET_KEY'
-        assert secret_findings[0]['severity'] == 'critical'
+        secret_findings = [f for f in findings if "FLASK_SECRET" in f.get("message", "")]
+        assert len(secret_findings) > 0, "Should report missing FLASK_SECRET_KEY"
+        assert secret_findings[0]["severity"] == "critical"
 
 
 # ---------------------------------------------------------------------------
 # TEST-SEC-009: Secrets don't appear in logs
 # ---------------------------------------------------------------------------
+
 
 class TestSecretsNotInLogs:
     """TEST-SEC-009: Secrets don't appear in logs, diagnostics, or errors."""
@@ -340,18 +359,16 @@ class TestSecretsNotInLogs:
 
         Efectos prohibidos: el token no aparece en la serializaciÃ³n.
         """
-        session, signed = fresh_store.create(role='viewer', expires_in=300)
+        session, signed = fresh_store.create(role="viewer", expires_in=300)
         d = session.to_dict()
-        assert 'token' not in d, 'to_dict() should not include the raw token'
-        assert 'signed' not in d
-        assert 'signature' not in d
+        assert "token" not in d, "to_dict() should not include the raw token"
+        assert "signed" not in d
+        assert "signature" not in d
         # The actual token string should not appear in any value
         token_str = session.token
         for key, value in d.items():
             if isinstance(value, str):
-                assert token_str not in value, (
-                    f'Token found in to_dict() field {key}'
-                )
+                assert token_str not in value, f"Token found in to_dict() field {key}"
 
     def test_vnc_password_redacted_in_config_show(self, monkeypatch):
         """Contrato: config show-effective redacta VNC_PASSWORD.
@@ -364,27 +381,29 @@ class TestSecretsNotInLogs:
         from vnc_remote_secure.core.config_inspector import (
             compute_effective_config,
         )
-        monkeypatch.setenv('VNC_PASSWORD', 'mySecretPassword123')
+
+        monkeypatch.setenv("VNC_PASSWORD", "mySecretPassword123")
         config = compute_effective_config()
         for entry in config:
-            if entry['name'] == 'VNC_PASSWORD':
-                assert 'mySecretPassword123' not in entry['value']
-                assert 'REDACTED' in entry['value']
+            if entry["name"] == "VNC_PASSWORD":
+                assert "mySecretPassword123" not in entry["value"]
+                assert "REDACTED" in entry["value"]
                 return
-        pytest.fail('VNC_PASSWORD not found in config output')
+        pytest.fail("VNC_PASSWORD not found in config output")
 
     def test_flask_secret_redacted_in_config_show(self, monkeypatch):
         """Contrato: config show-effective redacta FLASK_SECRET_KEY."""
         from vnc_remote_secure.core.config_inspector import (
             compute_effective_config,
         )
-        monkeypatch.setenv('FLASK_SECRET_KEY', 'superSecretKey456')
+
+        monkeypatch.setenv("FLASK_SECRET_KEY", "superSecretKey456")
         config = compute_effective_config()
         for entry in config:
-            if entry['name'] == 'FLASK_SECRET_KEY':
-                assert 'superSecretKey456' not in entry['value']
+            if entry["name"] == "FLASK_SECRET_KEY":
+                assert "superSecretKey456" not in entry["value"]
                 return
-        pytest.fail('FLASK_SECRET_KEY not found in config output')
+        pytest.fail("FLASK_SECRET_KEY not found in config output")
 
     def test_audit_log_does_not_include_token(self, fresh_store, caplog):
         """Contrato: los logs de auditorÃ­a no incluyen el token.
@@ -395,16 +414,17 @@ class TestSecretsNotInLogs:
         Efectos prohibidos: el token firmado aparece en cualquier log.
         """
         from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-        signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
+
+        signed = create_ephemeral_session(role="viewer", ttl_seconds=300)
 
         with caplog.at_level(logging.DEBUG):
             revoke_session(signed)
 
         # The signed token should not appear in any log message
         for record in caplog.records:
-            assert signed not in record.getMessage(), (
-                f'Signed token found in log: {record.getMessage()}'
-            )
+            assert (
+                signed not in record.getMessage()
+            ), f"Signed token found in log: {record.getMessage()}"
 
     def test_error_messages_do_not_leak_secrets(self, fresh_store):
         """Contrato: los mensajes de error no incluyen secretos.
@@ -415,10 +435,11 @@ class TestSecretsNotInLogs:
         from vnc_remote_secure.security.auth_gateway import (
             check_permission_for_action,
         )
-        fake_token = 'fakeSecretToken123456789'
+
+        fake_token = "fakeSecretToken123456789"
         allowed, reason = check_permission_for_action(fake_token, PERM_VIEW)
         assert allowed is False
-        assert 'fakeSecretToken123456789' not in reason
+        assert "fakeSecretToken123456789" not in reason
 
 
 class TestExpiryEnforcement:
@@ -426,28 +447,26 @@ class TestExpiryEnforcement:
     â€” the expiry check sits on the authorization critical path."""
 
     def test_expired_is_invalid(self, fresh_store):
-        sess, signed = fresh_store.create(
-            role='viewer', expires_in=-1)  # already expired
+        sess, signed = fresh_store.create(role="viewer", expires_in=-1)  # already expired
         assert sess.is_valid() is False
         assert fresh_store.validate(signed) is None
 
     def test_expired_check_permission_denied(self, fresh_store):
-        _sess, signed = fresh_store.create(
-            role='viewer', expires_in=-1)
+        _sess, signed = fresh_store.create(role="viewer", expires_in=-1)
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
-        assert check_permission(signed, 'desktop:view') is False
+
+        assert check_permission(signed, "desktop:view") is False
 
     def test_expired_activate_returns_none(self, fresh_store):
-        _sess, signed = fresh_store.create(
-            role='viewer', expires_in=-1)
+        _sess, signed = fresh_store.create(role="viewer", expires_in=-1)
         from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+
         assert activate_ephemeral_session(signed) is None
 
     def test_max_uses_boundary(self, fresh_store):
         """max_uses=1: first consume ok, second must fail (boundary at
         the counter, not just single_use flag)."""
-        sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600, max_uses=1)
+        sess, signed = fresh_store.create(role="viewer", expires_in=3600, max_uses=1)
         assert sess.is_valid() is True
         sess.use_count = 1
         assert sess.is_valid() is False
@@ -457,7 +476,8 @@ class TestExpiryEnforcement:
         """expires_in=0 creates expires_at ~= now â€” must not be
         treated as still-valid after the clock advances."""
         import time
-        sess, signed = fresh_store.create(role='viewer', expires_in=0)
+
+        sess, signed = fresh_store.create(role="viewer", expires_in=0)
         # Boundary: exactly at expiry is invalid (>), one second before
         # would be valid â€” freeze time just inside validity.
         sess.expires_at = time.time() + 1
@@ -472,21 +492,18 @@ class TestResourceBindingValidation:
     has_permission."""
 
     def test_wrong_resource_is_invalid(self, fresh_store):
-        sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600, resource='desktop')
-        assert sess.is_valid(resource='desktop') is True
-        assert sess.is_valid(resource='terminal') is False
-        assert fresh_store.validate(signed, resource='terminal') is None
-        assert fresh_store.validate(signed, resource='desktop') is sess
+        sess, signed = fresh_store.create(role="viewer", expires_in=3600, resource="desktop")
+        assert sess.is_valid(resource="desktop") is True
+        assert sess.is_valid(resource="terminal") is False
+        assert fresh_store.validate(signed, resource="terminal") is None
+        assert fresh_store.validate(signed, resource="desktop") is sess
 
     def test_check_permission_wrong_resource_denied(self, fresh_store):
-        _sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600, resource='desktop')
+        _sess, signed = fresh_store.create(role="viewer", expires_in=3600, resource="desktop")
         from vnc_remote_secure.security.ephemeral_sessions import check_permission
-        assert check_permission(
-            signed, 'desktop:view', resource='desktop') is True
-        assert check_permission(
-            signed, 'terminal:use', resource='terminal') is False
+
+        assert check_permission(signed, "desktop:view", resource="desktop") is True
+        assert check_permission(signed, "terminal:use", resource="terminal") is False
 
 
 class TestCidrIpBinding:
@@ -494,55 +511,45 @@ class TestCidrIpBinding:
     client roaming inside one network."""
 
     def test_cidr_match_accepted(self, fresh_store):
-        sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/24')
-        assert sess.is_valid(client_ip='10.0.0.55') is True
-        assert fresh_store.validate(
-            signed, client_ip='10.0.0.55') is sess
+        sess, signed = fresh_store.create(role="viewer", expires_in=3600, allowed_ip="10.0.0.0/24")
+        assert sess.is_valid(client_ip="10.0.0.55") is True
+        assert fresh_store.validate(signed, client_ip="10.0.0.55") is sess
 
     def test_cidr_mismatch_rejected(self, fresh_store):
-        sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/24')
-        assert sess.is_valid(client_ip='10.0.1.5') is False
-        assert fresh_store.validate(
-            signed, client_ip='10.0.1.5') is None
+        sess, signed = fresh_store.create(role="viewer", expires_in=3600, allowed_ip="10.0.0.0/24")
+        assert sess.is_valid(client_ip="10.0.1.5") is False
+        assert fresh_store.validate(signed, client_ip="10.0.1.5") is None
 
     def test_cidr_boundary_first_last(self, fresh_store):
         """First and last usable addresses of the range are in."""
-        sess, _ = fresh_store.create(
-            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/30')
-        assert sess.is_valid(client_ip='10.0.0.1') is True
-        assert sess.is_valid(client_ip='10.0.0.2') is True
-        assert sess.is_valid(client_ip='10.0.0.4') is False
+        sess, _ = fresh_store.create(role="viewer", expires_in=3600, allowed_ip="10.0.0.0/30")
+        assert sess.is_valid(client_ip="10.0.0.1") is True
+        assert sess.is_valid(client_ip="10.0.0.2") is True
+        assert sess.is_valid(client_ip="10.0.0.4") is False
 
     def test_exact_still_works(self, fresh_store):
-        sess, _ = fresh_store.create(
-            role='viewer', expires_in=3600, allowed_ip='203.0.113.7')
-        assert sess.is_valid(client_ip='203.0.113.7') is True
-        assert sess.is_valid(client_ip='203.0.113.8') is False
+        sess, _ = fresh_store.create(role="viewer", expires_in=3600, allowed_ip="203.0.113.7")
+        assert sess.is_valid(client_ip="203.0.113.7") is True
+        assert sess.is_valid(client_ip="203.0.113.8") is False
 
     def test_invalid_cidr_fails_closed(self, fresh_store):
         """A garbage CIDR must never become a wildcard."""
-        sess, _ = fresh_store.create(
-            role='viewer', expires_in=3600, allowed_ip='999.0.0.0/8')
-        assert sess.is_valid(client_ip='999.0.0.1') is False
-        assert sess.is_valid(client_ip='10.0.0.1') is False
+        sess, _ = fresh_store.create(role="viewer", expires_in=3600, allowed_ip="999.0.0.0/8")
+        assert sess.is_valid(client_ip="999.0.0.1") is False
+        assert sess.is_valid(client_ip="10.0.0.1") is False
 
     def test_check_session_permission_cidr(self, fresh_store):
         """CIDR binding enforced on the activated-session path too."""
-        _sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600, allowed_ip='10.0.0.0/24')
+        _sess, signed = fresh_store.create(role="viewer", expires_in=3600, allowed_ip="10.0.0.0/24")
         from vnc_remote_secure.security.ephemeral_sessions import (
             activate_ephemeral_session,
             check_session_permission,
         )
-        internal = activate_ephemeral_session(
-            signed, client_ip='10.0.0.5')
+
+        internal = activate_ephemeral_session(signed, client_ip="10.0.0.5")
         assert internal is not None
-        assert check_session_permission(
-            internal, 'desktop:view', client_ip='10.0.0.9') is True
-        assert check_session_permission(
-            internal, 'desktop:view', client_ip='192.168.1.1') is False
+        assert check_session_permission(internal, "desktop:view", client_ip="10.0.0.9") is True
+        assert check_session_permission(internal, "desktop:view", client_ip="192.168.1.1") is False
 
 
 class TestGranularPermissionExpansion:
@@ -550,42 +557,43 @@ class TestGranularPermissionExpansion:
     the umbrella."""
 
     def test_control_implies_keyboard_and_pointer(self, fresh_store):
-        sess, _ = fresh_store.create(role='support', expires_in=3600)
-        assert sess.has_permission('desktop:keyboard') is True
-        assert sess.has_permission('desktop:pointer') is True
-        assert sess.has_permission('desktop:control') is True
+        sess, _ = fresh_store.create(role="support", expires_in=3600)
+        assert sess.has_permission("desktop:keyboard") is True
+        assert sess.has_permission("desktop:pointer") is True
+        assert sess.has_permission("desktop:control") is True
 
     def test_clipboard_implies_write(self, fresh_store):
-        sess, _ = fresh_store.create(role='support', expires_in=3600)
-        assert sess.has_permission(
-            'desktop:clipboard_write') is True
+        sess, _ = fresh_store.create(role="support", expires_in=3600)
+        assert sess.has_permission("desktop:clipboard_write") is True
 
     def test_pointer_only_no_control(self, fresh_store):
         sess, _ = fresh_store.create(
-            role='viewer', expires_in=3600,
-            permissions={'view', 'pointer'})
-        assert sess.has_permission('desktop:pointer') is True
-        assert sess.has_permission('desktop:keyboard') is False
-        assert sess.has_permission('desktop:control') is False
+            role="viewer", expires_in=3600, permissions={"view", "pointer"}
+        )
+        assert sess.has_permission("desktop:pointer") is True
+        assert sess.has_permission("desktop:keyboard") is False
+        assert sess.has_permission("desktop:control") is False
 
     def test_keyboard_only_no_pointer(self, fresh_store):
         sess, _ = fresh_store.create(
-            role='viewer', expires_in=3600,
-            permissions={'view', 'keyboard'})
-        assert sess.has_permission('desktop:keyboard') is True
-        assert sess.has_permission('desktop:pointer') is False
+            role="viewer", expires_in=3600, permissions={"view", "keyboard"}
+        )
+        assert sess.has_permission("desktop:keyboard") is True
+        assert sess.has_permission("desktop:pointer") is False
 
     def test_view_only_blocks_granular_input(self, fresh_store):
         """view_only blocks keyboard/pointer/clipboard_write even if
         a buggy caller granted them explicitly."""
         sess, _ = fresh_store.create(
-            role='support', expires_in=3600, view_only=True,
-            permissions={'view', 'keyboard', 'pointer',
-                         'clipboard_write'})
-        assert sess.has_permission('desktop:keyboard') is False
-        assert sess.has_permission('desktop:pointer') is False
-        assert sess.has_permission('desktop:clipboard_write') is False
-        assert sess.has_permission('desktop:view') is True
+            role="support",
+            expires_in=3600,
+            view_only=True,
+            permissions={"view", "keyboard", "pointer", "clipboard_write"},
+        )
+        assert sess.has_permission("desktop:keyboard") is False
+        assert sess.has_permission("desktop:pointer") is False
+        assert sess.has_permission("desktop:clipboard_write") is False
+        assert sess.has_permission("desktop:view") is True
 
 
 class TestFirstObservedIpBinding:
@@ -595,46 +603,42 @@ class TestFirstObservedIpBinding:
 
     def test_first_activation_pins_ip(self, fresh_store):
         from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+
         _sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600,
-            allowed_ip='first-observed')
-        token = activate_ephemeral_session(
-            signed, client_ip='203.0.113.7')
+            role="viewer", expires_in=3600, allowed_ip="first-observed"
+        )
+        token = activate_ephemeral_session(signed, client_ip="203.0.113.7")
         assert token is not None
         sess = fresh_store.get(token)
-        assert sess.allowed_ip == '203.0.113.7'
+        assert sess.allowed_ip == "203.0.113.7"
 
     def test_pinned_binding_enforced(self, fresh_store):
         from vnc_remote_secure.security.ephemeral_sessions import (
             activate_ephemeral_session,
             check_session_permission,
         )
-        _sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600,
-            allowed_ip='first-observed')
-        token = activate_ephemeral_session(
-            signed, client_ip='203.0.113.7')
-        assert check_session_permission(
-            token, 'desktop:view',
-            client_ip='203.0.113.7') is True
-        # A different client is rejected after pinning.
-        assert check_session_permission(
-            token, 'desktop:view',
-            client_ip='198.51.100.4') is False
 
-    def test_activation_without_ip_leaves_unbound(
-            self, fresh_store):
+        _sess, signed = fresh_store.create(
+            role="viewer", expires_in=3600, allowed_ip="first-observed"
+        )
+        token = activate_ephemeral_session(signed, client_ip="203.0.113.7")
+        assert check_session_permission(token, "desktop:view", client_ip="203.0.113.7") is True
+        # A different client is rejected after pinning.
+        assert check_session_permission(token, "desktop:view", client_ip="198.51.100.4") is False
+
+    def test_activation_without_ip_leaves_unbound(self, fresh_store):
         """CLI/API activation without caller context doesn't pin â€”
         the binding applies at first request with a real IP... and a
         later activation WITH an ip still pins then."""
         from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
+
         _sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600,
-            allowed_ip='first-observed')
+            role="viewer", expires_in=3600, allowed_ip="first-observed"
+        )
         token = activate_ephemeral_session(signed)
         assert token is not None
         sess = fresh_store.get(token)
-        assert sess.allowed_ip == 'first-observed'
+        assert sess.allowed_ip == "first-observed"
 
 
 class TestAudioPermission:
@@ -642,19 +646,17 @@ class TestAudioPermission:
     and must not ride along with desktop:view."""
 
     def test_viewer_lacks_audio(self, fresh_store):
-        sess, _ = fresh_store.create(role='viewer', expires_in=3600)
-        assert sess.has_permission('desktop:audio') is False
-        assert sess.has_permission('desktop:view') is True
+        sess, _ = fresh_store.create(role="viewer", expires_in=3600)
+        assert sess.has_permission("desktop:audio") is False
+        assert sess.has_permission("desktop:view") is True
 
     def test_support_has_audio(self, fresh_store):
-        sess, _ = fresh_store.create(role='support', expires_in=3600)
-        assert sess.has_permission('desktop:audio') is True
+        sess, _ = fresh_store.create(role="support", expires_in=3600)
+        assert sess.has_permission("desktop:audio") is True
 
     def test_explicit_view_plus_audio(self, fresh_store):
-        sess, _ = fresh_store.create(
-            role='viewer', expires_in=3600,
-            permissions={'view', 'audio'})
-        assert sess.has_permission('desktop:audio') is True
+        sess, _ = fresh_store.create(role="viewer", expires_in=3600, permissions={"view", "audio"})
+        assert sess.has_permission("desktop:audio") is True
 
 
 class TestGamepadPermission:
@@ -664,21 +666,21 @@ class TestGamepadPermission:
     def test_support_lacks_gamepad(self, fresh_store):
         """support has full control but NOT the experimental
         gamepad path â€” control umbrella must not imply it."""
-        sess, _ = fresh_store.create(role='support', expires_in=3600)
-        assert sess.has_permission('desktop:control') is True
-        assert sess.has_permission('desktop:gamepad') is False
+        sess, _ = fresh_store.create(role="support", expires_in=3600)
+        assert sess.has_permission("desktop:control") is True
+        assert sess.has_permission("desktop:gamepad") is False
 
     def test_operator_has_gamepad(self, fresh_store):
-        sess, _ = fresh_store.create(role='operator', expires_in=3600)
-        assert sess.has_permission('desktop:gamepad') is True
+        sess, _ = fresh_store.create(role="operator", expires_in=3600)
+        assert sess.has_permission("desktop:gamepad") is True
 
     def test_view_only_blocks_gamepad(self, fresh_store):
         """Input injection must be blocked in view_only even when a
         caller granted the perm explicitly."""
         sess, _ = fresh_store.create(
-            role='operator', expires_in=3600, view_only=True,
-            permissions={'view', 'gamepad'})
-        assert sess.has_permission('desktop:gamepad') is False
+            role="operator", expires_in=3600, view_only=True, permissions={"view", "gamepad"}
+        )
+        assert sess.has_permission("desktop:gamepad") is False
 
 
 class TestSessionLifecycleMetrics:
@@ -688,32 +690,32 @@ class TestSessionLifecycleMetrics:
     def test_created_metric(self, fresh_store, monkeypatch):
         calls = []
         monkeypatch.setattr(
-            'vnc_remote_secure.monitoring.prometheus.inc_counter',
-            lambda n, lbl='', value=1: calls.append((n, lbl)))
-        fresh_store.create(role='viewer', expires_in=3600)
-        assert ('vnc_remote_ephemeral_sessions_total',
-                'event=created') in calls
+            "vnc_remote_secure.monitoring.prometheus.inc_counter",
+            lambda n, lbl="", value=1: calls.append((n, lbl)),
+        )
+        fresh_store.create(role="viewer", expires_in=3600)
+        assert ("vnc_remote_ephemeral_sessions_total", "event=created") in calls
 
     def test_revoked_metric(self, fresh_store, monkeypatch):
         from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-        _sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600)
+
+        _sess, signed = fresh_store.create(role="viewer", expires_in=3600)
         calls = []
         monkeypatch.setattr(
-            'vnc_remote_secure.monitoring.prometheus.inc_counter',
-            lambda n, lbl='', value=1: calls.append((n, lbl)))
+            "vnc_remote_secure.monitoring.prometheus.inc_counter",
+            lambda n, lbl="", value=1: calls.append((n, lbl)),
+        )
         assert revoke_session(signed) is True
-        assert ('vnc_remote_ephemeral_sessions_total',
-                'event=revoked') in calls
+        assert ("vnc_remote_ephemeral_sessions_total", "event=revoked") in calls
 
     def test_activated_metric(self, fresh_store, monkeypatch):
         from vnc_remote_secure.security.ephemeral_sessions import activate_ephemeral_session
-        _sess, signed = fresh_store.create(
-            role='viewer', expires_in=3600)
+
+        _sess, signed = fresh_store.create(role="viewer", expires_in=3600)
         calls = []
         monkeypatch.setattr(
-            'vnc_remote_secure.monitoring.prometheus.inc_counter',
-            lambda n, lbl='', value=1: calls.append((n, lbl)))
+            "vnc_remote_secure.monitoring.prometheus.inc_counter",
+            lambda n, lbl="", value=1: calls.append((n, lbl)),
+        )
         assert activate_ephemeral_session(signed) is not None
-        assert ('vnc_remote_ephemeral_sessions_total',
-                'event=activated') in calls
+        assert ("vnc_remote_ephemeral_sessions_total", "event=activated") in calls

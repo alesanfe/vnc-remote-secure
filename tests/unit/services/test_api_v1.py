@@ -4,6 +4,7 @@ Exercises the real request path: auth gate, operator capability checks,
 CSRF token enforcement, strict input schemas, per-scope rate limits,
 and cursor pagination — not just the helpers behind them.
 """
+
 import base64
 import http.client
 import json
@@ -13,7 +14,7 @@ import time
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from vnc_remote_secure.services import (
     landing,  # noqa: E402
@@ -30,31 +31,54 @@ def server(monkeypatch, tmp_path, asgi_server):
     real port connects + a ~3 s metrics collection would otherwise
     blow the 5 s request timeout.
     """
-    monkeypatch.setenv('LANDING_PASSWORD', 'T3st-Landing!Pass')
-    monkeypatch.setattr(landing, 'check_port', lambda *a, **k: True)
-    monkeypatch.setattr(landing, 'get_lan_ips', lambda: ['10.0.0.9'])
+    monkeypatch.setenv("LANDING_PASSWORD", "T3st-Landing!Pass")
+    monkeypatch.setattr(landing, "check_port", lambda *a, **k: True)
+    monkeypatch.setattr(landing, "get_lan_ips", lambda: ["10.0.0.9"])
     monkeypatch.setattr(
-        landing, 'get_system_metrics',
-        lambda: {'hostname': 'h', 'os': 'os', 'uptime': '1h',
-                 'cpu': '1%', 'memory': '2G', 'disk': '3G'})
+        landing,
+        "get_system_metrics",
+        lambda: {
+            "hostname": "h",
+            "os": "os",
+            "uptime": "1h",
+            "cpu": "1%",
+            "memory": "2G",
+            "disk": "3G",
+        },
+    )
     from vnc_remote_secure.core import portal as cp
-    monkeypatch.setattr(cp, 'check_port', lambda *a, **k: True)
-    monkeypatch.setattr(cp, 'get_lan_ips', lambda: ['10.0.0.9'])
+
+    monkeypatch.setattr(cp, "check_port", lambda *a, **k: True)
+    monkeypatch.setattr(cp, "get_lan_ips", lambda: ["10.0.0.9"])
     monkeypatch.setattr(
-        cp, 'get_system_metrics',
-        lambda: {'hostname': 'h', 'os': 'os', 'uptime': '1h',
-                 'cpu': '1%', 'memory': '2G', 'disk': '3G'})
+        cp,
+        "get_system_metrics",
+        lambda: {
+            "hostname": "h",
+            "os": "os",
+            "uptime": "1h",
+            "cpu": "1%",
+            "memory": "2G",
+            "disk": "3G",
+        },
+    )
     cfg = {
-        'novnc_port': 6080, 'ttyd_port': 7681, 'health_port': 8080,
-        'landing_port': 8000, 'vnc_port': 5900, 'vnc_http_port': 5800,
-        'novnc_host': '127.0.0.1', 'ttyd_host': '127.0.0.1',
-        'health_host': '127.0.0.1',
+        "novnc_port": 6080,
+        "ttyd_port": 7681,
+        "health_port": 8080,
+        "landing_port": 8000,
+        "vnc_port": 5900,
+        "vnc_http_port": 5800,
+        "novnc_host": "127.0.0.1",
+        "ttyd_host": "127.0.0.1",
+        "health_host": "127.0.0.1",
     }
-    monkeypatch.setattr(landing, '_config', lambda: cfg)
+    monkeypatch.setattr(landing, "_config", lambda: cfg)
     cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
         from vnc_remote_secure.backend.app import create_app
+
         yield asgi_server(create_app())
     finally:
         os.chdir(cwd)
@@ -63,6 +87,7 @@ def server(monkeypatch, tmp_path, asgi_server):
 class _Hdrs(dict):
     """Case-insensitive response-header mapping (ASGI servers
     lowercase names on the wire — http.client returns them as sent)."""
+
     def __getitem__(self, k):
         return super().__getitem__(k.lower())
 
@@ -73,8 +98,8 @@ class _Hdrs(dict):
         return super().__contains__(k.lower())
 
 
-def _req(port, path, method='GET', headers=None, body=None):
-    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+def _req(port, path, method="GET", headers=None, body=None):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     conn.request(method, path, body=body, headers=headers or {})
     resp = conn.getresponse()
     data = resp.read()
@@ -84,77 +109,76 @@ def _req(port, path, method='GET', headers=None, body=None):
     hdrs = _Hdrs()
     for k, v in resp.getheaders():
         kl = k.lower()
-        hdrs[kl] = f'{hdrs[kl]}; {v}' if kl in hdrs else v
+        hdrs[kl] = f"{hdrs[kl]}; {v}" if kl in hdrs else v
     return resp.status, hdrs, data
 
 
 def _cookie_value(set_cookie: str, name: str) -> str:
     """Extract a cookie value from a possibly-merged Set-Cookie str."""
     import re
-    m = re.search(rf'(?:^|;\s*){re.escape(name)}=([^;\s]+)', set_cookie)
-    return m.group(1) if m else ''
+
+    m = re.search(rf"(?:^|;\s*){re.escape(name)}=([^;\s]+)", set_cookie)
+    return m.group(1) if m else ""
 
 
 def _auth_headers():
-    cred = base64.b64encode(b'admin:T3st-Landing!Pass').decode()
-    return {'Authorization': f'Basic {cred}'}
+    cred = base64.b64encode(b"admin:T3st-Landing!Pass").decode()
+    return {"Authorization": f"Basic {cred}"}
 
 
 def _csrf_session(port, headers=None):
     """Real session flow: GET /me issues the vnc_op + vnc_csrf cookies
     and returns the token bound to (sid, nonce). Returns headers for
     a POST. ``headers`` overrides the auth (e.g. a store operator)."""
-    status, headers, body = _req(port, '/api/v1/me',
-                                 headers=headers or _auth_headers())
+    status, headers, body = _req(port, "/api/v1/me", headers=headers or _auth_headers())
     assert status == 200
-    sc = headers.get('Set-Cookie', '')
-    op = _cookie_value(sc, 'vnc_op')
-    csrf = _cookie_value(sc, 'vnc_csrf')
+    sc = headers.get("Set-Cookie", "")
+    op = _cookie_value(sc, "vnc_op")
+    csrf = _cookie_value(sc, "vnc_csrf")
     assert op and csrf
-    token = json.loads(body)['data']['csrf_token']
+    token = json.loads(body)["data"]["csrf_token"]
     h = _auth_headers()
-    h['Cookie'] = f'vnc_op={op}; vnc_csrf={csrf}'
-    h['X-CSRF-Token'] = token
+    h["Cookie"] = f"vnc_op={op}; vnc_csrf={csrf}"
+    h["X-CSRF-Token"] = token
     return h
 
 
-def _api_post(port, path, payload, headers=None, username='admin'):
-    h = {'Content-Type': 'application/json'}
+def _api_post(port, path, payload, headers=None, username="admin"):
+    h = {"Content-Type": "application/json"}
     h.update(headers or {})
-    return _req(port, path, method='POST',
-                headers=h, body=json.dumps(payload))
+    return _req(port, path, method="POST", headers=h, body=json.dumps(payload))
 
 
 # ---------------------------------------------------------------------------
 # Auth & envelope
 # ---------------------------------------------------------------------------
 
+
 def test_api_unauthenticated_401(server):
-    status, _, _ = _req(server, '/api/v1/me')
+    status, _, _ = _req(server, "/api/v1/me")
     assert status == 401
 
 
 def test_api_me_returns_operator_and_csrf(server):
-    status, _, body = _req(server, '/api/v1/me', headers=_auth_headers())
+    status, _, body = _req(server, "/api/v1/me", headers=_auth_headers())
     assert status == 200
     data = json.loads(body)
-    assert data['error'] is None
-    assert data['data']['operator']['username'] == 'admin'
-    assert 'admin:*' in data['data']['operator']['permissions']
-    assert data['data']['csrf_token']
+    assert data["error"] is None
+    assert data["data"]["operator"]["username"] == "admin"
+    assert "admin:*" in data["data"]["operator"]["permissions"]
+    assert data["data"]["csrf_token"]
 
 
 def test_api_envelope_shape(server):
-    status, _, body = _req(server, '/api/v1/status',
-                           headers=_auth_headers())
+    status, _, body = _req(server, "/api/v1/status", headers=_auth_headers())
     assert status == 200
     env = json.loads(body)
-    assert set(env) == {'data', 'error', 'request_id'}
-    assert 'services' in env['data']
+    assert set(env) == {"data", "error", "request_id"}
+    assert "services" in env["data"]
 
 
 def test_api_unknown_path_404(server):
-    status, _, _ = _req(server, '/api/v1/nope', headers=_auth_headers())
+    status, _, _ = _req(server, "/api/v1/nope", headers=_auth_headers())
     assert status == 404
 
 
@@ -162,72 +186,80 @@ def test_api_unknown_path_404(server):
 # CSRF
 # ---------------------------------------------------------------------------
 
+
 def test_post_without_csrf_rejected(server):
     status, _, _ = _api_post(
-        server, '/api/v1/sessions', {'role': 'viewer'},
-        headers=_auth_headers())
+        server, "/api/v1/sessions", {"role": "viewer"}, headers=_auth_headers()
+    )
     assert status == 403
 
 
 def test_post_wrong_csrf_rejected(server):
     h = _auth_headers()
-    h['X-CSRF-Token'] = 'bogus'
-    status, _, _ = _api_post(
-        server, '/api/v1/sessions', {'role': 'viewer'}, headers=h)
+    h["X-CSRF-Token"] = "bogus"
+    status, _, _ = _api_post(server, "/api/v1/sessions", {"role": "viewer"}, headers=h)
     assert status == 403
 
 
 def test_post_valid_csrf_accepted(server, monkeypatch):
     store = _FakeStore()
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: store)
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
     h = _csrf_session(server)
     status, _, body = _api_post(
-        server, '/api/v1/sessions',
-        {'role': 'viewer', 'ttl_seconds': 300, 'no_terminal': True},
-        headers=h)
+        server,
+        "/api/v1/sessions",
+        {"role": "viewer", "ttl_seconds": 300, "no_terminal": True},
+        headers=h,
+    )
     assert status == 201
-    data = json.loads(body)['data']
-    assert data['url'].startswith('http')
-    assert '/share#t=' in data['url']
-    assert data['role'] == 'viewer'
+    data = json.loads(body)["data"]
+    assert data["url"].startswith("http")
+    assert "/share#t=" in data["url"]
+    assert data["role"] == "viewer"
 
 
 # ---------------------------------------------------------------------------
 # Strict schema
 # ---------------------------------------------------------------------------
 
-def _create(server, monkeypatch, payload, username='admin',
-            permissions=('admin:*',)):
+
+def _create(server, monkeypatch, payload, username="admin", permissions=("admin:*",)):
     store = _FakeStore()
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: store)
-    if permissions != ('admin:*',):
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
+    if permissions != ("admin:*",):
         # The vnc_op cookie resolves the operator from the store —
         # mock both so 'bob' survives cookie verification AND the
         # Basic-auth fallback used to mint the session.
         monkeypatch.setattr(
-            'vnc_remote_secure.security.operator_users.load_store',
-            lambda: {username: {'role': 'operator'}}, raising=False)
+            "vnc_remote_secure.security.operator_users.load_store",
+            lambda: {username: {"role": "operator"}},
+            raising=False,
+        )
         monkeypatch.setattr(
-            'vnc_remote_secure.security.operator_users.get_permissions',
-            lambda u: set(permissions), raising=False)
+            "vnc_remote_secure.security.operator_users.get_permissions",
+            lambda u: set(permissions),
+            raising=False,
+        )
         monkeypatch.setattr(
-            'vnc_remote_secure.security.http_auth.authenticate_landing',
-            lambda *a, **k: (True, {
-                'username': username, 'role': 'operator',
-                'permissions': list(permissions)}))
+            "vnc_remote_secure.security.http_auth.authenticate_landing",
+            lambda *a, **k: (
+                True,
+                {"username": username, "role": "operator", "permissions": list(permissions)},
+            ),
+        )
     h = _csrf_session(server)
-    return _api_post(server, '/api/v1/sessions', payload, headers=h)
+    return _api_post(server, "/api/v1/sessions", payload, headers=h)
 
 
 class _FakeSession:
-    token_id = 'abc123'
+    token_id = "abc123"
     expires_at = 9999999999.0
-    role = 'viewer'
-    permissions = {'view'}
+    role = "viewer"
+    permissions = {"view"}
     single_use = False
     view_only = False
     no_terminal = True
@@ -237,7 +269,7 @@ class _FakeSession:
     label = None
 
     def to_dict(self):
-        return {'token_id': self.token_id}
+        return {"token_id": self.token_id}
 
 
 class _FakeStore:
@@ -246,63 +278,57 @@ class _FakeStore:
         self.items = []
 
     def create(self, **kw):
-        return _FakeSession(), 'signed.token.here'
+        return _FakeSession(), "signed.token.here"
 
     def _load_if_changed(self):
         pass
 
     def list_active(self):
-        self.listed = 'active'
+        self.listed = "active"
         return list(self.items)
 
     def list_revoked(self):
-        self.listed = 'revoked'
+        self.listed = "revoked"
         return list(self.items)
 
     def list_all(self):
-        self.listed = 'all'
+        self.listed = "all"
         return list(self.items)
 
 
 def test_create_rejects_unknown_fields(server, monkeypatch):
-    status, _, body = _create(
-        server, monkeypatch, {'role': 'viewer', 'surprise': 1})
+    status, _, body = _create(server, monkeypatch, {"role": "viewer", "surprise": 1})
     assert status == 400
-    assert 'Unknown fields' in json.loads(body)['message']
+    assert "Unknown fields" in json.loads(body)["message"]
 
 
 def test_create_rejects_bool_as_int(server, monkeypatch):
-    status, _, _ = _create(
-        server, monkeypatch, {'ttl_seconds': True})
+    status, _, _ = _create(server, monkeypatch, {"ttl_seconds": True})
     assert status == 400
 
 
 def test_create_rejects_int_as_bool(server, monkeypatch):
-    status, _, _ = _create(
-        server, monkeypatch, {'single_use': 1})
+    status, _, _ = _create(server, monkeypatch, {"single_use": 1})
     assert status == 400
 
 
 def test_create_rejects_bad_role(server, monkeypatch):
-    status, _, _ = _create(server, monkeypatch, {'role': 'root'})
+    status, _, _ = _create(server, monkeypatch, {"role": "root"})
     assert status == 400
 
 
 def test_create_rejects_bad_ttl(server, monkeypatch):
-    status, _, _ = _create(
-        server, monkeypatch, {'ttl_seconds': 99999999})
+    status, _, _ = _create(server, monkeypatch, {"ttl_seconds": 99999999})
     assert status == 400
 
 
 def test_create_rejects_bad_cidr(server, monkeypatch):
-    status, _, _ = _create(
-        server, monkeypatch, {'allowed_ip': 'not-an-ip'})
+    status, _, _ = _create(server, monkeypatch, {"allowed_ip": "not-an-ip"})
     assert status == 400
 
 
 def test_create_rejects_bad_resource(server, monkeypatch):
-    status, _, _ = _create(
-        server, monkeypatch, {'resource': 'hypervisor'})
+    status, _, _ = _create(server, monkeypatch, {"resource": "hypervisor"})
     assert status == 400
 
 
@@ -310,32 +336,45 @@ def test_create_rejects_bad_resource(server, monkeypatch):
 # Privilege delegation
 # ---------------------------------------------------------------------------
 
+
 def test_non_admin_cannot_mint_admin_role(server, monkeypatch):
     """An operator with only admin_sessions must not mint a share link
     carrying administrator permissions."""
     status, _, _ = _create(
-        server, monkeypatch, {'role': 'administrator'},
-        username='bob', permissions=('admin_sessions',))
+        server,
+        monkeypatch,
+        {"role": "administrator"},
+        username="bob",
+        permissions=("admin_sessions",),
+    )
     assert status == 403
 
 
 def test_non_admin_cannot_mint_admin_perms(server, monkeypatch):
     status, _, _ = _create(
-        server, monkeypatch, {'permissions': ['admin_users']},
-        username='bob', permissions=('admin_sessions',))
+        server,
+        monkeypatch,
+        {"permissions": ["admin_users"]},
+        username="bob",
+        permissions=("admin_sessions",),
+    )
     assert status == 403
 
 
 def test_non_admin_can_mint_viewer(server, monkeypatch):
     """admin_sessions alone is enough to mint non-admin share links."""
     status, _, body = _create(
-        server, monkeypatch, {'role': 'viewer', 'no_terminal': True},
-        username='bob', permissions=('admin_sessions',))
+        server,
+        monkeypatch,
+        {"role": "viewer", "no_terminal": True},
+        username="bob",
+        permissions=("admin_sessions",),
+    )
     assert status == 201
 
 
 def test_unauthenticated_post_401(server):
-    status, _, _ = _api_post(server, '/api/v1/sessions', {'role': 'viewer'})
+    status, _, _ = _api_post(server, "/api/v1/sessions", {"role": "viewer"})
     assert status == 401
 
 
@@ -343,37 +382,39 @@ def test_unauthenticated_post_401(server):
 # Revoke
 # ---------------------------------------------------------------------------
 
+
 def test_revoke_requires_csrf(server):
     status, _, _ = _api_post(
-        server, '/api/v1/sessions/revoke', {'token_id': 'x'},
-        headers=_auth_headers())
+        server, "/api/v1/sessions/revoke", {"token_id": "x"}, headers=_auth_headers()
+    )
     assert status == 403
 
 
 def test_revoke_with_csrf(server, monkeypatch):
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.revoke_session',
-        lambda tid: True)
+        "vnc_remote_secure.security.ephemeral_sessions.revoke_session", lambda tid: True
+    )
     h = _csrf_session(server)
-    status, _, body = _api_post(
-        server, '/api/v1/sessions/revoke', {'token_id': 'x'}, headers=h)
+    status, _, body = _api_post(server, "/api/v1/sessions/revoke", {"token_id": "x"}, headers=h)
     assert status == 200
-    assert json.loads(body)['data']['revoked'] is True
+    assert json.loads(body)["data"]["revoked"] is True
 
 
 # ---------------------------------------------------------------------------
 # Read endpoints — capability enforcement
 # ---------------------------------------------------------------------------
 
+
 def test_sessions_list_requires_permission(server, monkeypatch):
     """An operator WITHOUT admin_sessions gets 403 on the inventory."""
     monkeypatch.setattr(
-        'vnc_remote_secure.security.http_auth.authenticate_landing',
-        lambda *a, **k: (True, {
-            'username': 'bob', 'role': 'viewer',
-            'permissions': ['admin_audit']}))
-    status, _, _ = _req(server, '/api/v1/sessions',
-                        headers=_auth_headers())
+        "vnc_remote_secure.security.http_auth.authenticate_landing",
+        lambda *a, **k: (
+            True,
+            {"username": "bob", "role": "viewer", "permissions": ["admin_audit"]},
+        ),
+    )
+    status, _, _ = _req(server, "/api/v1/sessions", headers=_auth_headers())
     assert status == 403
 
 
@@ -381,18 +422,19 @@ def test_sessions_list_status_filter(server, monkeypatch):
     """?status= selects the inventory view; unknown values 400."""
     store = _FakeStore()
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: store)
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
     for param, expected in (
-            ('', 'active'), ('?status=active', 'active'),
-            ('?status=revoked', 'revoked'), ('?status=all', 'all')):
-        status, _, body = _req(
-            server, f'/api/v1/sessions{param}', headers=_auth_headers())
+        ("", "active"),
+        ("?status=active", "active"),
+        ("?status=revoked", "revoked"),
+        ("?status=all", "all"),
+    ):
+        status, _, body = _req(server, f"/api/v1/sessions{param}", headers=_auth_headers())
         assert status == 200, param
         assert store.listed == expected, param
-        assert json.loads(body)['data']['sessions'] == []
-    status, _, _ = _req(server, '/api/v1/sessions?status=bogus',
-                        headers=_auth_headers())
+        assert json.loads(body)["data"]["sessions"] == []
+    status, _, _ = _req(server, "/api/v1/sessions?status=bogus", headers=_auth_headers())
     assert status == 400
 
 
@@ -400,34 +442,32 @@ def test_sessions_list_cursor_pagination(server, monkeypatch):
     """limit + cursor walk the inventory in stable token_id order —
     has_more/next_cursor drive the SPA's "load more"."""
     store = _FakeStore()
-    store.items = [
-        {'token_id': t} for t in ('aa01', 'bb02', 'cc03')]
+    store.items = [{"token_id": t} for t in ("aa01", "bb02", "cc03")]
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: store)
-    status, _, body = _req(
-        server, '/api/v1/sessions?limit=2', headers=_auth_headers())
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
+    status, _, body = _req(server, "/api/v1/sessions?limit=2", headers=_auth_headers())
     assert status == 200
-    page = json.loads(body)['data']
-    assert [s['token_id'] for s in page['sessions']] == ['aa01', 'bb02']
-    assert page['has_more'] is True
-    assert page['next_cursor'] == 'bb02'
-    status, _, body = _req(
-        server, '/api/v1/sessions?limit=2&cursor=bb02',
-        headers=_auth_headers())
-    page = json.loads(body)['data']
-    assert [s['token_id'] for s in page['sessions']] == ['cc03']
-    assert page['has_more'] is False
-    assert page['next_cursor'] is None
+    page = json.loads(body)["data"]
+    assert [s["token_id"] for s in page["sessions"]] == ["aa01", "bb02"]
+    assert page["has_more"] is True
+    assert page["next_cursor"] == "bb02"
+    status, _, body = _req(server, "/api/v1/sessions?limit=2&cursor=bb02", headers=_auth_headers())
+    page = json.loads(body)["data"]
+    assert [s["token_id"] for s in page["sessions"]] == ["cc03"]
+    assert page["has_more"] is False
+    assert page["next_cursor"] is None
 
 
 def test_config_requires_permission(server, monkeypatch):
     monkeypatch.setattr(
-        'vnc_remote_secure.security.http_auth.authenticate_landing',
-        lambda *a, **k: (True, {
-            'username': 'bob', 'role': 'viewer',
-            'permissions': ['admin_sessions']}))
-    status, _, _ = _req(server, '/api/v1/config', headers=_auth_headers())
+        "vnc_remote_secure.security.http_auth.authenticate_landing",
+        lambda *a, **k: (
+            True,
+            {"username": "bob", "role": "viewer", "permissions": ["admin_sessions"]},
+        ),
+    )
+    status, _, _ = _req(server, "/api/v1/config", headers=_auth_headers())
     assert status == 403
 
 
@@ -436,14 +476,21 @@ def test_ephemeral_cookie_gets_status_only(server, monkeypatch):
     operator. It may read /status (the portal cards need it — service
     states only, no telemetry) but every privileged endpoint 403s."""
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.check_session_permission',
-        lambda *a, **k: True)
-    cookie = {'Cookie': 'vnc_ephemeral=t'}
-    status, _, _ = _req(server, '/api/v1/status', headers=cookie)
+        "vnc_remote_secure.security.ephemeral_sessions.check_session_permission",
+        lambda *a, **k: True,
+    )
+    cookie = {"Cookie": "vnc_ephemeral=t"}
+    status, _, _ = _req(server, "/api/v1/status", headers=cookie)
     assert status == 200
-    for path in ('/api/v1/sessions', '/api/v1/config', '/api/v1/audit',
-                 '/api/v1/operators', '/api/v1/security/posture',
-                 '/api/v1/doctor', '/api/v1/backups'):
+    for path in (
+        "/api/v1/sessions",
+        "/api/v1/config",
+        "/api/v1/audit",
+        "/api/v1/operators",
+        "/api/v1/security/posture",
+        "/api/v1/doctor",
+        "/api/v1/backups",
+    ):
         status, _, _ = _req(server, path, headers=cookie)
         assert status == 403, path
 
@@ -452,54 +499,52 @@ def test_ephemeral_cookie_gets_status_only(server, monkeypatch):
 # Share-link fragment flow
 # ---------------------------------------------------------------------------
 
+
 def test_share_page_public(server):
     """GET /share must be reachable WITHOUT auth — the link recipient
     has no credentials; the token is the credential. The route serves
     the React SPA shell (the interstitial is a client-side route that
     POSTs to /api/v1/session/preview + /session/activate)."""
-    status, headers, body = _req(server, '/share')
+    status, headers, body = _req(server, "/share")
     assert status == 200
     assert b'id="root"' in body  # SPA shell
-    csp = headers.get('Content-Security-Policy', '')
+    csp = headers.get("Content-Security-Policy", "")
     assert "script-src 'self'" in csp
-    assert "unsafe-inline" not in csp.split(
-        'script-src', 1)[1].split(';')[0]
+    assert "unsafe-inline" not in csp.split("script-src", 1)[1].split(";")[0]
 
 
 def test_session_preview_public(server, monkeypatch):
     """POST /session/preview returns grant details without consuming."""
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.'
-        'verify_ephemeral_token',
-        lambda t: {'session_token': 'internal'})
+        "vnc_remote_secure.security.ephemeral_sessions." "verify_ephemeral_token",
+        lambda t: {"session_token": "internal"},
+    )
     sess = _FakeSession()
     sess.revoked = False
     import time
+
     sess.expires_at = time.time() + 300
     store = _FakeStore()
     store.get = lambda t: sess
     store._load_if_changed = lambda: None
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: store)
-    status, _, body = _api_post(server, '/api/v1/session/preview',
-                                {'token': 'signed'})
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
+    status, _, body = _api_post(server, "/api/v1/session/preview", {"token": "signed"})
     assert status == 200
-    data = json.loads(body)['data']
-    assert data['role'] == 'viewer'
-    assert 'expires_in_seconds' in data
+    data = json.loads(body)["data"]
+    assert data["role"] == "viewer"
+    assert "expires_in_seconds" in data
     # Never leaks creator or binding details.
-    assert 'created_by' not in data
-    assert 'allowed_ip' not in data
+    assert "created_by" not in data
+    assert "allowed_ip" not in data
 
 
 def test_session_preview_invalid_403(server, monkeypatch):
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.'
-        'verify_ephemeral_token',
-        lambda t: None)
-    status, _, _ = _api_post(server, '/api/v1/session/preview',
-                             {'token': 'bogus'})
+        "vnc_remote_secure.security.ephemeral_sessions." "verify_ephemeral_token", lambda t: None
+    )
+    status, _, _ = _api_post(server, "/api/v1/session/preview", {"token": "bogus"})
     assert status == 403
 
 
@@ -508,24 +553,21 @@ def test_session_detail_by_public_fingerprint(server):
     share-link record — the detail page drives this path, and it must
     never expose the internal token."""
     from vnc_remote_secure.security.ephemeral_sessions import get_session_store
-    session, _signed = get_session_store().create(
-        expires_in=3600, resource='desktop')
-    tid = session.to_dict()['token_id']
-    status, _, body = _req(
-        server, f'/api/v1/sessions/{tid}', headers=_auth_headers())
+
+    session, _signed = get_session_store().create(expires_in=3600, resource="desktop")
+    tid = session.to_dict()["token_id"]
+    status, _, body = _req(server, f"/api/v1/sessions/{tid}", headers=_auth_headers())
     assert status == 200
-    data = json.loads(body)['data']
-    assert data['session']['token_id'] == tid
-    assert data['connections'] == []
+    data = json.loads(body)["data"]
+    assert data["session"]["token_id"] == tid
+    assert data["connections"] == []
     # The internal token is the credential — it must not leak in any
     # serialized field.
     assert session.token not in body.decode()
 
 
 def test_session_detail_unknown_404(server):
-    status, _, _ = _req(
-        server, '/api/v1/sessions/0000000000ff',
-        headers=_auth_headers())
+    status, _, _ = _req(server, "/api/v1/sessions/0000000000ff", headers=_auth_headers())
     assert status == 404
 
 
@@ -533,25 +575,25 @@ def test_session_detail_unknown_404(server):
 # Session-bound CSRF
 # ---------------------------------------------------------------------------
 
+
 def test_two_sessions_get_different_csrf(server):
     """Each operator session gets its own vnc_csrf nonce — and a
     different token, so a stolen token dies with its session."""
     h1 = _csrf_session(server)
     h2 = _csrf_session(server)
-    assert h1['Cookie'] != h2['Cookie']
-    assert h1['X-CSRF-Token'] != h2['X-CSRF-Token']
+    assert h1["Cookie"] != h2["Cookie"]
+    assert h1["X-CSRF-Token"] != h2["X-CSRF-Token"]
 
 
 def test_csrf_of_session_a_fails_with_cookie_b(server, monkeypatch):
     """A token minted for nonce A is invalid under cookie B."""
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: _FakeStore())
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: _FakeStore()
+    )
     h1 = _csrf_session(server)
     h2 = _csrf_session(server)
-    h2['X-CSRF-Token'] = h1['X-CSRF-Token']  # wrong-session token
-    status, _, _ = _api_post(
-        server, '/api/v1/sessions/revoke', {'token_id': 'x'}, headers=h2)
+    h2["X-CSRF-Token"] = h1["X-CSRF-Token"]  # wrong-session token
+    status, _, _ = _api_post(server, "/api/v1/sessions/revoke", {"token_id": "x"}, headers=h2)
     assert status == 403
 
 
@@ -559,21 +601,21 @@ def test_logout_expires_csrf(server):
     """POST /api/v1/logout clears the nonce cookie — the old CSRF
     token is dead from that response on."""
     h = _csrf_session(server)
-    status, headers, _ = _api_post(server, '/api/v1/logout', {},
-                                   headers=h)
+    status, headers, _ = _api_post(server, "/api/v1/logout", {}, headers=h)
     assert status == 200
-    sc = headers.get('Set-Cookie', '')
-    assert 'vnc_csrf=;' in sc
+    sc = headers.get("Set-Cookie", "")
+    assert "vnc_csrf=;" in sc
     # The remote-service cookie dies too — leaving vnc_session alive
     # would keep noVNC/terminal reachable after "logout".
-    assert 'vnc_session=;' in sc
-    assert 'vnc_op=;' in sc
-    assert 'Max-Age=0' in sc
+    assert "vnc_session=;" in sc
+    assert "vnc_op=;" in sc
+    assert "Max-Age=0" in sc
 
 
 # ---------------------------------------------------------------------------
 # Declarative route registry — contract invariants
 # ---------------------------------------------------------------------------
+
 
 def test_route_registry_contract():
     """Every registered route satisfies the API contract:
@@ -585,14 +627,15 @@ def test_route_registry_contract():
         _RATE_LIMITS,
         _ROUTES,
     )
-    assert _ROUTES, 'registry must not be empty'
+
+    assert _ROUTES, "registry must not be empty"
     for (method, rel), spec in _ROUTES.items():
         assert spec.scope in _RATE_LIMITS, (method, rel, spec.scope)
-        assert spec.resp, f'{method} {rel} declares no response schema'
+        assert spec.resp, f"{method} {rel} declares no response schema"
         if spec.perm is not None:
             assert spec.perm in _KNOWN_PERMS, (method, rel, spec.perm)
-        if method != 'GET':
-            assert spec.audit, f'{method} {rel} declares no audit event'
+        if method != "GET":
+            assert spec.audit, f"{method} {rel} declares no audit event"
 
 
 def test_openapi_drift():
@@ -601,76 +644,75 @@ def test_openapi_drift():
     import yaml
 
     from vnc_remote_secure.services.api_v1 import _ROUTES
+
     spec_path = os.path.join(
-        os.path.dirname(__file__), '..', '..', '..',
-        'docs', 'api', 'openapi.v1.yaml')
-    with open(spec_path, encoding='utf-8') as f:
+        os.path.dirname(__file__), "..", "..", "..", "docs", "api", "openapi.v1.yaml"
+    )
+    with open(spec_path, encoding="utf-8") as f:
         spec = yaml.safe_load(f)
     documented = set()
-    for path, ops in spec['paths'].items():
+    for path, ops in spec["paths"].items():
         for method in ops:
-            documented.add((method.upper(), path.lstrip('/')))
+            documented.add((method.upper(), path.lstrip("/")))
     registered = {(m, p) for (m, p) in _ROUTES}
     assert registered == documented, (
-        f'missing in spec: {registered - documented}; '
-        f'documented but not registered: {documented - registered}')
+        f"missing in spec: {registered - documented}; "
+        f"documented but not registered: {documented - registered}"
+    )
     # Security metadata parity: perm, scope, CSRF flag, response schema.
     for (method, rel), route in _ROUTES.items():
-        op = spec['paths'][f'/{rel}'][method.lower()]
-        assert op.get('x-rate-limit-scope') == route.scope
-        assert op.get('x-response-schema') == route.resp
+        op = spec["paths"][f"/{rel}"][method.lower()]
+        assert op.get("x-rate-limit-scope") == route.scope
+        assert op.get("x-response-schema") == route.resp
         expected_perm = None if route.perm is None else route.perm
-        assert op.get('x-required-permission') == expected_perm
-        assert bool(op.get('x-step-up-required')) == route.step_up, rel
-        if method == 'POST' and route.perm != 'public':
+        assert op.get("x-required-permission") == expected_perm
+        assert bool(op.get("x-step-up-required")) == route.step_up, rel
+        if method == "POST" and route.perm != "public":
             # Public routes (login ceremonies) predate the session —
             # they carry no CSRF token to check.
-            assert op.get('x-csrf-required') is True, rel
+            assert op.get("x-csrf-required") is True, rel
 
 
 # ---------------------------------------------------------------------------
 # Step-up authentication
 # ---------------------------------------------------------------------------
 
+
 def test_step_up_required_for_revoke_all(server, monkeypatch):
     """A stale session gets 403 + STEP_UP_REQUIRED on mass ops — the
     SPA uses the code to open the step-up dialog instead of logging
     the operator out."""
     monkeypatch.setattr(
-        'vnc_remote_secure.security.step_up_auth.needs_step_up',
-        lambda *a, **k: True)
+        "vnc_remote_secure.security.step_up_auth.needs_step_up", lambda *a, **k: True
+    )
     h = _csrf_session(server)
-    status, _, body = _api_post(
-        server, '/api/v1/sessions/revoke-all', {}, headers=h)
+    status, _, body = _api_post(server, "/api/v1/sessions/revoke-all", {}, headers=h)
     assert status == 403
-    assert json.loads(body)['code'] == 'STEP_UP_REQUIRED'
+    assert json.loads(body)["code"] == "STEP_UP_REQUIRED"
 
 
 def test_step_up_recent_auth_allows_revoke_all(server, monkeypatch):
     """Fresh vnc_op issuance records an auth time — a session minted
     moments ago is 'recent' and passes the step-up gate."""
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: _FakeStore())
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: _FakeStore()
+    )
     h = _csrf_session(server)
-    status, _, body = _api_post(
-        server, '/api/v1/sessions/revoke-all', {}, headers=h)
+    status, _, body = _api_post(server, "/api/v1/sessions/revoke-all", {}, headers=h)
     assert status == 200
-    assert json.loads(body)['data']['revoked'] == 0
+    assert json.loads(body)["data"]["revoked"] == 0
 
 
 def test_step_up_endpoint_grants_and_denies(server):
     h = _csrf_session(server)
     status, _, body = _api_post(
-        server, '/api/v1/step-up', {'password': 'T3st-Landing!Pass'},
-        headers=h)
+        server, "/api/v1/step-up", {"password": "T3st-Landing!Pass"}, headers=h
+    )
     assert status == 200
-    assert json.loads(body)['data']['stepped_up'] is True
-    status, _, _ = _api_post(
-        server, '/api/v1/step-up', {'password': 'wrong'}, headers=h)
+    assert json.loads(body)["data"]["stepped_up"] is True
+    status, _, _ = _api_post(server, "/api/v1/step-up", {"password": "wrong"}, headers=h)
     assert status == 403
-    status, _, _ = _api_post(
-        server, '/api/v1/step-up', {}, headers=h)
+    status, _, _ = _api_post(server, "/api/v1/step-up", {}, headers=h)
     assert status == 400
 
 
@@ -679,34 +721,34 @@ def test_revoke_missing_session_uniform_200(server, monkeypatch):
     real revocation — authorized callers can't use the endpoint to
     enumerate live token ids."""
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.revoke_session',
-        lambda tid: False)
+        "vnc_remote_secure.security.ephemeral_sessions.revoke_session", lambda tid: False
+    )
     h = _csrf_session(server)
-    status, _, body = _api_post(
-        server, '/api/v1/sessions/revoke', {'token_id': 'ghost'},
-        headers=h)
+    status, _, body = _api_post(server, "/api/v1/sessions/revoke", {"token_id": "ghost"}, headers=h)
     assert status == 200
-    assert json.loads(body)['data']['revoked'] is False
+    assert json.loads(body)["data"]["revoked"] is False
 
 
 # ---------------------------------------------------------------------------
 # vnc_op operator session cookie — format, reuse, revocation
 # ---------------------------------------------------------------------------
 
+
 def _bare_handler(headers=None):
     """Bare PortalContext for direct cookie-verifier unit tests."""
     from vnc_remote_secure.backend.context import AsgiPortalContext
+
     h = object.__new__(AsgiPortalContext)
     h.headers = headers or {}
     h.is_tls = False
-    h.__dict__['_pending_cookies'] = []
+    h.__dict__["_pending_cookies"] = []
     return h
 
 
-def _mint_op_cookie(handler, username='admin'):
+def _mint_op_cookie(handler, username="admin"):
     sid = handler._issue_op_session(username)
-    cookie = handler.__dict__['_pending_cookies'][-1]
-    return sid, cookie.split(';', 1)[0].split('=', 1)[1]
+    cookie = handler.__dict__["_pending_cookies"][-1]
+    return sid, cookie.split(";", 1)[0].split("=", 1)[1]
 
 
 def test_op_cookie_roundtrip():
@@ -715,23 +757,23 @@ def test_op_cookie_roundtrip():
     rec = h._verify_op_cookie(value)
     assert rec is not None
     assert rec[0] == sid
-    assert rec[1]['username'] == 'admin'
+    assert rec[1]["username"] == "admin"
 
 
 def test_op_cookie_rejects_malformed():
     h = _bare_handler()
     _, value = _mint_op_cookie(h)
-    parts = value.split('.')
+    parts = value.split(".")
     bad = [
-        '',                                    # empty
-        'a.b.c',                               # too few parts
-        value + '.extra',                      # too many
-        '.'.join(parts[:-1]) + '.zz',          # bad sig
-        parts[0] + '.' + parts[1] + '.0.' + parts[3],   # expired
-        parts[0] + '.' + parts[1] + '.99999999999999.' + parts[3],
-        value + '\x01',                        # control char
-        'x' * 300,                             # oversized
-        value.upper(),                         # tampered payload
+        "",  # empty
+        "a.b.c",  # too few parts
+        value + ".extra",  # too many
+        ".".join(parts[:-1]) + ".zz",  # bad sig
+        parts[0] + "." + parts[1] + ".0." + parts[3],  # expired
+        parts[0] + "." + parts[1] + ".99999999999999." + parts[3],
+        value + "\x01",  # control char
+        "x" * 300,  # oversized
+        value.upper(),  # tampered payload
     ]
     for v in bad:
         assert h._verify_op_cookie(v) is None, v[:40]
@@ -746,10 +788,11 @@ def test_op_cookie_revoked_sid_rejected():
 
 def test_op_cookie_disabled_user_rejected(monkeypatch):
     monkeypatch.setattr(
-        'vnc_remote_secure.security.operator_users.load_store',
-        lambda: {'bob': {'role': 'operator', 'disabled': True}})
+        "vnc_remote_secure.security.operator_users.load_store",
+        lambda: {"bob": {"role": "operator", "disabled": True}},
+    )
     h = _bare_handler()
-    _, value = _mint_op_cookie(h, 'bob')
+    _, value = _mint_op_cookie(h, "bob")
     assert h._verify_op_cookie(value) is None
 
 
@@ -759,9 +802,9 @@ def test_op_cookie_marked_user_rejected(monkeypatch):
     h = _bare_handler()
     sid, value = _mint_op_cookie(h)
     from vnc_remote_secure.security.shared_state import get_backend
+
     # Mark "now" — the cookie was issued at exp-TTL <= now.
-    get_backend().set_ttl(
-        'op_revoked_users', 'admin', str(time.time()), 3600)
+    get_backend().set_ttl("op_revoked_users", "admin", str(time.time()), 3600)
     assert h._verify_op_cookie(value) is None
 
 
@@ -769,128 +812,136 @@ def test_same_cookie_reuses_sid(server):
     """A request holding a valid vnc_op cookie must NOT mint a new
     session — no new Set-Cookie, same sid serves every request."""
     h = _csrf_session(server)
-    cookie = h['Cookie']  # vnc_op=…; vnc_csrf=…
-    op = _cookie_value(cookie, 'vnc_op')
+    cookie = h["Cookie"]  # vnc_op=…; vnc_csrf=…
+    op = _cookie_value(cookie, "vnc_op")
     for _ in range(3):
-        status, headers, body = _req(
-            server, '/api/v1/me', headers={'Cookie': cookie})
+        status, headers, body = _req(server, "/api/v1/me", headers={"Cookie": cookie})
         assert status == 200
-        sc = headers.get('Set-Cookie', '')
-        assert 'vnc_op=' not in sc  # session reused, not re-issued
-        assert json.loads(body)['data']['operator']['username'] == 'admin'
-    assert _cookie_value(cookie, 'vnc_op') == op
+        sc = headers.get("Set-Cookie", "")
+        assert "vnc_op=" not in sc  # session reused, not re-issued
+        assert json.loads(body)["data"]["operator"]["username"] == "admin"
+    assert _cookie_value(cookie, "vnc_op") == op
 
 
 def test_duplicate_vnc_op_rejected(server):
     """Cookie: vnc_op=A; vnc_op=B is ambiguous — must not authenticate
     via cookie (Basic still works, cookie alone must not)."""
     h = _csrf_session(server)
-    op = _cookie_value(h['Cookie'], 'vnc_op')
+    op = _cookie_value(h["Cookie"], "vnc_op")
     status, _, _ = _req(
-        server, '/api/v1/me',
-        headers={'Cookie': f'vnc_op={op}; vnc_op={op[:-2]}zz'})
+        server, "/api/v1/me", headers={"Cookie": f"vnc_op={op}; vnc_op={op[:-2]}zz"}
+    )
     assert status == 401
 
 
-def test_revoked_session_csrf_fails(server, monkeypatch):
+def test_revoked_session_csrf_fails(server):
     """After logout the old (cookie, CSRF) pair is dead even though
     the token was cryptographically valid when minted."""
-    monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.revoke_session',
-        lambda tid: True)
     h = _csrf_session(server)
-    status, _, _ = _api_post(server, '/api/v1/logout', {}, headers=h)
+    status, _, _ = _api_post(server, "/api/v1/logout", {}, headers=h)
     assert status == 200
-    # Reuse the dead session artifacts — cookie auth fails (401)
-    # before CSRF is even evaluated.
-    status, _, _ = _api_post(
-        server, '/api/v1/sessions/revoke', {'token_id': 'x'},
-        headers=h)
+    # The revocation must be visible in shared state — logout swallows
+    # backend errors best-effort, so assert the mark landed instead of
+    # inferring it from the downstream 401/403.
+    from vnc_remote_secure.security.shared_state import get_backend
+
+    sid = _cookie_value(h["Cookie"], "vnc_op").split(".")[0]
+    assert get_backend().get("op_revoked_sessions", sid), "logout did not mark the sid"
+    # Reuse the dead session artifacts — cookie auth fails (401), or
+    # Basic re-auth mints a fresh sid and the stale CSRF token fails
+    # (403).
+    status, _, _ = _api_post(server, "/api/v1/sessions/revoke", {"token_id": "x"}, headers=h)
     assert status in (401, 403)
+
 
 # ---------------------------------------------------------------------------
 # Operator management — real store under a tmp path
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def opstore(tmp_path, monkeypatch):
     """Point the operator store at a tmp file so the real add_user /
     set_role / remove_user logic is exercised end to end."""
     import vnc_remote_secure.security.operator_users as ou
-    store = str(tmp_path / 'operator_users.json')
-    monkeypatch.setattr(ou, '_store_path', lambda: store)
+
+    store = str(tmp_path / "operator_users.json")
+    monkeypatch.setattr(ou, "_store_path", lambda: store)
     return ou
 
 
 def test_operator_detail_and_create(opstore, server):
     h = _csrf_session(server)
     status, _, body = _api_post(
-        server, '/api/v1/operators',
-        {'username': 'bob', 'password': 'S3cure!Passw0rd',
-         'role': 'viewer'}, headers=h)
+        server,
+        "/api/v1/operators",
+        {"username": "bob", "password": "S3cure!Passw0rd", "role": "viewer"},
+        headers=h,
+    )
     assert status == 201, body
-    status, _, body = _req(
-        server, '/api/v1/operators/bob', headers=_auth_headers())
+    status, _, body = _req(server, "/api/v1/operators/bob", headers=_auth_headers())
     assert status == 200
-    op = json.loads(body)['data']['operator']
-    assert op['username'] == 'bob'
-    assert op['role'] == 'viewer'
-    assert op['disabled'] is False
-    assert 'password_hash' not in body.decode()
+    op = json.loads(body)["data"]["operator"]
+    assert op["username"] == "bob"
+    assert op["role"] == "viewer"
+    assert op["disabled"] is False
+    assert "password_hash" not in body.decode()
 
 
 def test_operator_create_strict_schema(opstore, server):
     h = _csrf_session(server)
     for payload in (
-            {'username': 'x y', 'password': 'S3cure!Passw0rd'},
-            {'username': 'bob', 'password': 'weak'},
-            {'username': 'bob', 'password': 'S3cure!Passw0rd',
-             'role': 'superuser'},
-            {'username': 'bob', 'password': 'S3cure!Passw0rd',
-             'password_hash': 'injected'},
-            {'username': 'bob', 'password': 'S3cure!Passw0rd',
-             'enabled': 'yes'}):
-        status, _, _ = _api_post(
-            server, '/api/v1/operators', payload, headers=h)
+        {"username": "x y", "password": "S3cure!Passw0rd"},
+        {"username": "bob", "password": "weak"},
+        {"username": "bob", "password": "S3cure!Passw0rd", "role": "superuser"},
+        {"username": "bob", "password": "S3cure!Passw0rd", "password_hash": "injected"},
+        {"username": "bob", "password": "S3cure!Passw0rd", "enabled": "yes"},
+    ):
+        status, _, _ = _api_post(server, "/api/v1/operators", payload, headers=h)
         assert status == 400, payload
 
 
 def test_operator_create_duplicate_409(opstore, server):
     h = _csrf_session(server)
-    _api_post(server, '/api/v1/operators',
-              {'username': 'bob', 'password': 'S3cure!Passw0rd'},
-              headers=h)
+    _api_post(
+        server, "/api/v1/operators", {"username": "bob", "password": "S3cure!Passw0rd"}, headers=h
+    )
     status, _, _ = _api_post(
-        server, '/api/v1/operators',
-        {'username': 'bob', 'password': 'S3cure!Passw0rd'},
-        headers=h)
+        server, "/api/v1/operators", {"username": "bob", "password": "S3cure!Passw0rd"}, headers=h
+    )
     assert status == 409
 
 
 def test_operator_create_requires_csrf(server):
     status, _, _ = _api_post(
-        server, '/api/v1/operators',
-        {'username': 'bob', 'password': 'S3cure!Passw0rd'},
-        headers=_auth_headers())
+        server,
+        "/api/v1/operators",
+        {"username": "bob", "password": "S3cure!Passw0rd"},
+        headers=_auth_headers(),
+    )
     assert status == 403
 
 
 def test_operator_patch_and_delete(opstore, server):
     h = _csrf_session(server)
-    _api_post(server, '/api/v1/operators',
-              {'username': 'bob', 'password': 'S3cure!Passw0rd',
-               'role': 'viewer'}, headers=h)
+    _api_post(
+        server,
+        "/api/v1/operators",
+        {"username": "bob", "password": "S3cure!Passw0rd", "role": "viewer"},
+        headers=h,
+    )
     status, _, body = _req(
-        server, '/api/v1/operators/bob', method='PATCH',
-        headers={**h, 'Content-Type': 'application/json'},
-        body=json.dumps({'role': 'operator'}))
+        server,
+        "/api/v1/operators/bob",
+        method="PATCH",
+        headers={**h, "Content-Type": "application/json"},
+        body=json.dumps({"role": "operator"}),
+    )
     assert status == 200, body
-    assert json.loads(body)['data']['operator']['role'] == 'operator'
-    status, _, _ = _req(
-        server, '/api/v1/operators/bob', method='DELETE', headers=h)
+    assert json.loads(body)["data"]["operator"]["role"] == "operator"
+    status, _, _ = _req(server, "/api/v1/operators/bob", method="DELETE", headers=h)
     assert status == 200
-    status, _, _ = _req(
-        server, '/api/v1/operators/bob', headers=_auth_headers())
+    status, _, _ = _req(server, "/api/v1/operators/bob", headers=_auth_headers())
     assert status == 404
 
 
@@ -900,14 +951,20 @@ def test_last_admin_guard(opstore, server):
     env var still set...). With LANDING_PASSWORD set the env admin IS
     viable, so a store admin CAN be demoted."""
     h = _csrf_session(server)
-    _api_post(server, '/api/v1/operators',
-              {'username': 'root2', 'password': 'S3cure!Passw0rd',
-               'role': 'admin'}, headers=h)
+    _api_post(
+        server,
+        "/api/v1/operators",
+        {"username": "root2", "password": "S3cure!Passw0rd", "role": "admin"},
+        headers=h,
+    )
     # Env admin counts as viable: demoting root2 is allowed.
     status, _, _ = _req(
-        server, '/api/v1/operators/root2', method='PATCH',
-        headers={**h, 'Content-Type': 'application/json'},
-        body=json.dumps({'role': 'viewer'}))
+        server,
+        "/api/v1/operators/root2",
+        method="PATCH",
+        headers={**h, "Content-Type": "application/json"},
+        body=json.dumps({"role": "viewer"}),
+    )
     assert status == 200
 
 
@@ -920,185 +977,183 @@ def test_last_admin_guard_no_env(opstore, server, monkeypatch):
     must 409. The cookie still authenticates (no Basic needed).
     """
     h = _csrf_session(server)
-    _api_post(server, '/api/v1/operators',
-              {'username': 'root2', 'password': 'S3cure!Passw0rd',
-               'role': 'admin'}, headers=h)
+    _api_post(
+        server,
+        "/api/v1/operators",
+        {"username": "root2", "password": "S3cure!Passw0rd", "role": "admin"},
+        headers=h,
+    )
     # root2's own session: Basic -> vnc_op + vnc_csrf + token.
-    cred = base64.b64encode(b'root2:S3cure!Passw0rd').decode()
-    status, headers, body = _req(
-        server, '/api/v1/me',
-        headers={'Authorization': f'Basic {cred}'})
+    cred = base64.b64encode(b"root2:S3cure!Passw0rd").decode()
+    status, headers, body = _req(server, "/api/v1/me", headers={"Authorization": f"Basic {cred}"})
     assert status == 200
-    sc = headers.get('Set-Cookie', '')
-    cookie = (f"vnc_op={_cookie_value(sc, 'vnc_op')}; "
-              f"vnc_csrf={_cookie_value(sc, 'vnc_csrf')}")
-    token = json.loads(body)['data']['csrf_token']
-    monkeypatch.delenv('LANDING_PASSWORD', raising=False)
+    sc = headers.get("Set-Cookie", "")
+    cookie = f"vnc_op={_cookie_value(sc, 'vnc_op')}; " f"vnc_csrf={_cookie_value(sc, 'vnc_csrf')}"
+    token = json.loads(body)["data"]["csrf_token"]
+    monkeypatch.delenv("LANDING_PASSWORD", raising=False)
     status, _, _ = _req(
-        server, '/api/v1/operators/root2', method='DELETE',
-        headers={'Cookie': cookie, 'X-CSRF-Token': token})
+        server,
+        "/api/v1/operators/root2",
+        method="DELETE",
+        headers={"Cookie": cookie, "X-CSRF-Token": token},
+    )
     assert status == 409
     status, _, _ = _req(
-        server, '/api/v1/operators/root2', method='PATCH',
-        headers={'Cookie': cookie, 'X-CSRF-Token': token,
-                 'Content-Type': 'application/json'},
-        body=json.dumps({'role': 'viewer'}))
+        server,
+        "/api/v1/operators/root2",
+        method="PATCH",
+        headers={"Cookie": cookie, "X-CSRF-Token": token, "Content-Type": "application/json"},
+        body=json.dumps({"role": "viewer"}),
+    )
     assert status == 409
 
 
 def test_operator_passkeys_listed(opstore, server):
-    opstore.add_user('bob', 'S3cure!Passw0rd', 'viewer')
-    status, _, body = _req(
-        server, '/api/v1/operators/bob/passkeys',
-        headers=_auth_headers())
+    opstore.add_user("bob", "S3cure!Passw0rd", "viewer")
+    status, _, body = _req(server, "/api/v1/operators/bob/passkeys", headers=_auth_headers())
     assert status == 200
-    assert json.loads(body)['data']['passkeys'] == []
+    assert json.loads(body)["data"]["passkeys"] == []
 
 
-def test_operator_sessions_revoked_invalidates_cookie(
-        opstore, server, monkeypatch):
+def test_operator_sessions_revoked_invalidates_cookie(opstore, server, monkeypatch):
     """Revoking an operator's sessions kills their vnc_op cookie even
     though the cookie itself is still well-formed and unexpired."""
-    opstore.add_user('bob', 'S3cure!Passw0rd', 'viewer')
+    opstore.add_user("bob", "S3cure!Passw0rd", "viewer")
     # Give bob a session: Basic for bob authenticates via verify().
-    cred = base64.b64encode(b'bob:S3cure!Passw0rd').decode()
-    bh = {'Authorization': f'Basic {cred}'}
-    status, headers, _ = _req(server, '/api/v1/me', headers=bh)
+    cred = base64.b64encode(b"bob:S3cure!Passw0rd").decode()
+    bh = {"Authorization": f"Basic {cred}"}
+    status, headers, _ = _req(server, "/api/v1/me", headers=bh)
     assert status == 200
-    sc = headers.get('Set-Cookie', '')
-    op_cookie = _cookie_value(sc, 'vnc_op')
+    sc = headers.get("Set-Cookie", "")
+    op_cookie = _cookie_value(sc, "vnc_op")
     assert op_cookie
     # Admin revokes bob's sessions.
     h = _csrf_session(server)
-    status, _, _ = _api_post(
-        server, '/api/v1/operators/bob/sessions/revoke-all', {},
-        headers=h)
+    status, _, _ = _api_post(server, "/api/v1/operators/bob/sessions/revoke-all", {}, headers=h)
     assert status == 200
     # bob's cookie must now be rejected — falls back to Basic which
     # still works (re-mints), so hit with ONLY the cookie.
-    status, _, _ = _req(
-        server, '/api/v1/me',
-        headers={'Cookie': f'vnc_op={op_cookie}'})
+    status, _, _ = _req(server, "/api/v1/me", headers={"Cookie": f"vnc_op={op_cookie}"})
     assert status == 401
 
 
-def test_operator_endpoints_require_admin_users(opstore, server,
-                                                monkeypatch):
+def test_operator_endpoints_require_admin_users(opstore, server, monkeypatch):
     """A viewer-role operator cannot touch the operator surface —
     except her own passkeys (self-service)."""
-    opstore.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
-    opstore.add_user('mallory', 'S3cure!Passw0rd', 'viewer')
-    cred = base64.b64encode(b'vicky:S3cure!Passw0rd').decode()
-    vh = {'Authorization': f'Basic {cred}'}
+    opstore.add_user("vicky", "S3cure!Passw0rd", "viewer")
+    opstore.add_user("mallory", "S3cure!Passw0rd", "viewer")
+    cred = base64.b64encode(b"vicky:S3cure!Passw0rd").decode()
+    vh = {"Authorization": f"Basic {cred}"}
     for method, path in (
-            ('GET', '/api/v1/operators/vicky'),
-            ('POST', '/api/v1/operators'),
-            ('PATCH', '/api/v1/operators/vicky'),
-            ('DELETE', '/api/v1/operators/vicky'),
-            # Other operators' passkeys are not self-service.
-            ('GET', '/api/v1/operators/mallory/passkeys'),
-            ('PATCH', '/api/v1/operators/mallory/passkeys/aa11'),
-            ('DELETE', '/api/v1/operators/mallory/passkeys/aa11'),
-            ('POST',
-             '/api/v1/operators/mallory/passkeys/register/begin')):
+        ("GET", "/api/v1/operators/vicky"),
+        ("POST", "/api/v1/operators"),
+        ("PATCH", "/api/v1/operators/vicky"),
+        ("DELETE", "/api/v1/operators/vicky"),
+        # Other operators' passkeys are not self-service.
+        ("GET", "/api/v1/operators/mallory/passkeys"),
+        ("PATCH", "/api/v1/operators/mallory/passkeys/aa11"),
+        ("DELETE", "/api/v1/operators/mallory/passkeys/aa11"),
+        ("POST", "/api/v1/operators/mallory/passkeys/register/begin"),
+    ):
         status, _, _ = _req(server, path, method=method, headers=vh)
         assert status == 403, (method, path)
     # But her own passkey list is readable without admin_users.
-    status, _, _ = _req(
-        server, '/api/v1/operators/vicky/passkeys', headers=vh)
+    status, _, _ = _req(server, "/api/v1/operators/vicky/passkeys", headers=vh)
     assert status == 200
+
 
 # ---------------------------------------------------------------------------
 # Passkeys — iteration 3 contract
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def pkstore(tmp_path, monkeypatch, opstore):
     """Isolated WebAuthn credential store + webauthn enabled."""
     import vnc_remote_secure.security.webauthn as wa
-    monkeypatch.setattr(
-        wa, '_store_path', lambda: str(tmp_path / 'wa.json'))
-    monkeypatch.setenv('WEBAUTHN_ENABLED', 'true')
-    monkeypatch.setenv('WEBAUTHN_RP_ID', 'localhost')
-    monkeypatch.setenv('WEBAUTHN_ORIGIN', 'http://localhost')
+
+    monkeypatch.setattr(wa, "_store_path", lambda: str(tmp_path / "wa.json"))
+    monkeypatch.setenv("WEBAUTHN_ENABLED", "true")
+    monkeypatch.setenv("WEBAUTHN_RP_ID", "localhost")
+    monkeypatch.setenv("WEBAUTHN_ORIGIN", "http://localhost")
     return wa
 
 
 def _op_session_for(server, username, password):
     """Basic auth -> vnc_op+vnc_csrf+token headers for a store user."""
-    cred = base64.b64encode(
-        f'{username}:{password}'.encode()).decode()
-    status, headers, body = _req(
-        server, '/api/v1/me',
-        headers={'Authorization': f'Basic {cred}'})
+    cred = base64.b64encode(f"{username}:{password}".encode()).decode()
+    status, headers, body = _req(server, "/api/v1/me", headers={"Authorization": f"Basic {cred}"})
     assert status == 200
-    sc = headers.get('Set-Cookie', '')
-    cookie = (f"vnc_op={_cookie_value(sc, 'vnc_op')}; "
-              f"vnc_csrf={_cookie_value(sc, 'vnc_csrf')}")
-    token = json.loads(body)['data']['csrf_token']
-    return {'Cookie': cookie, 'X-CSRF-Token': token}
+    sc = headers.get("Set-Cookie", "")
+    cookie = f"vnc_op={_cookie_value(sc, 'vnc_op')}; " f"vnc_csrf={_cookie_value(sc, 'vnc_csrf')}"
+    token = json.loads(body)["data"]["csrf_token"]
+    return {"Cookie": cookie, "X-CSRF-Token": token}
 
 
 def test_passkey_register_begin_needs_step_up(pkstore, server):
     """Session auth alone is not enough — a stale session gets 403
     with a machine-readable STEP_UP_REQUIRED code."""
-    opstore_user = 'vicky'
+    opstore_user = "vicky"
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user(opstore_user, 'S3cure!Passw0rd', 'viewer')
+
+    ou.add_user(opstore_user, "S3cure!Passw0rd", "viewer")
     # Force the session to look old — erase the auth-time mark.
     from vnc_remote_secure.security.step_up_auth import get_step_up_manager
+
     get_step_up_manager()._auth_times.pop(opstore_user, None)
-    h = _op_session_for(server, opstore_user, 'S3cure!Passw0rd')
+    h = _op_session_for(server, opstore_user, "S3cure!Passw0rd")
     from vnc_remote_secure.security.shared_state import get_backend
+
     try:
-        get_backend().delete('step_up_auth_times', opstore_user)
+        get_backend().delete("step_up_auth_times", opstore_user)
     except Exception:
         pass
     status, _, body = _api_post(
-        server, f'/api/v1/operators/{opstore_user}/passkeys/register/begin',
-        {}, headers=h)
+        server, f"/api/v1/operators/{opstore_user}/passkeys/register/begin", {}, headers=h
+    )
     assert status == 403
-    assert json.loads(body).get('code') == 'STEP_UP_REQUIRED'
+    assert json.loads(body).get("code") == "STEP_UP_REQUIRED"
 
 
 def test_passkey_register_begin_after_step_up(pkstore, server):
     """POST /step-up with the real password grants the window."""
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
-    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
-    status, _, _ = _api_post(
-        server, '/api/v1/step-up',
-        {'password': 'S3cure!Passw0rd'}, headers=h)
+
+    ou.add_user("vicky", "S3cure!Passw0rd", "viewer")
+    h = _op_session_for(server, "vicky", "S3cure!Passw0rd")
+    status, _, _ = _api_post(server, "/api/v1/step-up", {"password": "S3cure!Passw0rd"}, headers=h)
     assert status == 200
     status, _, body = _api_post(
-        server, '/api/v1/operators/vicky/passkeys/register/begin',
-        {}, headers=h)
+        server, "/api/v1/operators/vicky/passkeys/register/begin", {}, headers=h
+    )
     assert status == 200, body
-    options = json.loads(body)['data']['options']
-    assert options['rp']['id'] == 'localhost'
-    assert 'challenge' in options
+    options = json.loads(body)["data"]["options"]
+    assert options["rp"]["id"] == "localhost"
+    assert "challenge" in options
 
 
 def test_passkey_register_self_only(pkstore, server):
     """An admin cannot mint a passkey for another operator — the
     ceremony binds to the holder's authenticator."""
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user('bob', 'S3cure!Passw0rd', 'viewer')
+
+    ou.add_user("bob", "S3cure!Passw0rd", "viewer")
     h = _csrf_session(server)  # env admin session
-    status, _, _ = _api_post(
-        server, '/api/v1/operators/bob/passkeys/register/begin',
-        {}, headers=h)
+    status, _, _ = _api_post(server, "/api/v1/operators/bob/passkeys/register/begin", {}, headers=h)
     assert status == 403
 
 
 def test_passkey_complete_invalid_credential(pkstore, server):
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
-    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
+
+    ou.add_user("vicky", "S3cure!Passw0rd", "viewer")
+    h = _op_session_for(server, "vicky", "S3cure!Passw0rd")
     status, _, _ = _api_post(
         server,
-        '/api/v1/operators/vicky/passkeys/register/complete',
-        {'credential': {'id': 'bogus'}}, headers=h)
+        "/api/v1/operators/vicky/passkeys/register/complete",
+        {"credential": {"id": "bogus"}},
+        headers=h,
+    )
     assert status == 400
 
 
@@ -1106,159 +1161,172 @@ def test_passkey_rename_delete_by_ref(pkstore, server):
     """Refs are opaque sha256 prefixes — raw credential ids never
     appear in URLs; unknown refs get a uniform 404."""
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+
+    ou.add_user("vicky", "S3cure!Passw0rd", "viewer")
     # Plant a credential directly in the store.
     import base64 as _b64
-    cid = _b64.urlsafe_b64encode(b'cred-1').decode().rstrip('=')
+
+    cid = _b64.urlsafe_b64encode(b"cred-1").decode().rstrip("=")
     with pkstore._store_lock():
         s = pkstore._load_store()
-        s[cid] = {'username': 'vicky', 'public_key': 'x',
-                  'sign_count': 0, 'name': 'laptop',
-                  'created_at': '2026-01-01T00:00:00Z'}
+        s[cid] = {
+            "username": "vicky",
+            "public_key": "x",
+            "sign_count": 0,
+            "name": "laptop",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
         pkstore._save_store(s)
-    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
-    status, _, body = _req(
-        server, '/api/v1/operators/vicky/passkeys', headers=h)
-    ref = json.loads(body)['data']['passkeys'][0]['ref']
+    h = _op_session_for(server, "vicky", "S3cure!Passw0rd")
+    status, _, body = _req(server, "/api/v1/operators/vicky/passkeys", headers=h)
+    ref = json.loads(body)["data"]["passkeys"][0]["ref"]
     assert ref != cid and len(ref) == 16
     status, _, _ = _req(
-        server, f'/api/v1/operators/vicky/passkeys/{ref}',
-        method='PATCH',
-        headers={**h, 'Content-Type': 'application/json'},
-        body=json.dumps({'name': 'work-key'}))
+        server,
+        f"/api/v1/operators/vicky/passkeys/{ref}",
+        method="PATCH",
+        headers={**h, "Content-Type": "application/json"},
+        body=json.dumps({"name": "work-key"}),
+    )
     assert status == 200
-    keys = json.loads(_req(
-        server, '/api/v1/operators/vicky/passkeys',
-        headers=h)[2])['data']['passkeys']
-    assert keys[0]['name'] == 'work-key'
+    keys = json.loads(_req(server, "/api/v1/operators/vicky/passkeys", headers=h)[2])["data"][
+        "passkeys"
+    ]
+    assert keys[0]["name"] == "work-key"
     # Unknown ref — uniform 404.
     status, _, _ = _req(
-        server, '/api/v1/operators/vicky/passkeys/deadbeefdeadbeef',
-        method='DELETE', headers=h)
+        server, "/api/v1/operators/vicky/passkeys/deadbeefdeadbeef", method="DELETE", headers=h
+    )
     assert status == 404
     # Last passkey: vicky has a password so removal is allowed, but
     # step-up is required first.
     status, _, _ = _req(
-        server, f'/api/v1/operators/vicky/passkeys/{ref}',
-        method='DELETE', headers=h)
+        server, f"/api/v1/operators/vicky/passkeys/{ref}", method="DELETE", headers=h
+    )
     assert status in (200, 403)
 
 
 def test_passkey_refs_are_opaque(pkstore, server):
     """The API surface never emits a raw credential_id."""
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
+
+    ou.add_user("vicky", "S3cure!Passw0rd", "viewer")
     import base64 as _b64
-    cid = _b64.urlsafe_b64encode(b'secret-cred').decode().rstrip('=')
+
+    cid = _b64.urlsafe_b64encode(b"secret-cred").decode().rstrip("=")
     with pkstore._store_lock():
         s = pkstore._load_store()
-        s[cid] = {'username': 'vicky', 'public_key': 'pk',
-                  'sign_count': 1, 'name': 'yubi',
-                  'created_at': '2026-01-01T00:00:00Z'}
+        s[cid] = {
+            "username": "vicky",
+            "public_key": "pk",
+            "sign_count": 1,
+            "name": "yubi",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
         pkstore._save_store(s)
-    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
-    status, _, body = _req(
-        server, '/api/v1/operators/vicky/passkeys', headers=h)
+    h = _op_session_for(server, "vicky", "S3cure!Passw0rd")
+    status, _, body = _req(server, "/api/v1/operators/vicky/passkeys", headers=h)
     assert status == 200
     assert cid not in body.decode()
+
 
 def test_maintenance_toggle_requires_admin(server, monkeypatch):
     """POST /maintenance is admin:* + step-up gated."""
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
-    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
-    status, _, _ = _api_post(
-        server, '/api/v1/maintenance', {'active': True}, headers=h)
+
+    ou.add_user("vicky", "S3cure!Passw0rd", "viewer")
+    h = _op_session_for(server, "vicky", "S3cure!Passw0rd")
+    status, _, _ = _api_post(server, "/api/v1/maintenance", {"active": True}, headers=h)
     assert status == 403
 
 
 def test_maintenance_toggle_roundtrip(server, monkeypatch, tmp_path):
     """Admin + fresh step-up toggles the flag file on and off."""
     import vnc_remote_secure.security.maintenance as maint
-    monkeypatch.setattr(maint, '_flag_path',
-                        lambda: str(tmp_path / 'maintenance.json'))
+
+    monkeypatch.setattr(maint, "_flag_path", lambda: str(tmp_path / "maintenance.json"))
     h = _csrf_session(server)
     # Fresh session mark may already satisfy step-up; if not, grant it.
     status, _, _ = _api_post(
-        server, '/api/v1/step-up',
-        {'password': 'T3st-Landing!Pass'}, headers=h)
+        server, "/api/v1/step-up", {"password": "T3st-Landing!Pass"}, headers=h
+    )
     assert status == 200
     status, _, body = _api_post(
-        server, '/api/v1/maintenance',
-        {'active': True, 'reason': 'test', 'drain_timeout': 60},
-        headers=h)
+        server,
+        "/api/v1/maintenance",
+        {"active": True, "reason": "test", "drain_timeout": 60},
+        headers=h,
+    )
     assert status == 200, body
-    data = json.loads(body)['data']
-    assert data['active'] is True
-    assert data['drain_at']
-    status, _, body = _api_post(
-        server, '/api/v1/maintenance', {'active': False}, headers=h)
+    data = json.loads(body)["data"]
+    assert data["active"] is True
+    assert data["drain_at"]
+    status, _, body = _api_post(server, "/api/v1/maintenance", {"active": False}, headers=h)
     assert status == 200
-    assert json.loads(body)['data']['active'] is False
+    assert json.loads(body)["data"]["active"] is False
 
 
 # ---------------------------------------------------------------------------
 # Public auth surface (SPA login)
 # ---------------------------------------------------------------------------
 
+
 def test_auth_methods_public(server):
     """GET /auth/methods is reachable without a session — the login
     page queries it before any credentials exist."""
-    status, _, body = _req(server, '/api/v1/auth/methods')
+    status, _, body = _req(server, "/api/v1/auth/methods")
     assert status == 200
-    data = json.loads(body)['data']
-    assert data['password'] is True
+    data = json.loads(body)["data"]
+    assert data["password"] is True
 
 
 def test_login_password_mints_session(server):
     """POST /auth/login issues vnc_op + vnc_csrf cookies and a token
     usable for mutations — same guarantees as a Basic-auth request."""
     status, headers, body = _api_post(
-        server, '/api/v1/auth/login',
-        {'username': 'admin', 'password': 'T3st-Landing!Pass'})
+        server, "/api/v1/auth/login", {"username": "admin", "password": "T3st-Landing!Pass"}
+    )
     assert status == 200, body
-    data = json.loads(body)['data']
-    assert data['auth_method'] == 'password'
-    assert data['operator']['username'] == 'admin'
-    assert data['csrf_token']
-    sc = headers.get('Set-Cookie', '')
-    op = _cookie_value(sc, 'vnc_op')
-    csrf = _cookie_value(sc, 'vnc_csrf')
-    vnc = _cookie_value(sc, 'vnc_session')
+    data = json.loads(body)["data"]
+    assert data["auth_method"] == "password"
+    assert data["operator"]["username"] == "admin"
+    assert data["csrf_token"]
+    sc = headers.get("Set-Cookie", "")
+    op = _cookie_value(sc, "vnc_op")
+    csrf = _cookie_value(sc, "vnc_csrf")
+    vnc = _cookie_value(sc, "vnc_session")
     assert op and csrf
     # The canonical remote-service cookie rides too — noVNC, the
     # terminal, audio and gamepad authenticate off `vnc_session`, so
     # an SPA login must mint it (not only the admin cookies).
     assert vnc
     from vnc_remote_secure.security.sessions import verify_session_cookie
+
     assert verify_session_cookie(vnc)
     # The minted session must authorize a follow-up GET.
     status, _, body = _req(
-        server, '/api/v1/me',
-        headers={'Cookie': f'vnc_op={op}; vnc_csrf={csrf}'})
+        server, "/api/v1/me", headers={"Cookie": f"vnc_op={op}; vnc_csrf={csrf}"}
+    )
     assert status == 200
-    assert json.loads(body)['data']['operator']['username'] == 'admin'
+    assert json.loads(body)["data"]["operator"]["username"] == "admin"
 
 
 def test_login_wrong_password_401(server):
     status, _, _ = _api_post(
-        server, '/api/v1/auth/login',
-        {'username': 'admin', 'password': 'wrong'})
+        server, "/api/v1/auth/login", {"username": "admin", "password": "wrong"}
+    )
     assert status == 401
 
 
 def test_login_missing_fields_400(server):
-    status, _, _ = _api_post(
-        server, '/api/v1/auth/login', {'username': 'admin'})
+    status, _, _ = _api_post(server, "/api/v1/auth/login", {"username": "admin"})
     assert status == 400
 
 
 def test_passkey_begin_no_credentials_404(server):
     """Uniform 404 for unknown users and users without passkeys —
     no enumeration."""
-    status, _, _ = _api_post(
-        server, '/api/v1/auth/passkey/begin',
-        {'username': 'ghost'})
+    status, _, _ = _api_post(server, "/api/v1/auth/passkey/begin", {"username": "ghost"})
     assert status in (404, 503)  # 503 when webauthn lib unavailable
 
 
@@ -1266,36 +1334,41 @@ def test_passkey_begin_no_credentials_404(server):
 # System (OS) users — migrated Flask /users surface
 # ---------------------------------------------------------------------------
 
+
 def test_system_users_requires_admin_users(server):
     import vnc_remote_secure.security.operator_users as ou
-    ou.add_user('vicky', 'S3cure!Passw0rd', 'viewer')
-    h = _op_session_for(server, 'vicky', 'S3cure!Passw0rd')
-    status, _, _ = _req(server, '/api/v1/system-users', headers=h)
+
+    ou.add_user("vicky", "S3cure!Passw0rd", "viewer")
+    h = _op_session_for(server, "vicky", "S3cure!Passw0rd")
+    status, _, _ = _req(server, "/api/v1/system-users", headers=h)
     assert status == 403
 
 
 def test_system_users_list_shape(server):
-    status, _, body = _req(
-        server, '/api/v1/system-users', headers=_auth_headers())
+    status, _, body = _req(server, "/api/v1/system-users", headers=_auth_headers())
     assert status == 200
-    assert isinstance(json.loads(body)['data']['users'], list)
+    assert isinstance(json.loads(body)["data"]["users"], list)
 
 
 def test_system_users_create_rejects_unknown_field(server):
     h = _csrf_session(server)
     status, _, _ = _api_post(
-        server, '/api/v1/system-users',
-        {'username': 'x', 'password': 'p' * 12, 'extra': 1},
-        headers=h)
+        server,
+        "/api/v1/system-users",
+        {"username": "x", "password": "p" * 12, "extra": 1},
+        headers=h,
+    )
     assert status == 400
 
 
 def test_system_users_create_reserved_refused(server):
     h = _csrf_session(server)
     status, _, _ = _api_post(
-        server, '/api/v1/system-users',
-        {'username': 'root', 'password': 'S3cure!Passw0rdX'},
-        headers=h)
+        server,
+        "/api/v1/system-users",
+        {"username": "root", "password": "S3cure!Passw0rdX"},
+        headers=h,
+    )
     # validate_username rejects reserved names as invalid input.
     assert status == 400
 
@@ -1304,78 +1377,67 @@ def test_system_users_create_reserved_refused(server):
 # Jobs ledger + operator tombstone restore
 # ---------------------------------------------------------------------------
 
-def _create_operator(server, h, username, role='viewer'):
+
+def _create_operator(server, h, username, role="viewer"):
     status, _, body = _api_post(
-        server, '/api/v1/operators',
-        {'username': username, 'password': 'S3cure!Passw0rd',
-         'role': role}, headers=h)
+        server,
+        "/api/v1/operators",
+        {"username": username, "password": "S3cure!Passw0rd", "role": role},
+        headers=h,
+    )
     assert status == 201, body
 
 
 def test_operator_delete_tombstone_and_restore(server):
     h = _csrf_session(server)
-    _create_operator(server, h, 'restoreme')
-    status, _, body = _req(
-        server, '/api/v1/operators/restoreme',
-        method='DELETE', headers=h)
+    _create_operator(server, h, "restoreme")
+    status, _, body = _req(server, "/api/v1/operators/restoreme", method="DELETE", headers=h)
     assert status == 200, body
     # Tombstone visible to admin_users.
-    status, _, body = _req(
-        server, '/api/v1/operators/deleted', headers=h)
+    status, _, body = _req(server, "/api/v1/operators/deleted", headers=h)
     assert status == 200
-    names = [d['username']
-             for d in json.loads(body)['data']['deleted']]
-    assert 'restoreme' in names
+    names = [d["username"] for d in json.loads(body)["data"]["deleted"]]
+    assert "restoreme" in names
     # Restore recreates the account disabled (no password restored).
-    status, _, body = _api_post(
-        server, '/api/v1/operators/restoreme/restore', {},
-        headers=h)
+    status, _, body = _api_post(server, "/api/v1/operators/restoreme/restore", {}, headers=h)
     assert status == 200, body
-    op = json.loads(body)['data']['operator']
-    assert op['username'] == 'restoreme'
-    status, _, body = _req(
-        server, '/api/v1/operators/restoreme', headers=h)
-    assert json.loads(body)['data']['operator']['disabled'] is True
+    op = json.loads(body)["data"]["operator"]
+    assert op["username"] == "restoreme"
+    status, _, body = _req(server, "/api/v1/operators/restoreme", headers=h)
+    assert json.loads(body)["data"]["operator"]["disabled"] is True
     # Second restore → not found (tombstone consumed, account exists).
-    status, _, _ = _api_post(
-        server, '/api/v1/operators/restoreme/restore', {},
-        headers=h)
+    status, _, _ = _api_post(server, "/api/v1/operators/restoreme/restore", {}, headers=h)
     assert status == 404
 
 
 def test_jobs_ledger_records_revoke_all(server, monkeypatch):
     monkeypatch.setattr(
-        'vnc_remote_secure.security.ephemeral_sessions.get_session_store',
-        lambda: _FakeStore())
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: _FakeStore()
+    )
     h = _csrf_session(server)
-    status, _, _ = _api_post(
-        server, '/api/v1/sessions/revoke-all', {}, headers=h)
+    status, _, _ = _api_post(server, "/api/v1/sessions/revoke-all", {}, headers=h)
     assert status == 200
-    status, _, body = _req(
-        server, '/api/v1/jobs', headers=_auth_headers())
+    status, _, body = _req(server, "/api/v1/jobs", headers=_auth_headers())
     assert status == 200
-    jobs = json.loads(body)['data']['jobs']
+    jobs = json.loads(body)["data"]["jobs"]
     assert isinstance(jobs, list)
 
 
 def test_audit_user_and_result_filters(server):
     """?user= / ?result= narrow the audit page server-side."""
-    status, _, body = _req(
-        server, '/api/v1/audit?user=filterme',
-        headers=_auth_headers())
+    status, _, body = _req(server, "/api/v1/audit?user=filterme", headers=_auth_headers())
     assert status == 200
-    entries = json.loads(body)['data']['entries']
-    assert all(e.get('user') == 'filterme' for e in entries)
-    status, _, body = _req(
-        server, '/api/v1/audit?result=nonsense-xyz',
-        headers=_auth_headers())
+    entries = json.loads(body)["data"]["entries"]
+    assert all(e.get("user") == "filterme" for e in entries)
+    status, _, body = _req(server, "/api/v1/audit?result=nonsense-xyz", headers=_auth_headers())
     assert status == 200
-    assert json.loads(body)['data']['entries'] == []
+    assert json.loads(body)["data"]["entries"] == []
 
 
 # ---------------------------------------------------------------------------
 # MFA-gated login
 # ---------------------------------------------------------------------------
+
 
 def _totp_now(secret_b32: str) -> str:
     """Compute the current TOTP code for a base32 secret."""
@@ -1383,14 +1445,13 @@ def _totp_now(secret_b32: str) -> str:
     import hashlib
     import hmac
     import struct
+
     key = _b64.b32decode(secret_b32)
     counter = int(time.time()) // 30
-    digest = hmac.new(key, struct.pack('>Q', counter),
-                      hashlib.sha1).digest()
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
     off = digest[-1] & 0x0F
-    code = (struct.unpack('>I', digest[off:off + 4])[0]
-            & 0x7FFFFFFF) % 1000000
-    return f'{code:06d}'
+    code = (struct.unpack(">I", digest[off : off + 4])[0] & 0x7FFFFFFF) % 1000000
+    return f"{code:06d}"
 
 
 def test_login_requires_totp_when_mfa_enabled(server, monkeypatch):
@@ -1398,46 +1459,50 @@ def test_login_requires_totp_when_mfa_enabled(server, monkeypatch):
     configured second factor is not advisory."""
     import base64 as _b64
     import secrets as _secrets
+
     secret = _b64.b32encode(_secrets.token_bytes(20)).decode()
-    monkeypatch.setenv('MFA_REQUIRED', 'true')
-    monkeypatch.setenv('TOTP_SECRET', secret)
+    monkeypatch.setenv("MFA_REQUIRED", "true")
+    monkeypatch.setenv("TOTP_SECRET", secret)
     status, _, body = _api_post(
-        server, '/api/v1/auth/login',
-        {'username': 'admin', 'password': 'T3st-Landing!Pass'})
+        server, "/api/v1/auth/login", {"username": "admin", "password": "T3st-Landing!Pass"}
+    )
     assert status == 401
-    assert json.loads(body).get('code') == 'MFA_REQUIRED'
+    assert json.loads(body).get("code") == "MFA_REQUIRED"
     # Wrong code: denied.
     status, _, _ = _api_post(
-        server, '/api/v1/auth/login',
-        {'username': 'admin', 'password': 'T3st-Landing!Pass',
-         'totp': '000000'})
+        server,
+        "/api/v1/auth/login",
+        {"username": "admin", "password": "T3st-Landing!Pass", "totp": "000000"},
+    )
     assert status == 401
     # Correct code: session minted.
     status, hdrs, body = _api_post(
-        server, '/api/v1/auth/login',
-        {'username': 'admin', 'password': 'T3st-Landing!Pass',
-         'totp': _totp_now(secret)})
+        server,
+        "/api/v1/auth/login",
+        {"username": "admin", "password": "T3st-Landing!Pass", "totp": _totp_now(secret)},
+    )
     assert status == 200
-    data = json.loads(body)['data']
-    assert data['auth_method'] == 'password+totp'
-    assert 'vnc_op=' in hdrs.get('Set-Cookie', '')
+    data = json.loads(body)["data"]
+    assert data["auth_method"] == "password+totp"
+    assert "vnc_op=" in hdrs.get("Set-Cookie", "")
 
 
 def test_auth_methods_reports_mfa_flag(server, monkeypatch):
-    monkeypatch.setenv('MFA_REQUIRED', 'true')
-    monkeypatch.setenv('TOTP_SECRET', 'AAAA')
-    status, _, body = _req(server, '/api/v1/auth/methods')
+    monkeypatch.setenv("MFA_REQUIRED", "true")
+    monkeypatch.setenv("TOTP_SECRET", "AAAA")
+    status, _, body = _req(server, "/api/v1/auth/methods")
     assert status == 200
-    assert json.loads(body)['data']['mfa'] is True
+    assert json.loads(body)["data"]["mfa"] is True
 
 
 # ---------------------------------------------------------------------------
 # Bound step-up grants - operation+resource+session, single-use
 # ---------------------------------------------------------------------------
 
+
 def _mk(tmp_path):
-    p = tmp_path / 'b.tar.gz'
-    p.write_bytes(b'x')
+    p = tmp_path / "b.tar.gz"
+    p.write_bytes(b"x")
     return str(p)
 
 
@@ -1446,25 +1511,27 @@ def test_bound_step_up_grant_flow(server, monkeypatch, tmp_path):
     tied to that exact operation - the mutation consumes it, a second
     call needs a fresh grant."""
     import vnc_remote_secure.engine.infrastructure.stores as stores
-    monkeypatch.setattr(
-        stores, 'backup_create', lambda: _mk(tmp_path))
+
+    monkeypatch.setattr(stores, "backup_create", lambda: _mk(tmp_path))
     h = _csrf_session(server)
     # No grant -> STEP_UP_REQUIRED at the use-case boundary.
-    status, _, body = _api_post(server, '/api/v1/backups', {}, headers=h)
+    status, _, body = _api_post(server, "/api/v1/backups", {}, headers=h)
     assert status == 403
-    assert b'STEP_UP_REQUIRED' in body
+    assert b"STEP_UP_REQUIRED" in body
     # Grant bound to backup.create - then the real call succeeds.
     status, _, body = _api_post(
-        server, '/api/v1/step-up',
-        {'password': 'T3st-Landing!Pass', 'operation': 'backup.create'},
-        headers=h)
+        server,
+        "/api/v1/step-up",
+        {"password": "T3st-Landing!Pass", "operation": "backup.create"},
+        headers=h,
+    )
     assert status == 200, body
-    assert json.loads(body)['data']['bound']['operation'] ==         'backup.create'
-    status, _, body = _api_post(server, '/api/v1/backups', {}, headers=h)
+    assert json.loads(body)["data"]["bound"]["operation"] == "backup.create"
+    status, _, body = _api_post(server, "/api/v1/backups", {}, headers=h)
     assert status == 201, body
-    assert json.loads(body)['data']['created'] is True
+    assert json.loads(body)["data"]["created"] is True
     # Single-use: replaying the same call needs a fresh grant.
-    status, _, _ = _api_post(server, '/api/v1/backups', {}, headers=h)
+    status, _, _ = _api_post(server, "/api/v1/backups", {}, headers=h)
     assert status == 403
 
 
@@ -1472,20 +1539,27 @@ def test_bound_grant_does_not_cross_operations(server):
     """A grant for secrets.rotate must not satisfy backup.create."""
     h = _csrf_session(server)
     status, _, _ = _api_post(
-        server, '/api/v1/step-up',
-        {'password': 'T3st-Landing!Pass', 'operation': 'secrets.rotate',
-         'resource': 'VNC_PASSWORD'},
-        headers=h)
+        server,
+        "/api/v1/step-up",
+        {
+            "password": "T3st-Landing!Pass",
+            "operation": "secrets.rotate",
+            "resource": "VNC_PASSWORD",
+        },
+        headers=h,
+    )
     assert status == 200
-    status, _, body = _api_post(server, '/api/v1/backups', {}, headers=h)
+    status, _, body = _api_post(server, "/api/v1/backups", {}, headers=h)
     assert status == 403
-    assert b'STEP_UP_REQUIRED' in body
+    assert b"STEP_UP_REQUIRED" in body
 
 
 def test_step_up_rejects_unknown_operation(server):
     h = _csrf_session(server)
     status, _, _ = _api_post(
-        server, '/api/v1/step-up',
-        {'password': 'T3st-Landing!Pass', 'operation': 'rm -rf'},
-        headers=h)
+        server,
+        "/api/v1/step-up",
+        {"password": "T3st-Landing!Pass", "operation": "rm -rf"},
+        headers=h,
+    )
     assert status == 400

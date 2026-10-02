@@ -16,7 +16,7 @@ import pytest
 # core.test_isolation.TestIsolationError instead of silently touching
 # the developer's machine — a code path that forgets a patch aborts
 # loudly rather than rotating a real credential.
-os.environ.setdefault('VRS_TEST_MODE', '1')
+os.environ.setdefault("VRS_TEST_MODE", "1")
 
 # Hypothesis deadlines flake under load (CI/loaded dev machines): a
 # 200ms per-example budget is a timing assertion, not a correctness
@@ -25,10 +25,9 @@ os.environ.setdefault('VRS_TEST_MODE', '1')
 # per-test max_examples bounds still apply.
 try:
     from hypothesis import HealthCheck, settings
-    settings.register_profile(
-        'vncrs', deadline=None,
-        suppress_health_check=[HealthCheck.too_slow])
-    settings.load_profile('vncrs')
+
+    settings.register_profile("vncrs", deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    settings.load_profile("vncrs")
 except ImportError:
     pass
 
@@ -42,23 +41,24 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     which would leak session state across test runs and across CLI
     invocations during development.
     """
-    run_dir = tmp_path / 'run'
-    log_dir = tmp_path / 'logs'
-    data_dir = tmp_path / 'data'
-    config_dir = tmp_path / 'config'
-    ssl_dir = tmp_path / 'ssl'
+    run_dir = tmp_path / "run"
+    log_dir = tmp_path / "logs"
+    data_dir = tmp_path / "data"
+    config_dir = tmp_path / "config"
+    ssl_dir = tmp_path / "ssl"
     for d in (run_dir, log_dir, data_dir, config_dir, ssl_dir):
         d.mkdir(exist_ok=True)
 
     # Patch the path helpers at the source so all callers see the temp
     # paths (audit.jsonl, PID files, session stores, certs).
     from vnc_remote_secure.core import paths as paths_mod
+
     _overrides = {
-        'get_run_dir': run_dir,
-        'get_log_dir': log_dir,
-        'get_data_dir': data_dir,
-        'get_config_dir': config_dir,
-        'get_ssl_dir': ssl_dir,
+        "get_run_dir": run_dir,
+        "get_log_dir": log_dir,
+        "get_data_dir": data_dir,
+        "get_config_dir": config_dir,
+        "get_ssl_dir": ssl_dir,
     }
     for fname, target in _overrides.items():
         monkeypatch.setattr(paths_mod, fname, lambda t=target: str(t))
@@ -75,19 +75,19 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     # automatically. Modules imported lazily at call time resolve the
     # patched source attribute anyway.
     import sys as _sys
+
     for mod in list(_sys.modules.values()):
-        if mod is None or not getattr(
-                mod, '__name__', '').startswith('vnc_remote_secure.'):
+        if mod is None or not getattr(mod, "__name__", "").startswith("vnc_remote_secure."):
             continue
         for fname, target in _overrides.items():
             if getattr(mod, fname, None) is not None:
-                monkeypatch.setattr(
-                    mod, fname, lambda t=target: str(t))
+                monkeypatch.setattr(mod, fname, lambda t=target: str(t))
 
     # Also reset the global ephemeral session store so each test starts
     # fresh (the store caches itself in a module-level singleton).
     import vnc_remote_secure.security.ephemeral_sessions as ephem_mod
-    monkeypatch.setattr(ephem_mod, '_store', None)
+
+    monkeypatch.setattr(ephem_mod, "_store", None)
 
     # Prevent ambient .env / config.env leakage: mark the default env
     # merge as already done so load_env_file() is a no-op during the
@@ -97,14 +97,15 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     # test outcomes (e.g. a LANDING_PASSWORD present locally turns
     # fallback-app tests into 401s).
     import vnc_remote_secure.core.config as config_mod
-    monkeypatch.setattr(config_mod, '_ENV_LOADED', True)
+
+    monkeypatch.setattr(config_mod, "_ENV_LOADED", True)
 
     # Audit sinks are read from os.environ at call time — a developer
     # shell exporting AUDIT_LOG_FILE/AUDIT_MIRROR_FILE would write real
     # audit entries during tests. Scrub them unless a test sets them
     # explicitly (it can monkeypatch.setenv itself).
-    monkeypatch.delenv('AUDIT_LOG_FILE', raising=False)
-    monkeypatch.delenv('AUDIT_MIRROR_FILE', raising=False)
+    monkeypatch.delenv("AUDIT_LOG_FILE", raising=False)
+    monkeypatch.delenv("AUDIT_MIRROR_FILE", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +121,7 @@ def _drain_ws_revocation_watchers():
     yield
     try:
         from vnc_remote_secure.security import websocket_registry as wr
+
         for task in list(wr._watcher_tasks):
             if not task.done():
                 with contextlib.suppress(RuntimeError):
@@ -137,15 +139,29 @@ def _drain_ws_revocation_watchers():
 
 
 _SHARED_STATE_TEST_NAMESPACES = (
-    'rate_limit_lockouts', 'rate_limit_attempts', 'rate_limit_general',
-    'websocket_revoked_sessions', 'ephemeral_revoked_sessions',
-    'ephemeral_consumed', 'ephemeral_uses',
-    'mfa_last_step', 'mfa_used_steps', 'mfa_used_recovery_codes',
-    'step_up_auth_times', 'step_up_grants', 'step_up_consumed',
-    'webauthn_challenges', 'maintenance',
-    'api_rate', 'op_revoked_sessions', 'op_revoked_users',
-    'op_sessions', 'web_auth_context',
-    'ops_jobs', 'ops_job_claims', 'ops_job_locks',
+    "rate_limit_lockouts",
+    "rate_limit_attempts",
+    "rate_limit_general",
+    "websocket_revoked_sessions",
+    "ephemeral_revoked_sessions",
+    "ephemeral_consumed",
+    "ephemeral_uses",
+    "mfa_last_step",
+    "mfa_used_steps",
+    "mfa_used_recovery_codes",
+    "step_up_auth_times",
+    "step_up_grants",
+    "step_up_consumed",
+    "webauthn_challenges",
+    "maintenance",
+    "api_rate",
+    "op_revoked_sessions",
+    "op_revoked_users",
+    "op_sessions",
+    "web_auth_context",
+    "ops_jobs",
+    "ops_job_claims",
+    "ops_job_locks",
 )
 
 
@@ -159,6 +175,7 @@ def _restore_environ():
     get_config() host key, for example.
     """
     import os
+
     snapshot = dict(os.environ)
     yield
     for key in [k for k in os.environ if k not in snapshot]:
@@ -166,6 +183,24 @@ def _restore_environ():
     for key, val in snapshot.items():
         if os.environ.get(key) != val:
             os.environ[key] = val
+
+
+@pytest.fixture(autouse=True)
+def _restore_package_log_propagation():
+    """Restore ``propagate`` on the package logger after every test.
+
+    ``core.logging.setup_logging()`` sets ``propagate = False`` on the
+    ``vnc_remote_secure`` logger — deliberately, to avoid duplicate
+    stderr output in production. But caplog captures at the *root*
+    logger, so any test that triggers setup_logging() blinds caplog
+    for every later test in the process (order-dependent flake).
+    """
+    yield
+    import logging
+
+    lg = logging.getLogger("vnc_remote_secure")
+    if lg.propagate is False:
+        lg.propagate = True
 
 
 @pytest.fixture(autouse=True)
@@ -180,6 +215,7 @@ def _clear_shared_state_namespaces():
     yield
     try:
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
         for ns in _SHARED_STATE_TEST_NAMESPACES:
             for k in list(be.list_keys(ns)):
@@ -192,11 +228,13 @@ def _clear_shared_state_namespaces():
 # Shared test helpers — reduce per-file boilerplate
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def ns():
     """Namespace factory: ns(session_action='list') -> argparse
     Namespace. Replaces the per-file _args() builders."""
     from argparse import Namespace
+
     return lambda **kw: Namespace(**kw)
 
 
@@ -221,19 +259,26 @@ def asgi_server():
 
     def _spawn(app):
         config = uvicorn.Config(
-            app, host='127.0.0.1', port=0,
-            log_level='error', access_log=False,
+            app,
+            host="127.0.0.1",
+            port=0,
+            log_level="error",
+            access_log=False,
             # Same rule as production main(): the app's own
             # TRUSTED_PROXY gate decides whether X-Forwarded-* counts —
             # uvicorn must not trust them implicitly.
-            proxy_headers=False)
+            proxy_headers=False,
+            # NOTE: ws backend stays default — this fixture also hosts
+            # WS apps whose send_denial_response() path breaks under
+            # uvicorn's websockets-sansio (duplicated Content-Length).
+        )
         server = uvicorn.Server(config)
         t = threading.Thread(target=server.run, daemon=True)
         t.start()
         deadline = time.time() + 10
         while not server.started:
             if time.time() > deadline:
-                raise RuntimeError('uvicorn did not start')
+                raise RuntimeError("uvicorn did not start")
             time.sleep(0.01)
         port = server.servers[0].sockets[0].getsockname()[1]
         servers.append((server, t))
@@ -256,12 +301,12 @@ def stub_handler():
     """
     from unittest.mock import MagicMock
 
-    def _make(cls, headers=None, path='/', client=('127.0.0.1', 1)):
+    def _make(cls, headers=None, path="/", client=("127.0.0.1", 1)):
         h = object.__new__(cls)
         h.headers = headers or {}
         h.client_address = client
         h.path = path
-        h.command = 'GET'
+        h.command = "GET"
         h.connection = MagicMock()
         h.wfile = MagicMock()
         h.send_response = MagicMock()
@@ -270,6 +315,7 @@ def stub_handler():
         h._ws_error = MagicMock()
         h._record_ws_origin_failure = MagicMock()
         return h
+
     return _make
 
 
@@ -278,17 +324,18 @@ def clear_env(monkeypatch):
     """Env scrubber: clear_env('A','B', set={'C':'1'}) — deletes the
     listed vars, then applies the set dict. Replaces the repeated
     delenv loops that precede env-sensitive assertions."""
+
     def _apply(*keys, set=None):  # noqa: A002 - mirror env API
         for k in keys:
             monkeypatch.delenv(k, raising=False)
         for k, v in (set or {}).items():
             monkeypatch.setenv(k, v)
+
     return _apply
 
 
 # Standard metrics dict for landing-page tests (get_system_metrics stub).
-FAKE_METRICS = {'hostname': 'h', 'os': 'os', 'uptime': 'u',
-                'cpu': 'c', 'memory': 'm', 'disk': 'd'}
+FAKE_METRICS = {"hostname": "h", "os": "os", "uptime": "u", "cpu": "c", "memory": "m", "disk": "d"}
 
 
 @pytest.fixture

@@ -16,13 +16,14 @@ CONTRATO SEC-004:
     y el token no permite nuevas conexiones,
     y se registra el evento de revocación.
 """
+
 import os
 import sys
 import threading
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 import vnc_remote_secure.security.ephemeral_sessions as mod
 from vnc_remote_secure.security.ephemeral_sessions import (
@@ -40,7 +41,7 @@ from vnc_remote_secure.security.websocket_registry import (
 def fresh_store(monkeypatch):
     """Fresh SessionStore as global."""
     store = SessionStore()
-    monkeypatch.setattr(mod, '_store', store)
+    monkeypatch.setattr(mod, "_store", store)
     return store
 
 
@@ -54,6 +55,7 @@ def _fresh_registry(monkeypatch):
 # TEST-SEC-003: Single-use atomic consumption
 # ---------------------------------------------------------------------------
 
+
 class TestSingleUseAtomicConsumption:
     """TEST-SEC-003: Single-use token consumed exactly once."""
 
@@ -66,7 +68,9 @@ class TestSingleUseAtomicConsumption:
         Efectos: sesión queda revocada después del primer consumo.
         """
         signed = create_ephemeral_session(
-            role='viewer', ttl_seconds=300, single_use=True,
+            role="viewer",
+            ttl_seconds=300,
+            single_use=True,
         )
         first = consume_ephemeral_session(signed)
         second = consume_ephemeral_session(signed)
@@ -84,7 +88,9 @@ class TestSingleUseAtomicConsumption:
         Efectos prohibidos: successes == 0 (ninguno consume).
         """
         signed = create_ephemeral_session(
-            role='viewer', ttl_seconds=300, single_use=True,
+            role="viewer",
+            ttl_seconds=300,
+            single_use=True,
         )
         results = []
         lock = threading.Lock()
@@ -102,8 +108,7 @@ class TestSingleUseAtomicConsumption:
 
         successes = sum(results)
         assert successes == 1, (
-            f'Expected exactly 1 success, got {successes} — '
-            f'single-use token is not atomic'
+            f"Expected exactly 1 success, got {successes} — " f"single-use token is not atomic"
         )
 
     def test_single_use_high_concurrency(self, fresh_store):
@@ -113,7 +118,9 @@ class TestSingleUseAtomicConsumption:
         Condición límite: alta concurrencia.
         """
         signed = create_ephemeral_session(
-            role='viewer', ttl_seconds=300, single_use=True,
+            role="viewer",
+            ttl_seconds=300,
+            single_use=True,
         )
         results = []
         lock = threading.Lock()
@@ -130,9 +137,7 @@ class TestSingleUseAtomicConsumption:
             t.join()
 
         successes = sum(results)
-        assert successes == 1, (
-            f'Expected 1 success with 10 threads, got {successes}'
-        )
+        assert successes == 1, f"Expected 1 success with 10 threads, got {successes}"
 
     def test_multi_use_token_can_be_consumed_multiple_times(self, fresh_store):
         """Contrato: un token multi-use puede consumirse múltiples veces.
@@ -140,7 +145,9 @@ class TestSingleUseAtomicConsumption:
         Esto verifica que single-use=False no bloquea el segundo consumo.
         """
         signed = create_ephemeral_session(
-            role='viewer', ttl_seconds=300, single_use=False,
+            role="viewer",
+            ttl_seconds=300,
+            single_use=False,
         )
         first = consume_ephemeral_session(signed)
         second = consume_ephemeral_session(signed)
@@ -154,7 +161,9 @@ class TestSingleUseAtomicConsumption:
         """
         store = fresh_store
         session, signed = store.create(
-            role='viewer', expires_in=300, max_uses=3,
+            role="viewer",
+            expires_in=300,
+            max_uses=3,
         )
         # First 3 consumptions should succeed (multi-use, not single-use)
         assert consume_ephemeral_session(signed) is True
@@ -172,10 +181,11 @@ class TestSingleUseAtomicConsumption:
 # TEST-SEC-004: Revocation closes active WebSockets
 # ---------------------------------------------------------------------------
 
+
 class TestRevocationClosesWebSockets:
     """TEST-SEC-004: Revocar una sesión cierra sus WebSockets activos."""
 
-    @pytest.mark.usefixtures('_fresh_registry')
+    @pytest.mark.usefixtures("_fresh_registry")
     def test_revoke_closes_single_websocket(self, fresh_store):
         """Contrato: revocar una sesión cierra su WebSocket activo.
 
@@ -185,7 +195,8 @@ class TestRevocationClosesWebSockets:
         Efectos: el token queda revocado, no permite nuevas conexiones.
         """
         signed = create_ephemeral_session(
-            role='viewer', ttl_seconds=300,
+            role="viewer",
+            ttl_seconds=300,
         )
         closed = []
 
@@ -197,15 +208,16 @@ class TestRevocationClosesWebSockets:
         from vnc_remote_secure.security.auth_gateway import (
             register_websocket_connection,
         )
-        register_websocket_connection(signed, close_cb, 'desktop')
+
+        register_websocket_connection(signed, close_cb, "desktop")
 
         # Revoke the session
         revoke_session(signed)
 
         # WebSocket should have been closed
-        assert closed == [True], 'WebSocket was not closed on revocation'
+        assert closed == [True], "WebSocket was not closed on revocation"
 
-    @pytest.mark.usefixtures('_fresh_registry')
+    @pytest.mark.usefixtures("_fresh_registry")
     def test_revoke_closes_multiple_websockets(self, fresh_store):
         """Contrato: revocar una sesión cierra TODOS sus WebSockets.
 
@@ -214,7 +226,8 @@ class TestRevocationClosesWebSockets:
         Resultado: los 3 WebSockets se cierran.
         """
         signed = create_ephemeral_session(
-            role='viewer', ttl_seconds=300,
+            role="viewer",
+            ttl_seconds=300,
         )
         closed = []
 
@@ -222,31 +235,32 @@ class TestRevocationClosesWebSockets:
             def cb():
                 closed.append(i)
                 return True
+
             return cb
 
         from vnc_remote_secure.security.auth_gateway import (
             register_websocket_connection,
         )
+
         for i in range(3):
-            register_websocket_connection(signed, make_close_cb(i), 'desktop')
+            register_websocket_connection(signed, make_close_cb(i), "desktop")
 
         revoke_session(signed)
 
-        assert sorted(closed) == [0, 1, 2], (
-            f'Expected all 3 WebSockets closed, got {closed}'
-        )
+        assert sorted(closed) == [0, 1, 2], f"Expected all 3 WebSockets closed, got {closed}"
 
-    @pytest.mark.usefixtures('_fresh_registry')
+    @pytest.mark.usefixtures("_fresh_registry")
     def test_revoke_does_not_close_other_sessions(
-        self, fresh_store,
+        self,
+        fresh_store,
     ):
         """Contrato: revocar una sesión NO cierra WebSockets de otras
         sesiones.
 
         Efectos prohibidos: no se cierran conexiones de otras sesiones.
         """
-        signed1 = create_ephemeral_session(role='viewer', ttl_seconds=300)
-        signed2 = create_ephemeral_session(role='viewer', ttl_seconds=300)
+        signed1 = create_ephemeral_session(role="viewer", ttl_seconds=300)
+        signed2 = create_ephemeral_session(role="viewer", ttl_seconds=300)
 
         closed1 = []
         closed2 = []
@@ -254,14 +268,15 @@ class TestRevocationClosesWebSockets:
         from vnc_remote_secure.security.auth_gateway import (
             register_websocket_connection,
         )
-        register_websocket_connection(signed1, lambda: closed1.append(True) or True, 'desktop')
-        register_websocket_connection(signed2, lambda: closed2.append(True) or True, 'desktop')
+
+        register_websocket_connection(signed1, lambda: closed1.append(True) or True, "desktop")
+        register_websocket_connection(signed2, lambda: closed2.append(True) or True, "desktop")
 
         # Revoke only session 1
         revoke_session(signed1)
 
-        assert closed1 == [True], 'Session 1 WebSocket should be closed'
-        assert closed2 == [], 'Session 2 WebSocket should NOT be closed'
+        assert closed1 == [True], "Session 1 WebSocket should be closed"
+        assert closed2 == [], "Session 2 WebSocket should NOT be closed"
 
     def test_revoked_token_rejected_on_new_websocket(self, fresh_store):
         """Contrato: un token revocado no permite nuevas conexiones WebSocket.
@@ -271,29 +286,30 @@ class TestRevocationClosesWebSockets:
         Resultado: rechazado con 'Session revoked'.
         """
         from vnc_remote_secure.security.auth_gateway import check_websocket_upgrade
-        signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
+
+        signed = create_ephemeral_session(role="viewer", ttl_seconds=300)
         revoke_session(signed)
 
         allowed, reason = check_websocket_upgrade(
-            origin='http://localhost:8000',
+            origin="http://localhost:8000",
             bearer_token=signed,
-            required_permission='view',
+            required_permission="view",
         )
         assert allowed is False
-        assert 'revoked' in reason.lower()
+        assert "revoked" in reason.lower()
 
-    @pytest.mark.usefixtures('_fresh_registry')
+    @pytest.mark.usefixtures("_fresh_registry")
     def test_revoke_with_no_active_websockets(self, fresh_store):
         """Contrato: revocar una sesión sin WebSockets no falla.
 
         Condición límite: no hay conexiones activas.
         """
-        signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
+        signed = create_ephemeral_session(role="viewer", ttl_seconds=300)
         # No WebSocket registered — revocation must still succeed and
         # mark the session revoked.
         assert revoke_session(signed) is True
 
-    @pytest.mark.usefixtures('_fresh_registry')
+    @pytest.mark.usefixtures("_fresh_registry")
     def test_close_callback_exception_does_not_crash(self, fresh_store):
         """Contrato: si el close_callback lanza una excepción, la
         revocación continúa cerrando otras conexiones.
@@ -301,11 +317,11 @@ class TestRevocationClosesWebSockets:
         Efectos prohibidos: una excepción en un callback no impide
         cerrar otros WebSockets.
         """
-        signed = create_ephemeral_session(role='viewer', ttl_seconds=300)
+        signed = create_ephemeral_session(role="viewer", ttl_seconds=300)
         closed = []
 
         def failing_cb():
-            raise RuntimeError('Close failed')
+            raise RuntimeError("Close failed")
 
         def good_cb():
             closed.append(True)
@@ -314,8 +330,9 @@ class TestRevocationClosesWebSockets:
         from vnc_remote_secure.security.auth_gateway import (
             register_websocket_connection,
         )
-        register_websocket_connection(signed, failing_cb, 'desktop')
-        register_websocket_connection(signed, good_cb, 'desktop')
+
+        register_websocket_connection(signed, failing_cb, "desktop")
+        register_websocket_connection(signed, good_cb, "desktop")
 
         # Should not raise
         revoke_session(signed)

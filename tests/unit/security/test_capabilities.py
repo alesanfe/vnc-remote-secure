@@ -4,10 +4,11 @@ Guarantee the invariant: registered == enforced == documented. A
 permission missing from CAPABILITIES can never be audited or shown;
 a catalog entry missing from ALL_PERMISSIONS is dead metadata.
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 import vnc_remote_secure.security.capabilities as caps  # noqa: E402
 from vnc_remote_secure.security.ephemeral_sessions import (  # noqa: E402
@@ -26,32 +27,32 @@ class TestRegistryCompleteness:
     def test_umbrella_members_are_registered(self):
         for umbrella, members in _PERMISSION_EXPANSION.items():
             assert umbrella in caps.CAPABILITIES
-            assert members <= set(caps.CAPABILITIES), (
-                f'{umbrella} expands to unregistered {members}')
+            assert members <= set(
+                caps.CAPABILITIES
+            ), f"{umbrella} expands to unregistered {members}"
 
     def test_every_entry_has_metadata(self):
         for cap in caps.CAPABILITIES.values():
-            assert cap.resource and cap.risk in ('low', 'medium', 'high')
+            assert cap.resource and cap.risk in ("low", "medium", "high")
             assert cap.description
 
     def test_describe_links_umbrellas_both_ways(self):
-        d = caps.describe('keyboard')
-        assert d['implied_by'] == ['control']
-        assert sorted(caps.describe('control')['implies']) == [
-            'keyboard', 'pointer']
+        d = caps.describe("keyboard")
+        assert d["implied_by"] == ["control"]
+        assert sorted(caps.describe("control")["implies"]) == ["keyboard", "pointer"]
 
 
 class TestNormalization:
     def test_resource_action_forms(self):
         # Composite wins: 'terminal:write' must resolve to the
         # fine-grained permission, not collapse to the umbrella.
-        assert caps.canonical('terminal:write') == 'terminal_write'
-        assert caps.canonical('terminal:view') == 'terminal_view'
-        assert caps.canonical('desktop:control') == 'control'
-        assert caps.canonical('desktop:view') == 'view'
-        assert caps.canonical('view') == 'view'
-        assert caps.canonical('bogus:thing') is None
-        assert caps.canonical('nonexistent') is None
+        assert caps.canonical("terminal:write") == "terminal_write"
+        assert caps.canonical("terminal:view") == "terminal_view"
+        assert caps.canonical("desktop:control") == "control"
+        assert caps.canonical("desktop:view") == "view"
+        assert caps.canonical("view") == "view"
+        assert caps.canonical("bogus:thing") is None
+        assert caps.canonical("nonexistent") is None
 
 
 def _session_with(perms):
@@ -83,42 +84,43 @@ class TestNegativeMatrix:
     def test_umbrella_grants_exactly_its_members(self):
         for umbrella, members in _PERMISSION_EXPANSION.items():
             s = _session_with({umbrella})
-            granted = {p for p in caps.CAPABILITIES
-                       if s.has_permission(p)}
+            granted = {p for p in caps.CAPABILITIES if s.has_permission(p)}
             assert members <= granted
             # Atomic perms outside the umbrella stay denied (except
             # the umbrella itself satisfying its own check).
             for other in caps.CAPABILITIES:
-                if other not in members and other != umbrella \
-                        and other not in _PERMISSION_EXPANSION:
-                    assert s.has_permission(other) is False, (
-                        f'{umbrella} leaked {other}')
+                if (
+                    other not in members
+                    and other != umbrella
+                    and other not in _PERMISSION_EXPANSION
+                ):
+                    assert s.has_permission(other) is False, f"{umbrella} leaked {other}"
 
     def test_unknown_permission_denied(self):
         s = _session_with(ALL_PERMISSIONS)
-        assert s.has_permission('definitely_not_a_perm') is False
+        assert s.has_permission("definitely_not_a_perm") is False
 
     def test_granular_terminal_not_collapsed(self):
         """'terminal:write' must check terminal_write — a view-only
         terminal session must NOT satisfy it."""
-        viewer = _session_with({'terminal_view'})
-        assert viewer.has_permission('terminal:write') is False
-        assert viewer.has_permission('terminal_write') is False
-        assert viewer.has_permission('terminal:view') is True
+        viewer = _session_with({"terminal_view"})
+        assert viewer.has_permission("terminal:write") is False
+        assert viewer.has_permission("terminal_write") is False
+        assert viewer.has_permission("terminal:view") is True
         # Umbrella still satisfies both.
-        full = _session_with({'terminal'})
-        assert full.has_permission('terminal:write') is True
-        assert full.has_permission('terminal:view') is True
+        full = _session_with({"terminal"})
+        assert full.has_permission("terminal:write") is True
+        assert full.has_permission("terminal:view") is True
 
     def test_write_implies_view_declared(self):
         """Explicit implication: a writer must see the output —
         terminal_write grants terminal_view by declaration, not by
         accident. The reverse must NOT hold."""
-        writer = _session_with({'terminal_write'})
-        assert writer.has_permission('terminal:write') is True
-        assert writer.has_permission('terminal:view') is True
-        viewer = _session_with({'terminal_view'})
-        assert viewer.has_permission('terminal:write') is False
+        writer = _session_with({"terminal_write"})
+        assert writer.has_permission("terminal:write") is True
+        assert writer.has_permission("terminal:view") is True
+        viewer = _session_with({"terminal_view"})
+        assert viewer.has_permission("terminal:write") is False
 
     def test_expansion_is_idempotent_fixpoint(self):
         """expand is a fixpoint: expand(expand(P)) == expand(P), and
@@ -127,21 +129,19 @@ class TestNegativeMatrix:
         for umbrella in _PERMISSION_EXPANSION:
             once = expand_permissions({umbrella})
             assert expand_permissions(once) == once
-        assert expand_permissions({'terminal'}) == {
-            'terminal', 'terminal_write', 'terminal_view'}
+        assert expand_permissions({"terminal"}) == {"terminal", "terminal_write", "terminal_view"}
 
     def test_no_escalation_via_cycle(self):
         """terminal_view must NOT reach terminal_write through any
         chain — a reverse edge would be a privilege escalation."""
-        assert 'terminal_write' not in expand_permissions(
-            {'terminal_view'})
-        assert 'terminal_write' not in expand_permissions(
-            {'view'})
+        assert "terminal_write" not in expand_permissions({"terminal_view"})
+        assert "terminal_write" not in expand_permissions({"view"})
         # No member ever expands back to an umbrella that contains it.
         for umbrella, members in _PERMISSION_EXPANSION.items():
             for m in members:
-                assert umbrella not in expand_permissions({m}), (
-                    f'cycle: {m} expands back to {umbrella}')
+                assert umbrella not in expand_permissions(
+                    {m}
+                ), f"cycle: {m} expands back to {umbrella}"
 
     def test_expansion_graph_is_acyclic(self):
         """Full DAG check — a lateral cycle (a->b->c->a) that never
@@ -153,8 +153,7 @@ class TestNegativeMatrix:
         def visit(node, stack):
             color[node] = GRAY
             for nxt in _PERMISSION_EXPANSION.get(node, ()):
-                assert color.get(nxt, WHITE) != GRAY, (
-                    f'cycle in permission graph: {stack} -> {nxt}')
+                assert color.get(nxt, WHITE) != GRAY, f"cycle in permission graph: {stack} -> {nxt}"
                 if color.get(nxt, WHITE) == WHITE:
                     visit(nxt, stack + [nxt])
             color[node] = BLACK

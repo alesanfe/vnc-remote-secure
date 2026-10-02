@@ -5,13 +5,14 @@ directory so the auth gate, static serving and 404s are exercised
 end-to-end — complementing the relay unit tests (_relay_ws) and the
 ephemeral e2e.
 """
+
 import http.client
 import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from vnc_remote_secure.services import novnc  # noqa: E402
 
@@ -24,21 +25,21 @@ def novnc_server(monkeypatch, tmp_path, asgi_server):
     tree is covered by auth_gateway tests; here we test the app's
     enforcement contract (401 + WWW-Authenticate vs. serve).
     """
-    (tmp_path / 'vnc.html').write_text('<html>novnc</html>')
-    (tmp_path / 'app').mkdir()
-    (tmp_path / 'app' / 'ui.js').write_text('// js')
+    (tmp_path / "vnc.html").write_text("<html>novnc</html>")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "ui.js").write_text("// js")
 
     def fake_check(headers, client_ip=None):
-        if headers.get('Cookie', '').startswith('vnc_session=good'):
-            return True, ''
-        return False, 'missing credentials'
+        if headers.get("Cookie", "").startswith("vnc_session=good"):
+            return True, ""
+        return False, "missing credentials"
 
-    monkeypatch.setattr(novnc, '_check_novnc_auth', fake_check)
+    monkeypatch.setattr(novnc, "_check_novnc_auth", fake_check)
     return asgi_server(novnc.make_app(str(tmp_path)))
 
 
-def _req(port, path, method='GET', headers=None):
-    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+def _req(port, path, method="GET", headers=None):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     conn.request(method, path, headers=headers or {})
     resp = conn.getresponse()
     body = resp.read()
@@ -48,69 +49,60 @@ def _req(port, path, method='GET', headers=None):
 
 
 def test_get_unauthenticated_401(novnc_server):
-    status, headers, body = _req(novnc_server, '/vnc.html')
+    status, headers, body = _req(novnc_server, "/vnc.html")
     assert status == 401
-    assert 'www-authenticate' in headers
-    assert b'unauthorized' in body
+    assert "www-authenticate" in headers
+    assert b"unauthorized" in body
 
 
 def test_head_unauthenticated_401(novnc_server):
     """HEAD goes through the same gate — no metadata leak."""
-    status, _, _ = _req(novnc_server, '/vnc.html', method='HEAD')
+    status, _, _ = _req(novnc_server, "/vnc.html", method="HEAD")
     assert status == 401
 
 
 def test_get_authenticated_serves_file(novnc_server):
-    status, _, body = _req(
-        novnc_server, '/vnc.html',
-        headers={'Cookie': 'vnc_session=good'})
+    status, _, body = _req(novnc_server, "/vnc.html", headers={"Cookie": "vnc_session=good"})
     assert status == 200
-    assert b'novnc' in body
+    assert b"novnc" in body
 
 
 def test_head_authenticated_200(novnc_server):
     status, _, body = _req(
-        novnc_server, '/vnc.html', method='HEAD',
-        headers={'Cookie': 'vnc_session=good'})
+        novnc_server, "/vnc.html", method="HEAD", headers={"Cookie": "vnc_session=good"}
+    )
     assert status == 200
-    assert body == b''
+    assert body == b""
 
 
 def test_nested_path_served_when_authed(novnc_server):
-    status, _, body = _req(
-        novnc_server, '/app/ui.js',
-        headers={'Cookie': 'vnc_session=good'})
+    status, _, body = _req(novnc_server, "/app/ui.js", headers={"Cookie": "vnc_session=good"})
     assert status == 200
-    assert b'// js' in body
+    assert b"// js" in body
 
 
 def test_unknown_path_404_when_authed(novnc_server):
-    status, _, _ = _req(
-        novnc_server, '/missing.txt',
-        headers={'Cookie': 'vnc_session=good'})
+    status, _, _ = _req(novnc_server, "/missing.txt", headers={"Cookie": "vnc_session=good"})
     assert status == 404
 
 
 def test_security_headers_present(novnc_server):
     """Responses carry the shared security headers."""
-    _, headers, _ = _req(
-        novnc_server, '/vnc.html',
-        headers={'Cookie': 'vnc_session=good'})
+    _, headers, _ = _req(novnc_server, "/vnc.html", headers={"Cookie": "vnc_session=good"})
     # At minimum the standard hardening headers are set.
-    assert any(k.lower().startswith('x-') or k == 'content-security-policy'
-               for k in headers)
+    assert any(k.lower().startswith("x-") or k == "content-security-policy" for k in headers)
 
 
 def test_query_string_does_not_bypass_auth(novnc_server):
     """/?x=1 must hit the same auth gate as / — the WS-upgrade check
     strips the query, and so does static serving."""
-    status, _, _ = _req(novnc_server, '/vnc.html?cache=bust')
+    status, _, _ = _req(novnc_server, "/vnc.html?cache=bust")
     assert status == 401
 
 
 def test_traversal_does_not_escape_root(novnc_server):
     """../ segments must not escape the noVNC directory."""
     status, _, _ = _req(
-        novnc_server, '/..%2f..%2fetc%2fpasswd',
-        headers={'Cookie': 'vnc_session=good'})
+        novnc_server, "/..%2f..%2fetc%2fpasswd", headers={"Cookie": "vnc_session=good"}
+    )
     assert status in (400, 404)

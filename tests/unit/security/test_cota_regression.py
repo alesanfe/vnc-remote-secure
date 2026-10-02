@@ -8,10 +8,11 @@ COTA-004: FLASK_SECRET_KEY must be enforced in non-dev profiles.
 COTA-008: WebSocket registry must be integrated with auth gateway.
 COTA-010: Security scan reports must be excluded from Docker image.
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 
 class TestCota003SameSiteCoherent:
@@ -22,22 +23,25 @@ class TestCota003SameSiteCoherent:
         every cookie-issuing surface reads the same env var and the
         default stays Lax."""
         from vnc_remote_secure.core.config import resolve_samesite
-        assert resolve_samesite() == 'Lax'
+
+        assert resolve_samesite() == "Lax"
 
     def test_sessions_py_uses_env_var(self):
         """sessions.py reads SESSION_SAMESITE from env, defaults to Lax."""
         from vnc_remote_secure.security.sessions import get_cookie_attributes
+
         opts = get_cookie_attributes(secure=True)
-        assert opts['samesite'] == 'Lax'
-        assert opts['httponly'] is True
+        assert opts["samesite"] == "Lax"
+        assert opts["httponly"] is True
 
     def test_user_ui_app_is_the_health_asgi_app(self):
         """The canonical web application is the FastAPI health app —
         no server-rendered user surface remains."""
         from vnc_remote_secure.web.application import create_app
+
         app = create_app()
         paths = {r.path for r in app.routes}
-        assert '/health' in paths and '/metrics' in paths
+        assert "/health" in paths and "/metrics" in paths
 
 
 class TestCota004FlaskSecretEnforced:
@@ -46,9 +50,10 @@ class TestCota004FlaskSecretEnforced:
     def test_user_ui_app_warns_on_missing_secret(self):
         """Canonical web application enforces FLASK_SECRET_KEY in non-dev profiles."""
         from vnc_remote_secure.security.profiles import get_profile
+
         # The profile system enforces FLASK_SECRET_KEY for non-dev profiles.
         profile = get_profile()
-        assert profile in ('development', 'public-hardened', 'trusted-lan', 'public-standard')
+        assert profile in ("development", "public-hardened", "trusted-lan", "public-standard")
 
 
 class TestCota008WebSocketRegistryIntegrated:
@@ -60,6 +65,7 @@ class TestCota008WebSocketRegistryIntegrated:
             register_websocket_connection,
             unregister_websocket_connection,
         )
+
         assert callable(register_websocket_connection)
         assert callable(unregister_websocket_connection)
 
@@ -72,6 +78,7 @@ class TestCota008WebSocketRegistryIntegrated:
             reset_registry,
             revoke_session_connections,
         )
+
         reset_registry()
 
         closed = []
@@ -80,10 +87,10 @@ class TestCota008WebSocketRegistryIntegrated:
             closed.append(True)
             return True
 
-        conn_id = register_websocket_connection('session-123', close_cb, 'desktop')
+        conn_id = register_websocket_connection("session-123", close_cb, "desktop")
         assert conn_id is not None
 
-        closed_count = revoke_session_connections('session-123')
+        closed_count = revoke_session_connections("session-123")
         assert closed_count == 1
         assert closed == [True]
 
@@ -94,22 +101,22 @@ class TestCota010DockerignoreScanReports:
     def test_dockerignore_excludes_bandit(self):
         """bandit-report.json is in .dockerignore."""
         dockerignore_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..', '.dockerignore'
+            os.path.dirname(__file__), "..", "..", "..", ".dockerignore"
         )
-        with open(dockerignore_path, encoding='utf-8') as f:
+        with open(dockerignore_path, encoding="utf-8") as f:
             content = f.read()
-        assert 'bandit-report.json' in content
-        assert '*.sarif' in content
+        assert "bandit-report.json" in content
+        assert "*.sarif" in content
 
     def test_dockerignore_excludes_credentials(self):
         """Runtime credentials are excluded."""
         dockerignore_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..', '.dockerignore'
+            os.path.dirname(__file__), "..", "..", "..", ".dockerignore"
         )
-        with open(dockerignore_path, encoding='utf-8') as f:
+        with open(dockerignore_path, encoding="utf-8") as f:
             content = f.read()
-        assert '.runtime_credentials.json' in content
-        assert '.env' in content
+        assert ".runtime_credentials.json" in content
+        assert ".env" in content
 
 
 class TestCota006BashBindHardened:
@@ -123,21 +130,33 @@ class TestCota006BashBindHardened:
     def test_profiles_module_forces_localhost_in_hardened(self):
         """profiles.py overrides bind_address in hardened profiles."""
         profiles_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..',
-            'src', 'vnc_remote_secure', 'security', 'profiles.py',
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "src",
+            "vnc_remote_secure",
+            "security",
+            "profiles.py",
         )
-        with open(profiles_path, encoding='utf-8') as f:
+        with open(profiles_path, encoding="utf-8") as f:
             content = f.read()
-        assert 'public-hardened' in content
-        assert 'private-overlay' in content or 'trusted-lan' in content
+        assert "public-hardened" in content
+        assert "private-overlay" in content or "trusted-lan" in content
 
     def test_hardened_profiles_require_tls_and_mfa(self):
         """Hardened profiles enforce TLS and MFA blockers."""
         profiles_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..',
-            'src', 'vnc_remote_secure', 'security', 'profiles.py',
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "src",
+            "vnc_remote_secure",
+            "security",
+            "profiles.py",
         )
-        with open(profiles_path, encoding='utf-8') as f:
+        with open(profiles_path, encoding="utf-8") as f:
             content = f.read()
-        assert 'TLS is disabled in public-hardened' in content
-        assert 'MFA is not required in public-hardened' in content
+        assert "TLS is disabled in public-hardened" in content
+        assert "MFA is not required in public-hardened" in content

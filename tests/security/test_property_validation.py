@@ -5,6 +5,7 @@ edge cases like empty strings, unicode, null bytes, and extreme lengths.
 Validators raise ValidationError on failure; tests verify that behavior
 is consistent and crash-free across the input space.
 """
+
 import os
 import string
 import sys
@@ -13,7 +14,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from vnc_remote_secure.core.validation import (
     ValidationError,
@@ -61,10 +62,12 @@ class TestPortValidation:
 class TestDomainValidation:
     def test_empty_domain_accepted(self):
         # Empty domain means SSL disabled, should be accepted
-        result = validate_domain('')
+        result = validate_domain("")
         assert result is True
 
-    @given(st.text(min_size=1, max_size=253, alphabet=string.ascii_lowercase + string.digits + '.-'))
+    @given(
+        st.text(min_size=1, max_size=253, alphabet=string.ascii_lowercase + string.digits + ".-")
+    )
     @settings(max_examples=50)
     def test_domain_does_not_crash(self, domain):
         # Should not raise unexpected exceptions (ValidationError is OK)
@@ -96,21 +99,21 @@ class TestEmailValidation:
 
     def test_rejects_example_com(self):
         with pytest.raises(ValidationError):
-            validate_email('user@example.com')
+            validate_email("user@example.com")
 
     def test_rejects_empty(self):
         with pytest.raises(ValidationError):
-            validate_email('')
+            validate_email("")
 
     def test_accepts_valid(self):
-        assert validate_email('user@gmail.com') is True
+        assert validate_email("user@gmail.com") is True
 
 
 # ============================================================================
 # Username validation
 # ============================================================================
 class TestUsernameValidation:
-    @given(st.text(min_size=1, max_size=32, alphabet=string.ascii_lowercase + string.digits + '_-'))
+    @given(st.text(min_size=1, max_size=32, alphabet=string.ascii_lowercase + string.digits + "_-"))
     @settings(max_examples=50)
     def test_username_does_not_crash(self, username):
         try:
@@ -120,10 +123,10 @@ class TestUsernameValidation:
 
     def test_rejects_empty(self):
         with pytest.raises(ValidationError):
-            validate_username('')
+            validate_username("")
 
     def test_rejects_reserved(self):
-        for name in ['root', 'admin', 'nobody', 'daemon']:
+        for name in ["root", "admin", "nobody", "daemon"]:
             with pytest.raises(ValidationError):
                 validate_username(name)
 
@@ -164,7 +167,7 @@ class TestPasswordStrength:
             validate_password(pwd)
 
     def test_weak_passwords_rejected(self):
-        for pwd in ['changeme', 'admin123', 'YourStrongPassword123', 'password123']:
+        for pwd in ["changeme", "admin123", "YourStrongPassword123", "password123"]:
             with pytest.raises(ValidationError):
                 validate_password(pwd)
 
@@ -179,15 +182,17 @@ class TestSanitizeInput:
         result = sanitize_input(text)
         assert isinstance(result, str)
 
-    @given(st.text(min_size=0, max_size=50).filter(
-        lambda x: '<' in x or '>' in x or '"' in x or "'" in x
-    ))
+    @given(
+        st.text(min_size=0, max_size=50).filter(
+            lambda x: "<" in x or ">" in x or '"' in x or "'" in x
+        )
+    )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.filter_too_much])
     def test_html_chars_escaped(self, text):
         result = sanitize_input(text)
         # Raw <, >, ", ' should be replaced with HTML entities
-        assert '<' not in result
-        assert '>' not in result
+        assert "<" not in result
+        assert ">" not in result
         assert '"' not in result
         assert "'" not in result
 
@@ -200,6 +205,7 @@ class TestTOTPProperties:
     @settings(max_examples=30)
     def test_invalid_codes_rejected(self, code):
         from vnc_remote_secure.security.mfa import generate_totp_secret, verify_totp
+
         secret = generate_totp_secret()
         if not (code.isdigit() and len(code) == 6):
             assert verify_totp(secret, code) is False

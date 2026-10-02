@@ -11,12 +11,13 @@ pinned without real sockets:
 - RFB input messages dropped by a view-only filter never reach the
   upstream side.
 """
+
 import asyncio
 import os
 import struct
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from starlette.websockets import WebSocketDisconnect  # noqa: E402
 
@@ -50,7 +51,7 @@ class _FakeClientWS:
     async def send_bytes(self, data):
         self.sent.append(data)
 
-    async def close(self, code=1000, reason=''):
+    async def close(self, code=1000, reason=""):
         pass
 
 
@@ -67,7 +68,7 @@ class _FakeUpstream:
     async def recv(self):
         item = await self._in.get()
         if isinstance(item, _Closed):
-            raise asyncio.IncompleteReadError(b'', 0)
+            raise asyncio.IncompleteReadError(b"", 0)
         return item
 
     async def send(self, data):
@@ -100,14 +101,15 @@ def _run(client, upstream, rfb_filter=None, timeout=10):
 # Plain forwarding
 # ---------------------------------------------------------------------------
 
+
 def test_relay_forwards_both_directions():
     client, upstream = _FakeClientWS(), _FakeUpstream()
-    client.feed(b'hello-upstream')
-    upstream.feed(b'hello-client')
+    client.feed(b"hello-upstream")
+    upstream.feed(b"hello-client")
     client.close_from_peer()
     _run(client, upstream)
-    assert b'hello-upstream' in upstream.sent
-    assert b'hello-client' in client.sent
+    assert b"hello-upstream" in upstream.sent
+    assert b"hello-client" in client.sent
 
 
 def test_relay_returns_when_client_closes():
@@ -115,6 +117,7 @@ def test_relay_returns_when_client_closes():
     client.close_from_peer()
     t0 = asyncio.get_event_loop if False else None  # noqa: F841
     import time
+
     start = time.monotonic()
     _run(client, upstream, timeout=3)
     assert time.monotonic() - start < 3
@@ -124,16 +127,18 @@ def test_relay_returns_when_client_closes():
 # Filtered forwarding
 # ---------------------------------------------------------------------------
 
+
 def _drain(fake, n=16, timeout=2.0):
     """Wait until the fake has at least n bytes sent; return bytes."""
     import time
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         total = sum(len(m) for m in fake.sent)
         if total >= n:
             break
         time.sleep(0.01)
-    return b''.join(bytes(m) for m in fake.sent)
+    return b"".join(bytes(m) for m in fake.sent)
 
 
 def test_relay_drops_input_for_view_only_filter():
@@ -150,6 +155,7 @@ def test_relay_drops_input_for_view_only_filter():
     # Drive the handshake inside a thread so feed/drain can overlap
     # with the running relay loop.
     import threading
+
     done = threading.Event()
 
     def _relay():
@@ -159,27 +165,29 @@ def test_relay_drops_input_for_view_only_filter():
     t.start()
     try:
         # RFB handshake, message-level: payloads, not frames.
-        upstream.feed(b'RFB 003.008\n')
+        upstream.feed(b"RFB 003.008\n")
         _drain(client, 12)
-        client.feed(b'RFB 003.008\n')
-        upstream.feed(b'\x01\x01')               # sectypes: [None]
+        client.feed(b"RFB 003.008\n")
+        upstream.feed(b"\x01\x01")  # sectypes: [None]
         _drain(client, 14)
-        client.feed(b'\x01')                     # chosen sectype
-        upstream.feed(b'\x00\x00\x00\x00')       # sec result OK
-        client.feed(b'\x01')                     # ClientInit
-        name = b't'
-        server_init = struct.pack('>HH', 1024, 768) + bytes(16) \
-            + struct.pack('>I', len(name)) + name
+        client.feed(b"\x01")  # chosen sectype
+        upstream.feed(b"\x00\x00\x00\x00")  # sec result OK
+        client.feed(b"\x01")  # ClientInit
+        name = b"t"
+        server_init = (
+            struct.pack(">HH", 1024, 768) + bytes(16) + struct.pack(">I", len(name)) + name
+        )
         upstream.feed(server_init)
         _drain(client, 64)
         # Now a KeyEvent — the filter must drop it upstream.
-        key_event = struct.pack('>BBBBI', 4, 1, 0, 0, 0x41)
+        key_event = struct.pack(">BBBBI", 4, 1, 0, 0, 0x41)
         before = sum(len(m) for m in upstream.sent)
         client.feed(key_event)
         import time
+
         time.sleep(0.3)
         after = sum(len(m) for m in upstream.sent)
-        assert after == before, 'KeyEvent leaked upstream'
+        assert after == before, "KeyEvent leaked upstream"
     finally:
         done.set()
         t.join(timeout=5)
@@ -195,8 +203,7 @@ async def _run_async(client, upstream, filt, done):
 
     relay = asyncio.ensure_future(_relay_ws(client, upstream, filt))
     watch = asyncio.ensure_future(_watcher())
-    done_, _ = await asyncio.wait(
-        [relay, watch], return_when=asyncio.FIRST_COMPLETED)
+    done_, _ = await asyncio.wait([relay, watch], return_when=asyncio.FIRST_COMPLETED)
     relay.cancel()
 
 
@@ -205,7 +212,7 @@ def test_relay_fail_closed_on_filter_violation():
     relay down — unparseable input must never pass upstream."""
     client, upstream = _FakeClientWS(), _FakeUpstream()
     filt = RfbInputFilter()
-    client.feed(b'\xff' * 64)  # RFB tracker cannot parse → dead
+    client.feed(b"\xff" * 64)  # RFB tracker cannot parse → dead
     _run(client, upstream, filt, timeout=5)
     # The relay finished without forwarding the garbage payload.
     assert upstream.sent == []
@@ -214,9 +221,11 @@ def test_relay_fail_closed_on_filter_violation():
 def test_relay_idle_timeout_closes(monkeypatch):
     """Silent connections are reaped after _RELAY_IDLE_TIMEOUT."""
     import vnc_remote_secure.services.novnc as novnc_mod
-    monkeypatch.setattr(novnc_mod, '_RELAY_IDLE_TIMEOUT', 0.2)
+
+    monkeypatch.setattr(novnc_mod, "_RELAY_IDLE_TIMEOUT", 0.2)
     client, upstream = _FakeClientWS(), _FakeUpstream()
     import time
+
     start = time.monotonic()
     _run(client, upstream, timeout=5)
     assert time.monotonic() - start < 5

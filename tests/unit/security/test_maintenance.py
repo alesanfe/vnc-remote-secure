@@ -1,22 +1,23 @@
 """Tests for maintenance mode."""
+
 import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from vnc_remote_secure.security import maintenance  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch, tmp_path):
-    monkeypatch.delenv('MAINTENANCE_MODE', raising=False)
-    monkeypatch.setenv('VRS_RUN_DIR', str(tmp_path / 'run'))
+    monkeypatch.delenv("MAINTENANCE_MODE", raising=False)
+    monkeypatch.setenv("VRS_RUN_DIR", str(tmp_path / "run"))
     # Point the flag file at tmp regardless of platform resolution.
     monkeypatch.setattr(
-        maintenance, '_flag_path',
-        lambda: str(tmp_path / 'run' / 'maintenance.json'))
+        maintenance, "_flag_path", lambda: str(tmp_path / "run" / "maintenance.json")
+    )
     yield
 
 
@@ -26,116 +27,116 @@ class TestFlag:
         assert maintenance.maintenance_info() is None
 
     def test_env_flag(self, monkeypatch):
-        monkeypatch.setenv('MAINTENANCE_MODE', 'true')
+        monkeypatch.setenv("MAINTENANCE_MODE", "true")
         assert maintenance.maintenance_active() is True
-        assert maintenance.maintenance_info()['source'] == 'env'
+        assert maintenance.maintenance_info()["source"] == "env"
 
     def test_flag_file_roundtrip(self, tmp_path):
-        maintenance.set_maintenance(True, by='test', reason='upgrade')
+        maintenance.set_maintenance(True, by="test", reason="upgrade")
         assert maintenance.maintenance_active() is True
         info = maintenance.maintenance_info()
-        assert info['by'] == 'test'
-        assert info['reason'] == 'upgrade'
+        assert info["by"] == "test"
+        assert info["reason"] == "upgrade"
         maintenance.set_maintenance(False)
         assert maintenance.maintenance_active() is False
 
     def test_corrupt_flag_still_blocks(self, tmp_path):
         # A present-but-unreadable flag must still mean "active" —
         # existence is the signal, contents are informational.
-        (tmp_path / 'run').mkdir(parents=True, exist_ok=True)
-        (tmp_path / 'run' / 'maintenance.json').write_text('{bad')
+        (tmp_path / "run").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "run" / "maintenance.json").write_text("{bad")
         assert maintenance.maintenance_active() is True
         assert maintenance.maintenance_info() is None
 
 
 class TestLoginGate:
     def test_open_when_inactive(self):
-        assert maintenance.maintenance_login_allowed('anyone') is True
+        assert maintenance.maintenance_login_allowed("anyone") is True
 
     def test_regular_user_blocked(self, monkeypatch, tmp_path):
         maintenance.set_maintenance(True)
         monkeypatch.setattr(
-            'vnc_remote_secure.security.operator_users.get_permissions',
-            lambda u: set())
-        monkeypatch.delenv('USER_UI_USERNAME', raising=False)
-        monkeypatch.delenv('TTYD_USERNAME', raising=False)
-        assert maintenance.maintenance_login_allowed('guest') is False
+            "vnc_remote_secure.security.operator_users.get_permissions", lambda u: set()
+        )
+        monkeypatch.delenv("USER_UI_USERNAME", raising=False)
+        monkeypatch.delenv("TTYD_USERNAME", raising=False)
+        assert maintenance.maintenance_login_allowed("guest") is False
 
     def test_operator_allowed(self, monkeypatch):
         maintenance.set_maintenance(True)
         monkeypatch.setattr(
-            'vnc_remote_secure.security.operator_users.get_permissions',
-            lambda u: {'desktop:view'} if u == 'ops' else set())
-        assert maintenance.maintenance_login_allowed('ops') is True
+            "vnc_remote_secure.security.operator_users.get_permissions",
+            lambda u: {"desktop:view"} if u == "ops" else set(),
+        )
+        assert maintenance.maintenance_login_allowed("ops") is True
 
     def test_env_admin_allowed(self, monkeypatch):
         maintenance.set_maintenance(True)
         monkeypatch.setattr(
-            'vnc_remote_secure.security.operator_users.get_permissions',
-            lambda u: set())
-        monkeypatch.setenv('USER_UI_USERNAME', 'admin')
-        assert maintenance.maintenance_login_allowed('admin') is True
+            "vnc_remote_secure.security.operator_users.get_permissions", lambda u: set()
+        )
+        monkeypatch.setenv("USER_UI_USERNAME", "admin")
+        assert maintenance.maintenance_login_allowed("admin") is True
 
-    def test_bootstrap_admin_allowed_without_ui_username(
-            self, monkeypatch):
+    def test_bootstrap_admin_allowed_without_ui_username(self, monkeypatch):
         """'admin' is the fixed LANDING_PASSWORD bootstrap identity —
         maintenance must never lock it out (the admin who enabled it
         could not log in to lift it)."""
         maintenance.set_maintenance(True)
         monkeypatch.setattr(
-            'vnc_remote_secure.security.operator_users.get_permissions',
-            lambda u: set())
-        monkeypatch.delenv('USER_UI_USERNAME', raising=False)
-        monkeypatch.delenv('TTYD_USERNAME', raising=False)
-        assert maintenance.maintenance_login_allowed('admin') is True
-        assert maintenance.maintenance_login_allowed('guest') is False
+            "vnc_remote_secure.security.operator_users.get_permissions", lambda u: set()
+        )
+        monkeypatch.delenv("USER_UI_USERNAME", raising=False)
+        monkeypatch.delenv("TTYD_USERNAME", raising=False)
+        assert maintenance.maintenance_login_allowed("admin") is True
+        assert maintenance.maintenance_login_allowed("guest") is False
 
 
 class TestEnforcement:
     def test_ephemeral_activate_denied(self, monkeypatch):
         maintenance.set_maintenance(True)
         from vnc_remote_secure.security import ephemeral_sessions
+
         # A syntactically valid token still fails before touching the
         # store — the maintenance check runs first.
         monkeypatch.setattr(
-            ephemeral_sessions, 'verify_ephemeral_token',
-            lambda t: {'session_token': 'tok'})
-        assert ephemeral_sessions.activate_ephemeral_session(
-            'signed', client_ip='127.0.0.1') is None
-        assert ephemeral_sessions.consume_ephemeral_session(
-            'signed') is False
+            ephemeral_sessions, "verify_ephemeral_token", lambda t: {"session_token": "tok"}
+        )
+        assert (
+            ephemeral_sessions.activate_ephemeral_session("signed", client_ip="127.0.0.1") is None
+        )
+        assert ephemeral_sessions.consume_ephemeral_session("signed") is False
 
     def test_login_denied_for_non_admin(self, monkeypatch):
         maintenance.set_maintenance(True)
         from vnc_remote_secure.security import auth_gateway
+
+        monkeypatch.setattr(auth_gateway, "authenticate", lambda u, p: True)
+        monkeypatch.setattr(auth_gateway, "mfa_required_for_login", lambda: False)
         monkeypatch.setattr(
-            auth_gateway, 'authenticate', lambda u, p: True)
-        monkeypatch.setattr(
-            auth_gateway, 'mfa_required_for_login', lambda: False)
-        monkeypatch.setattr(
-            'vnc_remote_secure.security.operator_users.get_permissions',
-            lambda u: set())
-        monkeypatch.delenv('USER_UI_USERNAME', raising=False)
-        monkeypatch.delenv('TTYD_USERNAME', raising=False)
-        ok, msg, session = auth_gateway.attempt_login(
-            'alice', 'pw', client_ip='127.0.0.1')
+            "vnc_remote_secure.security.operator_users.get_permissions", lambda u: set()
+        )
+        monkeypatch.delenv("USER_UI_USERNAME", raising=False)
+        monkeypatch.delenv("TTYD_USERNAME", raising=False)
+        ok, msg, session = auth_gateway.attempt_login("alice", "pw", client_ip="127.0.0.1")
         assert ok is False
-        assert 'maintenance' in msg.lower()
+        assert "maintenance" in msg.lower()
         assert session is None
 
 
 class TestDrain:
     def test_drain_revokes_active_sessions(self, monkeypatch, tmp_path):
         import vnc_remote_secure.security.ephemeral_sessions as es
-        monkeypatch.setattr(es, '_store', None)
+
+        monkeypatch.setattr(es, "_store", None)
         store = es.get_session_store()
         s, _signed = store.create(
-            expires_in=3600, role='viewer',
-            created_by='admin', permissions={'view'})
+            expires_in=3600, role="viewer", created_by="admin", permissions={"view"}
+        )
         n = maintenance.drain_sessions()
         assert n == 1
         store._load_if_changed()
-        assert es.check_session_permission(s.token, 'view') is False
+        assert es.check_session_permission(s.token, "view") is False
 
     def test_drain_empty_is_zero(self):
         assert maintenance.drain_sessions() == 0
@@ -144,31 +145,33 @@ class TestDrain:
 class TestDrainDeadline:
     def test_deferred_drain_denies_after_deadline(self, monkeypatch):
         import vnc_remote_secure.security.ephemeral_sessions as es
-        monkeypatch.setattr(es, '_store', None)
+
+        monkeypatch.setattr(es, "_store", None)
         store = es.get_session_store()
-        s, _signed = store.create(expires_in=3600, role='viewer',
-                                  created_by='admin',
-                                  permissions={'view'})
-        assert es.check_session_permission(s.token, 'view') is True
+        s, _signed = store.create(
+            expires_in=3600, role="viewer", created_by="admin", permissions={"view"}
+        )
+        assert es.check_session_permission(s.token, "view") is True
         import time as _t
-        maintenance.set_maintenance(
-            True, by='test', drain_at=_t.time() - 1)
-        assert es.check_session_permission(s.token, 'view') is False
+
+        maintenance.set_maintenance(True, by="test", drain_at=_t.time() - 1)
+        assert es.check_session_permission(s.token, "view") is False
 
     def test_future_deadline_keeps_sessions(self, monkeypatch):
         import vnc_remote_secure.security.ephemeral_sessions as es
-        monkeypatch.setattr(es, '_store', None)
+
+        monkeypatch.setattr(es, "_store", None)
         store = es.get_session_store()
-        s, _signed = store.create(expires_in=3600, role='viewer',
-                                  created_by='admin',
-                                  permissions={'view'})
+        s, _signed = store.create(
+            expires_in=3600, role="viewer", created_by="admin", permissions={"view"}
+        )
         import time as _t
-        maintenance.set_maintenance(
-            True, by='test', drain_at=_t.time() + 3600)
-        assert es.check_session_permission(s.token, 'view') is True
+
+        maintenance.set_maintenance(True, by="test", drain_at=_t.time() + 3600)
+        assert es.check_session_permission(s.token, "view") is True
 
     def test_no_deadline_no_drain(self, monkeypatch):
-        maintenance.set_maintenance(True, by='test')
+        maintenance.set_maintenance(True, by="test")
         assert maintenance.drain_deadline_passed() is False
 
     def test_completion_recorded_per_generation(self, monkeypatch):
@@ -176,53 +179,53 @@ class TestDrainDeadline:
         mark a NEW window complete, and a completed window doesn't
         re-sweep."""
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
-        maintenance.set_maintenance(True, by='test',
-                                    drain_at=__import__('time').time() - 1)
-        mid1 = maintenance._read_flag()['maintenance_id']
+        maintenance.set_maintenance(True, by="test", drain_at=__import__("time").time() - 1)
+        mid1 = maintenance._read_flag()["maintenance_id"]
         assert maintenance.enforce_drain_deadline() is True
-        assert be.get('maintenance', f'drain_done:{mid1}') == '1'
+        assert be.get("maintenance", f"drain_done:{mid1}") == "1"
         # Second call short-circuits on the generation's done marker.
         assert maintenance.enforce_drain_deadline() is True
         # New window = new generation: old 'done' must not apply.
-        maintenance.set_maintenance(True, by='test',
-                                    drain_at=__import__('time').time() - 1)
-        mid2 = maintenance._read_flag()['maintenance_id']
+        maintenance.set_maintenance(True, by="test", drain_at=__import__("time").time() - 1)
+        mid2 = maintenance._read_flag()["maintenance_id"]
         assert mid2 != mid1
-        assert not be.get('maintenance', f'drain_done:{mid2}')
+        assert not be.get("maintenance", f"drain_done:{mid2}")
         assert maintenance.enforce_drain_deadline() is True
-        assert be.get('maintenance', f'drain_done:{mid2}') == '1'
+        assert be.get("maintenance", f"drain_done:{mid2}") == "1"
 
     def test_dead_executor_lease_retries(self, monkeypatch):
         """An executor that claims and dies leaves a 30s lease, not a
         permanent done-marker — a retry succeeds once it expires."""
         from vnc_remote_secure.security.shared_state import get_backend
+
         be = get_backend()
         import time as _t
-        maintenance.set_maintenance(True, by='test',
-                                    drain_at=_t.time() - 1)
-        mid = maintenance._read_flag()['maintenance_id']
+
+        maintenance.set_maintenance(True, by="test", drain_at=_t.time() - 1)
+        mid = maintenance._read_flag()["maintenance_id"]
         # Simulate a dead executor: lease claimed, no done marker.
-        assert be.set_if_absent('maintenance', f'drain_lease:{mid}',
-                                '1', ttl_seconds=30)
+        assert be.set_if_absent("maintenance", f"drain_lease:{mid}", "1", ttl_seconds=30)
         # Another process can't claim while the lease lives — but the
         # done marker is absent, so after expiry a retry is possible.
-        assert not be.get('maintenance', f'drain_done:{mid}')
+        assert not be.get("maintenance", f"drain_done:{mid}")
         # Expire the lease artificially.
-        be.delete('maintenance', f'drain_lease:{mid}')
+        be.delete("maintenance", f"drain_lease:{mid}")
         assert maintenance.enforce_drain_deadline() is True
-        assert be.get('maintenance', f'drain_done:{mid}') == '1'
+        assert be.get("maintenance", f"drain_done:{mid}") == "1"
 
     def test_monotonic_bound_requires_same_boot(self, monkeypatch):
         """A drain_mono from another boot must not fire."""
         import time as _t
-        maintenance.set_maintenance(True, by='test',
-                                    drain_at=_t.time() + 3600)
+
+        maintenance.set_maintenance(True, by="test", drain_at=_t.time() + 3600)
         data = maintenance._read_flag()
-        data['boot_id'] = 'foreign-boot-epoch'
-        data['drain_mono'] = 0.0  # "already reached" in another boot
+        data["boot_id"] = "foreign-boot-epoch"
+        data["drain_mono"] = 0.0  # "already reached" in another boot
         import json as _j
         from pathlib import Path as _P
+
         _P(maintenance._flag_path()).write_text(_j.dumps(data))
         # Wall clock not reached and mono belongs to a foreign boot.
         assert maintenance.drain_deadline_passed() is False
@@ -231,8 +234,8 @@ class TestDrainDeadline:
         """Lease claimed, then the window is cancelled before the
         sweep — the stale executor must NOT revoke."""
         import time as _t
-        maintenance.set_maintenance(True, by='test',
-                                    drain_at=_t.time() - 1)
+
+        maintenance.set_maintenance(True, by="test", drain_at=_t.time() - 1)
         real_flag = maintenance._read_flag
         calls = [0]
 
@@ -242,12 +245,10 @@ class TestDrainDeadline:
             # call 3+ (post-lease revalidation) sees a NEW generation.
             if calls[0] <= 2:
                 return real_flag()
-            return {'maintenance_id': 'cancelled-window'}
+            return {"maintenance_id": "cancelled-window"}
 
-        monkeypatch.setattr(maintenance, '_read_flag', flaky)
+        monkeypatch.setattr(maintenance, "_read_flag", flaky)
         revoked = []
-        monkeypatch.setattr(
-            maintenance, 'drain_sessions', lambda: revoked.append(1)
-            or 0)
+        monkeypatch.setattr(maintenance, "drain_sessions", lambda: revoked.append(1) or 0)
         assert maintenance.enforce_drain_deadline() is True
         assert revoked == []  # never swept a dead generation

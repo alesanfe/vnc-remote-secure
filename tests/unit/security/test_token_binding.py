@@ -1,10 +1,11 @@
 """Tests for strong token binding (resource, instance, max_uses)."""
+
 import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 import vnc_remote_secure.security.ephemeral_sessions as mod
 from vnc_remote_secure.security.ephemeral_sessions import (
@@ -17,7 +18,7 @@ from vnc_remote_secure.security.ephemeral_sessions import (
 def fresh_store(monkeypatch):
     """Provide a fresh SessionStore patched as the global store."""
     store = SessionStore()
-    monkeypatch.setattr(mod, '_store', store)
+    monkeypatch.setattr(mod, "_store", store)
     return store
 
 
@@ -27,41 +28,41 @@ class TestResourceBinding:
     def test_desktop_token_cannot_access_terminal(self, fresh_store):
         """A token for 'desktop' cannot be used for 'terminal'."""
         session, signed = fresh_store.create(
-            role='operator',
+            role="operator",
             expires_in=300,
-            resource='desktop',
+            resource="desktop",
         )
 
         # Can access desktop with view permission.
-        assert check_permission(signed, 'view', resource='desktop')
+        assert check_permission(signed, "view", resource="desktop")
         # Cannot access terminal.
-        assert not check_permission(signed, 'terminal', resource='terminal')
+        assert not check_permission(signed, "terminal", resource="terminal")
         # Cannot access terminal even with view permission.
-        assert not check_permission(signed, 'view', resource='terminal')
+        assert not check_permission(signed, "view", resource="terminal")
 
     def test_terminal_token_cannot_access_desktop(self, fresh_store):
         """A token for 'terminal' cannot be used for 'desktop'."""
         session, signed = fresh_store.create(
-            role='operator',
+            role="operator",
             expires_in=300,
-            resource='terminal',
+            resource="terminal",
         )
 
         # Can access terminal.
-        assert check_permission(signed, 'terminal', resource='terminal')
+        assert check_permission(signed, "terminal", resource="terminal")
         # Cannot access desktop.
-        assert not check_permission(signed, 'view', resource='desktop')
+        assert not check_permission(signed, "view", resource="desktop")
 
     def test_unbound_token_can_access_any_resource(self, fresh_store):
         """A token without resource binding can access any resource."""
         session, signed = fresh_store.create(
-            role='operator',
+            role="operator",
             expires_in=300,
             resource=None,  # No binding
         )
 
-        assert check_permission(signed, 'view', resource='desktop')
-        assert check_permission(signed, 'terminal', resource='terminal')
+        assert check_permission(signed, "view", resource="desktop")
+        assert check_permission(signed, "terminal", resource="terminal")
 
 
 class TestMaxUses:
@@ -70,7 +71,7 @@ class TestMaxUses:
     def test_max_uses_limits_consumption(self, fresh_store):
         """A token with max_uses=3 can be used 3 times."""
         session, signed = fresh_store.create(
-            role='viewer',
+            role="viewer",
             expires_in=300,
             max_uses=3,
         )
@@ -88,7 +89,7 @@ class TestMaxUses:
     def test_single_use_implies_max_uses_1(self, fresh_store):
         """Single-use tokens have max_uses=1."""
         session, signed = fresh_store.create(
-            role='viewer',
+            role="viewer",
             expires_in=300,
             single_use=True,
         )
@@ -100,20 +101,20 @@ class TestInstanceId:
 
     def test_session_has_instance_id(self, fresh_store):
         """Every session has an instance_id."""
-        session, signed = fresh_store.create(role='viewer', expires_in=300)
+        session, signed = fresh_store.create(role="viewer", expires_in=300)
         assert session.instance_id is not None
-        assert session.instance_id.startswith('srv_')
+        assert session.instance_id.startswith("srv_")
 
     def test_two_sessions_same_instance(self, fresh_store):
         """Sessions created in the same process share instance_id."""
-        s1, _ = fresh_store.create(role='viewer', expires_in=300)
-        s2, _ = fresh_store.create(role='viewer', expires_in=300)
+        s1, _ = fresh_store.create(role="viewer", expires_in=300)
+        s2, _ = fresh_store.create(role="viewer", expires_in=300)
         assert s1.instance_id == s2.instance_id
 
     def test_session_has_nonce(self, fresh_store):
         """Every session has a unique nonce."""
-        s1, _ = fresh_store.create(role='viewer', expires_in=300)
-        s2, _ = fresh_store.create(role='viewer', expires_in=300)
+        s1, _ = fresh_store.create(role="viewer", expires_in=300)
+        s2, _ = fresh_store.create(role="viewer", expires_in=300)
         assert s1.nonce is not None
         assert s2.nonce is not None
         assert s1.nonce != s2.nonce  # Different nonces
@@ -125,19 +126,19 @@ class TestToDictIncludesBinding:
     def test_to_dict_has_resource_and_instance(self, fresh_store):
         """to_dict() includes resource, instance_id, max_uses, use_count."""
         session, signed = fresh_store.create(
-            role='viewer',
+            role="viewer",
             expires_in=300,
-            resource='desktop',
+            resource="desktop",
             max_uses=5,
         )
         d = session.to_dict()
-        assert 'resource' in d
-        assert 'instance_id' in d
-        assert 'max_uses' in d
-        assert 'use_count' in d
-        assert d['resource'] == 'desktop'
-        assert d['max_uses'] == 5
-        assert d['use_count'] == 0
+        assert "resource" in d
+        assert "instance_id" in d
+        assert "max_uses" in d
+        assert "use_count" in d
+        assert d["resource"] == "desktop"
+        assert d["max_uses"] == 5
+        assert d["use_count"] == 0
 
 
 class TestForeignInstanceId:
@@ -145,13 +146,13 @@ class TestForeignInstanceId:
     instance.id) must never authenticate here."""
 
     def test_foreign_instance_rejected_by_is_valid(self, fresh_store):
-        session, _signed = fresh_store.create(role='viewer')
-        session.instance_id = 'srv_deadbeef'  # simulate foreign deployment
+        session, _signed = fresh_store.create(role="viewer")
+        session.instance_id = "srv_deadbeef"  # simulate foreign deployment
         assert session.is_valid() is False
 
     def test_foreign_instance_rejected_by_validate(self, fresh_store):
-        session, signed = fresh_store.create(role='viewer')
-        session.instance_id = 'srv_deadbeef'
+        session, signed = fresh_store.create(role="viewer")
+        session.instance_id = "srv_deadbeef"
         assert fresh_store.validate(signed) is None
 
 
@@ -159,15 +160,15 @@ class TestMalformedTokenPayloads:
     def test_wrong_part_count_rejected(self):
         from vnc_remote_secure.security.ephemeral_sessions import verify_ephemeral_token
         from vnc_remote_secure.security.token_signing import TOKEN_TYPE_EPHEMERAL, sign_token
-        for bad in ('onlyone', 'a:b', 'a:b:c:d:e'):
-            assert verify_ephemeral_token(
-                sign_token(TOKEN_TYPE_EPHEMERAL, bad)) is None
+
+        for bad in ("onlyone", "a:b", "a:b:c:d:e"):
+            assert verify_ephemeral_token(sign_token(TOKEN_TYPE_EPHEMERAL, bad)) is None
 
     def test_non_numeric_fields_rejected(self):
         from vnc_remote_secure.security.ephemeral_sessions import verify_ephemeral_token
         from vnc_remote_secure.security.token_signing import TOKEN_TYPE_EPHEMERAL, sign_token
-        assert verify_ephemeral_token(sign_token(
-            TOKEN_TYPE_EPHEMERAL, 'tok:notanumber:0')) is None
+
+        assert verify_ephemeral_token(sign_token(TOKEN_TYPE_EPHEMERAL, "tok:notanumber:0")) is None
 
 
 class TestRevokeByFingerprint:
@@ -176,19 +177,23 @@ class TestRevokeByFingerprint:
 
     def test_fingerprint_revokes(self, fresh_store):
         import hashlib
-        session, signed = fresh_store.create(role='viewer')
+
+        session, signed = fresh_store.create(role="viewer")
         fp = hashlib.sha256(session.token.encode()).hexdigest()[:12]
         from vnc_remote_secure.security.ephemeral_sessions import revoke_session
+
         assert revoke_session(fp) is True
         assert fresh_store.validate(signed) is None
 
     def test_unknown_fingerprint_false(self, fresh_store):
         from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-        assert revoke_session('deadbeefcafe') is False
+
+        assert revoke_session("deadbeefcafe") is False
 
     def test_signed_token_revokes(self, fresh_store):
         from vnc_remote_secure.security.ephemeral_sessions import revoke_session
-        session, signed = fresh_store.create(role='viewer')
+
+        session, signed = fresh_store.create(role="viewer")
         assert revoke_session(signed) is True
         assert fresh_store.validate(signed) is None
 
@@ -199,31 +204,32 @@ class TestTerminalViewWriteSplit:
 
     def _sess(self, perms, **kw):
         from vnc_remote_secure.security.ephemeral_sessions import EphemeralSession
-        return EphemeralSession(token='t', permissions=perms, **kw)
+
+        return EphemeralSession(token="t", permissions=perms, **kw)
 
     def test_umbrella_satisfies_both(self):
-        s = self._sess({'terminal'})
-        assert s.has_permission('terminal_view')
-        assert s.has_permission('terminal_write')
+        s = self._sess({"terminal"})
+        assert s.has_permission("terminal_view")
+        assert s.has_permission("terminal_write")
 
     def test_view_only_blocks_write(self):
-        s = self._sess({'terminal_view'})
-        assert s.has_permission('terminal_view')
-        assert not s.has_permission('terminal_write')
-        assert not s.has_permission('terminal')
+        s = self._sess({"terminal_view"})
+        assert s.has_permission("terminal_view")
+        assert not s.has_permission("terminal_write")
+        assert not s.has_permission("terminal")
 
     def test_no_terminal_blocks_members(self):
         """no_terminal must cover the fine-grained members, not
         just the umbrella name."""
-        s = self._sess({'terminal'}, no_terminal=True)
-        assert not s.has_permission('terminal_view')
-        assert not s.has_permission('terminal_write')
+        s = self._sess({"terminal"}, no_terminal=True)
+        assert not s.has_permission("terminal_view")
+        assert not s.has_permission("terminal_write")
 
     def test_admin_umbrella_expands(self):
-        s = self._sess({'admin'})
-        assert s.has_permission('admin_users')
-        assert s.has_permission('admin_audit')
-        s2 = self._sess({'admin_users'})
-        assert s2.has_permission('admin_users')
-        assert not s2.has_permission('admin')
-        assert not s2.has_permission('admin_config')
+        s = self._sess({"admin"})
+        assert s.has_permission("admin_users")
+        assert s.has_permission("admin_audit")
+        s2 = self._sess({"admin_users"})
+        assert s2.has_permission("admin_users")
+        assert not s2.has_permission("admin")
+        assert not s2.has_permission("admin_config")

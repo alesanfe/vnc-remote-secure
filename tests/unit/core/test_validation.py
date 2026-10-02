@@ -1,10 +1,11 @@
 """Unit tests for core.validation module."""
+
 import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from vnc_remote_secure.core.validation import (
     ValidationError,
@@ -54,19 +55,18 @@ class TestEmailDomainBoundary:
     'user@notexample.com' was falsely rejected by endswith()."""
 
     def test_suffix_lookalike_domain_allowed(self):
-        assert validate_email('ops@notexample.com') is True
-        assert validate_email('ops@mytest.com') is True
-        assert validate_email('ops@invalid-domain.com') is True
+        assert validate_email("ops@notexample.com") is True
+        assert validate_email("ops@mytest.com") is True
+        assert validate_email("ops@invalid-domain.com") is True
 
     def test_exact_invalid_domain_rejected(self):
-        for dom in ('example.com', 'test.com', 'invalid.com'):
-            with pytest.raises(ValidationError,
-                               match='not valid for production'):
-                validate_email(f'ops@{dom}')
+        for dom in ("example.com", "test.com", "invalid.com"):
+            with pytest.raises(ValidationError, match="not valid for production"):
+                validate_email(f"ops@{dom}")
 
     def test_subdomain_of_invalid_allowed(self):
         # mail.example.com is a different domain than example.com.
-        assert validate_email('ops@mail.example.com') is True
+        assert validate_email("ops@mail.example.com") is True
 
 
 class TestDomainLocalhostBoundary:
@@ -74,25 +74,26 @@ class TestDomainLocalhostBoundary:
     rejected as malformed — the regex check must come second."""
 
     def test_localhost_allowed_with_warning(self):
-        assert validate_domain('localhost') is True
-        assert validate_domain('127.0.0.1') is True
+        assert validate_domain("localhost") is True
+        assert validate_domain("127.0.0.1") is True
 
     def test_truly_invalid_domain_rejected(self):
         import pytest
+
         with pytest.raises(ValidationError):
-            validate_domain('-bad-.com')
+            validate_domain("-bad-.com")
         with pytest.raises(ValidationError):
-            validate_domain('a' * 254)
+            validate_domain("a" * 254)
 
 
 class TestPortBoundaries:
     """BVA on the 1..65535 range: neighbors of both bounds."""
 
-    @pytest.mark.parametrize('port', [1, 1023, 1024, 65534, 65535])
+    @pytest.mark.parametrize("port", [1, 1023, 1024, 65534, 65535])
     def test_valid_boundary_ports(self, port):
         assert validate_port(port) == port
 
-    @pytest.mark.parametrize('port', ['0', '-1', '65536', '99999', '1.5'])
+    @pytest.mark.parametrize("port", ["0", "-1", "65536", "99999", "1.5"])
     def test_invalid_boundary_ports(self, port):
         with pytest.raises(ValidationError):
             validate_port(port)
@@ -102,23 +103,23 @@ class TestUsernameBoundaries:
     """BVA on the 3..32 length range."""
 
     def test_min_length_accepted(self):
-        assert validate_username('abc') is True
+        assert validate_username("abc") is True
 
     def test_below_min_rejected(self):
         with pytest.raises(ValidationError):
-            validate_username('ab')
+            validate_username("ab")
 
     def test_max_length_accepted(self):
-        assert validate_username('a' * 32) is True
+        assert validate_username("a" * 32) is True
 
     def test_above_max_rejected(self):
         with pytest.raises(ValidationError):
-            validate_username('a' * 33)
+            validate_username("a" * 33)
 
     def test_leading_digit_rejected(self):
         with pytest.raises(ValidationError):
-            validate_username('1abc')
+            validate_username("1abc")
 
     def test_leading_hyphen_rejected(self):
         with pytest.raises(ValidationError):
-            validate_username('-abc')
+            validate_username("-abc")
