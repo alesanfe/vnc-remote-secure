@@ -21,7 +21,7 @@ import {
   webauthnSupported,
 } from '../webauthn';
 import { mark } from '../components/bits';
-import { roleLabel, useI18n } from '../i18n';
+import { permLabel, roleLabel, useI18n } from '../i18n';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
 
@@ -362,7 +362,8 @@ function OperatorRow({
             {u.disabled ? t('users.statusDisabled') : t('users.statusActive')}
           </span>
         </td>
-        <td title={u.permissions.join(', ')}
+        <td title={u.permissions.map((p) => permLabel(t, p))
+              .join(', ')}
             style={{ whiteSpace: 'nowrap' }}>
           {t('users.permCount', { count: u.permissions.length })}
         </td>
@@ -517,7 +518,7 @@ export function OperatorDetailPanel({ username }: { username: string }) {
   return (
     <div className="card">
       <p>
-        {t('users.role')} <strong>{op.role}</strong> ·{' '}
+        {t('users.role')} <strong>{roleLabel(t, op.role)}</strong> ·{' '}
         {t('users.passkeyCount', { count: op.passkey_count ?? 0 })}
       </p>
       {op.deletion_allowed === false && (
@@ -526,7 +527,8 @@ export function OperatorDetailPanel({ username }: { username: string }) {
         </p>
       )}
       <p className="muted">
-        {t('users.perms')}: {op.permissions.join(', ') || '—'}
+        {t('users.perms')}:{' '}
+        {op.permissions.map((p) => permLabel(t, p)).join(', ') || '—'}
       </p>
       <h3>{t('users.passkeys')}</h3>
       {passkeysUnavailable && (

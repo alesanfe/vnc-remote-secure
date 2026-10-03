@@ -22,6 +22,10 @@ export default function GamepadPage() {
     r: [number, number];
   }>({ l: [0, 0], r: [0, 0] });
   const [wsUrl, setWsUrl] = useState<string | null>(null);
+  // portal respondió pero sin gamepad_ws → servicio apagado/sin
+  // permiso; sin esto el botón Conectar quedaba disabled sin explicar
+  // por qué (y el hint seguía diciendo "pulsa Conectar")
+  const [svcDown, setSvcDown] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const padIndexRef = useRef<number | null>(null);
   const prevButtons = useRef<Record<number, number>>({});
@@ -30,7 +34,10 @@ export default function GamepadPage() {
   useEffect(() => {
     api
       .get<PortalData>('portal')
-      .then((p) => setWsUrl(p.gamepad_ws ?? null))
+      .then((p) => {
+        setWsUrl(p.gamepad_ws ?? null);
+        setSvcDown(p.gamepad_ws == null);
+      })
       .catch(() => setInfo(t('gamepad.unauthorized')));
     const onConnect = (e: GamepadEvent) => {
       padIndexRef.current = e.gamepad.index;
@@ -182,6 +189,11 @@ export default function GamepadPage() {
     <main className="share-wrap">
       <div className="card share-card" style={{ maxWidth: 700 }}>
         <h1><Gamepad2 size={20} aria-hidden="true" /> {t('gamepad.title')}</h1>
+        {svcDown && (
+          <div className="error-box" role="status">
+            {t('gamepad.serviceOff')}
+          </div>
+        )}
         <div
           className={`status status-${state}`}
           role="status"

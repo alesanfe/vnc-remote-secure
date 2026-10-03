@@ -15,6 +15,8 @@ export const en: Messages = {
   'common.enabled': 'enabled',
   'common.disabled': 'disabled',
   'common.detail': 'Detail',
+  'err.generic': 'Something failed. Please try again.',
+  'err.network': 'Cannot reach the service — check the network.',
 
   'nav.summary': 'Summary',
   'nav.sessions': 'Access links',
@@ -44,6 +46,26 @@ export const en: Messages = {
   'role.administrator': 'Administrator',
   'role.operator': 'Operator',
   'role.admin': 'Administrator',
+  // Capability enums (security/ephemeral_model.py ALL_PERMISSIONS)
+  'perm.view': 'view desktop',
+  'perm.control': 'remote control',
+  'perm.keyboard': 'keyboard',
+  'perm.pointer': 'pointer',
+  'perm.clipboard': 'clipboard',
+  'perm.clipboard_write': 'clipboard (write)',
+  'perm.clipboard_read': 'clipboard (read)',
+  'perm.file_transfer': 'file transfer',
+  'perm.terminal': 'terminal',
+  'perm.terminal_view': 'terminal (view)',
+  'perm.terminal_write': 'terminal (execute)',
+  'perm.audio': 'audio',
+  'perm.gamepad': 'gamepad',
+  'perm.admin': 'administration',
+  'perm.admin_users': 'administration · operators',
+  'perm.admin_config': 'administration · config',
+  'perm.admin_audit': 'administration · audit',
+  'perm.admin_sessions': 'administration · sessions',
+  'perm.admin:*': 'full administration',
   'common.noResults': 'No results for this filter.',
   'common.open': 'Open',
 
@@ -187,6 +209,11 @@ export const en: Messages = {
   'remote.immersiveExit': 'Exit immersive',
   'remote.group.capture': 'Capture',
   'remote.group.view': 'View',
+  'remote.frameTitle': 'Remote desktop',
+  'remote.offline': 'The remote desktop service is down',
+  'remote.offlineHint':
+    'The frame loaded but there is no framebuffer behind it — ' +
+    'start the VNC service from Operations.',
   'guest.console': 'Remote desktop',
   'rec.title': 'Desktop recordings',
   'rec.subtitle':
@@ -748,6 +775,8 @@ export const en: Messages = {
 
   // --- Audio/Gamepad short aliases (as used by the pages) ---------------------------
   'audio.unauthorized': 'Session is not authorized for audio.',
+  'audio.noService':
+    'This link does not grant access to the remote machine audio.',
   'audio.connectingTo': 'Connecting to {{url}}…',
   'audio.receiving': 'Receiving audio…',
   'audio.status':
@@ -755,6 +784,9 @@ export const en: Messages = {
   'audio.closed': 'Connection closed by the server.',
   'audio.error': 'Error: {{msg}}',
   'gamepad.unauthorized': 'Session is not authorized for gamepad.',
+  'gamepad.serviceOff':
+    'The gamepad service is not running on the host, or your ' +
+    'session does not include that permission.',
   'gamepad.closed': 'Connection closed by the server.',
   'gamepad.revoked': 'Session revoked.',
   'gamepad.error': 'Error: {{msg}}',
@@ -974,9 +1006,10 @@ export const en: Messages = {
   'chat.unavailable': 'Chat unavailable.',
   'chat.notify': 'Notify on new messages',
   'files.title': 'Shared files',
-  'files.subtitle': 'Shared folder on the remote host (FILE_SHARE_ROOT).',
+  'files.subtitle': 'Shared folder on the remote host.',
   'files.dropHint': 'Drop files onto this page to upload them.',
   'files.breadcrumb': 'Current path',
+  'files.rootDir': 'Root folder',
   'files.upload': 'Upload',
   'files.queue': 'Transfers',
   'files.clearDone': 'Clear finished',
@@ -1072,7 +1105,8 @@ export const en: Messages = {
   'users.disable': 'Disable',
   'users.revokeSessions': 'Revoke sessions',
   'users.detailError': 'Could not load operator details.',
-  'users.passkeyCount': '{{count}} passkey(s)',
+  'users.passkeyCount_one': '{{count}} passkey',
+  'users.passkeyCount_other': '{{count}} passkeys',
   'users.protected': 'protected',
   'users.passkeys': 'Passkeys',
   'users.noPasskeys': 'No passkeys registered.',

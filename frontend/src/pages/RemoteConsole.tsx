@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api, ApiError, type RecordingMeta } from '../api';
+import { api, errText, type RecordingMeta } from '../api';
 import { useI18n } from '../i18n';
 import { RelativeTime, StatusBadge } from '../components/bits';
 import ChatPanel from '../components/ChatPanel';
@@ -29,12 +29,13 @@ function DesktopFrame({ url, frameRef, loadingLabel }: {
   loadingLabel: string;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const { t } = useI18n();
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 420 }}>
       <iframe
         ref={frameRef}
         src={url}
-        title="Remote desktop"
+        title={t('remote.frameTitle')}
         allow="fullscreen"
         allowFullScreen
         onLoad={() => setLoaded(true)}
@@ -99,8 +100,7 @@ export default function RemoteConsole({ guest = false }: {
 
   const startRec = useMutation({
     mutationFn: () => api.recordingStart(),
-    onError: (e) => setError(
-      e instanceof ApiError ? e.message : t('rec.startError')),
+    onError: (e) => setError(errText(e, t, 'rec.startError')),
     onSuccess: () => {
       setError('');
       qc.invalidateQueries({ queryKey: ['recordings'] });
@@ -108,8 +108,7 @@ export default function RemoteConsole({ guest = false }: {
   });
   const stopRec = useMutation({
     mutationFn: (id: string) => api.recordingStop(id),
-    onError: (e) => setError(
-      e instanceof ApiError ? e.message : t('rec.stopError')),
+    onError: (e) => setError(errText(e, t, 'rec.stopError')),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings'] }),
   });
 
@@ -154,7 +153,7 @@ export default function RemoteConsole({ guest = false }: {
           <>
             <span className="toolbar-group"
                   aria-label={t('remote.group.capture')}>
-              <a className="ghost" href={api.desktopScreenshotUrl()}
+              <a className="btn ghost" href={api.desktopScreenshotUrl()}
                  download="screenshot.png" role="button">
                 <Camera size={14} aria-hidden="true" />
                 {t('rec.screenshot')}
@@ -174,14 +173,14 @@ export default function RemoteConsole({ guest = false }: {
                   {t('rec.record')}
                 </button>
               )}
-              <Link to="/security/recordings" className="ghost"
+              <Link to="/security/recordings" className="btn ghost"
                     role="button">
                 <Film size={14} aria-hidden="true" />
                 {t('nav.recordings')}
               </Link>
             </span>
             <span className="toolbar-sep" aria-hidden="true" />
-            <Link to="/files" className="ghost" role="button">
+            <Link to="/files" className="btn ghost" role="button">
               <FolderOpen size={14} aria-hidden="true" />
               {t('nav.files')}
             </Link>
@@ -209,7 +208,7 @@ export default function RemoteConsole({ guest = false }: {
             <Expand size={14} aria-hidden="true" />
             {t('remote.immersive')}
           </button>
-          <a className="ghost" href={url} target="_blank"
+          <a className="btn ghost" href={url} target="_blank"
              rel="noreferrer">
             <PictureInPicture2 size={14} aria-hidden="true" />
             {t('remote.popout')}
@@ -227,8 +226,20 @@ export default function RemoteConsole({ guest = false }: {
 
       <div style={{ display: 'flex', gap: '0.75rem',
                     alignItems: 'stretch' }}>
-        <DesktopFrame url={url} frameRef={frameRef}
-                      loadingLabel={t('common.loading')} />
+        {portal.data && portal.data.vnc_direct?.running === false ? (
+          /* framebuffer negro sin servicio = parece render roto —
+             el portal conoce el estado del proceso; dilo */
+          <div className="error-box" role="status"
+               style={{ flex: 1 }}>
+            <strong>{t('remote.offline')}</strong>
+            <p className="muted" style={{ marginBottom: 0 }}>
+              {t('remote.offlineHint')}
+            </p>
+          </div>
+        ) : (
+          <DesktopFrame url={url} frameRef={frameRef}
+                        loadingLabel={t('common.loading')} />
+        )}
         {guest && chatOpen && (
           <aside style={{ width: 320, flexShrink: 0 }}
                  aria-label={t('remote.chat')}>

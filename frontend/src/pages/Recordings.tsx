@@ -389,7 +389,8 @@ export default function Recordings() {
                                 {t('rec.play')}</>}
                         </button>
                       )}
-                      <a className="ghost" href={api.recordingUrl(r.id)}
+                      <a className="btn ghost"
+                         href={api.recordingUrl(r.id)}
                          download={`${r.id}.vrsrec`}>
                         {t('rec.download')}
                       </a>

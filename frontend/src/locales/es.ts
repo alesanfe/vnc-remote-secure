@@ -15,6 +15,8 @@ export const es = {
   'common.disabled': 'inactivo',
   'common.detail': 'Detalle',
   'common.search': 'Buscar…',
+  'err.generic': 'Algo falló. Inténtalo de nuevo.',
+  'err.network': 'Sin conexión con el servicio — comprueba la red.',
 
   'nav.summary': 'Resumen',
   'nav.sessions': 'Enlaces de acceso',
@@ -44,6 +46,26 @@ export const es = {
   'role.administrator': 'Administrador',
   'role.operator': 'Operador',
   'role.admin': 'Administrador',
+  // Capability enums (security/ephemeral_model.py ALL_PERMISSIONS)
+  'perm.view': 'ver escritorio',
+  'perm.control': 'control remoto',
+  'perm.keyboard': 'teclado',
+  'perm.pointer': 'ratón',
+  'perm.clipboard': 'portapapeles',
+  'perm.clipboard_write': 'portapapeles (escritura)',
+  'perm.clipboard_read': 'portapapeles (lectura)',
+  'perm.file_transfer': 'transferencia de archivos',
+  'perm.terminal': 'terminal',
+  'perm.terminal_view': 'terminal (lectura)',
+  'perm.terminal_write': 'terminal (ejecución)',
+  'perm.audio': 'audio',
+  'perm.gamepad': 'gamepad',
+  'perm.admin': 'administración',
+  'perm.admin_users': 'administración · operadores',
+  'perm.admin_config': 'administración · configuración',
+  'perm.admin_audit': 'administración · auditoría',
+  'perm.admin_sessions': 'administración · sesiones',
+  'perm.admin:*': 'administración total',
   'common.noResults': 'Sin resultados para este filtro.',
   'common.open': 'Abrir',
   'common.actions': 'Acciones',
@@ -189,6 +211,11 @@ export const es = {
   'remote.immersiveExit': 'Salir de inmersivo',
   'remote.group.capture': 'Captura',
   'remote.group.view': 'Vista',
+  'remote.frameTitle': 'Escritorio remoto',
+  'remote.offline': 'El servicio de escritorio remoto está apagado',
+  'remote.offlineHint':
+    'El iframe cargó pero no hay framebuffer detrás — arranca el ' +
+    'servicio VNC desde Operación.',
   'guest.console': 'Escritorio remoto',
   'rec.title': 'Grabaciones de escritorio',
   'rec.subtitle':
@@ -774,6 +801,8 @@ export const es = {
 
   // --- Audio/Gamepad short aliases (as used by the pages) ---------------------------
   'audio.unauthorized': 'Sesión no autorizada para audio.',
+  'audio.noService':
+    'Este enlace no incluye acceso al audio del equipo remoto.',
   'audio.connectingTo': 'Conectando a {{url}}…',
   'audio.receiving': 'Recibiendo audio…',
   'audio.status':
@@ -783,6 +812,9 @@ export const es = {
   'gamepad.unauthorized': 'Sesión no autorizada para gamepad.',
   'gamepad.closed': 'Conexión cerrada por el servidor.',
   'gamepad.revoked': 'Sesión revocada.',
+  'gamepad.serviceOff':
+    'El servicio de gamepad no está activo en el host o tu sesión ' +
+    'no incluye ese permiso.',
   'gamepad.error': 'Error: {{msg}}',
   'portal.error.adminLink': 'Panel de administración →',
 
@@ -1003,9 +1035,10 @@ export const es = {
   'chat.notify': 'Notificar mensajes nuevos',
   'files.title': 'Archivos compartidos',
   'files.subtitle':
-    'Carpeta compartida del equipo remoto (FILE_SHARE_ROOT).',
+    'Carpeta compartida del equipo remoto.',
   'files.dropHint': 'Arrastra archivos a esta página para subirlos.',
   'files.breadcrumb': 'Ruta actual',
+  'files.rootDir': 'Carpeta raíz',
   'files.upload': 'Subir',
   'files.queue': 'Transferencias',
   'files.clearDone': 'Limpiar completadas',
@@ -1104,7 +1137,8 @@ export const es = {
   'users.disable': 'Deshabilitar',
   'users.revokeSessions': 'Revocar sesiones',
   'users.detailError': 'No se pudo cargar el detalle del operador.',
-  'users.passkeyCount': '{{count}} passkey(s)',
+  'users.passkeyCount_one': '{{count}} passkey',
+  'users.passkeyCount_other': '{{count}} passkeys',
   'users.protected': 'protegido',
   'users.passkeys': 'Passkeys',
   'users.noPasskeys': 'Sin passkeys registradas.',

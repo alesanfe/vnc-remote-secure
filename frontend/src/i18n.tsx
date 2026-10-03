@@ -89,6 +89,16 @@ export function roleLabel(
   return v === k ? role : v;
 }
 
+/** Human label for a permission enum (view/control/admin_audit…);
+    falls back to the raw identifier so unknown grants still render. */
+export function permLabel(
+  t: (key: string) => string, perm: string,
+): string {
+  const k = `perm.${perm}`;
+  const v = t(k);
+  return v === k ? perm : v;
+}
+
 /** Tiny inline language switcher for chrome areas. */
 export function LangSwitch() {
   const { lang, setLang, t } = useI18n();

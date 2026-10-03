@@ -24,7 +24,12 @@ export default function AudioPage() {
   useEffect(() => {
     api
       .get<PortalData>('portal')
-      .then((p) => setWsUrl(p.audio_ws ?? null))
+      .then((p) => {
+        setWsUrl(p.audio_ws ?? null);
+        // Link lacks the audio permission: say why Conectar stays
+        // disabled instead of leaving the "press Connect" hint up.
+        if (!p.audio_ws) setInfo(t('audio.noService'));
+      })
       .catch(() => setInfo(t('audio.unauthorized')));
     return () => {
       wsRef.current?.close();
@@ -141,6 +146,7 @@ export default function AudioPage() {
             disabled={
               !wsUrl || state === 'connecting' || state === 'connected'
             }
+            title={!wsUrl ? t('audio.noService') : undefined}
             onClick={() => void connect()}
           >
             {t('audio.connect')}

@@ -28,7 +28,7 @@ import {
   copyText,
   mark,
 } from '../components/bits';
-import { roleLabel, useI18n } from '../i18n';
+import { permLabel, roleLabel, useI18n } from '../i18n';
 import { useTabsNav } from '../components/useTabsNav';
 import { SESSION_TABS, type SessionTab } from './sessionTabs';
 
@@ -833,7 +833,8 @@ export default function Sessions() {
               </span>
             ),
             sortValue: (s) => s.permissions.length,
-            title: (s) => s.permissions.join(', '),
+            title: (s) =>
+              s.permissions.map((p) => permLabel(t, p)).join(', '),
           },
           {
             key: 'label',

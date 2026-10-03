@@ -158,6 +158,8 @@ export default function FilesPage() {
           className="ghost"
           onClick={() => setPath('')}
           disabled={!path}
+          aria-label={t('files.rootDir')}
+          title={t('files.rootDir')}
         >
           /
         </button>

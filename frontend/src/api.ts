@@ -17,6 +17,22 @@ export class ApiError extends Error {
   }
 }
 
+/** Map a thrown error to user-facing text. ApiError carries the
+    server's curated message — safe to show. TypeError/DOMException
+    (network down, aborted, SecurityError) are raw JS internals and
+    must never reach the UI: return the translated fallback. */
+export function errText(
+  e: unknown,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  fallbackKey = 'err.generic',
+): string {
+  if (e instanceof ApiError) return e.message;
+  if (e instanceof Error && /fetch|network|abort/i.test(e.name + e.message)) {
+    return t('err.network');
+  }
+  return t(fallbackKey);
+}
+
 function errorCode(body: unknown): string | undefined {
   if (body && typeof body === 'object') {
     const c = (body as Record<string, unknown>).code;
