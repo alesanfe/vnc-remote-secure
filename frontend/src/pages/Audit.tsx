@@ -5,6 +5,7 @@ import {
 } from '@tanstack/react-query';
 import { api, type AuditEntry, type AuditPage } from '../api';
 import DataTable from '../components/DataTable';
+import { mark } from '../components/bits';
 import { useI18n } from '../i18n';
 
 /** The verify endpoint reports raw technical messages in English
@@ -155,7 +156,12 @@ export default function Audit() {
               return typeof v === 'number' ? v
                 : v == null ? null : String(v);
             },
-            render: (r: AuditEntry) => String(r[c] ?? ''),
+            render: (r: AuditEntry) => {
+              const v = String(r[c] ?? '');
+              if (c === 'event') return mark(v, eventFilter);
+              if (c === 'actor' || c === 'user') return mark(v, userFilter);
+              return v;
+            },
           }))}
         />
       </div>

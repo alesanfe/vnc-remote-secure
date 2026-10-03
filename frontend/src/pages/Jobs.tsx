@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, type JobSummary } from '../api';
 import DataTable from '../components/DataTable';
+import { mark } from '../components/bits';
 import { useI18n } from '../i18n';
 
 export function fmtWhen(ts: number): string {
@@ -43,7 +43,16 @@ export default function Jobs() {
         || j.state === 'running') ? 2000 : 15000;
     },
   });
-  const [query, setQuery] = useState('');
+  // Search in the URL so Back from a job detail restores the filter —
+  // same contract as the sessions and audit inventories.
+  const [params, setParams] = useSearchParams();
+  const query = params.get('q') ?? '';
+  const setQuery = (v: string) =>
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      if (v) next.set('q', v); else next.delete('q');
+      return next;
+    }, { replace: true });
   const q = query.trim().toLowerCase();
   const list = (jobs.data?.jobs ?? []).filter((j) =>
     !q ||
@@ -57,6 +66,7 @@ export default function Jobs() {
       <div className="toolbar">
         <input
           style={{ maxWidth: 220 }}
+          type="search"
           aria-label={t('common.search')}
           placeholder={t('common.search')}
           value={query}
@@ -77,18 +87,18 @@ export default function Jobs() {
             sortValue: (j) => j.id,
             render: (j) => (
               <Link to={`/operations/jobs/${j.id}`}>
-                {j.id.slice(0, 8)}
+                {mark(j.id.slice(0, 8), q)}
               </Link>
             ) },
           { key: 'kind', header: t('jobs.col.op'),
             sortValue: (j) => j.kind,
-            render: (j) => j.kind },
+            render: (j) => mark(j.kind, q) },
           { key: 'target', header: t('jobs.col.resource'), mono: true,
             sortValue: (j) => j.target ?? null,
-            render: (j) => j.target || '—' },
+            render: (j) => j.target ? mark(j.target, q) : '—' },
           { key: 'actor', header: t('jobs.col.actor'),
             sortValue: (j) => j.actor,
-            render: (j) => j.actor },
+            render: (j) => mark(j.actor, q) },
           { key: 'start', header: t('jobs.col.start'),
             sortValue: (j) => j.started_at,
             render: (j) => fmtWhen(j.started_at) },

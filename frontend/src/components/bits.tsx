@@ -75,6 +75,27 @@ export function copyText(text: string, done: string, fail?: string)
     .catch(() => toast.error(fail ?? done));
 }
 
+/** Case-insensitive substring match → <mark>, so a filtered row
+    shows *why* it matched instead of making the user scan raw text.
+    Returns the plain string untouched when there's no query/match. */
+export function mark(text: string, query: string): React.ReactNode {
+  const q = query.trim().toLowerCase();
+  if (!q) return text;
+  const out: React.ReactNode[] = [];
+  let rest = text;
+  let i = rest.toLowerCase().indexOf(q);
+  while (i !== -1) {
+    out.push(
+      rest.slice(0, i),
+      <mark key={out.length}>{rest.slice(i, i + q.length)}</mark>,
+    );
+    rest = rest.slice(i + q.length);
+    i = rest.toLowerCase().indexOf(q);
+  }
+  out.push(rest);
+  return out;
+}
+
 /** Short, copyable session reference (token fingerprint). */
 export function SessionReference({ id }: { id: string }) {
   const { t } = useI18n();

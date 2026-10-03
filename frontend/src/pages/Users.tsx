@@ -20,6 +20,7 @@ import {
   WebAuthnCancelled,
   webauthnSupported,
 } from '../webauthn';
+import { mark } from '../components/bits';
 import { roleLabel, useI18n } from '../i18n';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
@@ -164,6 +165,7 @@ export default function Users() {
             <OperatorRow
               key={u.username}
               u={u}
+              q={query}
               expanded={expanded === u.username}
               onToggle={() =>
                 setExpanded(expanded === u.username ? null : u.username)}
@@ -331,9 +333,10 @@ function CreateOperatorForm({ onDone }: { onDone: () => void }) {
 }
 
 function OperatorRow({
-  u, expanded, onToggle, busy, onPatch, onRevokeSessions, onDelete,
+  u, q, expanded, onToggle, busy, onPatch, onRevokeSessions, onDelete,
 }: {
   u: OperatorUser;
+  q: string;
   expanded: boolean;
   onToggle: () => void;
   busy: boolean;
@@ -350,7 +353,7 @@ function OperatorRow({
             {expanded
               ? <ChevronDown size={14} aria-hidden="true" />
               : <ChevronRight size={14} aria-hidden="true" />}
-            {' '}{u.username}
+            {' '}{mark(u.username, q)}
           </button>
         </td>
         <td>{roleLabel(t, u.role)}</td>

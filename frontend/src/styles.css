@@ -610,6 +610,15 @@ table.data tr:last-child td { border-bottom: 0; }
 .badge.dim { background: var(--surface-2); color: var(--text-dim); }
 .badge.job { background: rgba(139, 92, 246, 0.22); color: var(--job-text); }
 
+/* Search-match highlight — warn tint reads as "found" in both
+   themes; inherits text color so it never hides the content. */
+mark {
+  background: color-mix(in srgb, var(--warn) 35%, transparent);
+  color: inherit;
+  padding: 0;
+  border-radius: 2px;
+}
+
 button, .btn {
   padding: 0.5rem 1rem;
   border: 0;

@@ -11,7 +11,7 @@ import {
   type JobSummary,
 } from '../api';
 import DataTable from '../components/DataTable';
-import { RelativeTime } from '../components/bits';
+import { RelativeTime, mark } from '../components/bits';
 import { useI18n } from '../i18n';
 
 type Sev = 'info' | 'warn' | 'error';
@@ -165,6 +165,7 @@ export default function Activity() {
         </select>
         <input
           className="toolbar-search"
+          type="search"
           aria-label={t('activity.filter.user')}
           placeholder={t('activity.filter.user')}
           value={user}
@@ -226,20 +227,22 @@ export default function Activity() {
             header: t('activity.col.what'),
             mono: true,
             sortValue: (r) => r.what,
-            render: (r) => r.what,
+            render: (r) => mark(r.what, text),
           },
           {
             key: 'who',
             header: t('activity.col.who'),
             sortValue: (r) => r.who,
-            render: (r) => r.who || '—',
+            render: (r) => (r.who ? mark(r.who, text || user) : '—'),
           },
           {
             key: 'result',
             header: t('activity.col.result'),
             sortValue: (r) => r.result,
             render: (r) =>
-              r.detail ? `${r.result} — ${r.detail}` : r.result,
+              r.detail
+                ? <>{r.result} — {mark(r.detail, text)}</>
+                : r.result,
           },
         ]}
       />

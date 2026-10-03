@@ -26,6 +26,7 @@ import {
   SessionReference,
   StatusBadge,
   copyText,
+  mark,
 } from '../components/bits';
 import { roleLabel, useI18n } from '../i18n';
 import { useTabsNav } from '../components/useTabsNav';
@@ -785,7 +786,7 @@ export default function Sessions() {
                                    value: s.label ?? '' })}
                 >
                   {s.label
-                    ? <span className="badge dim">{s.label}</span>
+                    ? <span className="badge dim">{mark(s.label, q)}</span>
                     : '—'}
                 </button>
               ),
@@ -794,7 +795,7 @@ export default function Sessions() {
           {
             key: 'resource',
             header: t('sessions.col.resource'),
-            render: (s) => s.resource ?? '—',
+            render: (s) => s.resource ? mark(s.resource, q) : '—',
             sortValue: (s) => s.resource ?? null,
           },
           {
@@ -804,7 +805,8 @@ export default function Sessions() {
             sortValue: (s) => s.expires_at,
           },
           { key: 'flags', header: t('sessions.col.flags'), render: flagBadges },
-          { key: 'by', header: t('sessions.col.creator'), render: (s) => s.created_by,
+          { key: 'by', header: t('sessions.col.creator'),
+            render: (s) => mark(s.created_by, q),
             sortValue: (s) => s.created_by },
           {
             key: 'actions',

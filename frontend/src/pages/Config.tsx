@@ -1,11 +1,12 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient }
   from '@tanstack/react-query';
 import { Info } from 'lucide-react';
 import { api, ApiError, type ConfigSnapshot, type ConfigVar }
   from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { RelativeTime } from '../components/bits';
+import { RelativeTime, mark } from '../components/bits';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
 
@@ -295,7 +296,16 @@ function ConfigHistory() {
 
 export default function Config() {
   const { t } = useI18n();
-  const [filter, setFilter] = useState('');
+  // Filter in the URL — a long var search shouldn't vanish on a
+  // stray navigation or reload.
+  const [params, setParams] = useSearchParams();
+  const filter = params.get('q') ?? '';
+  const setFilter = (v: string) =>
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      if (v) next.set('q', v); else next.delete('q');
+      return next;
+    }, { replace: true });
   // Two disclosure levels: 'Básica' is the guided surface (validate /
   // profile diff / migrate), 'Avanzada' is the raw effective-vars
   // table for operators who know the variable names.
@@ -371,6 +381,7 @@ export default function Config() {
       <div className="toolbar">
         <input
           style={{ maxWidth: 320 }}
+          type="search"
           aria-label={t('config.filter')}
           placeholder={t('config.filter')}
           value={filter}
@@ -410,6 +421,7 @@ export default function Config() {
             <ConfigRow
               key={v.name}
               v={v}
+              q={filter}
               profile={profile}
               open={explain?.name === v.name ? explain : null}
               onToggle={explainVar}
@@ -428,11 +440,13 @@ export default function Config() {
     explain answers with the LIVE environment's provenance. */
 function ConfigRow({
   v,
+  q,
   profile,
   open,
   onToggle,
 }: {
   v: ConfigVar;
+  q: string;
   profile: string;
   open: { entry?: ConfigVar; error?: string; loading?: boolean } | null;
   onToggle: (name: string) => void;
@@ -441,11 +455,11 @@ function ConfigRow({
   return (
     <>
       <tr>
-        <td className="mono">{v.name}</td>
+        <td className="mono">{mark(v.name, q)}</td>
         <td className="mono">{v.value}</td>
         <td>
           <span className={`badge ${SOURCE_BADGE[v.source] ?? 'dim'}`}>
-            {v.source}
+            {mark(v.source, q)}
           </span>
         </td>
         <td>

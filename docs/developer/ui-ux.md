@@ -36,6 +36,7 @@ new ones.
 | `ScrollMemory` | Restores scroll per history entry — do not defeat it with manual `scrollTo`. |
 | `useTabsNav` | ARIA tabs: arrows + Home/End + roving tabindex. Tabs are sibling views only — steppers use the wizard pattern. |
 | `roleLabel` | Localizes role enums; falls back to the raw value for unknown roles. Never render raw enum keys. |
+| `mark(text, q)` | Wraps case-insensitive query matches in `<mark>` — a filtered row must show *why* it matched. Apply to every text column a search box can hit (sessions, audit, activity, jobs, config, users). |
 
 ## States
 
@@ -50,7 +51,10 @@ non-critical confirmations + undo windows; blocking problems use
 
 - Deep-linkable state lives in the URL: tabs are route segments,
   filters/search live in `?params` written with `replace: true`
-  (keeps keystrokes out of history).
+  (keeps keystrokes out of history). `useState` for a persisted
+  filter is a bug — the inventory pages all follow `?q=`.
+- Search inputs are `type="search"` (native clear affordance +
+  correct semantics) and matches are highlighted with `mark()`.
 - No dead ends: unknown routes and error views offer a way back.
 - Breadcrumbs are a real `nav` landmark; current page gets
   `aria-current`.
