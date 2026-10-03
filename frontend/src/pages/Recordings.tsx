@@ -317,10 +317,15 @@ export default function Recordings() {
           {t('rec.screenshot')}
         </a>
         <button type="button" onClick={() => start.mutate()}
-                disabled={start.isPending || rows.some((r) => r.running)}>
+                disabled={start.isPending || rows.some((r) => r.running)}
+                title={rows.some((r) => r.running)
+                  ? t('rec.runningHint') : undefined}>
           <Disc size={14} aria-hidden="true" /> {t('rec.record')}
         </button>
       </div>
+      {rows.some((r) => r.running) && (
+        <p className="muted">{t('rec.runningHint')}</p>
+      )}
       {error && <div className="error-box" role="alert">{error}</div>}
 
       {list.isError && (

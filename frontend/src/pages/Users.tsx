@@ -132,6 +132,7 @@ export default function Users() {
         <span className="spacer" />
         <input
           className="toolbar-search"
+          type="search"
           aria-label={t('common.search')}
           placeholder={t('common.search')}
           value={query}

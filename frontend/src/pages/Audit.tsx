@@ -88,6 +88,7 @@ export default function Audit() {
       <div className="toolbar">
         <input
           style={{ maxWidth: 220 }}
+          type="search"
           aria-label={t('audit.filter.event')}
           placeholder={t('audit.filter.event')}
           value={eventFilter}
@@ -95,6 +96,7 @@ export default function Audit() {
         />
         <input
           style={{ maxWidth: 160 }}
+          type="search"
           aria-label={t('audit.filter.user')}
           placeholder={t('audit.user')}
           value={userFilter}
@@ -142,7 +144,11 @@ export default function Audit() {
           rowKey={(r) => String(r.seq ?? JSON.stringify(r))}
           columns={cols.map((c) => ({
             key: c,
-            header: t(`audit.col.${c}`),
+            // Unknown event fields must render as their raw name —
+            // a missing locale would otherwise print the dotted key.
+            header: t(`audit.col.${c}`) === `audit.col.${c}`
+              ? c
+              : t(`audit.col.${c}`),
             mono: true,
             sortValue: (r: AuditEntry) => {
               const v = r[c];

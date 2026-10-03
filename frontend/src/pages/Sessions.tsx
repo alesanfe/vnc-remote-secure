@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   Link,
   useNavigate,
@@ -53,6 +53,30 @@ function fmtTtl(seconds: number): string {
   if (seconds % 3600 === 0) return `${seconds / 3600} h`;
   return `${Math.round(seconds / 60)} min`;
 }
+
+// Step-2 field rules mirror backend SessionCreateRequest — catching a
+// bad value here beats a 422 after "Crear enlace". The server still
+// validates strictly; these checks only gate the wizard UI.
+const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const ttlOk = (v: number) =>
+  Number.isInteger(v) && v >= 60 && v <= 604800;
+const maxUsesOk = (v: number) =>
+  Number.isInteger(v) && v >= 0 && v <= 1000;
+const ipOk = (v: string) => {
+  const s = v.trim();
+  if (!s || s === 'first-observed') return true;
+  const [addr, prefix, extra] = s.split('/');
+  if (extra !== undefined) return false;
+  const v4 = IPV4_RE.test(addr) &&
+    addr.split('.').every((o) => Number(o) <= 255);
+  const v6 = addr.includes(':') && /^[0-9a-fA-F:]+$/.test(addr);
+  if (!v4 && !v6) return false;
+  return prefix === undefined ||
+    (/^\d+$/.test(prefix) && Number(prefix) <= 128);
+};
+const emailOk = (v: string) => !v.trim() || EMAIL_RE.test(v.trim());
 
 interface CreateResult {
   url: string;
@@ -122,21 +146,51 @@ export default function Sessions() {
 
   // Form state keeps `resource` as a plain string ('' = all); the
   // generated SessionCreateRequest type is applied at submit time.
-  const [form, setForm] = useState({
-    role: 'viewer' as SessionCreateRequest['role'],
-    ttl_seconds: 1800,
-    single_use: false,
-    view_only: false,
-    no_terminal: true,
-    max_uses: 0,
-    allowed_ip: '',
-    resource: '',
-    // Optional TeamViewer-style invite: empty = copy-link only.
-    email_to: '',
-    // Optional inventory tag — groups links by purpose/support case.
-    label: '',
+  // The draft persists to sessionStorage — a four-step wizard that
+  // evaporates on a stray navigation loses real work.
+  const WIZARD_DRAFT_KEY = 'vrs:session-wizard';
+  const [form, setForm] = useState(() => {
+    const defaults = {
+      role: 'viewer' as SessionCreateRequest['role'],
+      ttl_seconds: 1800,
+      single_use: false,
+      view_only: false,
+      no_terminal: true,
+      max_uses: 0,
+      allowed_ip: '',
+      resource: '',
+      // Optional TeamViewer-style invite: empty = copy-link only.
+      email_to: '',
+      // Optional inventory tag — groups links by purpose/support case.
+      label: '',
+    };
+    try {
+      const raw = sessionStorage.getItem(WIZARD_DRAFT_KEY);
+      if (!raw) return defaults;
+      const d = JSON.parse(raw) as Record<string, unknown>;
+      // Never trust a stored draft blindly — keep only known keys
+      // and let everything else fall back to the defaults.
+      const out = { ...defaults } as Record<string, unknown>;
+      for (const k of Object.keys(defaults)) {
+        if (d[k] !== undefined) out[k] = d[k];
+      }
+      return out as typeof defaults;
+    } catch {
+      return defaults;
+    }
   });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify(form));
+    } catch { /* storage may be unavailable — draft is best-effort */ }
+  }, [form]);
   const [step, setStep] = useState(0);
+  // Step 2 hosts the only free-text fields; the Next button stays
+  // disabled while any of them is invalid, with the per-field hint
+  // explaining why (disabled control + visible reason, not silence).
+  const limitsValid = ttlOk(form.ttl_seconds) &&
+    maxUsesOk(form.max_uses) && ipOk(form.allowed_ip) &&
+    emailOk(form.email_to);
   const [created, setCreated] = useState<CreateResult | null>(null);
   const [createError, setCreateError] = useState('');
   const [revokeTarget, setRevokeTarget] =
@@ -184,6 +238,8 @@ export default function Sessions() {
       setCreated(data);
       setCreateError('');
       setStep(0);
+      // Draft fulfilled — drop it so the next link starts clean.
+      try { sessionStorage.removeItem(WIZARD_DRAFT_KEY); } catch { /* ok */ }
       qc.invalidateQueries({ queryKey: ['sessions'] });
       navigate('/access/invitations');
     },
@@ -323,7 +379,7 @@ export default function Sessions() {
                 }
               >
                 {ROLES.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                  <option key={r} value={r}>{roleLabel(t, r)}</option>
                 ))}
               </select>
             </div>
@@ -385,10 +441,17 @@ export default function Sessions() {
                 min={60}
                 max={604800}
                 value={form.ttl_seconds}
+                aria-invalid={!ttlOk(form.ttl_seconds)}
+                aria-describedby="ttl-hint"
                 onChange={(e) =>
                   setForm({ ...form, ttl_seconds: Number(e.target.value) })}
               />
             </div>
+            {!ttlOk(form.ttl_seconds) && (
+              <p className="muted" id="ttl-hint">
+                {t('sessions.wizard.ttlInvalid')}
+              </p>
+            )}
             <div className="row">
               <label htmlFor="maxuses">{t('sessions.maxUses')}</label>
               <input
@@ -397,20 +460,34 @@ export default function Sessions() {
                 min={0}
                 max={1000}
                 value={form.max_uses}
+                aria-invalid={!maxUsesOk(form.max_uses)}
+                aria-describedby="maxuses-hint"
                 onChange={(e) =>
                   setForm({ ...form, max_uses: Number(e.target.value) })}
               />
             </div>
+            {!maxUsesOk(form.max_uses) && (
+              <p className="muted" id="maxuses-hint">
+                {t('sessions.wizard.maxUsesInvalid')}
+              </p>
+            )}
             <div className="row">
               <label htmlFor="allowedip">{t('sessions.ipRestriction')}</label>
               <input
                 id="allowedip"
                 placeholder={t('sessions.ipPlaceholder')}
                 value={form.allowed_ip ?? ''}
+                aria-invalid={!ipOk(form.allowed_ip)}
+                aria-describedby="allowedip-hint"
                 onChange={(e) =>
                   setForm({ ...form, allowed_ip: e.target.value })}
               />
             </div>
+            {!ipOk(form.allowed_ip) && (
+              <p className="muted" id="allowedip-hint">
+                {t('sessions.wizard.ipInvalid')}
+              </p>
+            )}
             <div className="row">
               <label htmlFor="sesslabel">{t('sessions.label')}</label>
               <input
@@ -429,10 +506,17 @@ export default function Sessions() {
                 type="email"
                 placeholder={t('sessions.emailPlaceholder')}
                 value={form.email_to}
+                aria-invalid={!emailOk(form.email_to)}
+                aria-describedby="emailto-hint"
                 onChange={(e) =>
                   setForm({ ...form, email_to: e.target.value })}
               />
             </div>
+            {!emailOk(form.email_to) && (
+              <p className="muted" id="emailto-hint">
+                {t('sessions.wizard.emailInvalid')}
+              </p>
+            )}
             <label className="check">
               <input
                 type="checkbox"
@@ -461,7 +545,7 @@ export default function Sessions() {
               <dd>
                 {form.view_only
                   ? t('sessions.access.view')
-                  : form.role}
+                  : roleLabel(t, form.role)}
               </dd>
               <dt>{t('sessions.wizard.duration')}</dt>
               <dd>{fmtTtl(form.ttl_seconds)}</dd>
@@ -515,13 +599,17 @@ export default function Sessions() {
           )}
           <span className="spacer" />
           {step < WIZARD_STEPS.length - 1 ? (
-            <button type="button" onClick={() => setStep(step + 1)}>
+            <button
+              type="button"
+              disabled={step === 2 && !limitsValid}
+              onClick={() => setStep(step + 1)}
+            >
               {t('sessions.wizard.next')}
             </button>
           ) : (
             <button
               type="button"
-              disabled={create.isPending}
+              disabled={create.isPending || !limitsValid}
               onClick={() => create.mutate()}
             >
               {t('sessions.createLink')}
@@ -588,6 +676,7 @@ export default function Sessions() {
         <span className="spacer" />
         <input
           className="toolbar-search"
+          type="search"
           aria-label={t('common.search')}
           placeholder={t('common.search')}
           value={query}

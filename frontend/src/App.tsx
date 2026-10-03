@@ -95,6 +95,7 @@ function PageCrumbs({ groups }: {
             items: { to: string; label: string }[] }[];
 }) {
   const { pathname } = useLocation();
+  const { t } = useI18n();
   let best: { group: string | null; label: string; to: string } | null =
     null;
   for (const g of groups) {
@@ -130,7 +131,15 @@ function PageCrumbs({ groups }: {
       )}
       <span className="crumb-page" aria-current="page">{best.label}</span>
       {tail && <span className="crumb-sep" aria-hidden="true">›</span>}
-      {tail && <span className="mono">{decodeURIComponent(tail)}</span>}
+      {tail && (
+        <span className="mono">
+          {/* Known route segments get a human label; dynamic ids
+              (token refs, usernames) decode verbatim. */}
+          {(SESSION_TABS as readonly string[]).includes(tail)
+            ? t(`sessions.tab.${tail}`)
+            : decodeURIComponent(tail)}
+        </span>
+      )}
     </nav>
   );
 }
