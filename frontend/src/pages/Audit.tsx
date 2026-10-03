@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useInfiniteQuery,
   useQuery,
@@ -24,10 +24,20 @@ function chainMessage(data: { intact: boolean; message: string },
 
 export default function Audit() {
   const { t } = useI18n();
-  const [eventFilter, setEventFilter] = useState('');
-  const [userFilter, setUserFilter] = useState('');
-  const [resultFilter, setResultFilter] = useState('');
-  const [limit, setLimit] = useState(100);
+  // Filters live in the URL so an investigation survives navigation:
+  // visit a session detail, press Back, and the audit slice is still
+  // there. replace() keeps each keystroke out of the history stack.
+  const [params, setParams] = useSearchParams();
+  const eventFilter = params.get('event') ?? '';
+  const userFilter = params.get('user') ?? '';
+  const resultFilter = params.get('result') ?? '';
+  const limit = Number(params.get('limit')) || 100;
+  const setFilter = (key: string, value: string) =>
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      if (value) next.set(key, value); else next.delete(key);
+      return next;
+    }, { replace: true });
 
   const entries = useInfiniteQuery({
     queryKey: ['audit', eventFilter, userFilter, resultFilter, limit],
@@ -81,31 +91,31 @@ export default function Audit() {
           aria-label={t('audit.filter.event')}
           placeholder={t('audit.filter.event')}
           value={eventFilter}
-          onChange={(e) => setEventFilter(e.target.value)}
+          onChange={(e) => setFilter('event', e.target.value)}
         />
         <input
           style={{ maxWidth: 160 }}
           aria-label={t('audit.filter.user')}
           placeholder={t('audit.user')}
           value={userFilter}
-          onChange={(e) => setUserFilter(e.target.value)}
+          onChange={(e) => setFilter('user', e.target.value)}
         />
         <select
           style={{ maxWidth: 140 }}
           aria-label={t('audit.filter.result')}
           value={resultFilter}
-          onChange={(e) => setResultFilter(e.target.value)}
+          onChange={(e) => setFilter('result', e.target.value)}
         >
           <option value="">{t('audit.result.all')}</option>
-          <option value="success">success</option>
-          <option value="failure">failure</option>
-          <option value="denied">denied</option>
+          <option value="success">{t('audit.result.success')}</option>
+          <option value="failure">{t('audit.result.failure')}</option>
+          <option value="denied">{t('audit.result.denied')}</option>
         </select>
         <select
           style={{ maxWidth: 120 }}
           aria-label={t('audit.filter.rows')}
           value={limit}
-          onChange={(e) => setLimit(Number(e.target.value))}
+          onChange={(e) => setFilter('limit', e.target.value)}
         >
           {[50, 100, 250, 500].map((n) => (
             <option key={n} value={n}>

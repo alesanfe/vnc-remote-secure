@@ -35,23 +35,43 @@ def _get_sessions(handler, query):
 
 
 def _sessions_page(sessions, query: dict) -> dict:
-    """Cursor pagination over the public token_id — stable under
-    concurrent creates/revokes, opaque, and never leaks ordering
-    by creation time or token value."""
+    """Cursor pagination over (created_at desc, token_id) — stable
+    under concurrent creates/revokes and puts the most recent
+    records first, which is what an operator expects from a
+    session history. created_at is already emitted per row, so the
+    ordering leaks nothing the payload doesn't expose."""
     try:
         limit = int((query.get("limit") or ["200"])[0])
     except ValueError:
         limit = 200
     limit = max(1, min(limit, 500))
     cursor = (query.get("cursor") or [None])[0]
-    items = sorted((session_to_api(s) for s in sessions), key=lambda s: s.get("token_id") or "")
+
+    def key(s):
+        return (float(s.get("created_at") or 0), s.get("token_id") or "")
+
+    items = sorted(
+        (session_to_api(s) for s in sessions), key=key, reverse=True
+    )
     if cursor:
-        items = [s for s in items if (s.get("token_id") or "") > cursor]
+        # Opaque composite "<created_at>|<token_id>". A malformed or
+        # legacy bare-token_id cursor degrades to the first page —
+        # safer than a hard 400 for a bookmarked link.
+        try:
+            c_created, c_tid = cursor.split("|", 1)
+            c_key = (float(c_created), c_tid)
+            items = [s for s in items if key(s) < c_key]
+        except (ValueError, TypeError, AttributeError):
+            pass
     has_more = len(items) > limit
     items = items[:limit]
     return {
         "sessions": items,
-        "next_cursor": (items[-1]["token_id"] if has_more and items else None),
+        "next_cursor": (
+            f"{items[-1].get('created_at') or 0}|{items[-1].get('token_id') or ''}"
+            if has_more and items
+            else None
+        ),
         "has_more": has_more,
     }
 

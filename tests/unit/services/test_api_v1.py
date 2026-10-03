@@ -439,22 +439,29 @@ def test_sessions_list_status_filter(server, monkeypatch):
 
 
 def test_sessions_list_cursor_pagination(server, monkeypatch):
-    """limit + cursor walk the inventory in stable token_id order —
-    has_more/next_cursor drive the SPA's "load more"."""
+    """limit + cursor walk the inventory newest-first — has_more and
+    the composite next_cursor drive the SPA's "load more"."""
     store = _FakeStore()
-    store.items = [{"token_id": t} for t in ("aa01", "bb02", "cc03")]
+    store.items = [
+        {"token_id": "aa01", "created_at": 100},
+        {"token_id": "bb02", "created_at": 300},
+        {"token_id": "cc03", "created_at": 200},
+    ]
     monkeypatch.setattr(
         "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
     )
     status, _, body = _req(server, "/api/v1/sessions?limit=2", headers=_auth_headers())
     assert status == 200
     page = json.loads(body)["data"]
-    assert [s["token_id"] for s in page["sessions"]] == ["aa01", "bb02"]
+    assert [s["token_id"] for s in page["sessions"]] == ["bb02", "cc03"]
     assert page["has_more"] is True
-    assert page["next_cursor"] == "bb02"
-    status, _, body = _req(server, "/api/v1/sessions?limit=2&cursor=bb02", headers=_auth_headers())
+    cursor = page["next_cursor"]
+    assert cursor == "200|cc03"
+    status, _, body = _req(
+        server, f"/api/v1/sessions?limit=2&cursor={cursor}", headers=_auth_headers()
+    )
     page = json.loads(body)["data"]
-    assert [s["token_id"] for s in page["sessions"]] == ["cc03"]
+    assert [s["token_id"] for s in page["sessions"]] == ["aa01"]
     assert page["has_more"] is False
     assert page["next_cursor"] is None
 

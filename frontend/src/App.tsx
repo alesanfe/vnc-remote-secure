@@ -8,7 +8,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
 import {
   Activity as ActivityIcon,
@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import CommandPalette from './components/CommandPalette';
 import Boundary from './components/ErrorBoundary';
+import ScrollMemory from './components/ScrollMemory';
 import ShortcutsDialog from './components/ShortcutsDialog';
 import { api, ApiError, type Me } from './api';
 import { LangSwitch, useI18n } from './i18n';
@@ -143,6 +144,16 @@ export default function App() {
   // Drawer state only matters ≤860px — on desktop the sidebar is
   // always visible and the toggle is display:none.
   const [navOpen, setNavOpen] = useState(false);
+  // Escape closes the mobile drawer — a modal-ish overlay should be
+  // dismissible without hunting for the backdrop.
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
   // Sidebar command-filter: typing narrows nav entries, Enter jumps
   // to the first match — the lightweight launcher for wide consoles.
   const [navQuery, setNavQuery] = useState('');
@@ -269,6 +280,7 @@ export default function App() {
       />
       <CommandPalette items={paletteItems} />
       <ShortcutsDialog />
+      <ScrollMemory />
       <header className="topbar">
         <button
           type="button"
@@ -301,6 +313,7 @@ export default function App() {
           </small>
         </div>
         <nav aria-label="Admin">
+          <div className="nav-filter-wrap">
           <input
             className="nav-filter"
             type="search"
@@ -321,6 +334,8 @@ export default function App() {
               }
             }}
           />
+          <kbd className="nav-filter-kbd" aria-hidden="true">Ctrl K</kbd>
+          </div>
           {NAV_GROUPS.map((g) => ({
             ...g,
             items: g.items.filter((n) =>

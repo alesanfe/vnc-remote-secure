@@ -156,15 +156,28 @@ a { color: var(--accent-text); }
   border-left-color: var(--accent);
   background: var(--surface-2);
 }
-.nav-filter {
-  width: calc(100% - 2.5rem);
+.nav-filter-wrap {
+  position: relative;
   margin: 0.5rem 1.25rem;
+}
+.nav-filter {
+  width: 100%;
   padding: 0.45rem 0.6rem;
+  padding-right: 3.2rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
   font-size: 0.85rem;
+}
+.nav-filter-kbd {
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  pointer-events: none;
 }
 .nav-group-label {
   padding: 0.9rem 1.25rem 0.25rem;
@@ -700,6 +713,21 @@ td button { margin-right: 0.3rem; }
 .dialog-body code { background: var(--surface-2); padding: 0.1rem 0.4rem; border-radius: 4px; }
 .dialog input { margin-bottom: 0.75rem; }
 .dialog-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
+
+/* Skeleton placeholder — reserves space while structured content
+   loads; the shimmer is suppressed by the reduced-motion rule. */
+.skeleton {
+  display: inline-block;
+  width: 70%;
+  height: 0.8em;
+  border-radius: 4px;
+  background: var(--surface-2);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
 
 /* Motion & contrast preferences */
 @media (prefers-reduced-motion: reduce) {

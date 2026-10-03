@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   useInfiniteQuery,
   useQuery,
@@ -58,10 +59,23 @@ function auditTs(e: AuditEntry): number {
     kind/severity/text filters are applied over the fetched window. */
 export default function Activity() {
   const { t } = useI18n();
-  const [kind, setKind] = useState<KindFilter>('all');
-  const [sev, setSev] = useState<'all' | Sev>('all');
-  const [text, setText] = useState('');
-  const [user, setUser] = useState('');
+  // Filters in the URL so Back from a linked detail keeps the slice.
+  const [params, setParams] = useSearchParams();
+  const kind = (params.get('kind') ?? 'all') as KindFilter;
+  const sev = (params.get('sev') ?? 'all') as 'all' | Sev;
+  const text = params.get('text') ?? '';
+  const user = params.get('user') ?? '';
+  const setFilter = (key: string, value: string) =>
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      if (value && value !== 'all') next.set(key, value);
+      else next.delete(key);
+      return next;
+    }, { replace: true });
+  const setKind = (v: KindFilter) => setFilter('kind', v);
+  const setSev = (v: 'all' | Sev) => setFilter('sev', v);
+  const setText = (v: string) => setFilter('text', v);
+  const setUser = (v: string) => setFilter('user', v);
 
   const audit = useInfiniteQuery({
     queryKey: ['activity-audit', user],

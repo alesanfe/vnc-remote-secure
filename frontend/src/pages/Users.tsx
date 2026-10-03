@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,7 +33,15 @@ export default function Users() {
   });
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [query, setQuery] = useState('');
+  // Search term in the URL — Back from a user detail restores it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get('q') ?? '';
+  const setQuery = (v: string) =>
+    setSearchParams((p) => {
+      const next = new URLSearchParams(p);
+      if (v) next.set('q', v); else next.delete('q');
+      return next;
+    }, { replace: true });
   // Pending destructive confirmation: which operator + which action.
   const [pending, setPending] = useState<{
     kind: 'revoke' | 'delete';

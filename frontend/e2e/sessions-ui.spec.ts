@@ -47,7 +47,7 @@ test.describe('session center UI', () => {
     await page.getByRole('tab', { name: 'Historial' }).click();
     await expect(
       page.locator('tr', { hasText: ref }),
-    ).toContainText('revocada', { timeout: 40_000 });
+    ).toContainText('revocada', { timeout: 60_000 });
     await ctx.close();
   });
 

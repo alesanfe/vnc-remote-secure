@@ -1,5 +1,10 @@
 import { Fragment, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   useInfiniteQuery,
@@ -97,8 +102,16 @@ export default function Sessions() {
     return s.revoked || s.expires_at <= nowSec; // history
   });
   // Client-side text search over the fetched inventory — id, role,
-  // creator, resource and permission names all match.
-  const [query, setQuery] = useState('');
+  // creator, resource and permission names all match. The term lives
+  // in the URL so going Back from a session detail restores it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get('q') ?? '';
+  const setQuery = (v: string) =>
+    setSearchParams((p) => {
+      const next = new URLSearchParams(p);
+      if (v) next.set('q', v); else next.delete('q');
+      return next;
+    }, { replace: true });
   const q = query.trim().toLowerCase();
   const filtered = q
     ? rows.filter((s) =>

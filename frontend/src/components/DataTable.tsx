@@ -90,7 +90,26 @@ export default function DataTable<T>({
     );
   }
   if (loading && !rows) {
-    return <div className="muted" role="status">{t('common.loading')}</div>;
+    // Skeleton rows reserve the table's shape so the layout doesn't
+    // jump when data lands — better than a bare "Loading" line.
+    return (
+      <table className="data" aria-busy="true">
+        <thead>
+          <tr>
+            {columns.map((c) => <th key={c.key}>{c.header}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: 4 }, (_, i) => (
+            <tr key={i} aria-hidden="true">
+              {columns.map((c) => (
+                <td key={c.key}><span className="skeleton" /></td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
   }
   return (
     <table className="data">
