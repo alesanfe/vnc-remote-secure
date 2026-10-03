@@ -818,7 +818,11 @@ export default function Sessions() {
               ),
           },
           { key: 'role', header: t('sessions.col.role'),
-              render: (s) => roleLabel(t, s.role),
+              render: (s) => (
+                <span style={{ whiteSpace: 'nowrap' }}>
+                  {roleLabel(t, s.role)}
+                </span>
+              ),
             sortValue: (s) => s.role },
           {
             key: 'perms',

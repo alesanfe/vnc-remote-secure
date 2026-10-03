@@ -362,7 +362,8 @@ function OperatorRow({
             {u.disabled ? t('users.statusDisabled') : t('users.statusActive')}
           </span>
         </td>
-        <td title={u.permissions.join(', ')}>
+        <td title={u.permissions.join(', ')}
+            style={{ whiteSpace: 'nowrap' }}>
           {t('users.permCount', { count: u.permissions.length })}
         </td>
         <td>
@@ -373,16 +374,18 @@ function OperatorRow({
         <td>
           <button
             type="button"
+            className="ghost"
             disabled={busy}
             onClick={() => onPatch({ disabled: !u.disabled })}
           >
             {u.disabled ? t('users.enable') : t('users.disable')}
           </button>{' '}
-          <button type="button" disabled={busy}
+          <button type="button" className="ghost" disabled={busy}
                   onClick={onRevokeSessions}>
             {t('users.revokeSessions')}
           </button>{' '}
-          <button type="button" disabled={busy} onClick={onDelete}>
+          <button type="button" className="danger" disabled={busy}
+                  onClick={onDelete}>
             {t('common.delete')}
           </button>{' '}
           <Link to={`/identities/${encodeURIComponent(u.username)}`}>

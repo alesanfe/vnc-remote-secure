@@ -71,7 +71,7 @@ export const es = {
 
   'confirm.typeToConfirm': 'Escribe {{name}} para confirmar',
 
-  'jobs.title': 'Jobs',
+  'jobs.title': 'Tareas',
   'jobs.subtitle':
     'Registro persistente de operaciones: lifecycle, restores y ' +
     'upgrades ejecutados por el runner — sobreviven al reinicio del ' +
@@ -157,7 +157,8 @@ export const es = {
   'status.unknown': 'Estado desconocido',
   'status.stale': 'desactualizado',
   'status.staleHint': 'La última comprobación falló — estos datos pueden no estar al día',
-  'status.sessions': '{{count}} sesión(es)',
+  'status.sessions_one': '{{count}} sesión',
+  'status.sessions_other': '{{count}} sesiones',
   'status.jobs': '{{count}} tarea(s)',
   'status.criticals': '{{count}} crítica(s)',
   'nav.activity': 'Actividad',
@@ -841,7 +842,8 @@ export const es = {
   'sessions.col.creator': 'Creador',
   'sessions.stateActive': 'activa',
   'sessions.stateRevoked': 'revocada',
-  'sessions.permCount': '{{count}} permiso(s)',
+  'sessions.permCount_one': '{{count}} permiso',
+  'sessions.permCount_other': '{{count}} permisos',
   'sessions.revoke': 'Revocar',
   'sessions.revokeUndo':
     'La sesión {{id}} se revocará en 10 segundos.',
@@ -1096,7 +1098,8 @@ export const es = {
   'users.creating': 'Creando…',
   'users.statusActive': 'activo',
   'users.statusDisabled': 'deshabilitado',
-  'users.permCount': '{{count}} permiso(s)',
+  'users.permCount_one': '{{count}} permiso',
+  'users.permCount_other': '{{count}} permisos',
   'users.enable': 'Habilitar',
   'users.disable': 'Deshabilitar',
   'users.revokeSessions': 'Revocar sesiones',

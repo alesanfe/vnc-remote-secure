@@ -1,7 +1,8 @@
 ﻿import { Fragment, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type RecordingMeta } from '../api';
-import { Bookmark, CircleStop, Disc, Pause, Play } from 'lucide-react';
+import { Bookmark, Camera, CircleStop, Disc, Pause, Play }
+  from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '../i18n';
 import { useStepUp } from '../components/useStepUp';
@@ -312,9 +313,9 @@ export default function Recordings() {
       <h1 className="page-title">{t('rec.title')}</h1>
       <p className="muted">{t('rec.subtitle')}</p>
       <div className="toolbar">
-        <a className="btn" href={api.desktopScreenshotUrl()}
+        <a className="btn ghost" href={api.desktopScreenshotUrl()}
            download="screenshot.png">
-          {t('rec.screenshot')}
+          <Camera size={14} aria-hidden="true" /> {t('rec.screenshot')}
         </a>
         <button type="button" onClick={() => start.mutate()}
                 disabled={start.isPending || rows.some((r) => r.running)}

@@ -53,8 +53,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     lang,
     setLang,
     t: (key, vars) => {
-      let s: string = (DICTS[lang] as Record<string, string>)[key]
-        ?? (DICTS.es as Record<string, string>)[key] ?? key;
+      const dict = DICTS[lang] as Record<string, string>;
+      // Plural convention: a numeric {{count}} first tries
+      // key_one / key_other — "1 sesión" vs "3 sesiones" without
+      // the "(s)" hack.
+      let s: string | undefined;
+      if (typeof vars?.count === 'number') {
+        s = dict[`${key}_${vars.count === 1 ? 'one' : 'other'}`];
+      }
+      s ??= dict[key] ?? (DICTS.es as Record<string, string>)[key]
+        ?? key;
       if (vars) {
         for (const [k, v] of Object.entries(vars)) {
           s = s.split(`{{${k}}}`).join(String(v));

@@ -70,7 +70,7 @@ export const en: Messages = {
 
   'confirm.typeToConfirm': 'Type {{name}} to confirm',
 
-  'jobs.title': 'Jobs',
+  'jobs.title': 'Tasks',
   'jobs.subtitle':
     'Persistent operation ledger: lifecycle, restores and upgrades ' +
     'executed by the runner — they survive a portal restart.',
@@ -155,7 +155,8 @@ export const en: Messages = {
   'status.unknown': 'Status unknown',
   'status.stale': 'stale',
   'status.staleHint': 'Last check failed — this data may be out of date',
-  'status.sessions': '{{count}} session(s)',
+  'status.sessions_one': '{{count}} session',
+  'status.sessions_other': '{{count}} sessions',
   'status.jobs': '{{count}} job(s)',
   'status.criticals': '{{count}} critical',
   'nav.activity': 'Activity',
@@ -815,7 +816,8 @@ export const en: Messages = {
   'sessions.col.creator': 'Creator',
   'sessions.stateActive': 'active',
   'sessions.stateRevoked': 'revoked',
-  'sessions.permCount': '{{count}} permission(s)',
+  'sessions.permCount_one': '{{count}} permission',
+  'sessions.permCount_other': '{{count}} permissions',
   'sessions.revoke': 'Revoke',
   'sessions.revokeUndo':
     'Session {{id}} will be revoked in 10 seconds.',
@@ -1064,7 +1066,8 @@ export const en: Messages = {
   'users.creating': 'Creating…',
   'users.statusActive': 'active',
   'users.statusDisabled': 'disabled',
-  'users.permCount': '{{count}} permission(s)',
+  'users.permCount_one': '{{count}} permission',
+  'users.permCount_other': '{{count}} permissions',
   'users.enable': 'Enable',
   'users.disable': 'Disable',
   'users.revokeSessions': 'Revoke sessions',

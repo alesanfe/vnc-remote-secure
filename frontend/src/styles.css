@@ -636,16 +636,16 @@ button:hover, .btn:hover { background: var(--accent-hover); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.danger { background: #c0392b; }
 button.danger:hover { background: #a02e22; }
-button.ghost { background: var(--surface-2); color: var(--text); }
-button.ghost:hover { background: var(--surface-3, var(--surface-2)); filter: brightness(1.06); }
+button.ghost, .btn.ghost { background: var(--surface-2); color: var(--text); }
+button.ghost:hover, .btn.ghost:hover { background: var(--surface-3, var(--surface-2)); filter: brightness(1.06); }
 /* ghost + danger must stay red - declared after .ghost so the
    destructive style wins over the neutral one (same specificity). */
-button.ghost.danger {
+button.ghost.danger, .btn.ghost.danger {
   background: var(--surface-2);
   color: #c0392b;
   border: 1px solid #c0392b;
 }
-button.ghost.danger:hover { background: #c0392b; color: #fff; }
+button.ghost.danger:hover, .btn.ghost.danger:hover { background: #c0392b; color: #fff; }
 
 /* Forms */
 input, select, textarea {
@@ -682,6 +682,10 @@ label.check input { width: auto; }
 .mono { font-family: Consolas, 'Courier New', monospace; font-size: 0.85rem; }
 .section { margin-top: 2rem; }
 .toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+/* Inside a toolbar, controls size to content — the global
+   input/select width:100% is for stacked .row forms; full-width
+   filters would stack one per line (the Activity-page bug). */
+.toolbar input, .toolbar select { width: auto; }
 .spacer { flex: 1; }
 
 @media (max-width: 800px) {

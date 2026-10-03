@@ -158,6 +158,19 @@ export default function Audit() {
             },
             render: (r: AuditEntry) => {
               const v = String(r[c] ?? '');
+              // ISO timestamps are forensic data but unreadable raw —
+              // render the localized form and keep the exact value
+              // on hover (title).
+              if (c === 'timestamp') {
+                const d = new Date(v);
+                if (!Number.isNaN(d.getTime())) {
+                  return (
+                    <span title={v} style={{ whiteSpace: 'nowrap' }}>
+                      {d.toLocaleString()}
+                    </span>
+                  );
+                }
+              }
               if (c === 'event') return mark(v, eventFilter);
               if (c === 'actor' || c === 'user') return mark(v, userFilter);
               return v;
