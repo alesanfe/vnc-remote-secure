@@ -57,6 +57,7 @@
 - [Release Checklist](developer/release-checklist.md) - E2E scenario matrix for release validation
 - [Code Review Checklist](developer/code-review-checklist.md) - Reviewer gate (blocker/important/suggestion/question/nit)
 - [Adding Platform Support](developer/adding-platform-support.md) - Platform adapter guide
+- [UI/UX Conventions](developer/ui-ux.md) - Design tokens, component states and accessibility contract for the SPA
 
 ## Security
 - [Threat Model](THREAT_MODEL.md) - Formal STRIDE threat model and risk matrix

@@ -153,6 +153,8 @@ export const es = {
   'status.degraded': 'Degradado · {{up}}/{{total}} servicios',
   'status.down': 'Caído · {{up}}/{{total}} servicios',
   'status.unknown': 'Estado desconocido',
+  'status.stale': 'desactualizado',
+  'status.staleHint': 'La última comprobación falló — estos datos pueden no estar al día',
   'status.sessions': '{{count}} sesión(es)',
   'status.jobs': '{{count}} tarea(s)',
   'status.criticals': '{{count}} crítica(s)',

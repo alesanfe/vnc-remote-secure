@@ -151,6 +151,8 @@ export const en: Messages = {
   'status.degraded': 'Degraded · {{up}}/{{total}} services',
   'status.down': 'Down · {{up}}/{{total}} services',
   'status.unknown': 'Status unknown',
+  'status.stale': 'stale',
+  'status.staleHint': 'Last check failed — this data may be out of date',
   'status.sessions': '{{count}} session(s)',
   'status.jobs': '{{count}} job(s)',
   'status.criticals': '{{count}} critical',

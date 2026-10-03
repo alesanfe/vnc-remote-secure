@@ -49,12 +49,17 @@ export default function StatusStrip() {
   return (
     <div className="status-strip" role="status"
          aria-label={t('status.strip')}>
-      <span className={`status-cell ${svcClass}`}>
+      <span className={`status-cell ${svcClass}`}
+            title={health.isError && svc ? t('status.staleHint')
+                                        : undefined}>
         <Activity size={12} aria-hidden="true" />
         {svc
           ? t(`status.${svc.status}`, {
               up: svc.services_up, total: svc.services_total })
           : t('status.unknown')}
+        {/* last fetch failed but we still show cached data — flag it
+            so a stale "healthy" isn't mistaken for a live reading */}
+        {health.isError && svc ? ` · ${t('status.stale')}` : ''}
       </span>
       <Link to="/access" className="status-cell dim">
         <KeyRound size={12} aria-hidden="true" />
