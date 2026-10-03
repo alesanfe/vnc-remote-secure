@@ -854,6 +854,16 @@ export const es = {
   'sessions.revokeAllBody':
     'Las {{count}} sesiones activas quedarán revocadas. Los ' +
     'invitados conectados perderán acceso de inmediato.',
+  'sessions.selectRow': 'Seleccionar el enlace {{id}}…',
+  'sessions.revokeSelected': 'Revocar seleccionadas ({{count}})',
+  'sessions.bulkTitle': 'Revocar {{count}} sesiones',
+  'sessions.bulkBody':
+    'Los {{count}} enlaces seleccionados dejarán de ser válidos. ' +
+    'Los invitados que aún no hayan entrado perderán el acceso.',
+  'sessions.bulkRevokeUndo':
+    'Se revocarán {{count}} sesiones en 10 segundos.',
+  'sessions.revokeSomeFailed':
+    '{{ok}} sesiones revocadas; {{failed}} fallaron.',
   'sessions.loadMore': 'Cargar más',
   'sessions.stepup.revokeAll': 'cierre de todas las sesiones activas',
 
@@ -1154,6 +1164,8 @@ export const es = {
   // --- DataTable / bits -----------------------------------------------------------
   'table.errorText': 'Error al cargar los datos.',
   'table.emptyText': 'Sin datos que mostrar.',
+  'table.selectAll': 'Seleccionar todas las filas',
+  'table.selectRow': 'Seleccionar fila',
   'bits.expired': 'expirado',
   'bits.ago': 'hace {{d}}',
   'bits.copyRef': 'Copiar referencia {{id}}',

@@ -29,7 +29,7 @@ new ones.
 
 | Component | Contract |
 |---|---|
-| `DataTable` | Props `loading`/`error`/`onRetry`/`emptyText`/`emptyAction`. Loading renders skeleton rows (`aria-busy`), never a bare spinner. Error box carries a retry button when `onRetry` is passed. Empty state must say *why* empty and offer the next action when one exists (`emptyAction`). |
+| `DataTable` | Props `loading`/`error`/`onRetry`/`emptyText`/`emptyAction`. Loading renders skeleton rows (`aria-busy`), never a bare spinner. Error box carries a retry button when `onRetry` is passed. Empty state must say *why* empty and offer the next action when one exists (`emptyAction`). Optional `selection` adds a checkbox column (tri-state select-all, per-row `ariaLabel`, `isSelectable` opt-out) — the owner holds the selected-id set and prunes it when the inventory changes. |
 | `ConfirmDialog` / `useDialogA11y` | `role="alertdialog"`, focus trap, Escape, focus restore. Destructive copy: name the object + consequence; confirm button is verb-specific ("Revocar"), never "Sí/Aceptar". Type-to-confirm only for mass/irreversible ops. |
 | `CommandPalette` | `Ctrl/⌘+K`; `?` opens `ShortcutsDialog`. The `Ctrl K` chip on the nav filter is the discoverable affordance — keep it. |
 | `StatusStrip` | Global truth line: health, sessions, running jobs, criticals. Must show *stale* when the last refetch failed but old data is displayed. |

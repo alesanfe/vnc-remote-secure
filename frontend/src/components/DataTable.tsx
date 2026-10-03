@@ -30,6 +30,18 @@ interface Props<T> {
   /** Optional CTA rendered under the empty-state text — a bare "no
       rows" message without a next step is a dead end. */
   emptyAction?: React.ReactNode;
+  /** Row selection: renders a leading checkbox column (header box
+      selects every selectable row currently shown, rows a single
+      one). The owner keeps the selected-id set. */
+  selection?: {
+    isSelected: (row: T) => boolean;
+    onToggle: (row: T, checked: boolean) => void;
+    onToggleAll: (checked: boolean) => void;
+    /** Rows that must not offer a checkbox (e.g. already revoked). */
+    isSelectable?: (row: T) => boolean;
+    /** Accessible name for each row checkbox (identity, not "row"). */
+    ariaLabel?: (row: T) => string;
+  };
 }
 
 type SortDir = 'asc' | 'desc';
@@ -47,6 +59,7 @@ export default function DataTable<T>({
   onRetry,
   emptyText,
   emptyAction,
+  selection,
 }: Props<T>) {
   const { t } = useI18n();
   const errorLabel = errorText ?? t('table.errorText');
@@ -96,12 +109,14 @@ export default function DataTable<T>({
       <table className="data" aria-busy="true">
         <thead>
           <tr>
+            {selection && <th className="sel-cell" />}
             {columns.map((c) => <th key={c.key}>{c.header}</th>)}
           </tr>
         </thead>
         <tbody>
           {Array.from({ length: 4 }, (_, i) => (
             <tr key={i} aria-hidden="true">
+              {selection && <td><span className="skeleton" /></td>}
               {columns.map((c) => (
                 <td key={c.key}><span className="skeleton" /></td>
               ))}
@@ -111,10 +126,38 @@ export default function DataTable<T>({
       </table>
     );
   }
+
+  const selectableRows = selection
+    ? (sorted ?? []).filter((r) => selection.isSelectable?.(r) ?? true)
+    : [];
+  const allSelected = selectableRows.length > 0 &&
+    selectableRows.every(selection!.isSelected);
+  const someSelected = selectableRows.some(
+    (r) => selection!.isSelected(r));
+
   return (
     <table className="data">
       <thead>
         <tr>
+          {selection && (
+            <th className="sel-cell">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                // tri-state isn't an HTML attribute — set the DOM
+                // flag when some (not all) rows are checked.
+                ref={(el) => {
+                  if (el) {
+                    el.indeterminate = someSelected && !allSelected;
+                  }
+                }}
+                disabled={!selectableRows.length}
+                aria-label={t('table.selectAll')}
+                onChange={(e) =>
+                  selection.onToggleAll(e.target.checked)}
+              />
+            </th>
+          )}
           {columns.map((c) => {
             const active = sort?.key === c.key;
             return (
@@ -141,6 +184,19 @@ export default function DataTable<T>({
       <tbody>
         {(sorted ?? []).map((r) => (
           <tr key={rowKey(r)}>
+            {selection && (
+              <td className="sel-cell">
+                <input
+                  type="checkbox"
+                  checked={selection.isSelected(r)}
+                  disabled={!(selection.isSelectable?.(r) ?? true)}
+                  aria-label={selection.ariaLabel?.(r)
+                    ?? t('table.selectRow')}
+                  onChange={(e) =>
+                    selection.onToggle(r, e.target.checked)}
+                />
+              </td>
+            )}
             {columns.map((c) => (
               <td key={c.key} title={c.title?.(r)}
                   className={c.mono ? 'mono' : undefined}>
@@ -151,7 +207,8 @@ export default function DataTable<T>({
         ))}
         {rows && rows.length === 0 && (
           <tr>
-            <td colSpan={columns.length} className="muted">
+            <td colSpan={columns.length + (selection ? 1 : 0)}
+                className="muted">
               {emptyLabel}
               {emptyAction && (
                 <div className="empty-action">{emptyAction}</div>

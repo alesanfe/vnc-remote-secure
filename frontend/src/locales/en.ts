@@ -828,6 +828,16 @@ export const en: Messages = {
   'sessions.revokeAllBody':
     'All {{count}} active sessions will be revoked. Connected ' +
     'guests lose access immediately.',
+  'sessions.selectRow': 'Select link {{id}}…',
+  'sessions.revokeSelected': 'Revoke selected ({{count}})',
+  'sessions.bulkTitle': 'Revoke {{count}} sessions',
+  'sessions.bulkBody':
+    'The {{count}} selected links will stop being valid. Guests ' +
+    'who have not joined yet will lose access.',
+  'sessions.bulkRevokeUndo':
+    '{{count}} sessions will be revoked in 10 seconds.',
+  'sessions.revokeSomeFailed':
+    '{{ok}} sessions revoked; {{failed}} failed.',
   'sessions.loadMore': 'Load more',
   'sessions.stepup.revokeAll': 'closing all active sessions',
 
@@ -1122,6 +1132,8 @@ export const en: Messages = {
   // --- DataTable / bits -----------------------------------------------------------
   'table.errorText': 'Failed to load data.',
   'table.emptyText': 'No data to show.',
+  'table.selectAll': 'Select all rows',
+  'table.selectRow': 'Select row',
   'bits.expired': 'expired',
   'bits.ago': '{{d}} ago',
   'bits.copyRef': 'Copy reference {{id}}',

@@ -204,6 +204,20 @@ export default function Sessions() {
   // is only revoked if the timer actually fires. The timer survives
   // unmount so a navigation can't silently cancel the revocation.
   const revokeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bulk selection: ids of rows the operator checked. Pruned whenever
+  // the inventory changes (tab switch, refetch) so a checkbox can't
+  // outlive the row it pointed at.
+  const [selected, setSelected] =
+    useState<ReadonlySet<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const bulkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setSelected((prev) => {
+      const ids = new Set(allRows.map((s) => s.token_id));
+      const next = new Set([...prev].filter((id) => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [allRows]);
   // Inline label editing — click the tag cell to rename; Enter saves,
   // Escape cancels. Labels are inventory metadata (PATCH /sessions/id).
   const [editLabel, setEditLabel] =
@@ -288,6 +302,45 @@ export default function Sessions() {
     revokeTimer.current = null;
   };
 
+  // Bulk revoke gets the same 10 s undo window as a single revoke —
+  // one timer for the whole batch so Deshacer cancels all of it.
+  // The selection is kept until the call lands: undoing restores it.
+  const scheduleBulkRevoke = (ids: string[]) => {
+    if (bulkTimer.current) clearTimeout(bulkTimer.current);
+    bulkTimer.current = setTimeout(() => {
+      bulkTimer.current = null;
+      void (async () => {
+        // Sequential on purpose — parallel bursts trip the API rate
+        // limit and make partial failure harder to report.
+        let failed = 0;
+        for (const id of ids) {
+          try {
+            await api.post('sessions/revoke', { token_id: id });
+          } catch {
+            failed += 1;
+          }
+        }
+        if (failed) {
+          setMutError(t('sessions.revokeSomeFailed', {
+            ok: ids.length - failed,
+            failed,
+          }));
+        }
+        setSelected(new Set());
+        qc.invalidateQueries({ queryKey: ['sessions'] });
+      })();
+    }, 10_000);
+    toast(t('sessions.bulkRevokeUndo', { count: ids.length }), {
+      duration: 10_000,
+      action: { label: t('common.undo'), onClick: undoBulkRevoke },
+    });
+  };
+
+  const undoBulkRevoke = () => {
+    if (bulkTimer.current) clearTimeout(bulkTimer.current);
+    bulkTimer.current = null;
+  };
+
   const revokeAll = useMutation({
     mutationFn: () => api.post<{ revoked: number }>('sessions/revoke-all'),
     onSuccess: () => {
@@ -329,6 +382,14 @@ export default function Sessions() {
         )
       : '—';
   };
+
+  // Only non-revoked rows offer a checkbox — the same rule the
+  // per-row Revoke button uses. Selection ids are resolved against
+  // the *filtered* view, so "select all" means all visible matches.
+  const selRows = filtered.filter((s) => !s.revoked);
+  const selIds = selRows
+    .filter((s) => selected.has(s.token_id))
+    .map((s) => s.token_id);
 
   return (
     <>
@@ -683,6 +744,14 @@ export default function Sessions() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        {selIds.length > 0 && (
+          <button
+            className="danger"
+            onClick={() => setConfirmBulk(true)}
+          >
+            {t('sessions.revokeSelected', { count: selIds.length })}
+          </button>
+        )}
         {tab !== 'history' && (
           <button
             className="danger"
@@ -709,6 +778,23 @@ export default function Sessions() {
         }
         rows={filtered}
         rowKey={(s) => s.token_id}
+        selection={{
+          isSelectable: (s) => !s.revoked,
+          isSelected: (s) => selected.has(s.token_id),
+          onToggle: (s, on) =>
+            setSelected((prev) => {
+              const next = new Set(prev);
+              if (on) next.add(s.token_id);
+              else next.delete(s.token_id);
+              return next;
+            }),
+          onToggleAll: (on) =>
+            setSelected(on
+              ? new Set(selRows.map((s) => s.token_id))
+              : new Set()),
+          ariaLabel: (s) =>
+            t('sessions.selectRow', { id: s.token_id.slice(0, 12) }),
+        }}
         columns={[
           {
             key: 'id',
@@ -861,6 +947,20 @@ export default function Sessions() {
             })}
           </p>
         )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmBulk}
+        title={t('sessions.bulkTitle', { count: selIds.length })}
+        danger
+        confirmLabel={t('sessions.revoke')}
+        onCancel={() => setConfirmBulk(false)}
+        onConfirm={() => {
+          setConfirmBulk(false);
+          scheduleBulkRevoke(selIds);
+        }}
+      >
+        <p>{t('sessions.bulkBody', { count: selIds.length })}</p>
       </ConfirmDialog>
 
       <ConfirmDialog

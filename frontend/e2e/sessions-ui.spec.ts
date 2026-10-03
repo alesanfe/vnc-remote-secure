@@ -51,6 +51,38 @@ test.describe('session center UI', () => {
     await ctx.close();
   });
 
+  test('bulk-select revokes only the checked sessions', async ({
+    browser,
+  }) => {
+    const a = await createShareLink();
+    const b = await createShareLink();
+    const refA = a.tokenId.slice(0, 8);
+    const refB = b.tokenId.slice(0, 8);
+    const { ctx, page } = await adminPage(browser);
+    await page.goto(`${serverInfo().base}/admin/sessions`);
+    const rowA = page.locator('tr', { hasText: refA });
+    const rowB = page.locator('tr', { hasText: refB });
+    await expect(rowA).toBeVisible();
+    await expect(rowB).toBeVisible();
+
+    // Check only A — the bulk action reports the live count.
+    await rowA.getByRole('checkbox').click();
+    const bulk = page.getByRole('button', {
+      name: /Revocar seleccionadas/,
+    });
+    await expect(bulk).toHaveText(/\(1\)/);
+    await bulk.click();
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Revocar' }).click();
+
+    // Same 10 s undo window as a single revoke: A disappears once
+    // the call lands while B stays active.
+    await expect(rowA).not.toBeVisible({ timeout: 20_000 });
+    await expect(rowB).toBeVisible();
+    await ctx.close();
+  });
+
   test('revoke-all requires the typed confirmation', async ({
     browser,
   }) => {
