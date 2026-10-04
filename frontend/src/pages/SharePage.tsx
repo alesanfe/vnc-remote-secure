@@ -61,15 +61,28 @@ export function ShareAccept({ token }: { token: string }) {
   const secs = preview ? preview.expires_in_seconds % 60 : 0;
   const allowed = (r: string) =>
     !preview?.resource || preview.resource === r;
+  // Los permisos efectivos del enlace deciden cada capacidad — antes
+  // solo miraban los flags, así un 'viewer' sin view_only listaba
+  // control/terminal/archivos como concedidos. Sin el campo (servidor
+  // antiguo) se cae al comportamiento anterior.
+  const perms = preview?.permissions
+    ? new Set(preview.permissions)
+    : null;
+  const hasPerm = (...keys: string[]) =>
+    perms === null || keys.some((k) => perms.has(k));
   const caps: { key: string; ok: boolean; strong?: boolean }[] = [
-    { key: 'viewDesktop', ok: allowed('desktop') },
-    { key: 'controlDesktop', ok: allowed('desktop') && !preview?.view_only,
+    { key: 'viewDesktop',
+      ok: allowed('desktop') && hasPerm('view') },
+    { key: 'controlDesktop',
+      ok: allowed('desktop') && !preview?.view_only &&
+        hasPerm('control', 'keyboard', 'pointer'),
       strong: true },
     { key: 'terminal',
-      ok: allowed('terminal') && !preview?.no_terminal },
-    { key: 'audio', ok: allowed('audio') },
-    { key: 'gamepad', ok: allowed('gamepad') },
-    { key: 'files', ok: allowed('files') },
+      ok: allowed('terminal') && !preview?.no_terminal &&
+        hasPerm('terminal', 'terminal_write', 'terminal_view') },
+    { key: 'audio', ok: allowed('audio') && hasPerm('audio') },
+    { key: 'gamepad', ok: allowed('gamepad') && hasPerm('gamepad') },
+    { key: 'files', ok: allowed('files') && hasPerm('file_transfer') },
     { key: 'chat', ok: true },
   ];
   const flags: string[] = [];

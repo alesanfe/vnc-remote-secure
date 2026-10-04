@@ -480,6 +480,8 @@ export interface HealthSnapshot {
 export interface SessionPreview {
   role: string;
   expires_in_seconds: number;
+  /** Effective permission strings granted by the link. */
+  permissions?: string[];
   view_only?: boolean;
   single_use?: boolean;
   no_terminal?: boolean;

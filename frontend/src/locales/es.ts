@@ -590,6 +590,34 @@ export const es = {
   'doctor.jobs.open': 'Abrir en Tareas',
   'doctor.stepup.maintenance': 'cambio del modo mantenimiento',
 
+  // Nombres legibles para los checks del doctor — las claves fijas se
+  // traducen completas y los prefijos dinámicos (dirs./ports./deps.)
+  // caen al sufijo: `dirs.tls` → "Directorios (tls)".
+  'doctor.check.config.blockers': 'Findings bloqueantes de seguridad',
+  'doctor.check.config.consistency': 'Consistencia del perfil',
+  'doctor.check.deps': 'Dependencia de sistema',
+  'doctor.check.deps.py': 'Módulo Python',
+  'doctor.check.deps.psutil': 'psutil',
+  'doctor.check.deps.uvicorn': 'uvicorn',
+  'doctor.check.deps.vnc_server': 'Servidor VNC',
+  'doctor.check.dirs': 'Directorio',
+  'doctor.check.firewall.rules': 'Reglas de firewall',
+  'doctor.check.gamepad.capability': 'Capacidad de gamepad',
+  'doctor.check.ports': 'Puerto',
+  'doctor.check.ports.nginx': 'Puerto nginx',
+  'doctor.check.secrets.auth_secret': 'Secreto de autenticación',
+  'doctor.check.secrets.flask_key': 'Clave secreta de Flask',
+  'doctor.check.secrets.vnc_password': 'Contraseña VNC',
+  'doctor.check.security.public_listeners': 'Escuchas públicas',
+  'doctor.check.state.backend': 'Backend de estado compartido',
+  'doctor.check.state.backend.effective': 'Backend efectivo',
+  'doctor.check.state.integrity': 'Integridad del estado',
+  'doctor.check.terminal.isolation': 'Aislamiento del terminal',
+  'doctor.check.tls.certificates': 'Certificados TLS',
+  'doctor.check.webauthn': 'WebAuthn',
+  'doctor.check.webauthn.credentials': 'Passkeys registradas',
+  'doctor.check.webauthn.origin': 'Origen WebAuthn',
+
   // --- Config page --------------------------------------------------------------
   'config.page.title': 'Configuración',
   'config.page.subtitle':

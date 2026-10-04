@@ -11,6 +11,24 @@ import { useI18n } from '../i18n';
 
 const ORDER = { fail: 0, warn: 1, ok: 2, skip: 3 } as const;
 
+/** Nombre legible de un check del doctor: clave completa si existe
+    en el locale; prefijo dinámico ("dirs.tls" → "Directorio (tls)")
+    si no; y el id crudo como último recurso para checks nuevos. */
+function checkLabel(
+  t: (key: string) => string, name: string,
+): string {
+  const k = `doctor.check.${name}`;
+  const v = t(k);
+  if (v !== k) return v;
+  const dot = name.lastIndexOf('.');
+  if (dot > 0) {
+    const pk = `doctor.check.${name.slice(0, dot)}`;
+    const pv = t(pk);
+    if (pv !== pk) return `${pv} (${name.slice(dot + 1)})`;
+  }
+  return name;
+}
+
 interface MaintenanceState {
   active: boolean;
   info: { by?: string; reason?: string; since?: string };
@@ -155,7 +173,7 @@ export default function Doctor() {
           <tbody>
             {checks.map((c) => (
               <tr key={c.name}>
-                <td className="mono">{c.name}</td>
+                <td title={c.name}>{checkLabel(t, c.name)}</td>
                 <td>
                   <span
                     className={`badge ${

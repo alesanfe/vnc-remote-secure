@@ -566,6 +566,34 @@ export const en: Messages = {
   'doctor.jobs.open': 'Open in Jobs',
   'doctor.stepup.maintenance': 'changing maintenance mode',
 
+  // Human names for doctor checks — fixed keys translate fully and
+  // dynamic prefixes (dirs./ports./deps.) fall back to the suffix:
+  // `dirs.tls` → "Directory (tls)".
+  'doctor.check.config.blockers': 'Blocking security findings',
+  'doctor.check.config.consistency': 'Profile consistency',
+  'doctor.check.deps': 'System dependency',
+  'doctor.check.deps.py': 'Python module',
+  'doctor.check.deps.psutil': 'psutil',
+  'doctor.check.deps.uvicorn': 'uvicorn',
+  'doctor.check.deps.vnc_server': 'VNC server',
+  'doctor.check.dirs': 'Directory',
+  'doctor.check.firewall.rules': 'Firewall rules',
+  'doctor.check.gamepad.capability': 'Gamepad capability',
+  'doctor.check.ports': 'Port',
+  'doctor.check.ports.nginx': 'nginx port',
+  'doctor.check.secrets.auth_secret': 'Auth secret',
+  'doctor.check.secrets.flask_key': 'Flask secret key',
+  'doctor.check.secrets.vnc_password': 'VNC password',
+  'doctor.check.security.public_listeners': 'Public listeners',
+  'doctor.check.state.backend': 'Shared state backend',
+  'doctor.check.state.backend.effective': 'Effective backend',
+  'doctor.check.state.integrity': 'State integrity',
+  'doctor.check.terminal.isolation': 'Terminal isolation',
+  'doctor.check.tls.certificates': 'TLS certificates',
+  'doctor.check.webauthn': 'WebAuthn',
+  'doctor.check.webauthn.credentials': 'Registered passkeys',
+  'doctor.check.webauthn.origin': 'WebAuthn origin',
+
   // --- Config page --------------------------------------------------------------
   'config.page.title': 'Configuration',
   'config.page.subtitle':

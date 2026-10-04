@@ -121,6 +121,11 @@ def preview_session(signed: str) -> dict | None:
         return {
             "role": session.role,
             "expires_in_seconds": max(0, int(session.expires_at - _time.time())),
+            # El consentimiento lista lo que el enlace PUEDE hacer —
+            # sin los permisos efectivos una invitación "viewer" sin
+            # view_only mostraba control/terminal/archivos como
+            # concedidos (los ticks solo miraban los flags).
+            "permissions": sorted(session.permissions),
             "view_only": bool(session.view_only),
             "single_use": bool(session.single_use),
             "no_terminal": bool(session.no_terminal),
