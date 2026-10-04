@@ -881,9 +881,9 @@ export const es = {
     'La sesión {{id}} se revocará en 10 segundos.',
   'sessions.revokeTitle': 'Revocar sesión',
   'sessions.revokeBody':
-    'La sesión {{id}} ({{role}} sobre {{resource}}) quedará ' +
+    'La sesión {{id}} ({{role}}{{resource}}) quedará ' +
     'invalidada inmediatamente.',
-  'sessions.revokeBodyResource': 'Recurso afectado: {{resource}}.',
+  'sessions.revokeBodyResource': ' sobre {{resource}}',
   'sessions.revokeAllTitle': 'Cerrar todas las sesiones',
   'sessions.revokeAllBody':
     'Las {{count}} sesiones activas quedarán revocadas. Los ' +

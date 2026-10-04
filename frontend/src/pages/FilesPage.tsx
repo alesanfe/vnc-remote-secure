@@ -274,7 +274,7 @@ export default function FilesPage() {
       {list.isLoading && <p className="muted">{t('common.loading')}</p>}
 
       {list.data && (
-        <table className="data">
+        <div className="table-scroll"><table className="data">
           <thead>
             <tr>
               <th>{t('files.col.name')}</th>
@@ -323,7 +323,7 @@ export default function FilesPage() {
               </tr>
             )}
           </tbody>
-        </table>
+        </table></div>
       )}
       {list.data?.truncated && (
         <p className="muted">{t('files.truncated')}</p>

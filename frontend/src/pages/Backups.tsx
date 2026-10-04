@@ -246,7 +246,7 @@ export default function Backups() {
       {backups.isLoading && (
         <p className="muted" role="status">{t('backups.loading')}</p>
       )}
-      <table className="data">
+      <div className="table-scroll"><table className="data">
         <thead>
           <tr>
             <th>{t('backups.col.file')}</th>
@@ -288,7 +288,7 @@ export default function Backups() {
             </tr>
           )}
         </tbody>
-      </table>
+      </table></div>
 
       {restoreTarget && (
         <RestoreWizard

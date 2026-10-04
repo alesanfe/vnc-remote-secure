@@ -231,7 +231,7 @@ function OperatorSessions({ p }: { p: PortalData }) {
       {sessions.length === 0 ? (
         <p className="muted">{t('portal.sessions.empty')}</p>
       ) : (
-        <table className="data">
+        <div className="table-scroll"><table className="data">
           <thead>
             <tr>
               <th>Token</th>
@@ -272,7 +272,7 @@ function OperatorSessions({ p }: { p: PortalData }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </section>
   );

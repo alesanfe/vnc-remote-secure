@@ -855,9 +855,9 @@ export const en: Messages = {
     'Session {{id}} will be revoked in 10 seconds.',
   'sessions.revokeTitle': 'Revoke session',
   'sessions.revokeBody':
-    'Session {{id}} ({{role}} on {{resource}}) will be ' +
+    'Session {{id}} ({{role}}{{resource}}) will be ' +
     'invalidated immediately.',
-  'sessions.revokeBodyResource': 'Affected resource: {{resource}}.',
+  'sessions.revokeBodyResource': ' on {{resource}}',
   'sessions.revokeAllTitle': 'Close all sessions',
   'sessions.revokeAllBody':
     'All {{count}} active sessions will be revoked. Connected ' +

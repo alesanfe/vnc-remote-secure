@@ -101,7 +101,7 @@ function ConfigOps() {
       </div>
 
       {diff.data && a !== b && (
-        <table className="data">
+        <div className="table-scroll"><table className="data">
           <thead>
             <tr>
               <th>{t('config.col.var')}</th><th>{a}</th><th>{b}</th>
@@ -123,7 +123,7 @@ function ConfigOps() {
               </tr>
             )}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       {migrated && (
@@ -217,7 +217,7 @@ function ConfigHistory() {
         <p className="muted">{t('config.history.empty')}</p>
       )}
       {history.data && history.data.snapshots.length > 0 && (
-        <table className="data">
+        <div className="table-scroll"><table className="data">
           <thead>
             <tr>
               <th>{t('config.history.col.when')}</th>
@@ -255,7 +255,7 @@ function ConfigHistory() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       {flash && <div className="info-box">{flash}</div>}
 
@@ -407,7 +407,7 @@ export default function Config() {
       {cfg.isLoading && (
         <p className="muted" role="status">{t('common.loading')}</p>
       )}
-      <table className="data">
+      <div className="table-scroll"><table className="data">
         <thead>
           <tr>
             <th>{t('config.col.var')}</th>
@@ -428,7 +428,7 @@ export default function Config() {
             />
           ))}
         </tbody>
-      </table>
+      </table></div>
       </>
       )}
     </>

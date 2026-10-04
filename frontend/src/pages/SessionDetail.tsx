@@ -361,7 +361,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
           <h3 style={{ marginTop: 0 }}>
             {t('sessions.detail.liveConnections')}
           </h3>
-          <table className="data">
+          <div className="table-scroll"><table className="data">
             <thead>
               <tr>
                 <th>{t('sessions.col.resource')}</th>
@@ -386,7 +386,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
 

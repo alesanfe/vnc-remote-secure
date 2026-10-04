@@ -274,6 +274,12 @@ a { color: var(--accent-text); }
   .main { padding: 1rem; overflow-x: auto; }
   table.data { min-width: 560px; }
   .cards { grid-template-columns: 1fr; }
+  /* .row is flex nowrap on desktop — at this width an input+input+
+     button row squeezes each field to a few dozen px. Wrapping with
+     a floor on field width stacks them readably instead. */
+  .row { flex-wrap: wrap; }
+  .row input, .row select { flex: 1 1 9rem; min-width: 9rem; }
+  .row label { min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
@@ -594,6 +600,11 @@ table.data th { background: var(--surface-2); color: var(--text-dim); font-weigh
 table.data tr:last-child td { border-bottom: 0; }
 /* Row-selection column — narrow; the click target stays on the box. */
 table.data .sel-cell { width: 2rem; text-align: center; }
+
+/* Horizontal overflow lives on this wrapper: table.data can exceed
+   the viewport on narrow screens; scrolling here stays local to the
+   table instead of dragging the breadcrumb and toolbar with .main. */
+.table-scroll { overflow-x: auto; }
 
 /* Badges & buttons */
 .badge {

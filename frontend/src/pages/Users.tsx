@@ -149,7 +149,7 @@ export default function Users() {
         />
       )}
 
-      <table className="data">
+      <div className="table-scroll"><table className="data">
         <thead>
           <tr>
             <th>{t('users.username')}</th>
@@ -195,7 +195,7 @@ export default function Users() {
             </tr>
           )}
         </tbody>
-      </table>
+      </table></div>
 
       <DeletedOperatorsSection
         onStepUp={(op, retry) => setStepUp({ op, retry })}
@@ -540,7 +540,7 @@ export function OperatorDetailPanel({ username }: { username: string }) {
       )}
       {!passkeysUnavailable && keys.data &&
         keys.data.passkeys.length > 0 && (
-        <table className="data">
+        <div className="table-scroll"><table className="data">
           <thead>
             <tr><th>Ref</th><th>{t('users.passkeyName')}</th>
                 <th>{t('users.passkeyRegistered')}</th>
@@ -590,7 +590,7 @@ export function OperatorDetailPanel({ username }: { username: string }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       {isSelf && webauthnSupported() && !passkeysUnavailable && (
         <p className="row">

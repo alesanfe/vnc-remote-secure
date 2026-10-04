@@ -133,7 +133,7 @@ export function ShareAccept({ token }: { token: string }) {
             </p>
             <details className="share-details">
               <summary>{t('share.details')}</summary>
-              <table className="data">
+              <div className="table-scroll"><table className="data">
                 <tbody>
                   <tr>
                     <td>{t('share.role')}</td>
@@ -156,7 +156,7 @@ export function ShareAccept({ token }: { token: string }) {
                     </tr>
                   )}
                 </tbody>
-              </table>
+              </table></div>
             </details>
             <div className="row">
               <button disabled={busy} onClick={activate}>

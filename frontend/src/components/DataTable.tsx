@@ -106,7 +106,7 @@ export default function DataTable<T>({
     // Skeleton rows reserve the table's shape so the layout doesn't
     // jump when data lands — better than a bare "Loading" line.
     return (
-      <table className="data" aria-busy="true">
+      <div className="table-scroll"><table className="data" aria-busy="true">
         <thead>
           <tr>
             {selection && <th className="sel-cell" />}
@@ -123,7 +123,7 @@ export default function DataTable<T>({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     );
   }
 
@@ -136,7 +136,7 @@ export default function DataTable<T>({
     (r) => selection!.isSelected(r));
 
   return (
-    <table className="data">
+    <div className="table-scroll"><table className="data">
       <thead>
         <tr>
           {selection && (
@@ -217,6 +217,6 @@ export default function DataTable<T>({
           </tr>
         )}
       </tbody>
-    </table>
+    </table></div>
   );
 }

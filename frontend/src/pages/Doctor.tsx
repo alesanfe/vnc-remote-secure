@@ -144,7 +144,7 @@ export default function Doctor() {
         </div>
       )}
       {d && (
-        <table className="data">
+        <div className="table-scroll"><table className="data">
           <thead>
             <tr>
               <th>{t('doctor.col.check')}</th>
@@ -175,7 +175,7 @@ export default function Doctor() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       {(jobs.data?.jobs.length ?? 0) > 0 && (

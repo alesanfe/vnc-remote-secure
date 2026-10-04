@@ -194,7 +194,7 @@ function LifecyclePanel() {
       {(jobs.data?.jobs?.length ?? 0) > 0 && (
         <>
           <h3 className="section">{t('overview.recentJobs')}</h3>
-          <table className="data">
+          <div className="table-scroll"><table className="data">
             <thead>
               <tr><th>{t('overview.col.job')}</th>
                   <th>{t('overview.col.op')}</th>
@@ -220,7 +220,7 @@ function LifecyclePanel() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </>
       )}
 

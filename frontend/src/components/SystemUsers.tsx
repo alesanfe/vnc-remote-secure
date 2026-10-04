@@ -85,7 +85,7 @@ export default function SystemUsersSection({
           </button>
         </div>
       </form>
-      <table className="data">
+      <div className="table-scroll"><table className="data">
         <thead>
           <tr>
             <th>{t('systemUsers.username')}</th>
@@ -119,7 +119,7 @@ export default function SystemUsersSection({
             </tr>
           )}
         </tbody>
-      </table>
+      </table></div>
       <ConfirmDialog
         open={delTarget !== null}
         title={t('systemUsers.deleteTitle')}

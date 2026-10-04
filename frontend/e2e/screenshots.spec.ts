@@ -70,11 +70,17 @@ async function adminContext(browser) {
               Object.entries(v).map(([k, x]) => [k, scrub(x)]))
           : v;
   const scrubJson = async (route) => {
-    const resp = await route.fetch();
-    await route.fulfill({
-      response: resp,
-      body: JSON.stringify(scrub(JSON.parse(await resp.text()))),
-    });
+    // In-flight fetches abort when the context closes mid-test — a
+    // rejected route.fetch() or non-JSON body must not fail the shot.
+    try {
+      const resp = await route.fetch();
+      await route.fulfill({
+        response: resp,
+        body: JSON.stringify(scrub(JSON.parse(await resp.text()))),
+      });
+    } catch {
+      await route.abort().catch(() => {});
+    }
   };
   await ctx.route('**/api/v1/doctor*', scrubJson);
   await ctx.route('**/api/v1/portal*', scrubJson);
@@ -133,7 +139,7 @@ test.describe('docs screenshots', () => {
 
     // Session detail — the live-session page (console, chat,
     // timeline) is the workflow's centerpiece.
-    await page.goto(`${serverInfo().base}/admin/sessions/${tokenId}`);
+    await page.goto(`${serverInfo().base}/admin/access/${tokenId}`);
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(900);
     await shot(page, 'admin-session-detail');
@@ -238,6 +244,94 @@ test.describe('docs screenshots', () => {
     await page.goto(`${serverInfo().base}/recovery`);
     await page.waitForTimeout(600);
     await shot(page, 'recovery');
+  });
+
+  // --- Coverage the main sweep misses: dialogs, wizard steps,
+  //     EN locale, narrow viewports and error states. ----------
+
+  test('admin revoke — ConfirmDialog', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    const { tokenId } = await createShareLink({ role: 'viewer' });
+    await page.goto(`${serverInfo().base}/admin/access/${tokenId}`);
+    await page.getByRole('button', { name: 'Revocar' }).click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await shot(page, 'admin-confirm-revoke');
+    await ctx.close();
+  });
+
+  test('admin wizard — limits step', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/access`);
+    // step 0 (recurso) → 1 (permiso) → 2 (límites), el más denso
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await shot(page, 'admin-wizard-limits');
+    await ctx.close();
+  });
+
+  test('admin sessions — EN locale', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    await ctx.addInitScript(
+      () => localStorage.setItem('vnc-lang', 'en'));
+    const page = await ctx.newPage();
+    await createShareLink({ role: 'viewer' });
+    await page.goto(`${serverInfo().base}/admin/access`);
+    await expect(page.locator('.page-title')).toBeVisible();
+    await page.waitForTimeout(800);
+    await shot(page, 'admin-sessions-en');
+    await ctx.close();
+  });
+
+  test('share consent — EN locale', async ({ page }) => {
+    await page.addInitScript(
+      () => localStorage.setItem('vnc-lang', 'en'));
+    const { url } = await createShareLink({ role: 'viewer' });
+    await page.goto(url);
+    await expect(page.locator('.cap-list')).toBeVisible();
+    await shot(page, 'share-consent-en');
+  });
+
+  test('admin audit — API down', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    await ctx.route('**/api/v1/audit*', (r) => r.abort());
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/security/audit`);
+    await expect(
+      page.getByRole('button', { name: 'Reintentar' }),
+    ).toBeVisible();
+    await shot(page, 'admin-audit-error');
+    await ctx.close();
+  });
+
+  const MOBILE_PAGES: Array<[string, string]> = [
+    ['mobile-sessions', '/admin/access'],
+    ['mobile-connect', '/admin/connect'],
+    ['mobile-identities', '/admin/identities'],
+  ];
+  for (const [name, route] of MOBILE_PAGES) {
+    test(name, async ({ browser }) => {
+      const ctx = await adminContext(browser);
+      const page = await ctx.newPage();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${serverInfo().base}${route}`);
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForTimeout(700);
+      await shot(page, name);
+      await ctx.close();
+    });
+  }
+
+  test('mobile guest portal', async ({ browser }) => {
+    const ctx = await guestSession(browser);
+    const page = await ctx.newPage();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${serverInfo().base}/guest`);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(800);
+    await shot(page, 'mobile-guest');
+    await ctx.close();
   });
 });
 

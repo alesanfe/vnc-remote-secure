@@ -72,7 +72,7 @@ export default function DeletedOperatorsSection({
           {t('deletedOps.loadError')}
         </div>
       )}
-      <table className="data">
+      <div className="table-scroll"><table className="data">
         <thead>
           <tr>
             <th>{t('deletedOps.username')}</th>
@@ -100,7 +100,7 @@ export default function DeletedOperatorsSection({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <ConfirmDialog
         open={target !== null}
         title={t('deletedOps.restoreTitle')}

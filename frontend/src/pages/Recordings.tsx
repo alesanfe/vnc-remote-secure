@@ -343,7 +343,7 @@ export default function Recordings() {
         <p className="muted">{t('rec.empty')}</p>
       )}
       {rows.length > 0 && (
-        <table className="data">
+        <div className="table-scroll"><table className="data">
           <thead>
             <tr>
               <th>{t('rec.col.created')}</th>
@@ -414,7 +414,7 @@ export default function Recordings() {
               </Fragment>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       <ConfirmDialog

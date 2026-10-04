@@ -45,7 +45,7 @@ export default function ShortcutsDialog() {
       <div className="dialog" role="dialog" aria-modal="true"
            ref={dialogRef} aria-label={t('keys.title')}>
         <h2>{t('keys.title')}</h2>
-        <table className="data" style={{ marginTop: '0.5rem' }}>
+        <div className="table-scroll"><table className="data" style={{ marginTop: '0.5rem' }}>
           <tbody>
             {rows.map(([k, d]) => (
               <tr key={k}>
@@ -56,7 +56,7 @@ export default function ShortcutsDialog() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
         <div className="dialog-actions">
           <button type="button" ref={closeRef}
                   onClick={() => setOpen(false)}>

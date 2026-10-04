@@ -150,7 +150,7 @@ function SecretsPanel() {
       )}
       {secrets.data && (
         <>
-          <table className="data">
+          <div className="table-scroll"><table className="data">
             <thead>
               <tr>
                 <th>{t('security.secrets.col.secret')}</th>
@@ -181,7 +181,7 @@ function SecretsPanel() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <p>
             <button type="button" disabled={signing.isPending}
                     onClick={() => setConfirmSigning(true)}>
@@ -202,7 +202,7 @@ function SecretsPanel() {
       {check.data && check.data.findings.length > 0 && (
         <>
           <h3 className="section">{t('security.secrets.checkTitle')}</h3>
-          <table className="data">
+          <div className="table-scroll"><table className="data">
             <tbody>
               {check.data.findings.map((f, i) => (
                 <tr key={i}>
@@ -211,7 +211,7 @@ function SecretsPanel() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </>
       )}
 
@@ -418,7 +418,7 @@ export default function Security() {
           )}
 
           <h2 className="section">{t('security.findings')}</h2>
-          <table className="data">
+          <div className="table-scroll"><table className="data">
             <thead>
               <tr>
                 <th>{t('security.col.check')}</th>
@@ -465,7 +465,7 @@ export default function Security() {
                   </tr>
                 ))}
             </tbody>
-          </table>
+          </table></div>
 
           <div className="cards">
             <div className="card">
