@@ -1000,6 +1000,14 @@ export const en: Messages = {
   'sessions.resource': 'Resource',
   'sessions.ipRestriction': 'IP restriction',
   'sessions.ipPlaceholder': 'e.g. 192.168.1.10',
+  // Finding severities — readable label; rank/colour still come
+  // from the backend token.
+  'security.sev.critical': 'Critical',
+  'security.sev.high': 'High',
+  'security.sev.medium': 'Medium',
+  'security.sev.low': 'Low',
+  'security.sev.warn': 'Warn',
+  'security.sev.info': 'Info',
   'sessions.viewOnly': 'View only',
   'sessions.noTerminal': 'No terminal',
   'sessions.singleUse': 'Single use',

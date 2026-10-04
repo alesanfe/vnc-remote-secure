@@ -365,13 +365,15 @@ export default function Sessions() {
   // same-weight capsules.
   const flagBadges = (s: EphemeralSessionInfo) => {
     const flags: string[] = [];
-    if (s.view_only) flags.push('view-only');
-    if (s.single_use) flags.push('single-use');
-    if (s.no_terminal) flags.push('no-terminal');
-    if (s.allowed_ip) flags.push(`ip:${s.allowed_ip}`);
+    if (s.view_only) flags.push(t('sessions.viewOnly'));
+    if (s.single_use) flags.push(t('sessions.singleUse'));
+    if (s.no_terminal) flags.push(t('sessions.noTerminal'));
+    if (s.allowed_ip) {
+      flags.push(t('sessions.wizard.ipOnly', { ip: s.allowed_ip }));
+    }
     return flags.length
       ? (
-          <span className="muted mono" style={{ fontSize: '0.8rem' }}>
+          <span className="muted" style={{ fontSize: '0.8rem' }}>
             {flags.map((f, i) => (
               <Fragment key={f}>
                 {i > 0 ? ' · ' : null}

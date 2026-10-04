@@ -7,18 +7,34 @@ import { copyText } from '../components/bits';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge(
+  { status, label }: { status: string; label?: string },
+) {
   const cls =
     status === 'ok' || status === 'configured'
       ? 'ok'
       : status === 'warn' || status === 'weak'
         ? 'warn'
         : 'fail';
-  return <span className={`badge ${cls}`}>{status.toUpperCase()}</span>;
+  return (
+    <span className={`badge ${cls}`}>
+      {label ?? status.toUpperCase()}
+    </span>
+  );
 }
 
 // Findings render worst-first — a high overall score must never
 // visually bury a critical failure underneath healthy checks.
+/** Severidad traducida; cae al token crudo en mayúsculas si llega
+    una severidad nueva sin clave en el locale. */
+function sevLabel(
+  t: (key: string) => string, sev: string,
+): string {
+  const k = `security.sev.${sev}`;
+  const v = t(k);
+  return v === k ? sev.toUpperCase() : v;
+}
+
 // Primary rank is the backend-derived severity (status + score
 // weight); status breaks ties, name keeps the order stable.
 const SEVERITY_RANK: Record<string, number> = {
@@ -206,7 +222,9 @@ function SecretsPanel() {
             <tbody>
               {check.data.findings.map((f, i) => (
                 <tr key={i}>
-                  <td><StatusBadge status={f.severity === 'critical' ? 'fail' : 'warn'} /></td>
+                  <td><StatusBadge
+                    status={f.severity === 'critical' ? 'fail' : 'warn'}
+                    label={sevLabel(t, f.severity ?? '')} /></td>
                   <td>{f.message}</td>
                 </tr>
               ))}
@@ -447,7 +465,7 @@ export default function Security() {
                       <span
                         className={`badge ${SEVERITY_CLS[c.severity] ?? 'dim'}`}
                       >
-                        {c.severity.toUpperCase()}
+                        {sevLabel(t, c.severity)}
                       </span>
                     </td>
                     <td>

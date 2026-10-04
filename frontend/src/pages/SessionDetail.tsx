@@ -423,7 +423,7 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
           <p>
             {t('sessions.revokeBody', {
               id: s.token_id,
-              role: s.role,
+              role: roleLabel(t, s.role),
               resource: s.resource
                 ? t('sessions.revokeBodyResource', {
                     resource: s.resource,

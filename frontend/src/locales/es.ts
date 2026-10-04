@@ -1047,6 +1047,14 @@ export const es = {
   'sessions.resource': 'Recurso',
   'sessions.ipRestriction': 'Restricción por IP',
   'sessions.ipPlaceholder': 'p. ej. 192.168.1.10',
+  // Severidades de findings — etiqueta legible; el rank/colour sigue
+  // viniendo del token del backend.
+  'security.sev.critical': 'Crítica',
+  'security.sev.high': 'Alta',
+  'security.sev.medium': 'Media',
+  'security.sev.low': 'Baja',
+  'security.sev.warn': 'Aviso',
+  'security.sev.info': 'Info',
   'sessions.viewOnly': 'Solo visualización',
   'sessions.noTerminal': 'Sin terminal',
   'sessions.singleUse': 'Uso único',
