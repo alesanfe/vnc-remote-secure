@@ -412,7 +412,7 @@ export const en: Messages = {
   // --- Security ---------------------------------------------------------------
   'security.title': 'Security',
   'security.posture.error': 'Could not load the security posture.',
-  'security.score': 'Score: {{score}}/100',
+  'security.score': 'Score',
   'security.deployment': 'Deployment',
   'security.deployment.allowed': 'deployment allowed',
   'security.deployment.blocked': 'deployment blocked',

@@ -323,6 +323,87 @@ test.describe('docs screenshots', () => {
     });
   }
 
+  test('admin shortcuts dialog (?)', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/`);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.keyboard.press('/');
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await shot(page, 'admin-shortcuts');
+    await ctx.close();
+  });
+
+  test('admin command palette (Ctrl+K)', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/`);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.keyboard.press('Control+k');
+    await expect(page.locator('.palette')).toBeVisible();
+    await shot(page, 'admin-palette');
+    await ctx.close();
+  });
+
+  test('admin wizard — review step', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/access`);
+    // → Revisión: muestra los avisos de riesgo (sin recurso ligado)
+    for (let i = 0; i < 3; i++) {
+      await page.getByRole('button', { name: 'Siguiente' }).click();
+    }
+    await shot(page, 'admin-wizard-review');
+    await ctx.close();
+  });
+
+  test('admin session — chat tab', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    const { tokenId } = await createShareLink({ role: 'operator' });
+    await page.goto(`${serverInfo().base}/admin/access/${tokenId}`);
+    await page.getByRole('tab', { name: 'Chat' }).click();
+    await page.waitForTimeout(600);
+    await shot(page, 'admin-session-chat');
+    await ctx.close();
+  });
+
+  test('admin step-up dialog', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    // A fresh operator session already satisfies recent-auth, so the
+    // gate never fires — force STEP_UP_REQUIRED to render the dialog.
+    await ctx.route('**/api/v1/secrets/*/rotate', (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'STEP_UP_REQUIRED',
+          message: 'step-up required',
+        }),
+      }));
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/security`);
+    await page.getByRole('button', { name: 'Rotar' }).first().click();
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: 'Rotar' })
+      .click();
+    await expect(
+      page.locator('.dialog input[type="password"]'),
+    ).toBeVisible({ timeout: 15000 });
+    await shot(page, 'admin-stepup');
+    await ctx.close();
+  });
+
+  test('admin login — bad credentials', async ({ page }) => {
+    await page.goto(`${serverInfo().base}/admin/`);
+    await page.getByLabel('Usuario').fill('admin');
+    await page.getByLabel('Contraseña').fill('wrong-password');
+    await page.getByRole('button', { name: 'Entrar' }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await shot(page, 'admin-login-error');
+  });
+
   test('mobile guest portal', async ({ browser }) => {
     const ctx = await guestSession(browser);
     const page = await ctx.newPage();

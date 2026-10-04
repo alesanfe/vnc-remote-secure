@@ -79,7 +79,10 @@ export default function StepUpDialog({
       <p>
         {t('stepup.reason')}
         <strong> {operation}</strong>
-        {resource ? (
+        {/* Some operations name the resource themselves ('rotación
+            del secreto X') — repeating it as 'sobre X' reads as a
+            duplication bug. */}
+        {resource && !operation.includes(resource) ? (
           <>
             {' '}{t('stepup.onResource')} <code>{resource}</code>
           </>

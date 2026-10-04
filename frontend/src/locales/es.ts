@@ -417,7 +417,7 @@ export const es = {
   // --- Security ---------------------------------------------------------------
   'security.title': 'Seguridad',
   'security.posture.error': 'No se pudo cargar la postura de seguridad.',
-  'security.score': 'Puntuación: {{score}}/100',
+  'security.score': 'Puntuación',
   'security.deployment': 'Despliegue',
   'security.deployment.allowed': 'despliegue permitido',
   'security.deployment.blocked': 'despliegue bloqueado',
