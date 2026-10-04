@@ -572,7 +572,7 @@ export const es = {
   'audit.col.detail': 'Detalle',
 
   // --- Doctor -----------------------------------------------------------------
-  'doctor.title': 'Operación',
+  'doctor.title': 'Diagnóstico',
   'doctor.run': 'Ejecutar doctor',
   'doctor.running': 'Ejecutando…',
   'doctor.healthy': 'todo correcto',

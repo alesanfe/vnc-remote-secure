@@ -548,7 +548,7 @@ export const en: Messages = {
   'audit.col.detail': 'Detail',
 
   // --- Doctor -----------------------------------------------------------------
-  'doctor.title': 'Operations',
+  'doctor.title': 'Diagnostics',
   'doctor.run': 'Run doctor',
   'doctor.running': 'Running…',
   'doctor.healthy': 'all healthy',

@@ -74,8 +74,7 @@ export default function Audit() {
       <h1 className="page-title">{t('audit.title')}</h1>
 
       {chain.data && (
-        <div className={chain.data.intact ? 'notice' : 'error-box'}
-          style={chain.data.intact ? { borderColor: 'var(--ok)' } : {}}>
+        <div className={chain.data.intact ? 'ok-box' : 'error-box'}>
           {t('audit.chain')}{' '}
           <strong>
             {chain.data.intact

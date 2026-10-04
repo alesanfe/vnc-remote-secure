@@ -201,7 +201,7 @@ export default function Users() {
         onStepUp={(op, retry) => setStepUp({ op, retry })}
       />
 
-      <h2 className="page-title">{t('users.systemTitle')}</h2>
+      <h2 className="section">{t('users.systemTitle')}</h2>
       <p className="muted">
         {t('users.systemSubtitle')}
       </p>

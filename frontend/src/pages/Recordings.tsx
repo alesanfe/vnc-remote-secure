@@ -395,7 +395,7 @@ export default function Recordings() {
                         {t('rec.download')}
                       </a>
                       {!r.running && (
-                        <button type="button" className="ghost danger"
+                        <button type="button" className="danger"
                                 onClick={() => setConfirmDelete(r.id)}>
                           {t('rec.delete')}
                         </button>

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react';
 import { api, ApiError, type SessionPreview } from '../api';
-import { Check, X } from 'lucide-react';
+import { Check, Link2, X } from 'lucide-react';
 import { roleLabel, useI18n } from '../i18n';
 
 /** Map the API failure to a user-facing reason — a 403 means the
@@ -101,7 +101,7 @@ export function ShareAccept({ token }: { token: string }) {
   return (
     <main className="share-wrap">
       <div className="card share-card">
-        <h1>{t('share.title')}</h1>
+        <h1><Link2 size={20} aria-hidden="true" /> {t('share.title')}</h1>
         <div id="info" aria-live="polite">
         {error && <div className="error-box" role="alert">{error}</div>}
         {done && (
