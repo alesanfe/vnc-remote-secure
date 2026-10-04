@@ -121,9 +121,15 @@ export default function ConnectPage() {
                 }
               />
               {a.available && a.key === 'desktop' && (
-                <Link to="/remote">{t('remote.title')}</Link>
+                <Link to="/remote" style={{ whiteSpace: 'nowrap' }}>
+                  {t('remote.title')}
+                </Link>
               )}
-              {a.available && <a href={a.url}>{t('common.open')}</a>}
+              {a.available && (
+                <a href={a.url} style={{ whiteSpace: 'nowrap' }}>
+                  {t('common.open')}
+                </a>
+              )}
             </div>
           </div>
         ))}

@@ -367,7 +367,7 @@ function OperatorRow({
             style={{ whiteSpace: 'nowrap' }}>
           {t('users.permCount', { count: u.permissions.length })}
         </td>
-        <td>
+        <td style={{ whiteSpace: 'nowrap' }}>
           {u.created_at
             ? new Date(u.created_at * 1000).toLocaleString()
             : '—'}

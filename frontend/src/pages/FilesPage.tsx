@@ -188,7 +188,6 @@ export default function FilesPage() {
         />
         <button
           type="button"
-          className="ghost"
           disabled={busy}
           onClick={() => fileInput.current?.click()}
         >

@@ -63,7 +63,6 @@
 :root[data-theme='light'] .notice { background: #fdf3dd; }
 :root[data-theme='light'] .error-box { background: #fbe7e5; }
 :root[data-theme='light'] .status-connected { background: #cfecd8; }
-:root[data-theme='light'] .status-disconnected,
 :root[data-theme='light'] .status-error { background: #f5d2cf; }
 :root[data-theme='light'] .status-cell.job { background: #e4d9fb; }
 
@@ -92,7 +91,6 @@
   :root:not([data-theme='dark']) .notice { background: #fdf3dd; }
   :root:not([data-theme='dark']) .error-box { background: #fbe7e5; }
   :root:not([data-theme='dark']) .status-connected { background: #cfecd8; }
-  :root:not([data-theme='dark']) .status-disconnected,
   :root:not([data-theme='dark']) .status-error { background: #f5d2cf; }
   :root:not([data-theme='dark']) .badge.job { background: #e4d9fb; }
   :root:not([data-theme='dark']) .status-cell.job { background: #e4d9fb; }
@@ -804,7 +802,10 @@ td button { margin-right: 0.3rem; }
   margin: 0.8rem 0; font-weight: 600;
 }
 .status-connected { background: rgba(52,168,83,0.18); color: var(--ok-text); }
-.status-disconnected, .status-error { background: var(--surface-2); color: var(--fail-text); }
+/* desconectado es un estado neutro, no un fallo — el rojo queda
+   reservado para .status-error (señal semántica, no solo color) */
+.status-disconnected { background: var(--surface-2); color: var(--text-dim); }
+.status-error { background: rgba(224,91,91,0.15); color: var(--fail-text); }
 .status-connecting { background: var(--surface-2); color: var(--warn-text); }
 
 .stick {

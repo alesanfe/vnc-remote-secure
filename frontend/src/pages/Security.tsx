@@ -358,12 +358,21 @@ function OverviewStrip() {
         <div className="card" style={{ gridColumn: '1 / -1' }}>
           <h3>{t('security.overview.recent')}</h3>
           <ul className="muted" style={{ margin: 0, paddingLeft: '1rem' }}>
-            {d.recent_failures.slice(0, 5).map((f, i) => (
-              <li key={i}>
-                <code className="mono">{f.event}</code>{' '}
-                {f.user ? `· ${f.user}` : ''} · {f.timestamp}
-              </li>
-            ))}
+            {d.recent_failures.slice(0, 5).map((f, i) => {
+              const ts = new Date(f.timestamp);
+              return (
+                <li key={i}>
+                  <code className="mono">{f.event}</code>{' '}
+                  {f.user ? `· ${f.user}` : ''} ·{' '}
+                  {/* ISO crudo = ilegible; hora local con el ISO
+                      exacto disponible en hover (como en Auditoría) */}
+                  <span title={f.timestamp} style={{ whiteSpace: 'nowrap' }}>
+                    {Number.isNaN(ts.getTime())
+                      ? f.timestamp : ts.toLocaleString()}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
