@@ -21,7 +21,7 @@ def _is_tls_enabled() -> bool:
     """Check if TLS is enabled, unifying TLS_ENABLED and DISABLE_SSL.
 
     Delegates to the canonical resolver (``config._is_tls_enabled_env``)
-    â€” keeping a local interpretation here would diverge from the
+    — keeping a local interpretation here would diverge from the
     runtime: an explicit ``DISABLE_SSL=true`` is a kill-switch that
     wins over ``TLS_ENABLED``, while this copy checked TLS_ENABLED
     first and reported the opposite of what services actually do.
@@ -32,7 +32,7 @@ def _is_tls_enabled() -> bool:
 
 
 def _severity(status: str, points: int) -> str:
-    """Deterministic severity for a finding â€” derived from the
+    """Deterministic severity for a finding — derived from the
     status and the score weight so the UI can sort critical issues
     without a second opinion about the deduction maths."""
     if status == "ok":
@@ -50,7 +50,7 @@ def _add_finding(findings, name, ok, key="", warn_msg="", fail_msg="", points=10
     point value used to compute the final score. Status is 'ok' when
     ``ok`` is true, 'warn' when a ``warn_msg`` is provided, otherwise
     'fail'. ``key`` is a stable slug the UI uses to localize
-    name/detail â€” same pattern as ``summary_key``.
+    name/detail — same pattern as ``summary_key``.
     """
     if ok:
         findings.append(
@@ -101,14 +101,14 @@ def _check_tls_posture(findings):
         "HTTPS/TLS enabled",
         tls,
         key="tls",
-        warn_msg="TLS disabled â€” traffic is unencrypted",
-        fail_msg="TLS disabled â€” all traffic is unencrypted",
+        warn_msg="TLS disabled — traffic is unencrypted",
+        fail_msg="TLS disabled — all traffic is unencrypted",
         points=15,
         evidence=f"TLS enabled={tls}",
     )
 
     # SSL certificate: the services resolve a cert/key pair via
-    # create_ssl_context() â€” explicit SSL_CERT/SSL_KEY env vars OR the
+    # create_ssl_context() — explicit SSL_CERT/SSL_KEY env vars OR the
     # canonical ssl dir (get_ssl_dir()/fullchain.pem+privkey.pem).
     # Checking only the env vars reports "not configured" on
     # deployments that are in fact serving TLS.
@@ -156,7 +156,7 @@ def _check_mfa_finding(findings) -> None:
         "MFA enabled",
         mfa,
         key="mfa",
-        warn_msg="MFA not configured â€” single-factor auth only",
+        warn_msg="MFA not configured — single-factor auth only",
         points=10,
         evidence=f"MFA_REQUIRED/TOTP_SECRET configured={mfa}",
     )
@@ -174,7 +174,7 @@ def _is_strong_password(p) -> bool:
 
 def _credential_value(name: str) -> str:
     """Read a credential from env, falling back to the generated-
-    credentials file â€” a posture check that only reads os.environ
+    credentials file — a posture check that only reads os.environ
     reports "no credentials" on deployments whose secrets were
     generated, not user-set."""
     value = _env_val(name)
@@ -207,7 +207,7 @@ def _check_credential_strength(findings) -> None:
         warn_msg="Credentials may be weak or missing",
         fail_msg="No credentials configured",
         points=10,
-        # Count only â€” credential values never become evidence.
+        # Count only — credential values never become evidence.
         evidence=f"{sum(1 for c in creds if c)} credential(s) set",
     )
 
@@ -226,7 +226,7 @@ def _check_rate_limit_finding(findings) -> None:
 
 
 def _check_session_secret_finding(findings) -> None:
-    """Persistent session secret (FLASK_SECRET_KEY) â€” required on
+    """Persistent session secret (FLASK_SECRET_KEY) — required on
     hardened profiles; ephemeral is acceptable in development."""
     flask_secret = _env_val("FLASK_SECRET_KEY", "")
     from vnc_remote_secure.security.profiles import resolve_profile
@@ -238,7 +238,7 @@ def _check_session_secret_finding(findings) -> None:
             "Persistent session secret (FLASK_SECRET_KEY)",
             bool(flask_secret),
         key="session_secret",
-            warn_msg="FLASK_SECRET_KEY not set â€” sessions invalidated on restart",
+            warn_msg="FLASK_SECRET_KEY not set — sessions invalidated on restart",
             points=5,
             evidence=f"profile={profile}, secret set={bool(flask_secret)}",
         )
@@ -248,7 +248,7 @@ def _check_session_secret_finding(findings) -> None:
                 "name": "Persistent session secret (FLASK_SECRET_KEY)",
                 "status": "ok",
                 "severity": "info",
-                "detail": "Development profile â€” ephemeral secret acceptable",
+                "detail": "Development profile — ephemeral secret acceptable",
                 "evidence": f"profile={profile}",
                 "points": 0,
             }
@@ -278,7 +278,7 @@ def _check_health_auth_finding(findings) -> None:
         warn_msg=(
             "Health endpoint has no auth token"
             if health_public
-            else "Health endpoint has no auth token (loopback-only â€” "
+            else "Health endpoint has no auth token (loopback-only — "
             "acceptable but set HEALTH_AUTH_TOKEN before exposing)"
         ),
         params={"public": health_public},
@@ -323,7 +323,7 @@ def _check_network_posture(findings):
         "Reverse proxy (nginx) enabled",
         nginx,
         key="nginx_proxy",
-        warn_msg="No reverse proxy â€” services exposed directly",
+        warn_msg="No reverse proxy — services exposed directly",
         points=5,
         evidence=f"NGINX_ENABLED={nginx}",
     )
@@ -335,7 +335,7 @@ def _check_network_posture(findings):
         "Domain configured (DuckDNS)",
         bool(domain),
         key="domain",
-        warn_msg="No domain configured â€” local access only",
+        warn_msg="No domain configured — local access only",
         points=5,
         evidence=f"DUCK_DOMAIN configured={bool(domain)}",
     )
@@ -381,7 +381,7 @@ def _check_temp_user_posture(findings):
         "Temp user removed on exit",
         not keep_user,
         key="temp_user_cleanup",
-        warn_msg="KEEP_TEMP_USER=true â€” temp user persists after exit",
+        warn_msg="KEEP_TEMP_USER=true — temp user persists after exit",
         points=5,
         evidence=f"KEEP_TEMP_USER={keep_user}",
     )
@@ -391,7 +391,7 @@ def _check_shared_state_posture(findings):
     """Add findings about the shared-state backend.
 
     Rate limits, revocations and single-use claims are only
-    cross-process on sqlite â€” a memory backend (or a degraded
+    cross-process on sqlite — a memory backend (or a degraded
     fallback) silently narrows every one of them to this process.
     """
     from vnc_remote_secure.security.shared_state import backend_degraded
@@ -406,7 +406,7 @@ def _check_shared_state_posture(findings):
         warn_msg=(
             f"SHARED_STATE_BACKEND={backend}"
             + (" degraded to in-memory fallback" if degraded else "")
-            + " â€” revocation/single-use/rate-limit guarantees "
+            + " — revocation/single-use/rate-limit guarantees "
             "are per-process only"
         ),
         params={"backend": backend, "degraded": degraded},
@@ -416,7 +416,7 @@ def _check_shared_state_posture(findings):
 
 
 def _check_attack_surface(findings):
-    """Enumerate the enabled optional services â€” the plugin registry
+    """Enumerate the enabled optional services — the plugin registry
     (core.plugins) is the declared contract; the posture is where the
     operator sees which optional surfaces are live and which
     capability each one requires."""
@@ -432,7 +432,7 @@ def _check_attack_surface(findings):
         return
     enabled = sorted(surface)
     # Informational only (points=0): enabling an optional service is a
-    # legitimate deployment choice â€” the finding exists so the attack
+    # legitimate deployment choice — the finding exists so the attack
     # surface is enumerated next to the other findings, not to deduct.
     findings.append(
         {
@@ -519,12 +519,12 @@ def calculate_posture() -> dict:
 
 
 def _summarize(score: int) -> tuple:
-    """Return ``(band_key, english_fallback)`` â€” the key lets UIs
+    """Return ``(band_key, english_fallback)`` — the key lets UIs
     localize the summary; the fallback keeps CLI/API consumers working."""
     if score >= 90:
         return "excellent", "Excellent security posture"
     if score >= 75:
         return "good", "Good security posture with minor gaps"
     if score >= 50:
-        return "moderate", "Moderate security posture â€” several improvements needed"
-    return "poor", "Poor security posture â€” immediate action required"
+        return "moderate", "Moderate security posture — several improvements needed"
+    return "poor", "Poor security posture — immediate action required"

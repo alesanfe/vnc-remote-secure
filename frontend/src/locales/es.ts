@@ -95,9 +95,9 @@ export const es = {
 
   'jobs.title': 'Tareas',
   'jobs.subtitle':
-    'Registro persistente de operaciones: lifecycle, restores y ' +
-    'upgrades ejecutados por el runner — sobreviven al reinicio del ' +
-    'portal.',
+    'Registro persistente de operaciones: ciclo de vida, ' +
+    'restauraciones y actualizaciones ejecutadas por el ejecutor — ' +
+    'sobreviven al reinicio del portal.',
   'jobs.loadError': 'No se pudo cargar el registro de jobs.',
   'jobs.empty': 'Sin operaciones registradas todavía.',
   'jobs.col.job': 'Job',
