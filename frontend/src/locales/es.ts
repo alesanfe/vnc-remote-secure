@@ -1032,6 +1032,7 @@ export const es = {
 
   // --- Login (extra) ----------------------------------------------------------------
   'login.networkError': 'Error de red — el servicio puede estar caído.',
+  'login.invalidCredentials': 'Credenciales no válidas.',
   'login.passkeyFailed': 'Falló la autenticación con passkey.',
   'webauthn.cancelled': 'Ceremonia cancelada.',
   'login.passkeyWaiting': 'Esperando el dispositivo…',

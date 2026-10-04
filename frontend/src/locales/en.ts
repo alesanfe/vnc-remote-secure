@@ -985,6 +985,7 @@ export const en: Messages = {
 
   // --- Login (extra) ----------------------------------------------------------------
   'login.networkError': 'Network error — the service may be down.',
+  'login.invalidCredentials': 'Invalid credentials.',
   'login.passkeyFailed': 'Passkey authentication failed.',
   'webauthn.cancelled': 'Ceremony cancelled.',
   'login.passkeyWaiting': 'Waiting for your device…',

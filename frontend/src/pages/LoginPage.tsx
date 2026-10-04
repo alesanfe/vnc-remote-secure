@@ -54,6 +54,8 @@ export default function LoginPage({
       if (e instanceof ApiError && e.code === 'MFA_REQUIRED') {
         setMfaNeeded(true);
         setError(t('login.mfaRequired'));
+      } else if (e instanceof ApiError && e.status === 401) {
+        setError(t('login.invalidCredentials'));
       } else {
         setError(e instanceof ApiError ? e.message : t('login.networkError'));
       }
@@ -72,11 +74,13 @@ export default function LoginPage({
       finish(res.csrf_token);
     } catch (e) {
       setError(
-        e instanceof ApiError
-          ? e.message
-          : e instanceof WebAuthnCancelled
-            ? t('webauthn.cancelled')
-            : t('login.passkeyFailed'));
+        e instanceof ApiError && e.status === 401
+          ? t('login.invalidCredentials')
+          : e instanceof ApiError
+            ? e.message
+            : e instanceof WebAuthnCancelled
+              ? t('webauthn.cancelled')
+              : t('login.passkeyFailed'));
     } finally {
       setBusy(null);
     }
