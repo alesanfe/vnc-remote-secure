@@ -605,6 +605,8 @@ export interface DoctorCheck {
   name: string;
   status: 'ok' | 'warn' | 'fail' | 'skip';
   message: string;
+  msg_key?: string;
+  msg_params?: Record<string, string | number>;
 }
 
 export interface DoctorResult {

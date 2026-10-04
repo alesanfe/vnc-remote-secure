@@ -599,6 +599,143 @@ export const en: Messages = {
   'doctor.check.webauthn.credentials': 'Registered passkeys',
   'doctor.check.webauthn.origin': 'WebAuthn origin',
 
+  // Doctor finding messages — keyed by msg_key emitted by doctor.py;
+  // the server-side English message remains the fallback.
+  'doctor.msg.config_blockers': '{{n}} blocking finding(s): {{details}}',
+  'doctor.msg.config_blockers_ok': 'No blocking security findings',
+  'doctor.msg.config_consistency_ok': 'Profile configuration is consistent',
+  'doctor.msg.dirs_missing': 'Directory does not exist: {{path}}',
+  'doctor.msg.secret_ok_nondefault': 'Set and non-default',
+  'doctor.msg.secret_set': 'Set',
+  'doctor.msg.vnc_password_fail': 'VNC_PASSWORD is empty or default',
+  'doctor.msg.flask_key_warn': 'FLASK_SECRET_KEY not set',
+  'doctor.msg.auth_secret_warn': 'AUTH_SECRET not set',
+  'doctor.msg.tls_missing': 'TLS enabled but certificate files not found',
+  'doctor.msg.tls_disabled': 'TLS disabled',
+  'doctor.msg.webauthn_unavailable': 'module unavailable',
+  'doctor.msg.webauthn_hardened':
+    'disabled — hardened profile enforces phishing-resistant policies ' +
+    'no method can satisfy',
+  'doctor.msg.webauthn_disabled': 'disabled',
+  'doctor.msg.webauthn_pkg_missing':
+    'WEBAUTHN_ENABLED=true but the webauthn package is not installed ' +
+    '(pip install vnc-remote-secure[webauthn])',
+  'doctor.msg.webauthn_origin_ok': 'origin/RP ID explicit or deployment is direct',
+  'doctor.msg.webauthn_creds_missing':
+    'Hardened profile enforces phishing-resistant auth policies but ' +
+    'no passkey is registered — register an admin credential before ' +
+    'relying on this profile',
+  'doctor.msg.webauthn_creds_ok': '{{n}} passkey(s) registered',
+  'doctor.msg.webauthn_store_unreadable': 'store unreadable',
+  'doctor.msg.state_sqlite_ok': 'SQLite shared state (cross-process guarantees)',
+  'doctor.msg.state_memory_dev':
+    'In-memory backend — single-use claims, revocation and rate ' +
+    'limiting are process-local (dev only)',
+  'doctor.msg.state_memory_hardened':
+    'In-memory backend in a hardened profile — revoked sessions and ' +
+    'TOTP claims do not propagate across service processes. ' +
+    'Set SHARED_STATE_BACKEND=sqlite',
+  'doctor.msg.state_unknown': "Unknown backend '{{backend}}' — falling back to memory",
+  'doctor.msg.state_fallback_fail':
+    'SQLite backend failed to initialize — running on in-memory ' +
+    'fallback. Revocations and single-use claims do NOT propagate ' +
+    'across processes. Check logs for the SQLite init error.',
+  'doctor.msg.state_effective_ok': 'Effective backend: {{backend}}',
+  'doctor.msg.state_probe_fail': 'Could not probe effective backend: {{err}}',
+  'doctor.msg.integrity_ok': 'shared_state.db integrity_check ok',
+  'doctor.msg.integrity_fail':
+    'shared_state.db corrupt: {{err}} — see docs/runbook/recovery.md §2',
+  'doctor.msg.integrity_probe_fail': 'Could not run integrity_check: {{err}}',
+  'doctor.msg.psutil_ok': 'psutil present — stale-process reaping enabled',
+  'doctor.msg.psutil_missing':
+    'psutil not installed — orphaned service processes are not reaped ' +
+    'on restart. Install with: pip install "vnc-remote-secure[ops]"',
+  'doctor.msg.uvicorn_ok': 'uvicorn present — web surfaces served by the ASGI server',
+  'doctor.msg.uvicorn_missing':
+    'uvicorn not installed — the web services cannot start. ' +
+    'Install with: pip install "vnc-remote-secure"',
+  'doctor.msg.term_sandbox_off':
+    'TERMINAL_WINDOWS_SANDBOX=off — terminal shells can read the ' +
+    'service data dir (auth_secret.key, shared_state.db)',
+  'doctor.msg.term_appcontainer':
+    'AppContainer sandbox ({{mode}}) — terminal shells cannot read ' +
+    'the user profile or service secrets',
+  'doctor.msg.term_sid_fail':
+    'AppContainer SID derivation failed — terminal shells run unsandboxed',
+  'doctor.msg.term_sandbox_unknown':
+    'Could not verify AppContainer sandbox availability',
+  'doctor.msg.term_webterm_user':
+    'WEBTERM_USER={{user}} — shell drops privileges',
+  'doctor.msg.term_root_warn':
+    'Running as root without WEBTERM_USER — terminal shells spawn ' +
+    'as root. Set WEBTERM_USER to an unprivileged user',
+  'doctor.msg.term_bwrap_ok':
+    'bubblewrap sandbox active — secret dirs (run, config, ssl, ' +
+    'data, log) are masked from terminal shells',
+  'doctor.msg.term_bwrap_ns':
+    'bubblewrap installed but unprivileged user namespaces are ' +
+    'disabled — terminal shells can read the service state dirs ' +
+    '(auth_secret.key, shared_state.db)',
+  'doctor.msg.term_no_isolation':
+    'Not running as root and no bubblewrap — terminal shells run ' +
+    'as the service account and can read auth_secret.key / write ' +
+    'shared_state.db. Install bubblewrap, set ' +
+    'TERMINAL_COMMAND_ALLOWLIST, or restrict terminal access',
+  'doctor.msg.gamepad_vigem':
+    'ViGEm available — real X360 XInput virtual controller ' +
+    '(works even without an interactive session)',
+  'doctor.msg.gamepad_session0':
+    'GAMEPAD_ENABLED but no interactive console session and no ' +
+    'ViGEmBus driver — SendInput cannot inject from Session 0. ' +
+    'Install ViGEmBus + `pip install vgamepad` or run the service ' +
+    'in the user session',
+  'doctor.msg.gamepad_sendinput':
+    'SendInput injection only (interactive session present) — ' +
+    'injects keyboard/mouse events, NOT an XInput gamepad. Install ' +
+    'ViGEmBus + `pip install vgamepad` for real controller emulation',
+  'doctor.msg.gamepad_verify_fail':
+    'Could not verify interactive session for SendInput',
+  'doctor.msg.gamepad_no_evdev':
+    'GAMEPAD_ENABLED but evdev not installed — gamepad forwarding ' +
+    'disabled. pip install evdev',
+  'doctor.msg.gamepad_uinput_ok': 'uinput available — virtual gamepad can be created',
+  'doctor.msg.gamepad_no_uinput':
+    '/dev/uinput missing — load the uinput module (modprobe uinput) ' +
+    'or gamepad injection will fail',
+  'doctor.msg.fw_rules_ok': '{{n}} VncRemoteSecure rule(s) found',
+  'doctor.msg.fw_rules_missing':
+    'No VncRemoteSecure firewall rules found (public bind {{host}} configured)',
+  'doctor.msg.fw_not_needed': 'Not needed (loopback-only deployment)',
+  'doctor.msg.fw_unavailable': 'Firewall check unavailable: {{err}}',
+  'doctor.msg.listeners_skip': 'Could not enumerate listening sockets',
+  'doctor.msg.pl_websockify':
+    'websockify bridge listening on {{addr}} — the auth gateway ' +
+    'can be bypassed directly',
+  'doctor.msg.pl_rfb_fail':
+    'RFB port {{port}} listening publicly — the 8-char DES ' +
+    'credential is the only barrier; set LoopbackOnly or keep the ' +
+    'profile honest',
+  'doctor.msg.pl_ports_nginx':
+    'Backend ports public while nginx is the entry point — ' +
+    'gateway bypass possible: {{ports}}',
+  'doctor.msg.pl_ports_warn': 'Backend ports bound publicly (no nginx): {{ports}}',
+  'doctor.msg.pl_rfb_warn':
+    'RFB port public on {{addr}} — direct VNC clients rely on an ' +
+    '8-char DES password; prefer nginx+websockify',
+  'doctor.msg.pl_ok': 'No internal service port bound publicly',
+  'doctor.msg.port_disabled': 'Disabled via {{env}}=false',
+  'doctor.msg.port_listening': 'Listening on {{addr}}',
+  'doctor.msg.port_not_listening': 'Not listening on {{addr}}',
+  'doctor.msg.nginx_down':
+    'NGINX_ENABLED=true but nothing listens on {{port}} — the ' +
+    'public entry point is down',
+  'doctor.msg.bin_found': 'Found',
+  'doctor.msg.bin_missing': 'Not found on PATH',
+  'doctor.msg.vnc_server_missing_win': 'winvnc.exe not found (may still work)',
+  'doctor.msg.vnc_server_missing': 'vncserver not on PATH (may still work)',
+  'doctor.msg.mod_installed': 'Installed',
+  'doctor.msg.mod_missing': 'Missing — install with: pip install {{pip}}',
+
   // --- Config page --------------------------------------------------------------
   'config.page.title': 'Configuration',
   'config.page.subtitle':

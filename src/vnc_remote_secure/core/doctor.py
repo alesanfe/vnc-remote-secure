@@ -51,20 +51,30 @@ def _check_binary(name: str) -> bool:
     return shutil.which(name) is not None
 
 
-def _ok(checks, name, msg=""):
-    checks.append({"name": name, "status": "ok", "message": msg})
+def _ok(checks, name, msg="", key=None, params=None):
+    checks.append(_entry(name, "ok", msg, key, params))
 
 
-def _warn(checks, name, msg):
-    checks.append({"name": name, "status": "warn", "message": msg})
+def _warn(checks, name, msg, key=None, params=None):
+    checks.append(_entry(name, "warn", msg, key, params))
 
 
-def _fail(checks, name, msg):
-    checks.append({"name": name, "status": "fail", "message": msg})
+def _fail(checks, name, msg, key=None, params=None):
+    checks.append(_entry(name, "fail", msg, key, params))
 
 
-def _skip(checks, name, msg=""):
-    checks.append({"name": name, "status": "skip", "message": msg})
+def _skip(checks, name, msg="", key=None, params=None):
+    checks.append(_entry(name, "skip", msg, key, params))
+
+
+def _entry(name, status, msg, key, params):
+    # msg_key/msg_params let API consumers render a localized message;
+    # message stays the English fallback used by the CLI output.
+    entry = {"name": name, "status": status, "message": msg}
+    if key:
+        entry["msg_key"] = key
+        entry["msg_params"] = params or {}
+    return entry
 
 
 def _check_config(checks, config):
@@ -77,16 +87,31 @@ def _check_config(checks, config):
             "config.blockers",
             f"{len(blockers)} blocking finding(s): "
             + "; ".join(b.get("message", "") for b in blockers),
+            key="config_blockers",
+            params={
+                "n": len(blockers),
+                "details": "; ".join(b.get("message", "") for b in blockers),
+            },
         )
     else:
-        _ok(checks, "config.blockers", "No blocking security findings")
+        _ok(
+            checks,
+            "config.blockers",
+            "No blocking security findings",
+            key="config_blockers_ok",
+        )
 
     warnings = validate_profile_consistency()
     if warnings:
         for w in warnings:
             _warn(checks, "config.consistency", w)
     else:
-        _ok(checks, "config.consistency", "Profile configuration is consistent")
+        _ok(
+            checks,
+            "config.consistency",
+            "Profile configuration is consistent",
+            key="config_consistency_ok",
+        )
 
 
 def _check_directories(checks):
@@ -102,7 +127,13 @@ def _check_directories(checks):
         if os.path.isdir(path):
             _ok(checks, f"dirs.{name}", path)
         else:
-            _warn(checks, f"dirs.{name}", f"Directory does not exist: {path}")
+            _warn(
+                checks,
+                f"dirs.{name}",
+                f"Directory does not exist: {path}",
+                key="dirs_missing",
+                params={"path": path},
+            )
 
 
 def _check_secrets(checks, config):
@@ -113,9 +144,19 @@ def _check_secrets(checks, config):
         "admin123",
         "password",
     ):
-        _ok(checks, "secrets.vnc_password", "Set and non-default")
+        _ok(
+            checks,
+            "secrets.vnc_password",
+            "Set and non-default",
+            key="secret_ok_nondefault",
+        )
     else:
-        _fail(checks, "secrets.vnc_password", "VNC_PASSWORD is empty or default")
+        _fail(
+            checks,
+            "secrets.vnc_password",
+            "VNC_PASSWORD is empty or default",
+            key="vnc_password_fail",
+        )
 
     # Flask secret key and auth secret are persisted to auth_secret.key
     # by _get_secret() when not set in the environment. Report as set
@@ -129,14 +170,24 @@ def _check_secrets(checks, config):
         secret_persisted = False
 
     if config.get("flask_secret_key") or secret_persisted:
-        _ok(checks, "secrets.flask_key", "Set")
+        _ok(checks, "secrets.flask_key", "Set", key="secret_set")
     else:
-        _warn(checks, "secrets.flask_key", "FLASK_SECRET_KEY not set")
+        _warn(
+            checks,
+            "secrets.flask_key",
+            "FLASK_SECRET_KEY not set",
+            key="flask_key_warn",
+        )
 
     if config.get("auth_secret") or secret_persisted:
-        _ok(checks, "secrets.auth_secret", "Set")
+        _ok(checks, "secrets.auth_secret", "Set", key="secret_set")
     else:
-        _warn(checks, "secrets.auth_secret", "AUTH_SECRET not set")
+        _warn(
+            checks,
+            "secrets.auth_secret",
+            "AUTH_SECRET not set",
+            key="auth_secret_warn",
+        )
 
 
 def _check_ssl(checks, config):
@@ -160,9 +211,14 @@ def _check_ssl(checks, config):
         if cert and key and os.path.isfile(cert) and os.path.isfile(key):
             _ok(checks, "tls.certificates", f"{cert}")
         else:
-            _warn(checks, "tls.certificates", "TLS enabled but certificate files not found")
+            _warn(
+                checks,
+                "tls.certificates",
+                "TLS enabled but certificate files not found",
+                key="tls_missing",
+            )
     else:
-        _skip(checks, "tls.certificates", "TLS disabled")
+        _skip(checks, "tls.certificates", "TLS disabled", key="tls_disabled")
 
 
 def _check_webauthn(checks):
@@ -170,7 +226,7 @@ def _check_webauthn(checks):
     try:
         from vnc_remote_secure.security.webauthn import rp_config_error, webauthn_available
     except ImportError:
-        _skip(checks, "webauthn", "module unavailable")
+        _skip(checks, "webauthn", "module unavailable", key="webauthn_unavailable")
         return
     if not os.environ.get("WEBAUTHN_ENABLED", "").strip():
         try:
@@ -183,11 +239,12 @@ def _check_webauthn(checks):
                     "disabled — hardened profile enforces "
                     "phishing-resistant policies no method can "
                     "satisfy",
+                    key="webauthn_hardened",
                 )
                 return
         except Exception:  # noqa: BLE001
             pass
-        _skip(checks, "webauthn", "disabled")
+        _skip(checks, "webauthn", "disabled", key="webauthn_disabled")
         return
     if not webauthn_available():
         _warn(
@@ -195,13 +252,19 @@ def _check_webauthn(checks):
             "webauthn",
             "WEBAUTHN_ENABLED=true but the webauthn package is not "
             "installed (pip install vnc-remote-secure[webauthn])",
+            key="webauthn_pkg_missing",
         )
         return
     err = rp_config_error()
     if err:
         _fail(checks, "webauthn.origin", err)
     else:
-        _ok(checks, "webauthn.origin", "origin/RP ID explicit or deployment is direct")
+        _ok(
+            checks,
+            "webauthn.origin",
+            "origin/RP ID explicit or deployment is direct",
+            key="webauthn_origin_ok",
+        )
 
     # State-based satisfiability: config validate proves the config
     # COULD satisfy strong-auth policies; only doctor can check the
@@ -219,11 +282,23 @@ def _check_webauthn(checks):
                     "auth policies but no passkey is registered — "
                     "register an admin credential before relying on "
                     "this profile",
+                    key="webauthn_creds_missing",
                 )
             else:
-                _ok(checks, "webauthn.credentials", f"{len(_load_store())} passkey(s) registered")
+                _ok(
+                    checks,
+                    "webauthn.credentials",
+                    f"{len(_load_store())} passkey(s) registered",
+                    key="webauthn_creds_ok",
+                    params={"n": len(_load_store())},
+                )
     except Exception:  # noqa: BLE001 - best-effort diagnostic
-        _skip(checks, "webauthn.credentials", "store unreadable")
+        _skip(
+            checks,
+            "webauthn.credentials",
+            "store unreadable",
+            key="webauthn_store_unreadable",
+        )
 
 
 def _check_shared_state(checks):
@@ -240,7 +315,12 @@ def _check_shared_state(checks):
     except Exception:  # noqa: BLE001
         profile = "development"
     if backend == "sqlite":
-        _ok(checks, "state.backend", "SQLite shared state (cross-process guarantees)")
+        _ok(
+            checks,
+            "state.backend",
+            "SQLite shared state (cross-process guarantees)",
+            key="state_sqlite_ok",
+        )
     elif backend == "memory":
         if profile in ("development", "test"):
             _warn(
@@ -248,6 +328,7 @@ def _check_shared_state(checks):
                 "state.backend",
                 "In-memory backend — single-use claims, revocation "
                 "and rate limiting are process-local (dev only)",
+                key="state_memory_dev",
             )
         else:
             _fail(
@@ -256,9 +337,16 @@ def _check_shared_state(checks):
                 "In-memory backend in a hardened profile — revoked "
                 "sessions and TOTP claims do not propagate across "
                 "service processes. Set SHARED_STATE_BACKEND=sqlite",
+                key="state_memory_hardened",
             )
     else:
-        _warn(checks, "state.backend", f"Unknown backend {backend!r} — falling back to memory")
+        _warn(
+            checks,
+            "state.backend",
+            f"Unknown backend {backend!r} — falling back to memory",
+            key="state_unknown",
+            params={"backend": backend},
+        )
     # Detect silent degradation: SHARED_STATE_BACKEND=sqlite is set but
     # SQLiteBackend init failed and get_backend() fell back to memory.
     # Cross-process revocation, TOTP replay protection and single-use
@@ -276,11 +364,24 @@ def _check_shared_state(checks):
                     "in-memory fallback. Revocations and single-use "
                     "claims do NOT propagate across processes. "
                     "Check logs for the SQLite init error.",
+                    key="state_fallback_fail",
                 )
             else:
-                _ok(checks, "state.backend.effective", f"Effective backend: {actual}")
+                _ok(
+                    checks,
+                    "state.backend.effective",
+                    f"Effective backend: {actual}",
+                    key="state_effective_ok",
+                    params={"backend": actual},
+                )
         except Exception as e:  # noqa: BLE001 - probe is best-effort
-            _warn(checks, "state.backend.effective", f"Could not probe effective backend: {e}")
+            _warn(
+                checks,
+                "state.backend.effective",
+                f"Could not probe effective backend: {e}",
+                key="state_probe_fail",
+                params={"err": str(e)},
+            )
     # Integrity check: the DB carries security state (revocations,
     # TOTP claims, rate limits) — a torn DB after a crash or AV
     # quarantine must surface here, not as silent auth anomalies.
@@ -300,7 +401,12 @@ def _check_shared_state(checks):
                 finally:
                     conn.close()
                 if row and row[0] == "ok":
-                    _ok(checks, "state.integrity", "shared_state.db integrity_check ok")
+                    _ok(
+                        checks,
+                        "state.integrity",
+                        "shared_state.db integrity_check ok",
+                        key="integrity_ok",
+                    )
                 else:
                     _fail(
                         checks,
@@ -308,9 +414,19 @@ def _check_shared_state(checks):
                         f"shared_state.db corrupt: "
                         f'{row[0] if row else "integrity_check failed"} '
                         "— see docs/runbook/recovery.md §2",
+                        key="integrity_fail",
+                        params={
+                            "err": row[0] if row else "integrity_check failed",
+                        },
                     )
         except Exception as e:  # noqa: BLE001
-            _warn(checks, "state.integrity", f"Could not run integrity_check: {e}")
+            _warn(
+                checks,
+                "state.integrity",
+                f"Could not run integrity_check: {e}",
+                key="integrity_probe_fail",
+                params={"err": str(e)},
+            )
 
 
 def _check_runtime_deps(checks):
@@ -318,7 +434,12 @@ def _check_runtime_deps(checks):
     try:
         import psutil  # noqa: F401  # pylint: disable=unused-import
 
-        _ok(checks, "deps.psutil", "psutil present — stale-process reaping enabled")
+        _ok(
+            checks,
+            "deps.psutil",
+            "psutil present — stale-process reaping enabled",
+            key="psutil_ok",
+        )
     except ImportError:
         _warn(
             checks,
@@ -326,17 +447,24 @@ def _check_runtime_deps(checks):
             "psutil not installed — orphaned service processes are "
             "not reaped on restart. Install with: "
             'pip install "vnc-remote-secure[ops]"',
+            key="psutil_missing",
         )
     try:
         import uvicorn  # noqa: F401  # pylint: disable=unused-import
 
-        _ok(checks, "deps.uvicorn", "uvicorn present — web surfaces served by the ASGI " "server")
+        _ok(
+            checks,
+            "deps.uvicorn",
+            "uvicorn present — web surfaces served by the ASGI " "server",
+            key="uvicorn_ok",
+        )
     except ImportError:
         _warn(
             checks,
             "deps.uvicorn",
             "uvicorn not installed — the web services cannot start. "
             'Install with: pip install "vnc-remote-secure"',
+            key="uvicorn_missing",
         )
 
 
@@ -366,6 +494,7 @@ def _check_terminal_isolation(checks):
                     "TERMINAL_WINDOWS_SANDBOX=off — terminal shells "
                     "can read the service data dir (auth_secret.key, "
                     "shared_state.db)",
+                    key="term_sandbox_off",
                 )
             elif _get_sid() is not None:
                 _ok(
@@ -373,16 +502,22 @@ def _check_terminal_isolation(checks):
                     "terminal.isolation",
                     f"AppContainer sandbox ({mode}) — terminal shells "
                     "cannot read the user profile or service secrets",
+                    key="term_appcontainer",
+                    params={"mode": mode},
                 )
             else:
                 _warn(
                     checks,
                     "terminal.isolation",
                     "AppContainer SID derivation failed — terminal " "shells run unsandboxed",
+                    key="term_sid_fail",
                 )
         except Exception:  # noqa: BLE001 - probe is best-effort
             _warn(
-                checks, "terminal.isolation", "Could not verify AppContainer sandbox availability"
+                checks,
+                "terminal.isolation",
+                "Could not verify AppContainer sandbox availability",
+                key="term_sandbox_unknown",
             )
         return
     try:
@@ -391,7 +526,13 @@ def _check_terminal_isolation(checks):
         return
     webterm_user = os.environ.get("WEBTERM_USER", "").strip()
     if euid == 0 and webterm_user:
-        _ok(checks, "terminal.isolation", f"WEBTERM_USER={webterm_user} — shell drops privileges")
+        _ok(
+            checks,
+            "terminal.isolation",
+            f"WEBTERM_USER={webterm_user} — shell drops privileges",
+            key="term_webterm_user",
+            params={"user": webterm_user},
+        )
         return
     if euid == 0:
         _warn(
@@ -399,6 +540,7 @@ def _check_terminal_isolation(checks):
             "terminal.isolation",
             "Running as root without WEBTERM_USER — terminal shells "
             "spawn as root. Set WEBTERM_USER to an unprivileged user",
+            key="term_root_warn",
         )
         return
     # Non-root service: a real uid drop is impossible, but the
@@ -418,6 +560,7 @@ def _check_terminal_isolation(checks):
                 "terminal.isolation",
                 "bubblewrap sandbox active — secret dirs (run, config, "
                 "ssl, data, log) are masked from terminal shells",
+                key="term_bwrap_ok",
             )
             return
         _warn(
@@ -426,6 +569,7 @@ def _check_terminal_isolation(checks):
             "bubblewrap installed but unprivileged user namespaces "
             "are disabled — terminal shells can read the service "
             "state dirs (auth_secret.key, shared_state.db)",
+            key="term_bwrap_ns",
         )
         return
     _warn(
@@ -435,6 +579,7 @@ def _check_terminal_isolation(checks):
         "run as the service account and can read auth_secret.key / "
         "write shared_state.db. Install bubblewrap, set "
         "TERMINAL_COMMAND_ALLOWLIST, or restrict terminal access",
+        key="term_no_isolation",
     )
 
 
@@ -463,6 +608,7 @@ def _check_gamepad_capability(checks):
                 "ViGEm available — real X360 XInput virtual "
                 "controller (works even without an interactive "
                 "session)",
+                key="gamepad_vigem",
             )
             return
         except ImportError:
@@ -483,6 +629,7 @@ def _check_gamepad_capability(checks):
                     "cannot inject from Session 0. Install ViGEmBus "
                     "+ `pip install vgamepad` or run the service in "
                     "the user session",
+                    key="gamepad_session0",
                 )
             else:
                 _warn(
@@ -493,10 +640,14 @@ def _check_gamepad_capability(checks):
                     "an XInput gamepad. Install ViGEmBus + "
                     "`pip install vgamepad` for real controller "
                     "emulation",
+                    key="gamepad_sendinput",
                 )
         except Exception:  # noqa: BLE001 - probe is best-effort
             _warn(
-                checks, "gamepad.capability", "Could not verify interactive session for SendInput"
+                checks,
+                "gamepad.capability",
+                "Could not verify interactive session for SendInput",
+                key="gamepad_verify_fail",
             )
         return
     # Linux: uinput device creation requires evdev + /dev/uinput
@@ -508,16 +659,23 @@ def _check_gamepad_capability(checks):
             "gamepad.capability",
             "GAMEPAD_ENABLED but evdev not installed — gamepad "
             "forwarding disabled. pip install evdev",
+            key="gamepad_no_evdev",
         )
         return
     if os.path.exists("/dev/uinput"):
-        _ok(checks, "gamepad.capability", "uinput available — virtual gamepad can be created")
+        _ok(
+            checks,
+            "gamepad.capability",
+            "uinput available — virtual gamepad can be created",
+            key="gamepad_uinput_ok",
+        )
     else:
         _warn(
             checks,
             "gamepad.capability",
             "/dev/uinput missing — load the uinput module "
             "(modprobe uinput) or gamepad injection will fail",
+            key="gamepad_no_uinput",
         )
 
 
@@ -535,18 +693,37 @@ def _check_firewall(checks):
 
             rules = list_firewall_rules()
             if rules:
-                _ok(checks, "firewall.rules", f"{len(rules)} VncRemoteSecure rule(s) found")
+                _ok(
+                    checks,
+                    "firewall.rules",
+                    f"{len(rules)} VncRemoteSecure rule(s) found",
+                    key="fw_rules_ok",
+                    params={"n": len(rules)},
+                )
             elif needs_rules:
                 _warn(
                     checks,
                     "firewall.rules",
                     "No VncRemoteSecure firewall rules found "
                     f"(public bind {public_bind} configured)",
+                    key="fw_rules_missing",
+                    params={"host": public_bind},
                 )
             else:
-                _ok(checks, "firewall.rules", "Not needed (loopback-only deployment)")
+                _ok(
+                    checks,
+                    "firewall.rules",
+                    "Not needed (loopback-only deployment)",
+                    key="fw_not_needed",
+                )
         except (ImportError, OSError, RuntimeError) as e:
-            _skip(checks, "firewall.rules", f"Firewall check unavailable: {e}")
+            _skip(
+                checks,
+                "firewall.rules",
+                f"Firewall check unavailable: {e}",
+                key="fw_unavailable",
+                params={"err": str(e)},
+            )
 
 
 def _list_listeners():
@@ -604,7 +781,12 @@ def _check_public_listeners(checks, config):
     """
     listeners = _list_listeners()
     if listeners is None:
-        _skip(checks, "security.public_listeners", "Could not enumerate listening sockets")
+        _skip(
+            checks,
+            "security.public_listeners",
+            "Could not enumerate listening sockets",
+            key="listeners_skip",
+        )
         return
     from vnc_remote_secure.core.service_manager import _service_port_map
 
@@ -628,6 +810,8 @@ def _check_public_listeners(checks, config):
                 "security.public_listeners",
                 f"websockify bridge listening on {addr}:{port} — "
                 "the auth gateway can be bypassed directly",
+                key="pl_websockify",
+                params={"addr": f"{addr}:{port}"},
             )
             return
         if port == rfb_port:
@@ -642,6 +826,8 @@ def _check_public_listeners(checks, config):
             f"RFB port {rfb_port} listening publicly — the 8-char "
             "DES credential is the only barrier; set LoopbackOnly "
             "or keep the profile honest",
+            key="pl_rfb_fail",
+            params={"port": rfb_port},
         )
         return
     if public:
@@ -652,12 +838,16 @@ def _check_public_listeners(checks, config):
                 "Backend ports public while nginx is the entry "
                 f"point — gateway bypass possible: "
                 f'{", ".join(sorted(public))}',
+                key="pl_ports_nginx",
+                params={"ports": ", ".join(sorted(public))},
             )
         else:
             _warn(
                 checks,
                 "security.public_listeners",
                 "Backend ports bound publicly (no nginx): " f'{", ".join(sorted(public))}',
+                key="pl_ports_warn",
+                params={"ports": ", ".join(sorted(public))},
             )
     elif rfb_public:
         _warn(
@@ -665,9 +855,16 @@ def _check_public_listeners(checks, config):
             "security.public_listeners",
             f"RFB port public on {rfb_public} — direct VNC clients "
             "rely on an 8-char DES password; prefer nginx+websockify",
+            key="pl_rfb_warn",
+            params={"addr": rfb_public},
         )
     else:
-        _ok(checks, "security.public_listeners", "No internal service port bound publicly")
+        _ok(
+            checks,
+            "security.public_listeners",
+            "No internal service port bound publicly",
+            key="pl_ok",
+        )
 
 
 def _check_services(checks):
@@ -703,7 +900,13 @@ def _check_services(checks):
         flag = _enabled_flag.get(name)
         if flag and not config.get(flag, True):
             env_name = flag.upper()
-            _skip(checks, f"ports.{name}", f"Disabled via {env_name}=false")
+            _skip(
+                checks,
+                f"ports.{name}",
+                f"Disabled via {env_name}=false",
+                key="port_disabled",
+                params={"env": env_name},
+            )
             continue
         host = "127.0.0.1" if host_key is None else config.get(host_key, "127.0.0.1")
         port = config.get(port_key)
@@ -718,9 +921,21 @@ def _check_services(checks):
             except Exception:  # noqa: BLE001 - fall back to config
                 pass
         if port and _check_port(host, int(port)):
-            _ok(checks, f"ports.{name}", f"Listening on {host}:{port}")
+            _ok(
+                checks,
+                f"ports.{name}",
+                f"Listening on {host}:{port}",
+                key="port_listening",
+                params={"addr": f"{host}:{port}"},
+            )
         else:
-            _skip(checks, f"ports.{name}", f"Not listening on {host}:{port}")
+            _skip(
+                checks,
+                f"ports.{name}",
+                f"Not listening on {host}:{port}",
+                key="port_not_listening",
+                params={"addr": f"{host}:{port}"},
+            )
     # nginx is the public entry point when enabled — a dead proxy with
     # healthy backends still means a dead deployment, so probe it too.
     if config.get("nginx_enabled"):
@@ -728,13 +943,21 @@ def _check_services(checks):
 
         ngx_port = config.get("nginx_https_port", DEFAULT_NGINX_HTTPS_PORT)
         if _check_port("127.0.0.1", int(ngx_port)):
-            _ok(checks, "ports.nginx", f"Listening on 127.0.0.1:{ngx_port}")
+            _ok(
+                checks,
+                "ports.nginx",
+                f"Listening on 127.0.0.1:{ngx_port}",
+                key="port_listening",
+                params={"addr": f"127.0.0.1:{ngx_port}"},
+            )
         else:
             _fail(
                 checks,
                 "ports.nginx",
                 f"NGINX_ENABLED=true but nothing listens on {ngx_port} "
                 "— the public entry point is down",
+                key="nginx_down",
+                params={"port": ngx_port},
             )
 
     _check_public_listeners(checks, config)
@@ -765,9 +988,14 @@ def run_doctor(as_json: bool = False) -> dict:
     # --- Dependencies ---
     for binary in ("python3" if sys.platform != "win32" else "python",):
         if _check_binary(binary):
-            _ok(checks, f"deps.{binary}", "Found")
+            _ok(checks, f"deps.{binary}", "Found", key="bin_found")
         else:
-            _fail(checks, f"deps.{binary}", "Not found on PATH")
+            _fail(
+                checks,
+                f"deps.{binary}",
+                "Not found on PATH",
+                key="bin_missing",
+            )
 
     # VNC server binary — on Windows use the same discovery as the
     # adapter (ULTRAVNC_PATH, install dir, PATH, project bin/).
@@ -781,12 +1009,22 @@ def run_doctor(as_json: bool = False) -> dict:
         if found:
             _ok(checks, "deps.vnc_server", found)
         else:
-            _warn(checks, "deps.vnc_server", "winvnc.exe not found (may still work)")
+            _warn(
+                checks,
+                "deps.vnc_server",
+                "winvnc.exe not found (may still work)",
+                key="vnc_server_missing_win",
+            )
     else:
         if _check_binary("vncserver"):
             _ok(checks, "deps.vnc_server", "vncserver")
         else:
-            _warn(checks, "deps.vnc_server", "vncserver not on PATH (may still work)")
+            _warn(
+                checks,
+                "deps.vnc_server",
+                "vncserver not on PATH (may still work)",
+                key="vnc_server_missing",
+            )
 
     # Python module dependencies required at runtime.
     import importlib.util
@@ -800,9 +1038,15 @@ def run_doctor(as_json: bool = False) -> dict:
         ("Crypto", True, "pycryptodome"),  # VNC DES password handling (vendor/d3des)
     ):
         if importlib.util.find_spec(module) is not None:
-            _ok(checks, f"deps.py.{module}", "Installed")
+            _ok(checks, f"deps.py.{module}", "Installed", key="mod_installed")
         elif critical:
-            _fail(checks, f"deps.py.{module}", f"Missing — install with: pip install {pip_name}")
+            _fail(
+                checks,
+                f"deps.py.{module}",
+                f"Missing — install with: pip install {pip_name}",
+                key="mod_missing",
+                params={"pip": pip_name},
+            )
 
     _check_services(checks)
     _check_firewall(checks)

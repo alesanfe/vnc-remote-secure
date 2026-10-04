@@ -29,6 +29,20 @@ function checkLabel(
   return name;
 }
 
+/** Mensaje de un check: traduce vía doctor.msg.<msg_key> cuando el
+    backend lo emite; el texto inglés del servidor queda de fallback
+    tanto para claves nuevas como para findings sin clave. */
+function msgText(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  c: { msg_key?: string; msg_params?: Record<string, string | number>;
+    message: string },
+): string {
+  if (!c.msg_key) return c.message;
+  const k = `doctor.msg.${c.msg_key}`;
+  const v = t(k, c.msg_params);
+  return v === k ? c.message : v;
+}
+
 interface MaintenanceState {
   active: boolean;
   info: { by?: string; reason?: string; since?: string };
@@ -189,7 +203,7 @@ export default function Doctor() {
                     {c.status.toUpperCase()}
                   </span>
                 </td>
-                <td>{c.message}</td>
+                <td>{msgText(t, c)}</td>
               </tr>
             ))}
           </tbody>
