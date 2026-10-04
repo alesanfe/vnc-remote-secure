@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useI18n } from '../i18n';
-import { fmtWhen, ProgressBar } from './Jobs';
+import { fmtWhen, jobStateLabel, ProgressBar } from './Jobs';
 
 /** Job detail (/admin/jobs/:id) — shareable view of one ledger
     record. Live states poll until the job settles; payload keys are
@@ -62,7 +62,7 @@ export default function JobDetail() {
           <dt>{t('jobs.col.op')}</dt>
           <dd>{job.kind}</dd>
           <dt>{t('jobs.state')}</dt>
-          <dd>{job.state}</dd>
+          <dd>{jobStateLabel(t, job.state)}</dd>
           <dt>{t('jobs.col.actor')}</dt>
           <dd>{job.actor}</dd>
           <dt>{t('jobs.col.resource')}</dt>

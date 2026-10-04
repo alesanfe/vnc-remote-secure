@@ -844,7 +844,8 @@ td button { margin-right: 0.3rem; }
 
 /* Jobs ledger: inline progress for queued/claimed/running jobs */
 .job-progress {
-  position: relative; min-width: 120px; height: 16px;
+  position: relative; min-width: 120px; width: 100%; flex: 1;
+  height: 16px;
   background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 8px; overflow: hidden;
 }

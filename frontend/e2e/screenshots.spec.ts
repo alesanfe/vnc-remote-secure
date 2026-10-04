@@ -548,6 +548,41 @@ test.describe('docs screenshots', () => {
     await ctx.close();
   });
 
+  test('admin job detail — running', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const now = Math.floor(Date.now() / 1000);
+    await ctx.route('**/api/v1/jobs/demo-job-1', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { job: {
+          id: 'demo-job-1', kind: 'upgrade.run', actor: 'admin',
+          target: 'v1.4.2 → v1.4.3', state: 'running',
+          started_at: now - 42, finished_at: null,
+          detail: 'descargando artefactos', error: null,
+          claimed_by: 'runner-1', progress: 'verificando checksums',
+          percent: 64,
+          payload: { from: 'v1.4.2', to: 'v1.4.3',
+                     channel: 'stable', dry_run: false },
+        } } }),
+      }));
+    const page = await ctx.newPage();
+    await page.goto(
+      `${serverInfo().base}/admin/operations/jobs/demo-job-1`);
+    await expect(page.locator('.job-progress-fill')).toBeVisible();
+    await shot(page, 'admin-job-detail');
+    await ctx.close();
+  });
+
+  test('admin — 404 route', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/ruta-inexistente`);
+    await expect(page.getByRole('alert')).toBeVisible();
+    await shot(page, 'admin-404');
+    await ctx.close();
+  });
+
   test('mobile guest portal', async ({ browser }) => {
     const ctx = await guestSession(browser);
     const page = await ctx.newPage();

@@ -9,11 +9,22 @@ export function fmtWhen(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
+/** Estado del job traducido; cae al id crudo si aparece un estado
+    nuevo sin clave en el locale. */
+export function jobStateLabel(
+  t: (key: string) => string, state: string,
+): string {
+  const k = `jobs.st.${state}`;
+  const v = t(k);
+  return v === k ? state : v;
+}
+
 export function ProgressBar({ job }: { job: JobSummary }) {
+  const { t } = useI18n();
   const pct = job.percent ?? (job.state === 'done' ? 100 : 0);
   if (job.state === 'done' || job.state === 'failed') {
     return <span className={`badge ${job.state === 'done' ? 'ok' : 'fail'}`}>
-      {job.state}
+      {jobStateLabel(t, job.state)}
     </span>;
   }
   return (
