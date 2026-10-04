@@ -103,8 +103,10 @@ export function SessionReference({ id }: { id: string }) {
     <button
       className="link-btn mono"
       title={id}
-      onClick={() =>
-        copyText(id, t('bits.copied'), t('bits.copyFail'))}
+      onClick={(e) => {
+        e.preventDefault();
+        copyText(id, t('bits.copied'), t('bits.copyFail'));
+      }}
       aria-label={t('bits.copyRef', { id })}
     >
       {id.slice(0, 12)}…

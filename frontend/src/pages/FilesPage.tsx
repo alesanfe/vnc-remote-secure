@@ -191,7 +191,7 @@ export default function FilesPage() {
           disabled={busy}
           onClick={() => fileInput.current?.click()}
         >
-          {busy ? t('common.loading') : t('files.upload')}
+          {busy ? t('files.st.uploading') : t('files.upload')}
         </button>
         <input
           style={{ maxWidth: 140 }}

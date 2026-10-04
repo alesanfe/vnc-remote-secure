@@ -72,7 +72,8 @@ function AccessSegment() {
   const { segment = '' } = useParams();
   return (
     <Suspense fallback={<p className="muted">{t('common.loading')}</p>}>
-      {(SESSION_TABS as readonly string[]).includes(segment)
+      {segment === '' ||
+      (SESSION_TABS as readonly string[]).includes(segment)
         ? <Sessions />
         : <SessionDetail tokenId={segment} />}
     </Suspense>
@@ -408,7 +409,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/activity" element={<Activity />} />
-          <Route path="/access" element={<Sessions />} />
+          <Route path="/access" element={<AccessSegment />} />
           <Route path="/access/:segment" element={<AccessSegment />} />
           <Route path="/connect" element={<ConnectPage />} />
           <Route path="/remote" element={<RemoteConsole />} />

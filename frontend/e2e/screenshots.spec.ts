@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -457,6 +457,94 @@ test.describe('docs screenshots', () => {
     await expect(page.locator('.page-title')).toBeVisible();
     await page.waitForTimeout(700);
     await shot(page, 'admin-sessions-compact');
+    await ctx.close();
+  });
+
+  test('toast — copy feedback', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    await ctx.grantPermissions(
+      ['clipboard-read', 'clipboard-write'],
+      { origin: serverInfo().base });
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/access`);
+    // Wizard → crear enlace → Copiar → sonner toast
+    for (let i = 0; i < 3; i++) {
+      await page.getByRole('button', { name: 'Siguiente' }).click();
+    }
+    await page.getByRole('button', { name: 'Crear enlace' }).click();
+    await expect(page.getByRole('button',
+      { name: 'Copiar', exact: true })).toBeVisible();
+    await page.getByRole('button',
+      { name: 'Copiar', exact: true }).click();
+    await expect(page.locator('[data-sonner-toast]'))
+      .toBeVisible({ timeout: 8000 });
+    await shot(page, 'admin-toast');
+    await ctx.close();
+  });
+
+  test('files — drag & drop zone', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/files`);
+    await expect(page.getByRole('button', { name: 'Subir' }))
+      .toBeVisible();
+    // dragover sobre el contenido activa .dropzone-active
+    await page.dispatchEvent('h1.page-title', 'dragover');
+    await expect(page.locator('.dropzone-active')).toBeVisible();
+    await shot(page, 'admin-files-drop');
+    // drop real con un File — la cola de transferencias muestra el item
+    const dt = await page.evaluateHandle(() => {
+      const d = new DataTransfer();
+      d.items.add(new File(['demo'],
+        'nota-demo.txt', { type: 'text/plain' }));
+      return d;
+    });
+    await page.dispatchEvent('.dropzone-active', 'drop',
+      { dataTransfer: dt });
+    await expect(page.getByText('nota-demo.txt')).toBeVisible();
+    await page.waitForTimeout(400);
+    await shot(page, 'admin-files-drop-upload');
+    await ctx.close();
+  });
+
+  test('recordings — in-app player', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    const blob = readFileSync(path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'fixtures', 'demo.vrsrec'));
+    await ctx.route('**/api/v1/recordings/demo-1', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/octet-stream',
+        body: blob,
+      }));
+    await ctx.route('**/api/v1/recordings', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { recordings: [{
+          id: 'demo-1', created: Math.floor(Date.now() / 1000) - 3600,
+          operator: 'admin', width: 320, height: 240,
+          name: 'demo-capture', size: blob.length,
+          running: false, ended: true,
+        }] } }),
+      }));
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/admin/security/recordings`);
+    await page.getByRole('button', { name: /Reproducir/ }).click();
+    await expect(page.locator('.recording-player canvas'))
+      .toBeVisible({ timeout: 15000 });
+    // Seek a 1.2 s — la escena demo ya tiene ventanas pintadas
+    await page.locator('.recording-player input[type="range"]')
+      .evaluate((el: HTMLInputElement) => {
+        const set = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype, 'value')!.set!;
+        set.call(el, '1200');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    await page.getByRole('button', { name: 'Marcar' }).click();
+    await page.waitForTimeout(600);
+    await shot(page, 'admin-recording-player');
     await ctx.close();
   });
 
