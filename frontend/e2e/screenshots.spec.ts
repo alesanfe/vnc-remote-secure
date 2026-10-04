@@ -404,6 +404,62 @@ test.describe('docs screenshots', () => {
     await shot(page, 'admin-login-error');
   });
 
+  // Dark theme — every prior shot renders the light palette; the
+  // dark token set never gets visually verified.
+  const DARK_PAGES: Array<[string, string]> = [
+    ['dark-overview', '/admin/'],
+    ['dark-sessions', '/admin/access'],
+    ['dark-connect', '/admin/connect'],
+    ['dark-security', '/admin/security'],
+  ];
+  for (const [name, route] of DARK_PAGES) {
+    test(name, async ({ browser }) => {
+      const ctx = await adminContext(browser);
+      await ctx.addInitScript(
+        () => localStorage.setItem('vnc-theme', 'dark'));
+      const page = await ctx.newPage();
+      await page.goto(`${serverInfo().base}${route}`);
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForTimeout(700);
+      await shot(page, name);
+      await ctx.close();
+    });
+  }
+
+  test('dark share consent', async ({ page }) => {
+    await page.addInitScript(
+      () => localStorage.setItem('vnc-theme', 'dark'));
+    const { url } = await createShareLink({ role: 'viewer' });
+    await page.goto(url);
+    await expect(page.locator('.cap-list')).toBeVisible();
+    await shot(page, 'dark-share-consent');
+  });
+
+  test('dark guest portal', async ({ browser }) => {
+    const ctx = await guestSession(browser);
+    await ctx.addInitScript(
+      () => localStorage.setItem('vnc-theme', 'dark'));
+    const page = await ctx.newPage();
+    await page.goto(`${serverInfo().base}/guest`);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(800);
+    await shot(page, 'dark-guest');
+    await ctx.close();
+  });
+
+  test('admin sessions — compact density', async ({ browser }) => {
+    const ctx = await adminContext(browser);
+    await ctx.addInitScript(
+      () => localStorage.setItem('vnc-density', 'compact'));
+    const page = await ctx.newPage();
+    await createShareLink({ role: 'viewer' });
+    await page.goto(`${serverInfo().base}/admin/access`);
+    await expect(page.locator('.page-title')).toBeVisible();
+    await page.waitForTimeout(700);
+    await shot(page, 'admin-sessions-compact');
+    await ctx.close();
+  });
+
   test('mobile guest portal', async ({ browser }) => {
     const ctx = await guestSession(browser);
     const page = await ctx.newPage();
