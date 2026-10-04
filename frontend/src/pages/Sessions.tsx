@@ -815,6 +815,8 @@ export default function Sessions() {
             render: (s) =>
               s.revoked ? (
                 <StatusBadge status="fail" label={t('sessions.stateRevoked')} />
+              ) : s.expires_at <= nowSec ? (
+                <StatusBadge status="warn" label={t('sessions.stateExpired')} />
               ) : (
                 <StatusBadge status="ok" label={t('sessions.stateActive')} />
               ),

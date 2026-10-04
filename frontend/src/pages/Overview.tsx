@@ -10,6 +10,7 @@ import {
 } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { metricText } from '../components/bits';
+import { jobStateLabel } from './Jobs';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
 
@@ -214,7 +215,7 @@ function LifecyclePanel() {
                       j.state === 'done' ? 'ok'
                       : j.state === 'failed' ? 'fail'
                       : 'warn'}`}>
-                      {j.state}{j.progress ? ` · ${j.progress}` : ''}
+                      {jobStateLabel(t, j.state)}{j.progress ? ` · ${j.progress}` : ''}
                     </span>
                   </td>
                   <td className="muted">{j.error ?? j.detail ?? '—'}</td>
