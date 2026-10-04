@@ -830,9 +830,10 @@ def format_doctor(result: dict) -> str:
         symbol = {"ok": "[OK]", "warn": "[WARN]", "fail": "[FAIL]", "skip": "[SKIP]"}[c["status"]]
         lines.append(f"  {symbol:<7} {c['name']:<25} {c['message']}")
     s = result["summary"]
+    pl = lambda n, w: f"{n} {w if n == 1 else w + 's'}"  # noqa: E731
     lines.append("")
     lines.append(
-        f"  Summary: {s['ok']} ok, {s['warn']} warnings, "
-        f"{s['fail']} failures, {s['skip']} skipped"
+        f"  Summary: {s['ok']} ok, {pl(s['warn'], 'warning')}, "
+        f"{pl(s['fail'], 'failure')}, {s['skip']} skipped"
     )
     return "\n".join(lines)

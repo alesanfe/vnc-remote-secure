@@ -6,7 +6,7 @@ import ChatPanel from '../components/ChatPanel';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { RelativeTime, StatusBadge } from '../components/bits';
 import { desktopUrl } from './GuestPage';
-import { roleLabel, useI18n } from '../i18n';
+import { permLabel, roleLabel, useI18n } from '../i18n';
 import { useTabsNav } from '../components/useTabsNav';
 
 /** Human-readable duration (seconds → '1 h 05 m' style). */
@@ -215,7 +215,9 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
             <dt>{t('sessions.col.perms')}</dt>
             <dd>
               {s.permissions.map((p) => (
-                <span key={p} className="chip">{p}</span>
+                <span key={p} className="chip" title={p}>
+                  {permLabel(t, p)}
+                </span>
               ))}
             </dd>
             <dt>{t('sessions.col.resource')}</dt>
