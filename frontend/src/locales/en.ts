@@ -794,6 +794,15 @@ export const en: Messages = {
   'portal.metrics.cpu': 'CPU',
   'portal.metrics.ram': 'RAM',
   'portal.metrics.disk': 'Disk',
+  // Metric formats — the backend emits <name>_fmt {key,params}
+  // alongside the composed English string; the SPA localizes with
+  // these templates.
+  'metrics.fmt.cpu_load': 'Load: {{load}}',
+  'metrics.fmt.cpu_pct': '{{pct}}%',
+  'metrics.fmt.mem_usage': '{{pct}}% ({{used}} MB / {{total}} MB)',
+  'metrics.fmt.disk_linux': '/ {{size}} ({{used}} used, {{pct}} full)',
+  'metrics.fmt.disk_win': '{{drive}} {{pct}}% ({{free}} GB free)',
+  'metrics.fmt.uptime': '{{h}}h {{m}}m',
   'portal.lan.title': 'LAN access',
   'portal.lan.desc': 'Local addresses of this machine.',
   'portal.services.title': 'Services',

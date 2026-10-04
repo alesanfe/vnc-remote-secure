@@ -22,7 +22,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api, ApiError, type PortalData, type SessionContext } from '../api';
-import { RelativeTime } from '../components/bits';
+import { metricText, RelativeTime } from '../components/bits';
 import { roleLabel, useI18n } from '../i18n';
 
 const METRICS: Array<[LucideIcon, string, string]> = [
@@ -462,7 +462,7 @@ export default function PortalPage() {
                 {t(label)}
               </span>
               <div className="metric-value" style={{ fontSize: '1rem' }}>
-                {p.metrics?.[key] ?? 'N/A'}
+                {metricText(t, p.metrics, key) ?? 'N/A'}
               </div>
             </div>
           ))}
@@ -574,8 +574,10 @@ export default function PortalPage() {
         {p.is_operator && <GamepadSwitch p={p} />}
 
         <footer className="muted portal-footer">
-          VNC Remote Secure | {p.metrics?.hostname} | {p.metrics?.os} |
-          {' '}{t('portal.metrics.uptime')}: {p.metrics?.uptime}
+          VNC Remote Secure | {p.metrics?.hostname as string} |{' '}
+          {p.metrics?.os as string} |
+          {' '}{t('portal.metrics.uptime')}:{' '}
+          {metricText(t, p.metrics, 'uptime')}
         </footer>
       </div>
     </main>

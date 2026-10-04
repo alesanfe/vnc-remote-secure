@@ -9,6 +9,7 @@ import {
   type StatusPayload,
 } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { metricText } from '../components/bits';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
 
@@ -509,19 +510,27 @@ export default function Overview() {
       <div className="cards">
         <div className="card">
           <h3>{t('portal.metrics.uptime')}</h3>
-          <div className="metric-value">{sys?.uptime ?? '—'}</div>
+          <div className="metric-value">
+            {metricText(t, sys, 'uptime') ?? '—'}
+          </div>
         </div>
         <div className="card">
           <h3>{t('portal.metrics.cpu')}</h3>
-          <div className="metric-value">{sys?.cpu ?? '—'}</div>
+          <div className="metric-value">
+            {metricText(t, sys, 'cpu') ?? '—'}
+          </div>
         </div>
         <div className="card">
           <h3>{t('portal.metrics.ram')}</h3>
-          <div className="metric-value">{sys?.memory ?? '—'}</div>
+          <div className="metric-value">
+            {metricText(t, sys, 'memory') ?? '—'}
+          </div>
         </div>
         <div className="card">
           <h3>{t('portal.metrics.disk')}</h3>
-          <div className="metric-value">{sys?.disk ?? '—'}</div>
+          <div className="metric-value">
+            {metricText(t, sys, 'disk') ?? '—'}
+          </div>
         </div>
       </div>
       )}

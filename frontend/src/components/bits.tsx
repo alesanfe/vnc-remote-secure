@@ -75,6 +75,30 @@ export function copyText(text: string, done: string, fail?: string)
     .catch(() => toast.error(fail ?? done));
 }
 
+/** Localized metric value: the backend emits `<name>_fmt` (key +
+    params) next to the composed English `<name>` string so the SPA
+    can render `metrics.fmt.<key>` in the UI locale. Falls back to
+    the raw string for missing keys/older backends; undefined when
+    nothing is available. */
+export function metricText(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  metrics: Record<string, unknown> | undefined,
+  name: string,
+): string | undefined {
+  const fmt = metrics?.[`${name}_fmt`];
+  if (fmt && typeof fmt === 'object') {
+    const f = fmt as { key?: string;
+      params?: Record<string, string | number> };
+    if (f.key) {
+      const k = `metrics.fmt.${f.key}`;
+      const v = t(k, f.params);
+      if (v !== k) return v;
+    }
+  }
+  const raw = metrics?.[name];
+  return typeof raw === 'string' && raw ? raw : undefined;
+}
+
 /** Case-insensitive substring match → <mark>, so a filtered row
     shows *why* it matched instead of making the user scan raw text.
     Returns the plain string untouched when there's no query/match. */

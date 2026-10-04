@@ -431,9 +431,18 @@ export interface LoginResult {
     | 'webauthn';
 }
 
+/** Structured format hint emitted beside a composed metric string
+    — `metrics["disk_fmt"] = {key, params}` lets the SPA localize the
+    value via `metrics.fmt.<key>` while CLI/health consumers keep the
+    English `metrics["disk"]` string. */
+export interface MetricFmt {
+  key: string;
+  params?: Record<string, string | number>;
+}
+
 export interface PortalData {
   is_operator: boolean;
-  metrics: Record<string, string>;
+  metrics: Record<string, string | MetricFmt | undefined>;
   services: ServiceCard[];
   lan_ips?: string[];
   nginx_enabled?: boolean;
@@ -465,6 +474,7 @@ export interface HealthSnapshot {
     uptime?: string;
     hostname?: string;
     os?: string;
+    [k: string]: unknown;
   };
   services: {
     status: 'healthy' | 'degraded' | 'down' | 'unknown';
@@ -517,6 +527,7 @@ export interface StatusPayload {
     uptime: string;
     hostname: string;
     os: string;
+    [k: string]: unknown;
   };
 }
 

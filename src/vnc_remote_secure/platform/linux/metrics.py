@@ -52,7 +52,10 @@ def _cpu_metrics() -> dict:
     metrics = {}
     try:
         with open("/proc/loadavg", encoding="utf-8") as f:
-            metrics["cpu"] = f"Load: {f.readline().split()[0]}"
+            load1 = f.readline().split()[0]
+            metrics["cpu"] = f"Load: {load1}"
+            metrics["cpu_fmt"] = {
+                "key": "cpu_load", "params": {"load": load1}}
     except FileNotFoundError:
         pass
     except (OSError, ValueError) as e:
@@ -69,6 +72,8 @@ def _cpu_metrics() -> dict:
         if total_delta > 0:
             usage = (1 - idle_delta / total_delta) * 100
             metrics["cpu_percent"] = f"{usage:.0f}%"
+            metrics["cpu_percent_fmt"] = {
+                "key": "cpu_pct", "params": {"pct": f"{usage:.0f}"}}
     except FileNotFoundError:
         pass
     except (OSError, ValueError, ZeroDivisionError) as e:
@@ -98,7 +103,13 @@ def _memory_metrics() -> dict:
                 total = int(parts[1])
                 used = int(parts[2])
                 pct = (used / total) * 100 if total > 0 else 0
-                metrics["memory"] = f"{pct:.0f}% ({used} MB / {total} MB)"
+                metrics["memory"] = (
+                    f"{pct:.0f}% ({used} MB / {total} MB)")
+                metrics["memory_fmt"] = {
+                    "key": "mem_usage",
+                    "params": {
+                        "pct": f"{pct:.0f}",
+                        "used": used, "total": total}}
                 break
     except FileNotFoundError:
         pass  # `free` not installed on minimal containers.
@@ -116,7 +127,12 @@ def _disk_metrics() -> dict:
         if len(lines) > 1:
             parts = lines[1].split()
             if len(parts) > 4:
-                metrics["disk"] = f"/ {parts[1]} ({parts[2]} used, {parts[4]} full)"
+                metrics["disk"] = (
+                    f"/ {parts[1]} ({parts[2]} used, {parts[4]} full)")
+                metrics["disk_fmt"] = {
+                    "key": "disk_linux",
+                    "params": {"size": parts[1], "used": parts[2],
+                               "pct": parts[4]}}
     except FileNotFoundError:
         pass
     except (subprocess.SubprocessError, IndexError) as e:
@@ -133,6 +149,9 @@ def _uptime_metrics() -> dict:
             hours = int(uptime_seconds // 3600)
             minutes = int((uptime_seconds % 3600) // 60)
             metrics["uptime"] = f"{hours}h {minutes}m"
+            metrics["uptime_fmt"] = {
+                "key": "uptime",
+                "params": {"h": hours, "m": minutes}}
     except FileNotFoundError:
         pass
     except (OSError, ValueError) as e:

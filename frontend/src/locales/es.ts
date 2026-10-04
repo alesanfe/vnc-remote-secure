@@ -839,6 +839,15 @@ export const es = {
   'portal.metrics.cpu': 'CPU',
   'portal.metrics.ram': 'RAM',
   'portal.metrics.disk': 'Disco',
+  // Formatos de métricas — el backend emite <nombre>_fmt {key,params}
+  // junto al string en inglés; el SPA localiza con estas plantillas.
+  'metrics.fmt.cpu_load': 'Carga: {{load}}',
+  'metrics.fmt.cpu_pct': '{{pct}}%',
+  'metrics.fmt.mem_usage': '{{pct}}% ({{used}} MB de {{total}} MB)',
+  'metrics.fmt.disk_linux':
+    '/ {{size}} ({{used}} usados, {{pct}} lleno)',
+  'metrics.fmt.disk_win': '{{drive}} {{pct}}% ({{free}} GB libres)',
+  'metrics.fmt.uptime': '{{h}} h {{m}} min',
   'portal.lan.title': 'Acceso LAN',
   'portal.lan.desc': 'Direcciones locales del equipo.',
   'portal.services.title': 'Servicios',

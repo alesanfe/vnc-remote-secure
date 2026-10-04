@@ -85,6 +85,11 @@ export function ShareAccept({ token }: { token: string }) {
     { key: 'files', ok: allowed('files') && hasPerm('file_transfer') },
     { key: 'chat', ok: true },
   ];
+  // El titular del consent dice "visualización" o "visualización y
+  // control" — lo decide el permiso efectivo, no el flag view_only
+  // (un 'viewer' sin ese flag sobredecía "y control").
+  const canControl =
+    caps.find((c) => c.key === 'controlDesktop')?.ok ?? false;
   const flags: string[] = [];
   if (preview?.view_only) flags.push(t('share.flag.viewOnly'));
   if (preview?.single_use) flags.push(t('share.flag.singleUse'));
@@ -112,9 +117,9 @@ export function ShareAccept({ token }: { token: string }) {
             <p>
               {t('share.grantPre')}{' '}
               <strong>
-                {preview.view_only
-                  ? t('share.action.view')
-                  : t('share.action.viewControl')}
+                {canControl
+                  ? t('share.action.viewControl')
+                  : t('share.action.view')}
               </strong>{' '}
               {t('share.grantPost')}
             </p>
@@ -135,7 +140,7 @@ export function ShareAccept({ token }: { token: string }) {
                 </li>
               ))}
             </ul>
-            {!preview.view_only && allowed('desktop') && (
+            {canControl && (
               <p className="muted cap-warn">{t('share.cap.controlWarn')}</p>
             )}
             <p className="muted">

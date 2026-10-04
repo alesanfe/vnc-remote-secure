@@ -68,6 +68,9 @@ def get_system_metrics():
     if pct and pct.isdigit():
         metrics["cpu"] = f"{pct}%"
         metrics["cpu_percent"] = f"{pct}%"
+        metrics["cpu_fmt"] = {"key": "cpu_pct", "params": {"pct": pct}}
+        metrics["cpu_percent_fmt"] = {
+            "key": "cpu_pct", "params": {"pct": pct}}
 
     # Memory usage (with percentage)
     mem = _run_ps(
@@ -83,6 +86,10 @@ def get_system_metrics():
         if len(parts) == 3:
             pct_m, used_mb, total_mb = parts
             metrics["memory"] = f"{pct_m}% ({used_mb} MB / {total_mb} MB)"
+            metrics["memory_fmt"] = {
+                "key": "mem_usage",
+                "params": {"pct": pct_m,
+                           "used": used_mb, "total": total_mb}}
 
     # Disk usage (first logical disk)
     disk = _run_ps(
@@ -98,6 +105,10 @@ def get_system_metrics():
         if len(parts) == 3:
             drive, pct_d, free_gb = parts
             metrics["disk"] = f"{drive} {pct_d}% ({free_gb} GB free)"
+            metrics["disk_fmt"] = {
+                "key": "disk_win",
+                "params": {"drive": drive,
+                           "pct": pct_d, "free": free_gb}}
 
     # Uptime from LastBootUpTime
     boot = _run_ps("(Get-CimInstance Win32_OperatingSystem).LastBootUpTime")
@@ -108,6 +119,9 @@ def get_system_metrics():
             hours = int(delta.total_seconds() // 3600)
             minutes = int((delta.total_seconds() % 3600) // 60)
             metrics["uptime"] = f"{hours}h {minutes}m"
+            metrics["uptime_fmt"] = {
+                "key": "uptime",
+                "params": {"h": hours, "m": minutes}}
         except (ValueError, TypeError) as e:
             logger.debug("Windows uptime parse failed: %s", e)
 
