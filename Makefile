@@ -67,6 +67,9 @@ help: ## Show this help message
 	@echo "$(BLUE)Frontend:$(NC)"
 	@grep -hE '^(frontend|gen-types)[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-22s$(NC) %s\n", $$1, $$2}'
 	@echo ""
+	@echo "$(BLUE)Ops (canonical CLI):$(NC)"
+	@grep -hE '^(cli|doctor|backup|restore|update|audit|verify-install|verify-deps|migrate-config|gen-password|gen-cert|collect-evidence|build-artifacts|verify-release|parity-matrix|build):.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-22s$(NC) %s\n", $$1, $$2}'
+	@echo ""
 	@echo "$(YELLOW)Tip:$(NC) Most targets accept the same env vars as .env.example"
 	@echo "$(YELLOW)     Copy .env.example to .env and edit before running.$(NC)"
 
@@ -402,6 +405,56 @@ status: ## Show status of services via the canonical CLI
 	@./vnc-remote status
 
 # ============================================================================
+# OPS — subcomandos del CLI canónico (scripts/maintenance/* son wrappers
+# deprecados de estos mismos comandos)
+# ============================================================================
+
+cli: ## Passthrough al CLI canónico — uso: make cli ARGS="backup --list"
+	@./vnc-remote $(ARGS)
+
+doctor: ## Diagnóstico completo del sistema (JSON con ARGS=--json)
+	@./vnc-remote doctor $(ARGS)
+
+backup: ## Crea un backup de configuración+datos (ARGS=--list para listar)
+	@./vnc-remote backup $(ARGS)
+
+restore: ## Restaura un backup — uso: make restore ARGS=<backup.tar.gz>
+	@./vnc-remote restore $(ARGS)
+
+update: ## Actualiza deps del sistema + la propia herramienta
+	@bash scripts/maintenance/update.sh
+
+audit: ## Auditoría de seguridad de la instalación
+	@./vnc-remote audit $(ARGS)
+
+verify-install: ## Verifica que la instalación es íntegra
+	@./vnc-remote verify $(ARGS)
+
+migrate-config: ## Migra configuración legacy al formato actual
+	@python tools/migrate_configuration.py
+
+gen-password: ## Genera la contraseña VNC hasheada para la config
+	@python scripts/utilities/generate_vnc_password.py
+
+gen-cert: ## Genera certificado autofirmado para SSL local
+	@python scripts/utilities/generate_certificate.py
+
+collect-evidence: ## Recoge evidencias de auditoría (scripts/security/)
+	@python scripts/security/collect-audit-evidence.py
+
+build-artifacts: ## Empaqueta artefactos de release (tarball + checksums)
+	@python scripts/release/build_artifacts.py
+
+verify-release: ## Verifica los artefactos de una release empaquetada
+	@python scripts/release/verify-release.py
+
+parity-matrix: ## Regenera docs/api/parity-matrix.md desde las ops canónicas
+	@python tools/parity_matrix.py
+
+verify-deps: ## Verifica que las dependencias del sistema están presentes
+	@python tools/verify_dependencies.py
+
+# ============================================================================
 # DOCS
 # ============================================================================
 
@@ -512,7 +565,9 @@ git-pull: ## Pull from remote (current branch)
         install uninstall install-systemd systemd-start systemd-stop systemd-status systemd-enable systemd-disable \
         clean clean-all clean-docs \
         git-status git-log git-push git-pull \
-        setup-frontend frontend-dev frontend-build frontend-preview gen-types test-e2e-ui test-pester
+        setup-frontend frontend-dev frontend-build frontend-preview gen-types test-e2e-ui test-pester \
+        cli doctor backup restore update audit verify-install migrate-config gen-password gen-cert \
+        collect-evidence build-artifacts verify-release parity-matrix verify-deps
 
 # ============================================================
 #  FRONTEND (React + Vite SPA → web/static/admin/)
