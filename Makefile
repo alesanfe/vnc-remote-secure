@@ -64,6 +64,9 @@ help: ## Show this help message
 	@echo "$(BLUE)Maintenance:$(NC)"
 	@grep -hE '^(clean|install|uninstall|systemd|git-)[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-22s$(NC) %s\n", $$1, $$2}'
 	@echo ""
+	@echo "$(BLUE)Frontend:$(NC)"
+	@grep -hE '^(frontend|gen-types)[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-22s$(NC) %s\n", $$1, $$2}'
+	@echo ""
 	@echo "$(YELLOW)Tip:$(NC) Most targets accept the same env vars as .env.example"
 	@echo "$(YELLOW)     Copy .env.example to .env and edit before running.$(NC)"
 
@@ -497,4 +500,31 @@ git-pull: ## Pull from remote (current branch)
         status docs \
         install uninstall install-systemd systemd-start systemd-stop systemd-status systemd-enable systemd-disable \
         clean clean-all clean-docs \
-        git-status git-log git-push git-pull
+        git-status git-log git-push git-pull \
+        setup-frontend frontend-dev frontend-build frontend-preview gen-types test-e2e-ui test-pester
+
+# ============================================================
+#  FRONTEND (React + Vite SPA → web/static/admin/)
+# ============================================================
+
+.PHONY: setup-frontend frontend-dev frontend-build frontend-preview gen-types test-e2e-ui test-pester
+setup-frontend: ## Install frontend dependencies (npm ci)
+	cd frontend && npm ci
+
+frontend-dev: ## Run the Vite dev server for the SPA
+	cd frontend && npm run dev
+
+frontend-build: ## Build the SPA into web/static/admin/ (tsc + vite)
+	cd frontend && npm run build
+
+frontend-preview: ## Preview the built SPA locally
+	cd frontend && npm run preview
+
+gen-types: ## Regenerate src/api/generated/types.ts from docs/api/openapi.v1.yaml
+	cd frontend && npm run gen:types
+
+test-e2e-ui: ## Playwright E2E suite (spawns a real landing service)
+	cd frontend && npx playwright install chromium && npm run test:e2e
+
+test-pester: ## Pester tests for the PowerShell module (Windows)
+	pwsh -c "Invoke-Pester tests/powershell -Output Detailed"
