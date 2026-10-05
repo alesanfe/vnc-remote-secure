@@ -15,7 +15,7 @@ Runs the automatable parts of the debt-detection methodology:
 Usage:
     python tools/debt_audit.py [--since "6 months ago"] [--top 15]
 
-Nothing here writes findings into docs/tech-debt.md — triage is a
+Nothing here writes findings into docs/TECH_DEBT.md — triage is a
 human/agent decision; this tool just surfaces the signals.
 """
 

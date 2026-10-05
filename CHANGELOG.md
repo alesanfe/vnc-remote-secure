@@ -36,9 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Off by default; see ADR-0012.
 - **Governance artifacts**: `GOVERNANCE.md`, `docs/policies/`
   (versioning, compatibility, deps, secrets, backups, incidents,
-  exceptions), `docs/maturity.md` (A–E + 0–4 matrix self-assessment),
-  `docs/quality-attributes.md`, `docs/feature-flags.md`,
-  `docs/tech-debt.md` (TD-xx register).
+  exceptions), `docs/MATURITY.md` (A–E + 0–4 matrix self-assessment),
+  `docs/QUALITY.md`, `docs/FEATURE_FLAGS.md`,
+  `docs/TECH_DEBT.md` (TD-xx register).
 - **Operational artifacts**: `docs/architecture/catalog.md` (service
   inventory + criticality), `docs/architecture/failure-modes.md`
   (dependency failure matrix), `docs/runbook/drills.md` (recovery/
@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coupling, debt markers, disabled tests, vulture dead code, and
   schema↔`.env.example` drift (caught 9 undocumented env knobs, now
   documented).
-- **`docs/recording-format.md`**: external spec of the `.vrsrec`
+- **`docs/RECORDING_FORMAT.md`**: external spec of the `.vrsrec`
   recording format (magic, block layout, bounds) — parseable without
   reading the implementation.
 - **Docs screenshots**: real captures under `docs/assets/screenshots/`
@@ -315,7 +315,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP security headers: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy (`security/http_headers.py`)
 - Secret file permissions validation (`security/file_permissions.py`)
 - Prometheus metrics export with `/metrics` endpoint (`monitoring/prometheus.py`)
-- OpenAPI 3.0 specification for health, audit, and metrics endpoints (`docs/api/openapi.yaml`)
+- OpenAPI 3.0 specification for health, audit, and metrics endpoints (`docs/api/openapi.v1.yaml`)
 - `vnc-remote secrets check` command for TLS and file permission validation
 - `/audit` and `/audit/verify` endpoints for audit log access
 - Centralized error handling with error code registry (`core/errors.py`)
@@ -541,7 +541,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   finished build.
 - `docs/installation/windows.md`: documents the winvnc.exe search
   order including the project `bin/ultravnc/<arch>/` fallback.
-- `docs/api/openapi.yaml`: documents the `/health_status` and
+- `docs/api/openapi.v1.yaml`: documents the `/health_status` and
   `/health_status.json` legacy aliases.
 - `tests/integration/common/test_config_loading.py`: asserts
   `novnc_ws_port` is present in the loaded config.

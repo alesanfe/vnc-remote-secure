@@ -35,15 +35,15 @@ What could go wrong?
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0001](0001-use-nginx-as-reverse-proxy.md) | Use nginx as reverse proxy | Accepted |
-| [0002](0002-bind-internal-services-to-localhost.md) | Bind internal services to localhost | Accepted |
-| [0003](0003-use-systemd-for-service-management.md) | Use systemd for service management | Accepted |
-| [0004](0004-separate-secrets-from-configuration.md) | Separate secrets from configuration | Accepted |
-| [0005](0005-modular-bash-architecture.md) | Modular Bash architecture | Superseded (Bash stack removed) |
-| [0006](0006-python-for-web-components.md) | Python for web components, Bash for orchestration | Superseded (Python-canonical) |
-| [0007](0007-cross-platform-windows-support.md) | Cross-platform Windows support with documented limitations | Accepted |
-| [0008](0008-duckdns-for-dynamic-dns.md) | DuckDNS for dynamic DNS | Accepted |
-| [0009](0009-bash-python-coexistence.md) | Coexistence of Bash and Python implementations | Superseded (Python-canonical) |
-| [0010](0010-unified-token-signing.md) | Unified token signing with type separation | Accepted |
-| [0011](0011-shared-state-abstraction.md) | Shared state abstraction for multi-process deployments | Accepted |
-| [0012](0012-delegated-sso-and-operator-session-ip-binding.md) | Delegated SSO and opt-in operator-session IP binding | Accepted |
+| [0001](ADR-001-use-nginx-as-reverse-proxy.md) | Use nginx as reverse proxy | Accepted |
+| [0002](ADR-002-bind-internal-services-to-localhost.md) | Bind internal services to localhost | Accepted |
+| [0003](ADR-003-use-systemd-for-service-management.md) | Use systemd for service management | Accepted |
+| [0004](ADR-004-separate-secrets-from-configuration.md) | Separate secrets from configuration | Accepted |
+| [0005](ADR-005-modular-bash-architecture.md) | Modular Bash architecture | Superseded (Bash stack removed) |
+| [0006](ADR-006-python-for-web-components.md) | Python for web components, Bash for orchestration | Superseded (Python-canonical) |
+| [0007](ADR-007-cross-platform-windows-support.md) | Cross-platform Windows support with documented limitations | Accepted |
+| [0008](ADR-008-duckdns-for-dynamic-dns.md) | DuckDNS for dynamic DNS | Accepted |
+| [0009](ADR-009-bash-python-coexistence.md) | Coexistence of Bash and Python implementations | Superseded (Python-canonical) |
+| [0010](ADR-010-unified-token-signing.md) | Unified token signing with type separation | Accepted |
+| [0011](ADR-011-shared-state-abstraction.md) | Shared state abstraction for multi-process deployments | Accepted |
+| [0012](ADR-012-delegated-sso-and-operator-session-ip-binding.md) | Delegated SSO and opt-in operator-session IP binding | Accepted |

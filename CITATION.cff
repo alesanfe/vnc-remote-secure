@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "VNC Remote Secure"
+abstract: "Self-hosted remote access for a machine you own —
+  desktop, terminal, audio and file share through the browser.
+  One Python CLI installs, configures and runs the stack
+  (nginx + noVNC + adapters) on Linux and Windows."
+authors:
+  - family-names: "alesanfe"
+    given-names: ""
+repository-code: "https://github.com/alesanfe/vnc-remote-secure"
+license: MIT
+version: "0.2.0"

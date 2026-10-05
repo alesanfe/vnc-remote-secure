@@ -49,7 +49,7 @@ Test-VncRemoteConfiguration
 - Windows Firewall rules (only the landing portal port — default 8000 — public)
 - Health dashboard with Windows-native metrics
 - Restricted runtime user account (process-level isolation is partial —
-  see `docs/adr/0007-cross-platform-windows-support.md`)
+  see `docs/decisions/ADR-007-cross-platform-windows-support.md`)
 
 ## What Windows Support Does NOT Include
 

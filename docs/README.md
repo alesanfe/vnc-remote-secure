@@ -2,14 +2,20 @@
 
 ## Requirements & Governance
 - [Requirements](REQUIREMENTS.md) - Verifiable FRs, measurable NFRs, DoD + DoR
-- [Maturity Model](maturity.md) - A–E self-assessment + 0–4 professionalism matrix
-- [Quality Attributes](quality-attributes.md) - Priorities, budgets, trade-off rules
+- [Data Model](DATA_MODEL.md) - Persistent state, formats and boundaries
+- [Privacy](PRIVACY.md) - Data inventory and privacy stance
+- [Dependencies](DEPENDENCIES.md) - Runtime/dev stack and update policy
+- [Maturity Model](MATURITY.md) - A–E self-assessment + 0–4 professionalism matrix
+- [Quality Attributes](QUALITY.md) - Priorities, budgets, trade-off rules
+- [Deprecations](DEPRECATION.md) - Lifecycle and removal policy
+- [Operations](OPERATIONS.md) - Index of runbooks and procedures
 - [Policies](policies/README.md) - Versioning, compatibility, deps, secrets, backups, incidents
-- [Feature Flags](feature-flags.md) - Toggle registry with owners and lifecycle
-- [Technical Debt](tech-debt.md) - Formal debt register (TD-xx)
-- [Governance](../GOVERNANCE.md) - Roles, decisions, ownership
+- [Feature Flags](FEATURE_FLAGS.md) - Toggle registry with owners and lifecycle
+- [Technical Debt](TECH_DEBT.md) - Formal debt register (TD-xx)
+- [Governance](GOVERNANCE.md) - Roles, decisions, ownership
 
 ## Architecture
+- [Architecture entry point](ARCHITECTURE.md) - Index of the architecture docs
 - [Overview](architecture/overview.md) - System architecture and design
 - [Components](architecture/components.md) - Project structure and components
 - [Service Catalog](architecture/catalog.md) - Runtime component inventory + criticality
@@ -18,7 +24,7 @@
 - [Security Model](architecture/security-model.md) - Security design and policies
 
 ## Architecture Decision Records (ADRs)
-- [ADR Index](adr/README.md) - List of all architecture decisions
+- [ADR Index](decisions/README.md) - List of all architecture decisions
 
 ## Installation
 - [Linux](installation/linux.md) - Install on Linux/Raspberry Pi
@@ -48,7 +54,7 @@
 - [Recovery Drills](runbook/drills.md) - Recovery/chaos exercise battery + drill log
 - [Postmortem Template](runbook/postmortem-template.md) - Blameless incident review format
 - [OpenAPI Spec](api/openapi.v1.yaml) - `/api/v1/*` schema (canonical)
-- [Recording Format](recording-format.md) - `.vrsrec` spec (external, version-stable)
+- [Recording Format](RECORDING_FORMAT.md) - `.vrsrec` spec (external, version-stable)
 
 ## Developer
 - [Development Setup](developer/development-setup.md) - Set up dev environment

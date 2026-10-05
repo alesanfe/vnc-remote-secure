@@ -14,16 +14,16 @@
 
 ## 📖 Documentation
 
-**📚 Complete documentation available in the [`doc/`](doc/) directory:**
+**📚 Complete documentation available in the [`doc/`](../) directory:**
 
-- **[🚀 Quick Start](doc/installation/quick-start.md)** - Get started in 5 minutes
-- **[📋 Installation Guide](doc/installation/detailed-setup.md)** - Complete setup instructions
-- **[⚙️ Configuration](doc/installation/configuration.md)** - All configuration options
-- **[👤 User Guide](doc/user-guide/)** - How to use the system
-- **[🔒 Security Guide](doc/user-guide/security.md)** - Security best practices
-- **[🧪 Testing Guide](doc/developer/testing.md)** - Run and write tests
-- **[🏗️ Architecture](doc/developer/architecture.md)** - System design
-- **[📖 Reference](doc/reference/)** - Complete reference documentation
+- **[🚀 Quick Start](../user-guide/getting-started.md)** - Get started in 5 minutes
+- **[📋 Installation Guide](../installation/linux.md)** - Complete setup instructions
+- **[⚙️ Configuration](../architecture/configuration.md)** - All configuration options
+- **[👤 User Guide](../user-guide/)** - How to use the system
+- **[🔒 Security Guide](../user-guide/production-hardening.md)** - Security best practices
+- **[🧪 Testing Guide](../developer/testing.md)** - Run and write tests
+- **[🏗️ Architecture](../architecture/overview.md)** - System design
+- **[📖 Reference](../)** - Complete reference documentation
 
 ## 🎯 Quick Start
 
@@ -190,7 +190,7 @@ MONITORING_ENABLED=true
 HEALTHCHECK_ENABLED=true
 ```
 
-**📚 [Complete configuration reference](doc/installation/configuration.md)**
+**📚 [Complete configuration reference](../architecture/configuration.md)**
 
 ## 🔒 Security
 
@@ -210,7 +210,7 @@ HEALTHCHECK_ENABLED=true
 - 📊 Monitor system resources
 - 🔄 Keep system updated
 
-**📚 [Complete security guide](doc/user-guide/security.md)**
+**📚 [Complete security guide](../user-guide/production-hardening.md)**
 
 ## 🏗️ Architecture
 
@@ -244,11 +244,11 @@ HEALTHCHECK_ENABLED=true
 └─────────────────┘
 ```
 
-**📚 [Complete architecture documentation](doc/developer/architecture.md)**
+**📚 [Complete architecture documentation](../architecture/overview.md)**
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](doc/developer/contributing.md).
+We welcome contributions! Please see our [Contributing Guidelines](../../CONTRIBUTING.md).
 
 ### Development Setup
 ```bash
@@ -293,12 +293,12 @@ doc/
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
 
 ## 🆘 Support
 
-- **📚 [Documentation](doc/)** - Complete guides and reference
-- **[FAQ](doc/reference/faq.md)** - Frequently asked questions
+- **📚 [Documentation](../)** - Complete guides and reference
+- **[FAQ](../user-guide/troubleshooting.md)** - Frequently asked questions
 - **[Issues](https://github.com/alesanfe/vnc-remote-secure/issues)** - Report bugs and request features
 - **[Discussions](https://github.com/alesanfe/vnc-remote-secure/discussions)** - Community discussions
 
@@ -311,7 +311,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**🎉 Ready to get started? Check out the [Quick Start Guide](doc/installation/quick-start.md)!**
+**🎉 Ready to get started? Check out the [Quick Start Guide](../user-guide/getting-started.md)!**
 
 ### Method 2: Using Makefile
 

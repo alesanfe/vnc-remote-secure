@@ -9,7 +9,7 @@ single runtime on every platform. Bash (`src/rpi-vnc-remote.sh`,
 `vnc-remote`, `launch.sh`) and PowerShell (`VncRemote.ps1`,
 `native/windows/VncRemote.psm1`) are thin compatibility wrappers that
 delegate to `vnc_remote_secure.cli`. See
-[ADR-0009](../adr/0009-bash-python-coexistence.md) (superseded) for the
+[ADR-0009](../decisions/ADR-009-bash-python-coexistence.md) (superseded) for the
 historical dual-implementation rationale.
 
 ## Project Organization
@@ -74,7 +74,7 @@ vnc-remote-secure/
 │   └── windows/                     # Windows packaging
 ├── docs/
 │   ├── architecture/                # Architecture docs (this file)
-│   ├── adr/                         # Architecture Decision Records
+│   ├── decisions/                         # Architecture Decision Records
 │   ├── installation/                # Installation guides
 │   ├── user-guide/                  # User guides
 │   └── developer/                   # Developer guides

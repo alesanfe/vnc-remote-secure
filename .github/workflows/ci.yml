@@ -106,7 +106,10 @@ jobs:
             --cov=vnc_remote_secure --cov-branch --cov-report=term-missing \
             --cov-report=xml:coverage.xml --cov-fail-under=56
       - name: Run pytest (no coverage gate)
-        if: !(matrix.os == 'ubuntu-latest' && matrix.python == '3.12')
+        # !(A && B) como A!= || B!= — el parser de exprs de act no
+        # acepta `!(` negando un paréntesis (GitHub sí); así es
+        # equivalente y compatible con ambos.
+        if: matrix.os != 'ubuntu-latest' || matrix.python != '3.12'
         run: |
           python -m pytest tests/unit tests/integration tests/e2e tests/security -q
       - name: Upload coverage report

@@ -48,7 +48,7 @@ hosting, or anything needing per-user cloud identity — see
 - **Guest share links** — single-use, TTL'd, revocable mid-session;
   revoking kills live WebSockets, not just future logins
 - **Session recording** — `.vrsrec` captures + in-browser player
-  ([format spec](docs/recording-format.md))
+  ([format spec](docs/RECORDING_FORMAT.md))
 - **File share** — scoped, size-capped, traversal-proof
   (`FILE_SHARE_ROOT`, 32 MiB)
 - **Audio + gamepad forwarding** — optional channels
@@ -130,7 +130,7 @@ with the same use case behind it.
 
 | `vnc-remote --help` | `vnc-remote doctor` |
 |---|---|
-| <img src="docs/assets/screenshots/cmd-help.png" alt="Ayuda del CLI" width="400" /> | <img src="docs/assets/screenshots/cmd-doctor.png" alt="Diagnóstico del CLI" width="400" /> |
+| <img src="docs/assets/screenshots/cmd-help.png" alt="Salida de vnc-remote --help — comandos y verbos del CLI" width="400" /> | <img src="docs/assets/screenshots/cmd-doctor.png" alt="Diagnóstico del CLI" width="400" /> |
 
 | `vnc-remote config validate` | `vnc-remote session list` |
 |---|---|
@@ -138,6 +138,90 @@ with the same use case behind it.
 
 Captured from the real CLI (see `frontend/e2e/screenshots.spec.ts` —
 `VRS_SHOTS=1 npm run test:e2e -- screenshots` regenerates them).
+
+</details>
+
+<details>
+<summary>Every console page — the full admin SPA walkthrough</summary>
+
+| Sessions & access | |
+|---|---|
+| Session inventory: invitations, operators and guests with state and expiry | ![Session inventory: invitations, operators and guests with state and expiry](docs/assets/screenshots/admin-sessions.png) |
+| Session detail: permissions, restrictions (single-use, IP-only) and revoke | ![Session detail: permissions, restrictions (single-use, IP-only) and revoke](docs/assets/screenshots/admin-session-detail.png) |
+| In-session chat tab | ![In-session chat tab](docs/assets/screenshots/admin-session-chat.png) |
+| Session-creation wizard — limits step (expiry, uses, IP restriction) | ![Session-creation wizard — limits step (expiry, uses, IP restriction)](docs/assets/screenshots/admin-wizard-limits.png) |
+| Session-creation wizard — review step before minting the link | ![Session-creation wizard — review step before minting the link](docs/assets/screenshots/admin-wizard-review.png) |
+| Link created: URL + QR shown exactly once, copy toast | ![Link created: URL + QR shown exactly once, copy toast](docs/assets/screenshots/admin-toast.png) |
+| Revocation confirmation dialog | ![Revocation confirmation dialog](docs/assets/screenshots/admin-confirm-revoke.png) |
+
+| Operations | |
+|---|---|
+| Overview: posture summary, jobs in flight, quick actions | ![Overview: posture summary, jobs in flight, quick actions](docs/assets/screenshots/admin-overview.png) |
+| Activity feed | ![Activity feed — recent operations in the admin console](docs/assets/screenshots/admin-activity.png) |
+| Diagnostics: config/ports/certs/firewall checks with OK/WARN/FAIL | ![Diagnostics: config/ports/certs/firewall checks with OK/WARN/FAIL](docs/assets/screenshots/admin-doctor.png) |
+| Jobs queue | ![Jobs queue — background operations with state](docs/assets/screenshots/admin-jobs.png) |
+| Job detail with progress bar and payload | ![Job detail with progress bar and payload](docs/assets/screenshots/admin-job-detail.png) |
+
+| Files & remote work | |
+|---|---|
+| Session file browser | ![Session file browser](docs/assets/screenshots/admin-files.png) |
+| Drag-over state on the dropzone | ![Drag-over state on the dropzone](docs/assets/screenshots/admin-files-drop.png) |
+| Real drop → transfer queue "uploading…" | ![Real drop → transfer queue "uploading…"](docs/assets/screenshots/admin-files-drop-upload.png) |
+| Immersive remote console (noVNC) | ![Immersive remote console (noVNC)](docs/assets/screenshots/admin-remote.png) |
+| Session recordings | ![Session recordings](docs/assets/screenshots/admin-recordings.png) |
+| `.vrsrec` recording player with seek and speed controls | ![`.vrsrec` recording player with seek and speed controls](docs/assets/screenshots/admin-recording-player.png) |
+
+| Security & administration | |
+|---|---|
+| Security posture: findings by severity | ![Security posture: findings by severity](docs/assets/screenshots/admin-security.png) |
+| Tamper-evident audit log with integrity chain | ![Tamper-evident audit log with integrity chain](docs/assets/screenshots/admin-audit.png) |
+| Audit — load error with retry | ![Audit — load error with retry](docs/assets/screenshots/admin-audit-error.png) |
+| Operators & identities | ![Operators & identities](docs/assets/screenshots/admin-identities.png) |
+| Operator detail | ![Operator detail](docs/assets/screenshots/admin-user-detail.png) |
+| Config editor with validation and effective diff | ![Config editor with validation and effective diff](docs/assets/screenshots/admin-config.png) |
+| Backups: create, verify, restore | ![Backups: create, verify, restore](docs/assets/screenshots/admin-backups.png) |
+| Step-up reauthentication for destructive operations | ![Step-up reauthentication for destructive operations](docs/assets/screenshots/admin-stepup.png) |
+
+| Shell & access | |
+|---|---|
+| Console login | ![Admin console login with MFA hint](docs/assets/screenshots/admin-login.png) |
+| Login — invalid credentials | ![Login — invalid credentials](docs/assets/screenshots/admin-login-error.png) |
+| Command palette (Ctrl+K) | ![Command palette (Ctrl+K)](docs/assets/screenshots/admin-palette.png) |
+| Keyboard-shortcut dialog | ![Keyboard-shortcut dialog](docs/assets/screenshots/admin-shortcuts.png) |
+| Built-in help | ![Built-in help — routes, shortcuts and glossary](docs/assets/screenshots/admin-help.png) |
+| Unknown route → "Page not found" | ![Unknown route → "Page not found"](docs/assets/screenshots/admin-404.png) |
+
+| Guest-facing surfaces | |
+|---|---|
+| Guest session view | ![Guest session view](docs/assets/screenshots/guest.png) |
+| Desktop stream (noVNC) | ![Desktop stream (noVNC)](docs/assets/screenshots/desktop.png) |
+| Web terminal | ![Web terminal in a guest session (xterm.js)](docs/assets/screenshots/terminal.png) |
+| Audio streaming | ![Audio streaming](docs/assets/screenshots/audio.png) |
+| Gamepad streaming | ![Gamepad streaming](docs/assets/screenshots/gamepad.png) |
+| Guest file browser | ![Guest file browser](docs/assets/screenshots/files-public.png) |
+| Account-recovery surface | ![Account-recovery surface](docs/assets/screenshots/recovery.png) |
+| Share-link consent in English | ![Share-link consent in English](docs/assets/screenshots/share-consent-en.png) |
+| Portal connection cards (operator portal) | ![Portal connection cards (operator portal)](docs/assets/screenshots/admin-connect.png) |
+
+</details>
+
+<details>
+<summary>Theme, density, viewport and locale matrix</summary>
+
+| Variant | Capture |
+|---|---|
+| Dark — overview | ![Dark — overview](docs/assets/screenshots/dark-overview.png) |
+| Dark — sessions | ![Dark — sessions](docs/assets/screenshots/dark-sessions.png) |
+| Dark — security | ![Dark — security](docs/assets/screenshots/dark-security.png) |
+| Dark — connect | ![Connect page in dark theme — services and links](docs/assets/screenshots/dark-connect.png) |
+| Dark — guest | ![Guest session in dark theme](docs/assets/screenshots/dark-guest.png) |
+| Dark — share consent | ![Dark — share consent](docs/assets/screenshots/dark-share-consent.png) |
+| Compact density — sessions | ![Compact density — sessions](docs/assets/screenshots/admin-sessions-compact.png) |
+| English locale — sessions | ![English locale — sessions](docs/assets/screenshots/admin-sessions-en.png) |
+| Mobile 390px — sessions | ![Mobile 390px — sessions](docs/assets/screenshots/mobile-sessions.png) |
+| Mobile 390px — connect | ![Mobile 390px — connect](docs/assets/screenshots/mobile-connect.png) |
+| Mobile 390px — identities | ![Mobile 390px — identities](docs/assets/screenshots/mobile-identities.png) |
+| Mobile 390px — guest | ![Mobile 390px — guest](docs/assets/screenshots/mobile-guest.png) |
 
 </details>
 
@@ -200,7 +284,7 @@ The Python CLI + service manager is canonical on every platform;
 Bash/PowerShell are thin delegating wrappers. Detail:
 [architecture overview](docs/architecture/overview.md) ·
 [component catalog](docs/architecture/catalog.md) ·
-[12 ADRs](docs/adr/README.md) · [failure modes](docs/architecture/failure-modes.md).
+[12 ADRs](docs/decisions/README.md) · [failure modes](docs/architecture/failure-modes.md).
 
 ## Platform support
 
@@ -267,7 +351,7 @@ ops ([SLO/RPO/RTO](docs/runbook/slo.md),
 [drills](docs/runbook/drills.md)) —
 governance ([requirements](docs/REQUIREMENTS.md),
 [maturity](docs/maturity.md), [policies](docs/policies/README.md),
-[tech debt](docs/tech-debt.md)) —
+[tech debt](docs/TECH_DEBT.md)) —
 [OpenAPI spec](docs/api/openapi.v1.yaml) · [ROADMAP](ROADMAP.md).
 
 ## Contributing & support

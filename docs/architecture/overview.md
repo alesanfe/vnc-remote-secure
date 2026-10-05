@@ -13,18 +13,18 @@ docs/
 │   ├── configuration.md        # Configuration reference
 │   ├── security-model.md       # Security architecture
 │   └── threat-model.md         # Redirects to ../THREAT_MODEL.md
-├── adr/                        # Architecture Decision Records (see adr/README.md for index)
-│   ├── 0001-use-nginx-as-reverse-proxy.md
-│   ├── 0002-bind-internal-services-to-localhost.md
-│   ├── 0003-use-systemd-for-service-management.md
-│   ├── 0004-separate-secrets-from-configuration.md
-│   ├── 0005-modular-bash-architecture.md
-│   ├── 0006-python-for-web-components.md
-│   ├── 0007-cross-platform-windows-support.md
-│   ├── 0008-duckdns-for-dynamic-dns.md
-│   ├── 0009-bash-python-coexistence.md
-│   ├── 0010-unified-token-signing.md
-│   └── 0011-shared-state-abstraction.md
+├── decisions/                        # Architecture Decision Records (see decisions/README.md for index)
+│   ├── ADR-001-use-nginx-as-reverse-proxy.md
+│   ├── ADR-002-bind-internal-services-to-localhost.md
+│   ├── ADR-003-use-systemd-for-service-management.md
+│   ├── ADR-004-separate-secrets-from-configuration.md
+│   ├── ADR-005-modular-bash-architecture.md
+│   ├── ADR-006-python-for-web-components.md
+│   ├── ADR-007-cross-platform-windows-support.md
+│   ├── ADR-008-duckdns-for-dynamic-dns.md
+│   ├── ADR-009-bash-python-coexistence.md
+│   ├── ADR-010-unified-token-signing.md
+│   └── ADR-011-shared-state-abstraction.md
 ├── api/                        # OpenAPI specification (openapi.v1.yaml)
 ├── installation/               # Installation guides
 │   ├── linux.md                 # Linux installation
@@ -54,8 +54,8 @@ docs/
 
 ### For Developers
 1. **[Project Structure](components.md)** - System design and modules
-2. **[ADR-0009](../adr/0009-bash-python-coexistence.md)** - Bash/Python coexistence
-3. **[ADR-0007](../adr/0007-cross-platform-windows-support.md)** - Windows support
+2. **[ADR-0009](../decisions/ADR-009-bash-python-coexistence.md)** - Bash/Python coexistence
+3. **[ADR-0007](../decisions/ADR-007-cross-platform-windows-support.md)** - Windows support
 4. **`AGENTS.md`** - Operational guide and verification commands
 
 ### For Operations

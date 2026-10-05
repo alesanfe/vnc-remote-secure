@@ -8,7 +8,7 @@ paid down, being accepted with a rationale, or scheduled.
 |----|------|------|--------|-------------|------|--------|
 | TD-01 | security | VNC uses legacy DES auth (fixed key, 8-char cap) | protocol constraint | transport must be wrapped (TLS/VPN/SSH); documented everywhere | **Accepted** — R-01; not fixable in-product | n/a |
 | TD-02 | code | `services/terminal.py` still large after the spawn/completion split | historic | readability; CC now ≤ 18 | keep split boundary clean; no further action unless growth resumes | quarterly audit |
-| ~~TD-03~~ | data | `.vrsrec` custom recording format | product | no external player | **RESOLVED** — spec published in `docs/recording-format.md` (parseable without the code); MP4 export deferred (FFmpeg dep) | done |
+| ~~TD-03~~ | data | `.vrsrec` custom recording format | product | no external player | **RESOLVED** — spec published in `docs/RECORDING_FORMAT.md` (parseable without the code); MP4 export deferred (FFmpeg dep) | done |
 | TD-04 | ops | No lockfile for pip deps | design choice | builds rely on ranges + dependabot + pip-audit | **Accepted** — source-install app; reproducibility comes from attestations + SBOM | yearly |
 | ~~TD-05~~ | api | Legacy `GET /?session=<token>` share URLs | compat shim | widened token surface | **RESOLVED** — shim removed; fragment links only | done |
 | TD-06 | code | File transfer is JSON+base64 (32 MiB cap, no streaming) | transport constraint | large transfers impractical | documented cap; real file flows belong to native paths | on demand |

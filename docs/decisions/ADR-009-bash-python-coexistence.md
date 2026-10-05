@@ -77,5 +77,5 @@ delegating to Python services where possible.
 
 ## Related
 
-- [ADR-0007: Cross-platform Windows support](0007-cross-platform-windows-support.md)
+- [ADR-0007: Cross-platform Windows support](ADR-007-cross-platform-windows-support.md)
 - `AGENTS.md` — project overview and verification commands

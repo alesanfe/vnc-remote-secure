@@ -39,7 +39,7 @@ error, security, data loss, unsustainable design) · **important**
 - [ ] New behavior has tests; security behavior has *negative* tests
 - [ ] Contract/parity tests updated when routes change
 - [ ] `CHANGELOG.md`, `config.schema.json`, `.env.example`,
-      `feature-flags.md` updated if applicable
+      `FEATURE_FLAGS.md` updated if applicable
 - [ ] Docs updated in the same PR (DoD — REQUIREMENTS.md)
 
 ## Operability

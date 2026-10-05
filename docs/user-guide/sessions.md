@@ -134,7 +134,7 @@ Rules:
 
 - Tokens are HMAC-signed with a `ephemeral` type tag — they cannot be
   substituted for session cookies or bearer tokens (see
-  `docs/adr/0010-unified-token-signing.md`).
+  `docs/decisions/ADR-010-unified-token-signing.md`).
 - Sessions are bound to the deployment's persisted instance id — a
   token issued by a different deployment never authenticates here.
 - Revocation and single-use claims are atomic across processes through
