@@ -196,6 +196,17 @@ test-security: ## Level 7: security tests (password, sanitization)
 test-fast: test-static test-unit test-integration test-security ## Run fast tests (skip e2e)
 	@echo "$(GREEN)✓ Fast tests complete$(NC)"
 
+test-mutation: ## Mutation tests on token_signing (mutmut; WSL on Windows) — gate: ≤5 surviving mutants
+	@mutmut run && \
+	  SURVIVED=$$(mutmut results | grep -c 'survived' || true) && \
+	  mutmut results | grep 'survived' || true && \
+	  echo "surviving mutants: $$SURVIVED (baseline: 5 equivalent)" && \
+	  if [ "$$SURVIVED" -gt 5 ]; then \
+	    echo "$(RED)✗ New surviving mutants — check test gaps$(NC)"; exit 1; fi
+
+build: ## Build the Python package (sdist + wheel into dist/)
+	python -m build
+
 # ============================================================================
 # QUALITY / LINTING
 # ============================================================================
@@ -490,7 +501,7 @@ git-pull: ## Pull from remote (current branch)
 .PHONY: help setup setup-env setup-deps setup-novnc \
         run run-ssl stop \
         win-run win-run-nossl win-stop win-verify \
-        test test-all test-list test-static test-unit test-integration test-e2e test-security test-fast \
+        test test-all test-list test-static test-unit test-integration test-e2e test-security test-fast test-mutation build \
         lint lint-strict lint-python lint-arch lint-semgrep lint-bandit \
         check-secrets check-deps sbom format check \
         cleanup \
