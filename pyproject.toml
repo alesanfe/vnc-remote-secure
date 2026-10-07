@@ -126,7 +126,7 @@ webauthn = [
 # Optional: enables orphan-process reaping in the service manager
 # (_reap_stale_service). Without it the stale-PID cleanup no-ops.
 ops = [
-  "psutil>=5.9,<7.0"
+  "psutil>=5.9,<8.0"
 ]
 # Browser E2E (tests/e2e/browser). After installing, run
 # `python -m playwright install chromium` once to fetch the browser.
