@@ -175,7 +175,14 @@ def get_run_dir():
     On Windows there is no ``/run`` equivalent, so a ``run`` subdirectory
     of the data directory is used instead. On non-root Linux,
     ``XDG_RUNTIME_DIR`` is used when available.
+
+    ``VRS_RUN_DIR`` env override wins over everything — tests and
+    portable deployments pin an explicit location (same role as
+    ``XDG_RUNTIME_DIR`` but platform-agnostic).
     """
+    override = os.environ.get("VRS_RUN_DIR")
+    if override:
+        return override
     if is_windows():
         return os.path.join(_win_base(), _APP_DIR_NAME_WIN, "run")
     if _is_root():

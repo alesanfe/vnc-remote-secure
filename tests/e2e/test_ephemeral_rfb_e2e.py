@@ -165,18 +165,15 @@ class _FakeRfbServer(threading.Thread):
 
 
 def _run_dir_for(env_extra: dict) -> str:
-    """Compute the run dir the subprocess will resolve for its state.
+    """Run dir shared by the test process and the spawned services.
 
-    Mirrors ``core.paths.get_run_dir``: under Windows it lives inside
-    LOCALAPPDATA, on Linux a root process always resolves
-    ``/run/vnc-remote-secure`` (XDG_RUNTIME_DIR only applies to
-    non-root — act containers and some CI run as root).
+    Both sides honor ``VRS_RUN_DIR`` (see ``core.paths.get_run_dir``),
+    so the ephemeral session the test writes lands where the novnc
+    subprocess reads it — on Windows runners the service resolves
+    ``ProgramData`` when elevated while the test used LOCALAPPDATA,
+    which made upgrades return 401.
     """
-    if sys.platform == "win32":
-        return os.path.join(env_extra["LOCALAPPDATA"], "VncRemoteSecure", "run")
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return os.path.join("/run", "vnc-remote-secure")
-    return os.path.join(env_extra["XDG_RUNTIME_DIR"], "vnc-remote-secure")
+    return env_extra["VRS_RUN_DIR"]
 
 
 @pytest.fixture
@@ -191,11 +188,10 @@ def stack(tmp_path, monkeypatch):
 
     # Redirect the subprocess state dirs into tmp_path so the ephemeral
     # session created in-test is visible to the novnc process.
-    if sys.platform == "win32":
-        env_extra = {"LOCALAPPDATA": str(tmp_path / "appdata")}
-    else:
-        env_extra = {"XDG_RUNTIME_DIR": str(tmp_path / "xdg")}
-    run_dir = _run_dir_for(env_extra)
+    # VRS_RUN_DIR lo respetan ambos procesos — el layout elevado de
+    # Windows (ProgramData vs LOCALAPPDATA) deja de importar.
+    run_dir = str(tmp_path / "run")
+    env_extra = {"VRS_RUN_DIR": run_dir}
     os.makedirs(run_dir, exist_ok=True)
 
     # Point the IN-PROCESS session store at the same run dir.

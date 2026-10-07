@@ -75,8 +75,12 @@ test.describe('Portal Landing Page', () => {
     // LAN IPs render after the SPA fetches /status.json.
     await page.waitForSelector('a[href*="/health"]');
     const body = await page.textContent('body');
-    // Should contain some IP address or localhost reference
-    expect(body).toMatch(/(localhost|127\.0\.0\.1|192\.168)/);
+    // Some IP or localhost reference. RFC1918 completo: los runners de
+    // CI viven en Azure (10.x), no en 192.168 — la regex anterior
+    // fallaba solo en GitHub Actions.
+    expect(body).toMatch(
+      /(localhost|127\.0\.0\.1|10\.\d{1,3}\.|172\.(1[6-9]|2\d|3[01])\.|192\.168)/
+    );
   });
 });
 

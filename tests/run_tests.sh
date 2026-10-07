@@ -122,6 +122,15 @@ discover_tests() {
         if [[ ! -d "$level_dir" ]]; then
             continue
         fi
+        # tests/windows/ llama a `powershell` (Windows PowerShell del
+        # wrapper .ps1) — en Linux/macOS el nivel no puede pasar, y el
+        # job "Pester Tests (Windows)" ya los cubre en su runner nativo.
+        if [[ "$level" == "windows" ]]; then
+            case "$(uname -s)" in
+                MINGW*|MSYS*|CYGWIN*|Windows_NT) ;;
+                *) continue ;;
+            esac
+        fi
         # If filter starts with a level name, only run that level
         if [[ -n "$filter" ]] && [[ "$filter" != "$level"* ]]; then
             continue

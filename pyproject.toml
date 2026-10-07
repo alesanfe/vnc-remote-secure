@@ -217,7 +217,7 @@ ignore_missing_imports = false
 module = [
     "evdev", "psutil", "vgamepad",
     "webauthn", "webauthn.*",
-    "opentelemetry.instrumentation.fastapi",
+    "opentelemetry", "opentelemetry.*",
 ]
 ignore_missing_imports = true
 

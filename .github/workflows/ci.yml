@@ -57,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run PSScriptAnalyzer
-        shell: pwsh -NoProfile
+        shell: pwsh  # -NoProfile es default en runners; "pwsh -NoProfile" no es un shell valido
         run: |
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
           $results = Invoke-ScriptAnalyzer -Path . -Recurse -IncludeDefaultRules
@@ -187,13 +187,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Pester
-        shell: pwsh -NoProfile
+        shell: pwsh  # -NoProfile es default en runners; "pwsh -NoProfile" no es un shell valido
         run: |
           # -AllowClobber: windows-latest trae Pester 3.x in-box y sin
           # el flag el install falla por colisión de comandos.
           Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck -AllowClobber
       - name: Run Pester tests
-        shell: pwsh -NoProfile
+        shell: pwsh  # -NoProfile es default en runners; "pwsh -NoProfile" no es un shell valido
         run: |
           $results = @()
           $failed = 0
