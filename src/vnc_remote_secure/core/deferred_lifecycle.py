@@ -64,7 +64,9 @@ def spawn_job_runner(jid: str, delay: float = _DEFAULT_DELAY) -> int:
         "stderr": subprocess.DEVNULL,
         "close_fds": True,
     }
-    if os.name == "nt":
+    # sys.platform (no os.name): mypy narrowea por plataforma y no
+    # marca las creationflags de Windows como inexistentes en Linux.
+    if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
     else:
         kwargs["start_new_session"] = True

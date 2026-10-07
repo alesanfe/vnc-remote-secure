@@ -135,6 +135,9 @@ class TestPublicListenersCheck:
         cfg = {
             "novnc_ws_port": 6081,
             "vnc_port": 5900,
+            # On Linux the effective RFB port is 5900+display — pin
+            # display :0 so the fixture port matches on every platform.
+            "vnc_display": ":0",
             "ttyd_port": 5000,
             "nginx_enabled": nginx,
             "novnc_port": 6080,

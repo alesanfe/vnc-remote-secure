@@ -42,7 +42,9 @@ def _severity(status: str, points: int) -> str:
     return "high" if points >= 10 else "medium" if points >= 5 else "low"
 
 
-def _add_finding(findings, name, ok, key="", warn_msg="", fail_msg="", points=10, evidence="", params=None):
+def _add_finding(
+    findings, name, ok, key="", warn_msg="", fail_msg="", points=10, evidence="", params=None
+):
     """Append a posture finding to the findings list.
 
     A finding records its name, status (ok/warn/fail), severity,
@@ -59,7 +61,8 @@ def _add_finding(findings, name, ok, key="", warn_msg="", fail_msg="", points=10
                 "key": key,
                 "status": "ok",
                 "severity": "info",
-                "detail": "", "params": params or {},
+                "detail": "",
+                "params": params or {},
                 "evidence": evidence,
                 "points": points,
             }
@@ -237,7 +240,7 @@ def _check_session_secret_finding(findings) -> None:
             findings,
             "Persistent session secret (FLASK_SECRET_KEY)",
             bool(flask_secret),
-        key="session_secret",
+            key="session_secret",
             warn_msg="FLASK_SECRET_KEY not set — sessions invalidated on restart",
             points=5,
             evidence=f"profile={profile}, secret set={bool(flask_secret)}",
@@ -352,7 +355,7 @@ def _check_session_posture(findings):
             findings,
             "Session idle timeout configured",
             idle <= 1800,
-        key="session_idle",
+            key="session_idle",
             warn_msg=f"Session idle timeout is {idle}s (consider <= 1800s)",
             params={"idle": idle},
             points=5,

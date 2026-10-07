@@ -21,6 +21,7 @@ state between interpreters.
 
 import contextlib
 import os
+import sys
 
 from vnc_remote_secure.platform.detection import is_windows
 
@@ -46,7 +47,9 @@ def find_project_root():
 
 def _is_elevated_windows() -> bool:
     """Return True when the process runs elevated on Windows."""
-    if os.name != "nt":
+    # sys.platform (no os.name): mypy entiende el narrowing por
+    # plataforma y no marca ctypes.windll como inexistente en Linux.
+    if sys.platform != "win32":
         return False
     try:
         import ctypes

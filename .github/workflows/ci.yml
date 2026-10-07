@@ -89,8 +89,10 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install dependencies
+        # .[webauthn] needed: passkey tests exercise the real feature
+        # and report 400 "WebAuthn is not enabled" without the lib.
         run: |
-          pip install -e ".[dev]"
+          pip install -e ".[dev,webauthn]"
       - name: Run pytest
         # Coverage gate on one matrix leg only — measuring on every
         # OS×Python cell triples the upload surface for no signal.
@@ -187,7 +189,9 @@ jobs:
       - name: Install Pester
         shell: pwsh -NoProfile
         run: |
-          Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+          # -AllowClobber: windows-latest trae Pester 3.x in-box y sin
+          # el flag el install falla por colisión de comandos.
+          Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck -AllowClobber
       - name: Run Pester tests
         shell: pwsh -NoProfile
         run: |
@@ -247,9 +251,14 @@ jobs:
         run: |
           semgrep scan --config=.semgrep.yml --error src/vnc_remote_secure/
       - name: Install project for dependency audit
-        run: pip install -e . pip-audit
+        run: |
+          python -m venv /tmp/audit-venv
+          /tmp/audit-venv/bin/pip install -U pip setuptools virtualenv wheel
+          /tmp/audit-venv/bin/pip install -e .
       - name: pip-audit (dependency CVE gate)
-        run: pip-audit --desc
+        run: |
+          /tmp/audit-venv/bin/pip install pip-audit
+          /tmp/audit-venv/bin/pip-audit --desc --skip-editable
       - name: Upload Bandit report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

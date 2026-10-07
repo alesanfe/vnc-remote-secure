@@ -58,7 +58,10 @@ jobs:
       # Shared by the spawned webServers (they inherit process env) and
       # by the spec (it reads LANDING_PASSWORD for HTTP Basic creds).
       # The portal is fail-closed — without this every request is 401.
-      LANDING_PASSWORD: ci-test-password
+      # NOTE: must satisfy validate_password() (no weak patterns like
+      # "password", needs upper+lower+digit+special) or the spawned
+      # landing service exits immediately and webServer times out.
+      LANDING_PASSWORD: 'E2e-Landing!Passw0rd'
       HEALTH_WEB_PORT: '8080'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

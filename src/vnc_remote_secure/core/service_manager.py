@@ -964,7 +964,7 @@ def _sweep_stale_temp_user() -> None:
     try:
         import pwd
 
-        pwd.getpwnam(temp_user)  # type: ignore[attr-defined]
+        pwd.getpwnam(temp_user)  # type: ignore[attr-defined, unused-ignore]
     except KeyError:
         return  # not present — nothing stale
     except ImportError:

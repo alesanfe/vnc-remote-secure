@@ -526,6 +526,6 @@ class TestPidIdentity:
 
         if _s.platform != "win32":
             monkeypatch.setattr(
-                "builtins.open", lambda *a, **k: __import__("io").BytesIO(b"vnc_remote_secure")
+                "builtins.open", lambda *a, **k: __import__("io").BytesIO(b"websockify")
             )
             assert sm._pid_is_ours(4321, "websockify") is True

@@ -50,9 +50,7 @@ def _sessions_page(sessions, query: dict) -> dict:
     def key(s):
         return (float(s.get("created_at") or 0), s.get("token_id") or "")
 
-    items = sorted(
-        (session_to_api(s) for s in sessions), key=key, reverse=True
-    )
+    items = sorted((session_to_api(s) for s in sessions), key=key, reverse=True)
     if cursor:
         # Opaque composite "<created_at>|<token_id>". A malformed or
         # legacy bare-token_id cursor degrades to the first page —

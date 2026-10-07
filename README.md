@@ -21,7 +21,7 @@ a web browser.
 > `?session=` share links were removed — use `/share#t=` links).
 
 <p align="center">
-  <img src="docs/assets/screenshots/portal.png" alt="Portal del operador: métricas del host en vivo (CPU, RAM, disco, uptime) y tarjetas de servicio con estado online/offline" width="880" />
+  <img src="docs/assets/screenshots/portal.png" alt="Operator portal: live host metrics (CPU, RAM, disk, uptime) and service cards with online/offline status" width="880" />
 </p>
 <p align="center">
   <sub>Operator portal — live host metrics and per-service status</sub>
@@ -92,7 +92,7 @@ vnc-remote doctor     # full diagnostic — config, ports, certs, firewall
 curl -sk https://localhost:<HEALTH_WEB_PORT>/health/live
 ```
 
-<img src="docs/assets/screenshots/cmd-status.png" alt="Salida de vnc-remote status: tabla de servicios con PID, estado y puerto" width="760" />
+<img src="docs/assets/screenshots/cmd-status.png" alt="Output of vnc-remote status: service table with PID, state and port" width="760" />
 
 Then open the portal URL printed on screen (`https://<host>:8000`
 by default). If `doctor` fails on a fresh box, see
@@ -109,7 +109,7 @@ The guest opens the link, sees a consent card describing the grant,
 accepts, and gets a revocable cookie session — operator-side:
 `vnc-remote session list` / `session revoke <id>`.
 
-<img src="docs/assets/screenshots/share-consent.png" alt="Tarjeta de consentimiento del share link: lista de capacidades (ver escritorio, controlar teclado/ratón, terminal, audio, archivos, chat), caducidad automática y botones Aceptar/Cancelar" width="560" />
+<img src="docs/assets/screenshots/share-consent.png" alt="Share-link consent card: capability list (view desktop, control keyboard/mouse, terminal, audio, files, chat), automatic expiry and Accept/Cancel buttons" width="560" />
 
 ## Operator console
 
@@ -119,8 +119,8 @@ with the same use case behind it.
 
 <table>
 <tr>
-  <td><img src="docs/assets/screenshots/admin-overview.png" alt="Consola de administración: resumen con postura de seguridad y acciones rápidas" width="420" /></td>
-  <td><img src="docs/assets/screenshots/admin-sessions.png" alt="Inventario de sesiones: estado, permiso, caducidad, revocación" width="420" /></td>
+  <td><img src="docs/assets/screenshots/admin-overview.png" alt="Admin console: overview with security posture and quick actions" width="420" /></td>
+  <td><img src="docs/assets/screenshots/admin-sessions.png" alt="Session inventory: state, permission, expiry, revocation" width="420" /></td>
 </tr>
 </table>
 <p><sub>Overview · Access links</sub></p>
@@ -130,11 +130,11 @@ with the same use case behind it.
 
 | `vnc-remote --help` | `vnc-remote doctor` |
 |---|---|
-| <img src="docs/assets/screenshots/cmd-help.png" alt="Salida de vnc-remote --help — comandos y verbos del CLI" width="400" /> | <img src="docs/assets/screenshots/cmd-doctor.png" alt="Diagnóstico del CLI" width="400" /> |
+| <img src="docs/assets/screenshots/cmd-help.png" alt="Output of vnc-remote --help — CLI commands and verbs" width="400" /> | <img src="docs/assets/screenshots/cmd-doctor.png" alt="CLI diagnostics" width="400" /> |
 
 | `vnc-remote config validate` | `vnc-remote session list` |
 |---|---|
-| <img src="docs/assets/screenshots/cmd-config-validate.png" alt="Validación de configuración" width="400" /> | <img src="docs/assets/screenshots/cmd-session-list.png" alt="Listado de sesiones" width="400" /> |
+| <img src="docs/assets/screenshots/cmd-config-validate.png" alt="Configuration validation" width="400" /> | <img src="docs/assets/screenshots/cmd-session-list.png" alt="Session listing" width="400" /> |
 
 Captured from the real CLI (see `frontend/e2e/screenshots.spec.ts` —
 `VRS_SHOTS=1 npm run test:e2e -- screenshots` regenerates them).

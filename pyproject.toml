@@ -47,6 +47,15 @@ dependencies = [
   # Outbound HTTP — always through security.http_client (SSRF policy +
   # DNS pinning), never raw urllib/requests.
   "httpx>=0.27,<1.0",
+  # Transitive floor: urllib3 <2.8 mixes target/proxy TLS config
+  # (PYSEC-2026-4175).
+  "urllib3>=2.8.0",
+  # Transitive floor: pyjwt <2.14 accepts empty oct JWKs as HS256 keys
+  # (PYSEC-2026-4143 and related).
+  "pyjwt>=2.14.0",
+  # Transitive floor: tornado <6.5.9 StaticFileHandler follows
+  # attacker-planted symlinks out of the static root (GHSA-c2m8-h5v5-343r).
+  "tornado>=6.5.9",
   # Argon2id operator password hashing (pbkdf2 legacy verify + rehash).
   "argon2-cffi>=23.1,<26.0",
   # RFC 4226/6238 primitives — the project layer keeps replay
@@ -202,7 +211,14 @@ ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
 # Optional/platform-specific dependencies without published type stubs.
-module = ["evdev", "psutil", "vgamepad"]
+# webauthn + opentelemetry.instrumentation son extras opcionales
+# ([webauthn], [otel]) — no instalados en el extra .[dev] del lint;
+# sus imports van guardados con try/except en runtime.
+module = [
+    "evdev", "psutil", "vgamepad",
+    "webauthn", "webauthn.*",
+    "opentelemetry.instrumentation.fastapi",
+]
 ignore_missing_imports = true
 
 [tool.pylint.messages_control]

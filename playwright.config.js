@@ -41,7 +41,15 @@ module.exports = defineConfig({
       reuseExistingServer: true,
       timeout: 15000,
       env: {
-        LANDING_PASSWORD: process.env.LANDING_PASSWORD || 'ci-test-password',
+        // Must satisfy validate_password() — a weak value makes the
+        // spawned landing service exit before the port ever opens.
+        LANDING_PASSWORD: process.env.LANDING_PASSWORD || 'E2e-Landing!Passw0rd',
+        // Pinned, not `process.env.X || …`: a developer `.env` (injected
+        // into the environment by local runners like `act`) must not
+        // rebind the port or flip TLS — the spec probes http://:8000.
+        LANDING_PORT: '8000',
+        DISABLE_SSL: 'true',
+        TLS_ENABLED: 'false',
       },
     },
     {
@@ -53,7 +61,8 @@ module.exports = defineConfig({
       reuseExistingServer: true,
       timeout: 15000,
       env: {
-        HEALTH_WEB_PORT: process.env.HEALTH_WEB_PORT || '8080',
+        // Same pinning: port must stay 8080 regardless of ambient .env.
+        HEALTH_WEB_PORT: '8080',
         HEALTH_WEB_HOST: '127.0.0.1',
       },
     },

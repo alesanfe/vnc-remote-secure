@@ -165,9 +165,18 @@ class _FakeRfbServer(threading.Thread):
 
 
 def _run_dir_for(env_extra: dict) -> str:
-    """Compute the run dir the subprocess will resolve for its state."""
-    base = env_extra.get("XDG_RUNTIME_DIR") or env_extra.get("LOCALAPPDATA")
-    return os.path.join(str(base), "VncRemoteSecure", "run")
+    """Compute the run dir the subprocess will resolve for its state.
+
+    Mirrors ``core.paths.get_run_dir``: under Windows it lives inside
+    LOCALAPPDATA, on Linux a root process always resolves
+    ``/run/vnc-remote-secure`` (XDG_RUNTIME_DIR only applies to
+    non-root — act containers and some CI run as root).
+    """
+    if sys.platform == "win32":
+        return os.path.join(env_extra["LOCALAPPDATA"], "VncRemoteSecure", "run")
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return os.path.join("/run", "vnc-remote-secure")
+    return os.path.join(env_extra["XDG_RUNTIME_DIR"], "vnc-remote-secure")
 
 
 @pytest.fixture
@@ -195,9 +204,15 @@ def stack(tmp_path, monkeypatch):
     from vnc_remote_secure.core import paths as paths_mod
 
     monkeypatch.setattr(paths_mod, "get_run_dir", lambda: run_dir)
-    import vnc_remote_secure.security.ephemeral_sessions as ephem_mod
+    import vnc_remote_secure.security.ephemeral_model as ephem_mod
 
     monkeypatch.setattr(ephem_mod, "_INSTANCE_ID", None)
+
+    # Pin the signing secret on BOTH sides: the novnc subprocess loads
+    # the developer's gitignored .env (AUTH_SECRET) via load_env_file,
+    # while the test process skips it — mismatched HMAC keys made the
+    # upgrade return 401. A real env var outranks .env everywhere.
+    monkeypatch.setenv("AUTH_SECRET", "vrs-e2e-ephemeral-test-secret")
 
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     env = dict(os.environ)

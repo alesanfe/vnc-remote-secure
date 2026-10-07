@@ -162,8 +162,15 @@ run_test_file() {
         # or py.exe) for WSL environments where Linux Python may not have
         # pytest installed. When using Windows Python from WSL, convert paths
         # to Windows format via wslpath.
+        # pytest exit 5 = "no tests ran" — p.ej. un módulo que se salta
+        # entero por diseño (SOAK_SECONDS opt-in). Eso no es un fallo.
         if command -v pytest &>/dev/null; then
-            pytest "$test_path" -q
+            pytest "$test_path" -q; local rc=$?
+            if [ $rc -eq 5 ]; then
+                echo -e "${YELLOW}[SKIP] nada que ejecutar en $test_path (todo skipped)${NC}"
+                return 0
+            fi
+            return $rc
         elif command -v python3 &>/dev/null && python3 -m pytest --version &>/dev/null; then
             python3 -m pytest "$test_path" -q
         elif command -v python.exe &>/dev/null; then
@@ -187,10 +194,18 @@ run_test_file() {
             return 0
         fi
     elif [[ "$ext" == "ps1" ]]; then
+        # Git Bash emite rutas POSIX (/c/...) que PowerShell interpreta
+        # mal (C:\c\...) — convertir a Windows cuando cygpath existe.
+        local ps1_path="$test_path"
+        if command -v cygpath &>/dev/null; then
+            ps1_path=$(cygpath -w "$test_path")
+        elif command -v wslpath &>/dev/null; then
+            ps1_path=$(wslpath -w "$test_path")
+        fi
         if command -v pwsh &>/dev/null; then
-            pwsh -NoProfile -Command "Invoke-Pester '$test_path' -Output Detailed"
+            pwsh -NoProfile -Command "Invoke-Pester '$ps1_path' -Output Detailed"
         elif command -v powershell &>/dev/null; then
-            powershell -NoProfile -Command "Invoke-Pester '$test_path' -Output Detailed"
+            powershell -NoProfile -Command "Invoke-Pester '$ps1_path' -Output Detailed"
         else
             echo -e "${YELLOW}[SKIP] PowerShell not available, skipping $test_path${NC}"
             return 0

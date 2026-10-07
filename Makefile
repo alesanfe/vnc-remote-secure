@@ -161,26 +161,26 @@ test: test-all ## Alias for test-all
 
 test-all: ## Run all tests (full pyramid)
 	@echo "$(BLUE)Running all tests (pyramid)...$(NC)"
-	@cd tests && bash run_tests.sh
+	@bash tests/run_tests.sh
 
 test-list: ## List available tests
-	@cd tests && bash run_tests.sh -l
+	@bash tests/run_tests.sh -l
 
 test-static: ## Level 0: static analysis (lint, syntax, CRLF)
 	@echo "$(BLUE)Running static tests (Level 0)...$(NC)"
-	@cd tests && bash run_tests.sh static/
+	@bash tests/run_tests.sh static/
 
 test-unit: ## Level 1: unit tests (isolated functions)
 	@echo "$(BLUE)Running unit tests (Level 1)...$(NC)"
-	@cd tests && bash run_tests.sh unit/
+	@bash tests/run_tests.sh unit/
 
 test-integration: ## Level 3: integration tests (multi-module)
 	@echo "$(BLUE)Running integration tests (Level 3)...$(NC)"
-	@cd tests && bash run_tests.sh integration/
+	@bash tests/run_tests.sh integration/
 
 test-e2e: ## Level 5: end-to-end tests (entry point)
 	@echo "$(BLUE)Running E2E tests (Level 5)...$(NC)"
-	@cd tests && bash run_tests.sh e2e/
+	@bash tests/run_tests.sh e2e/
 
 coverage: ## Coverage report (indicator, not a gate)
 	@echo "$(BLUE)Collecting coverage (unit + integration)...$(NC)"
@@ -194,7 +194,7 @@ debt-audit: ## Technical-debt signals: hotspots, markers, dead code, skips, drif
 
 test-security: ## Level 7: security tests (password, sanitization)
 	@echo "$(BLUE)Running security tests (Level 7)...$(NC)"
-	@cd tests && bash run_tests.sh security/
+	@bash tests/run_tests.sh security/
 
 test-fast: test-static test-unit test-integration test-security ## Run fast tests (skip e2e)
 	@echo "$(GREEN)✓ Fast tests complete$(NC)"

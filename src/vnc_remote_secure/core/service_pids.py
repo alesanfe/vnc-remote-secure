@@ -380,7 +380,7 @@ def _kill_pid(
         if _pid_alive(pid):
             # ProcessLookupError subclasses OSError; POSIX-only branch
             with suppress(OSError):
-                os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]  # pylint: disable=no-member
+                os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined, unused-ignore]  # pylint: disable=no-member
     stopped = not _pid_alive(pid)
     if stopped:
         _clear_pid_by_value(pid)

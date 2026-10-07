@@ -74,9 +74,14 @@ def test_vnc_port_from_display_number():
     assert DEFAULT_VNC_PORT >= 5900
 
 
-def test_vnc_port_none_defaults_to_base():
+def test_vnc_port_none_defaults_to_base(monkeypatch):
     from vnc_remote_secure.core.constants import DEFAULT_VNC_PORT
 
+    # act injects the developer's gitignored .env as real env vars —
+    # an operator-set VNC_PORT/VNC_DISPLAY must not leak into the
+    # default check (the base port derives from VNC_DISPLAY on Linux).
+    monkeypatch.delenv("VNC_PORT", raising=False)
+    monkeypatch.delenv("VNC_DISPLAY", raising=False)
     assert vnc._vnc_port(None) == DEFAULT_VNC_PORT
 
 
