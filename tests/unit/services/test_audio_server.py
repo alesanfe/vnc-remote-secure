@@ -174,6 +174,27 @@ def _no_respawn(srv):
     srv.start_ffmpeg = _start
 
 
+async def _reader_until_parked(srv, ready=None):
+    """Run audio_reader until it has drained the fake stdout, tried the
+    (stubbed) respawn and parked on the cleared ``_ffmpeg_running``
+    event — the one await that cancels deterministically. Blindly
+    cancelling on a fixed sleep raced the restart path and hung
+    forever under ProactorEventLoop on the Windows runners."""
+    task = asyncio.ensure_future(srv.audio_reader())
+    try:
+        for _ in range(500):  # ≤5 s — bounded, never a hang
+            done = srv.ffmpeg_process is None and not srv._ffmpeg_running.is_set()
+            if done and (ready is None or ready()):
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 def test_audio_reader_broadcasts_to_clients():
     srv = _server()
     srv.ffmpeg_process = _FakeProc(chunks=b"abc" * 10)
@@ -182,17 +203,7 @@ def test_audio_reader_broadcasts_to_clients():
     ws = _FakeWS()
     srv.clients.add(ws)
 
-    async def run_once():
-        task = asyncio.ensure_future(srv.audio_reader())
-        # Let the reader drain the fake stdout then cancel.
-        await asyncio.sleep(0.3)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-    asyncio.run(run_once())
+    asyncio.run(_reader_until_parked(srv, ready=lambda: bool(ws.sent)))
     assert ws.sent, "client received no audio chunks"
     assert all(isinstance(c, bytes) for c in ws.sent)
 
@@ -212,16 +223,7 @@ def test_audio_reader_removes_disconnected_client():
     dead.send = closed_send
     srv.clients.add(dead)
 
-    async def run_once():
-        task = asyncio.ensure_future(srv.audio_reader())
-        await asyncio.sleep(0.3)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-    asyncio.run(run_once())
+    asyncio.run(_reader_until_parked(srv))
     assert dead not in srv.clients
 
 
@@ -242,12 +244,24 @@ def test_audio_reader_waits_for_ffmpeg_before_reading():
         srv._ffmpeg_running.set()
         ws = _FakeWS()
         srv.clients.add(ws)
-        await asyncio.sleep(0.3)
-        task.cancel()
+        # Poll until the reader drained the payload, hit EOF, ran the
+        # stubbed respawn and parked on the cleared event again — the
+        # await that cancels deterministically (see _reader_until_parked).
         try:
-            await task
-        except asyncio.CancelledError:
-            pass
+            for _ in range(500):
+                if (
+                    ws.sent
+                    and srv.ffmpeg_process is None
+                    and not srv._ffmpeg_running.is_set()
+                ):
+                    break
+                await asyncio.sleep(0.01)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         # The reader broadcast real audio payload bytes (chunks of b'q')
         # — a bare truthiness assert would pass on any noise frame.
         assert ws.sent
@@ -330,17 +344,7 @@ def test_audio_reader_drops_slow_client():
     old = m._WS_SEND_TIMEOUT
     m._WS_SEND_TIMEOUT = 0.05
     try:
-
-        async def run_once():
-            task = asyncio.ensure_future(srv.audio_reader())
-            await asyncio.sleep(0.5)
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        asyncio.run(run_once())
+        asyncio.run(_reader_until_parked(srv))
     finally:
         m._WS_SEND_TIMEOUT = old
     assert slow not in srv.clients

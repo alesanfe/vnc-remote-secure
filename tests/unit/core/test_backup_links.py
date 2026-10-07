@@ -84,7 +84,13 @@ class TestRestoreRejectsEscapingLinks:
         # verify_backup only checks format; use the restore validator.
         from vnc_remote_secure.core.backup import restore_backup
 
-        with pytest.raises(RuntimeError, match="Unsafe link target"):
+        # On Windows "/etc/passwd" is root-relative, not drive-absolute
+        # (ntpath.isabs -> False), so the custom scan lets it through
+        # and tarfile's data filter rejects it with a different
+        # message. Both layers refuse — either message is a pass.
+        with pytest.raises(
+            RuntimeError, match="Unsafe link target|outside the destination"
+        ):
             restore_backup(str(f), dry_run=True)
 
     def test_relative_symlink_escape_rejected(self, tmp_path):
