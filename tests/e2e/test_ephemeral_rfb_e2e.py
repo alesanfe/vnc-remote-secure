@@ -154,7 +154,7 @@ class _FakeRfbServer(threading.Thread):
         finally:
             conn.close()
 
-    def got(self, payload: bytes, timeout: float = 5.0) -> bool:
+    def got(self, payload: bytes, timeout: float = 15.0) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._lock:

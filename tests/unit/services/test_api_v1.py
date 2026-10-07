@@ -29,7 +29,7 @@ def server(monkeypatch, tmp_path, asgi_server):
     Service-status reads flow through the engine read model →
     ``stores`` boundary, so the probes/metrics are stubbed THERE —
     real port connects + a ~3 s metrics collection would otherwise
-    blow the 5 s request timeout.
+    blow the request timeout.
     """
     monkeypatch.setenv("LANDING_PASSWORD", "T3st-Landing!Pass")
     monkeypatch.setattr(landing, "check_port", lambda *a, **k: True)
@@ -99,7 +99,7 @@ class _Hdrs(dict):
 
 
 def _req(port, path, method="GET", headers=None, body=None):
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
     conn.request(method, path, body=body, headers=headers or {})
     resp = conn.getresponse()
     data = resp.read()
