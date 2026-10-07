@@ -149,6 +149,15 @@ def test_start_health_server_serves_health_all(monkeypatch):
     import http.client
 
     monkeypatch.setattr(health, "is_port_available", lambda port, host=None: True)
+    # get_all_health collects real system metrics — on Windows that's a
+    # WMI/PowerShell spawn chain that can outlast the 5 s request
+    # timeout on a loaded CI runner. The test only asserts the
+    # response shape, so stub the collection at the module boundary.
+    from vnc_remote_secure.monitoring import health as monitoring_health
+
+    monkeypatch.setattr(
+        monitoring_health, "get_system_health", lambda: {"hostname": "h", "os": "os"}
+    )
 
     server = health.start_health_server(port=0, host="127.0.0.1")
     try:
