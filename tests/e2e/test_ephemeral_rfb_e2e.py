@@ -279,6 +279,8 @@ def _ws_upgrade(port: int, cookie: str = "", bearer: str = ""):
     if bearer:
         headers.append(f"Authorization: Bearer {bearer}")
     sock = socket.create_connection(("127.0.0.1", port), timeout=10)
+    # Windows CI runners can take >10 s for novnc to answer the upgrade
+    sock.settimeout(30)
     sock.sendall(("\r\n".join(headers) + "\r\n\r\n").encode())
     # Read response headers
     buf = b""
