@@ -162,10 +162,23 @@ def test_stop_ffmpeg_noop_without_process():
 # ---------------------------------------------------------------------------
 
 
+def _no_respawn(srv):
+    """Stub start_ffmpeg: on EOF the reader tries to respawn ffmpeg via
+    asyncio.create_subprocess_exec — a real spawn mid-test is not just
+    unneeded, on Windows cancelling it inside ProactorEventLoop can
+    hang the task forever. Park the reader on the cleared event
+    instead."""
+    async def _start():
+        return False
+
+    srv.start_ffmpeg = _start
+
+
 def test_audio_reader_broadcasts_to_clients():
     srv = _server()
     srv.ffmpeg_process = _FakeProc(chunks=b"abc" * 10)
     srv._ffmpeg_running.set()
+    _no_respawn(srv)
     ws = _FakeWS()
     srv.clients.add(ws)
 
@@ -188,6 +201,7 @@ def test_audio_reader_removes_disconnected_client():
     srv = _server()
     srv.ffmpeg_process = _FakeProc(chunks=b"z" * 500)
     srv._ffmpeg_running.set()
+    _no_respawn(srv)
     dead = _FakeWS()
 
     import websockets
@@ -217,6 +231,7 @@ def test_audio_reader_waits_for_ffmpeg_before_reading():
     client triggers the lazy start."""
     srv = _server()
     proc = _FakeProc(chunks=b"q" * 20)
+    _no_respawn(srv)
 
     async def scenario():
         task = asyncio.ensure_future(srv.audio_reader())
@@ -301,6 +316,7 @@ def test_audio_reader_drops_slow_client():
     srv = _server()
     srv.ffmpeg_process = _FakeProc(chunks=b"s" * 500)
     srv._ffmpeg_running.set()
+    _no_respawn(srv)
     slow = _FakeWS()
 
     async def _stall(data):

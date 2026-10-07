@@ -77,6 +77,12 @@ jobs:
     name: OpenSSF Scorecard
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      # publish_results firma via OIDC (Fulcio) y el upload SARIF
+      # necesita security-events — sin id-token: write el job entra
+      # en device-flow interactivo y muere por timeout.
+      security-events: write
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
