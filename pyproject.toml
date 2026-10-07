@@ -116,7 +116,7 @@ dev = [
   "PyYAML>=6.0,<7.0",
 ]
 linux = [
-  "evdev>=1.0,<2.0"
+  "evdev>=1.0,<3.0"
 ]
 # Optional: WebAuthn/passkey ceremonies (WEBAUTHN_ENABLED + the
 # /webauthn/* routes). Without it the endpoints report 503.
