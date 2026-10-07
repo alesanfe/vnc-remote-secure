@@ -63,7 +63,7 @@ dependencies = [
   "pyotp>=2.9,<3.0",
   # Cross-process file locking (flock/msvcrt inside filelock) for the
   # service-manager global lock.
-  "filelock>=3.16,<4.0",
+  "filelock>=3.16,<5.0",
   # .env parsing — quoting/comments/${VAR} interpolation handled by
   # the library; the project keeps the $(…)-skip and injected-default
   # precedence tracking on top.
