@@ -89,6 +89,15 @@ def _isolate_run_dir(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ephem_mod, "_store", None)
 
+    # shared_state._backend is also a process-wide singleton — created
+    # lazily against the run_dir of whichever test touched it first.
+    # Without a reset, revocations / operator-epoch bumps leak between
+    # tests (a bump at T makes a sibling test's cookie created in the
+    # same int(T) second verify as False — flake seen on Windows CI).
+    from vnc_remote_secure.security import shared_state as shared_state_mod
+
+    shared_state_mod.reset_backend()
+
     # Prevent ambient .env / config.env leakage: mark the default env
     # merge as already done so load_env_file() is a no-op during the
     # test. Tests that need a specific file can still call
@@ -106,6 +115,10 @@ def _isolate_run_dir(monkeypatch, tmp_path):
     # explicitly (it can monkeypatch.setenv itself).
     monkeypatch.delenv("AUDIT_LOG_FILE", raising=False)
     monkeypatch.delenv("AUDIT_MIRROR_FILE", raising=False)
+    yield
+    # Close the backend before pytest reaps tmp_path — on Windows an
+    # open SQLite handle makes the cleanup fail.
+    shared_state_mod.reset_backend()
 
 
 @pytest.fixture(autouse=True)

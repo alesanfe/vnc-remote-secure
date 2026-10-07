@@ -1351,7 +1351,14 @@ def test_system_users_requires_admin_users(server):
     assert status == 403
 
 
-def test_system_users_list_shape(server):
+def test_system_users_list_shape(server, monkeypatch):
+    # The real adapter shells out to PowerShell (Windows) or reads
+    # pwd (Linux) — on a loaded CI runner that can exceed the 5 s
+    # request timeout. The test only checks the response shape, so
+    # stub the use-case boundary like the fixture stubs the probes.
+    from vnc_remote_secure.engine.application import system_users as su
+
+    monkeypatch.setattr(su, "list_system_users", lambda: [])
     status, _, body = _req(server, "/api/v1/system-users", headers=_auth_headers())
     assert status == 200
     assert isinstance(json.loads(body)["data"]["users"], list)

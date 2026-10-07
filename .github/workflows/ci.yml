@@ -173,7 +173,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install Python package
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,webauthn]"
       - name: Run Bash test pyramid
         run: |
           bash tests/run_tests.sh
