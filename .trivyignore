@@ -1,0 +1,5 @@
+# DS-0002: el contenedor orquesta nginx (:443), TigerVNC y supervisord
+# sobre /root — es un appliance multi-daemon, root es requisito del
+# diseño, no un descuido. La superficie externa ya está detrás del
+# gateway autenticado en :443.
+DS-0002
