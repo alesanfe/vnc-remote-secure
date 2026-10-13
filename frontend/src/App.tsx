@@ -392,8 +392,11 @@ export default function App() {
               type="button"
               className="logout-btn"
               onClick={() => {
-                void api.logout().then(() =>
-                  qc.invalidateQueries({ queryKey: ['me'] }));
+                // si el logout de red falla, invalidar igualmente:
+                // 'me' reflejará la sesión real (honesto ante fallo)
+                void api.logout()
+                  .catch(() => {})
+                  .then(() => qc.invalidateQueries({ queryKey: ['me'] }));
               }}
             >
               {t('nav.logout')}

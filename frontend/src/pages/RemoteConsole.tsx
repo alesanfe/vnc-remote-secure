@@ -25,7 +25,7 @@ import { desktopUrl } from './GuestPage';
     look like a broken render. */
 function DesktopFrame({ url, frameRef, loadingLabel }: {
   url: string;
-  frameRef: React.RefObject<HTMLIFrameElement>;
+  frameRef: React.RefObject<HTMLIFrameElement | null>;
   loadingLabel: string;
 }) {
   const [loaded, setLoaded] = useState(false);
