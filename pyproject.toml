@@ -109,7 +109,7 @@ dev = [
   # Supply chain: secrets scanning baseline + dependency CVE audit.
   "detect-secrets>=1.5,<2.0",
   "pip-audit>=2.7,<3.0",
-  "cyclonedx-bom>=4.6,<8.0",
+  "cyclonedx-bom>=4.6,<9.0",
   # Imported directly by tests/ — previously only reached the env
   # transitively, which deptry and a bare venv would both flag.
   "requests>=2.31,<3.0",
