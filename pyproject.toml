@@ -84,7 +84,7 @@ dev = [
   "ruff>=0.7.0,<1.0",
   # 24.x line (matches the pre-commit pin; 25+/26+ restyle docstring
   # spacing, which would split the style gate from the hook version).
-  "black>=24.10,<25",
+  "black>=24.10,<27",
   # Canonical type checker ([tool.mypy]); gated in the CI lint job.
   "mypy>=1.13,<3.0",
   "pre-commit>=3.5,<5.0",
