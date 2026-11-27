@@ -590,6 +590,56 @@ independent eyes (access control, vuln mgmt), incident history
   caps, job detail errors, file guest-vs-operator gating incl.
   resource binding, base64 upload, 409 exists).
 
+## Pass 18 — auth surface handlers: login/MFA/logout/step-up + sessions/operators
+
+### Reviews (TD-17-scoped)
+
+- `backend/handlers/auth.py` — the SPA login surface. Verified:
+  `_public_gate` on every public ceremony; password login delegates
+  to `authenticate_landing` (the pass-4/6-hardened path — store→env
+  widening closed), MFA gate emits `MFA_REQUIRED` code before any
+  session mint, maintenance 503 parity with `attempt_login`, audit
+  on every outcome. Passkey begin/complete share the same gate and
+  answer a uniform 404 for unknown users (no enumeration). Logout
+  revokes BOTH the gate sid and the cookie sid with their own
+  validity horizons, drops the auth-policy context, expires all
+  three cookies, clears pending cookies — idempotent. Step-up:
+  `_verify_step_up_password` uses store `verify()` for store members
+  (returns record-or-None, never False — the `is None` deny check is
+  correct) and env bootstrap only for non-store users; operation-
+  bound grants validate against the catalog and bind to the `vnc_op`
+  sid. `_queue_operator_service_cookie` sets `Secure` only on a real
+  TLS hop, `SameSite=Strict`, `Max-Age=min(idle,lifetime)`.
+  Clean.
+- `backend/handlers/sessions.py` — share-link CRUD. Pagination
+  cursor is opaque composite, malformed degrades to first page;
+  revoke answers uniform 200 exist-or-not (anti-enumeration);
+  PATCH requires `label` in `model_fields_set` (omitted ≠ explicit
+  null clear); create emits fragment `#t=` URLs and emails
+  best-effort with audit of the attempt, never the token.
+  Clean.
+- `backend/handlers/operators.py` — account + passkey management.
+  Passkey views expose only opaque sha256-prefix refs (never
+  credential id/public key); PATCH allows only role/disabled/
+  password via `model_fields_set` + `validate_password`, internal
+  fields unreachable (`extra=forbid`); create/delete/restore/
+  revoke-sessions all delegate permission + last-admin rules to the
+  use cases. Clean.
+- `backend/handlers/system_users.py` — thin, step-up via route,
+  reserved-name protection in the use case. Clean.
+
+### Negatives fixed this pass (pass 18)
+
+- No security bug — coverage push on the auth-surface handlers:
+  `sessions.py` 62 % → **84 %**, `operators.py` ~0 % → covered,
+  `auth.py` → **56 %** unit-level (remainder needs real WebAuthn/
+  cookie internals, partially covered via api_v1 route tests).
+  51 tests pinning: MFA_REQUIRED code, maintenance 503, passkey
+  no-enumeration, logout cookie expiry + idempotency, step-up
+  password verify paths (store/env/deny), session pagination +
+  anti-enumeration revoke + label semantics, operator PATCH
+  whitelist + weak-password rejection + passkey opaque refs.
+
 ## Remaining debt (honest) — updated
 
 - **TD-17 external review** — needs a human third party; scope doc
@@ -599,8 +649,8 @@ independent eyes (access control, vuln mgmt), incident history
 - **TD-13 ramp** — mechanism live; weakest remaining:
   `core/doctor.py` 57 % (platform probes),
   `core/service_manager.py` 68 %, `services/terminal.py` 60 %,
-  `backend/health_app.py` 0 %, remaining thin handlers
-  (`auth.py`/`operators.py`/`sessions.py`/`system_users.py` ~0-70 %
-  unit-level; partially covered via api_v1 route tests —
-  transport only, policy lives in engine/security).
+  `backend/health_app.py` 0 %, `backend/context.py`/`app.py`/
+  `schemas.py` partially covered (dispatch internals exercised via
+  api_v1 route tests — transport only, policy lives in
+  engine/security).
 - **D1/D10 drills** — need a disposable host.
