@@ -25,9 +25,7 @@ def _env_delta_after_import(*modules: str) -> dict:
         "changed = sorted(k for k in before if os.environ[k] != before[k])\n"
         "print(json.dumps({'added': added, 'changed': changed}))\n"
     )
-    r = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
-    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, f"import crashed: {r.stderr[-2000:]}"
     return json.loads(r.stdout.strip())
 
@@ -51,9 +49,7 @@ class TestNoEnvMutationOnImport:
             "vnc_remote_secure.security.authentication",
             "vnc_remote_secure.security.shared_state",
         )
-        assert delta == {"added": [], "changed": []}, (
-            f"import mutated os.environ: {delta}"
-        )
+        assert delta == {"added": [], "changed": []}, f"import mutated os.environ: {delta}"
 
 
 class TestEnvLoadStillWorksAtCompositionRoots:

@@ -6,6 +6,7 @@ is ``vnc_remote_secure.security.certificates.generate_self_signed`` and
 certificates are created automatically by ``vnc-remote install``
 (Let's Encrypt when DUCK_DOMAIN+EMAIL are set, self-signed otherwise).
 """
+
 import os
 import sys
 

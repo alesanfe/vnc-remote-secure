@@ -35,6 +35,7 @@ Security model:
     cannot bypass the gateway. Setting SERVE_NOVNC_HOST=0.0.0.0 is
     discouraged and logged as a warning.
 """
+
 import contextlib
 import logging
 import os

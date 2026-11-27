@@ -9,6 +9,7 @@ Supports three manifest types via the "managed_by" field:
   - "download":  Direct file download (with optional zip extraction)
   - "git-clone": Clone a git repository to a target directory
 """
+
 import hashlib
 import json
 import os

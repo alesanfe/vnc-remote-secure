@@ -88,9 +88,7 @@ class TestRestoreRejectsEscapingLinks:
         # (ntpath.isabs -> False), so the custom scan lets it through
         # and tarfile's data filter rejects it with a different
         # message. Both layers refuse — either message is a pass.
-        with pytest.raises(
-            RuntimeError, match="Unsafe link target|outside the destination"
-        ):
+        with pytest.raises(RuntimeError, match="Unsafe link target|outside the destination"):
             restore_backup(str(f), dry_run=True)
 
     def test_relative_symlink_escape_rejected(self, tmp_path):

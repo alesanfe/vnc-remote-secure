@@ -5,6 +5,7 @@ Shared configuration loader for VNC Remote Secure Python components.
 Reads .env file and provides environment variables with secure defaults.
 NEVER hardcode credentials - always read from environment or .env file.
 """
+
 import contextlib
 import logging
 import os

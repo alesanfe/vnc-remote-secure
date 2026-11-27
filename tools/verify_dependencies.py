@@ -3,6 +3,7 @@
 Verify that downloaded third-party dependencies match their manifests.
 Checks file existence and SHA-256 checksums.
 """
+
 import hashlib
 import json
 import os

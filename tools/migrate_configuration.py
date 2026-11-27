@@ -20,6 +20,7 @@ Usage:
     # or equivalently:
     vnc-remote config migrate
 """
+
 import os
 import subprocess
 import sys

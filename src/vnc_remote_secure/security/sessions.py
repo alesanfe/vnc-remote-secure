@@ -94,7 +94,7 @@ def verify_session_cookie(cookie_value: str) -> dict | None:
     # legacy v1 (username:created:expires) gets last_seen=created.
     sid = None
     if len(parts) == 5:
-        (username, created_str, last_seen_str, expires_str, sid) = parts
+        username, created_str, last_seen_str, expires_str, sid = parts
         # Reject malformed sids — the field is server-generated and
         # must be an opaque token, not attacker-controlled text.
         import re as _re

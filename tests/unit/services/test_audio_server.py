@@ -168,6 +168,7 @@ def _no_respawn(srv):
     unneeded, on Windows cancelling it inside ProactorEventLoop can
     hang the task forever. Park the reader on the cleared event
     instead."""
+
     async def _start():
         return False
 
@@ -249,11 +250,7 @@ def test_audio_reader_waits_for_ffmpeg_before_reading():
         # await that cancels deterministically (see _reader_until_parked).
         try:
             for _ in range(500):
-                if (
-                    ws.sent
-                    and srv.ffmpeg_process is None
-                    and not srv._ffmpeg_running.is_set()
-                ):
+                if ws.sent and srv.ffmpeg_process is None and not srv._ffmpeg_running.is_set():
                     break
                 await asyncio.sleep(0.01)
         finally:

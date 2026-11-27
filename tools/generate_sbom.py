@@ -10,6 +10,7 @@ versions are included when the package is importable via
 Usage:
     python tools/generate_sbom.py [--output sbom.json]
 """
+
 import argparse
 import json
 import os

@@ -12,6 +12,7 @@ is a thin CLI wrapper around it.
 Verified vector (matches a real ultravnc.ini):
     vnc12345 -> F50F904B11EE3F7C
 """
+
 import os
 import sys
 

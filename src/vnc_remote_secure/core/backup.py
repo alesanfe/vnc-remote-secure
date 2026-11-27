@@ -811,7 +811,7 @@ def _restore_from_temp(backup_file: str, temp_dir: str, project_root: str, dry_r
         return True
 
     try:
-        (ssl_dir, config_dst, data_dst, run_dst, sys_cfg_dst) = _copy_restored_tree(
+        ssl_dir, config_dst, data_dst, run_dst, sys_cfg_dst = _copy_restored_tree(
             temp_dir, project_root
         )
         _restrict_restored_secrets(
