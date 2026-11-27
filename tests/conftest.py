@@ -18,6 +18,19 @@ import pytest
 # loudly rather than rotating a real credential.
 os.environ.setdefault("VRS_TEST_MODE", "1")
 
+# Collection-time barrier: several service modules run load_env_file()
+# at import (services/{terminal,terminal_common,vnc}.py). pytest imports
+# every test module during collection — before any fixture runs — so on
+# a host with a real deployment .env the merged credentials
+# (USER_UI_PASSWORD, USER_UI_USERNAME, ...) land in os.environ for the
+# whole run: the _restore_environ snapshot then contains them, and
+# USER_UI_* outranks the monkeypatched TTYD_* inside authenticate().
+# Marking the default merge as done here makes those import-time calls
+# no-ops; explicit load_env_file(path) calls still load.
+import vnc_remote_secure.core.config as _config_mod
+
+_config_mod._ENV_LOADED = True
+
 # Hypothesis deadlines flake under load (CI/loaded dev machines): a
 # 200ms per-example budget is a timing assertion, not a correctness
 # signal, and these tests exercise validators/parsers whose runtime
