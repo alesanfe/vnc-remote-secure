@@ -365,3 +365,51 @@ independent eyes (access control, vuln mgmt), incident history
   `service_manager.py` 47 %, `services/terminal.py` 51 %,
   `core/doctor.py` 57 %, backend handlers ~13 % (large files).
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 12 — service_manager spawn/stop/watchdog + psutil API bug
+
+### Reviews (TD-17-scoped)
+
+- `core/service_manager.py` — full read of the 1065-line lifecycle
+  owner. Verified: stale-PID foreign-process guard, port-in-use
+  reap-then-fail (never kills foreign), websockify forced loopback +
+  sanitized env, per-service log routing, post-start bind
+  verification with orphan kill, pid-write-failure orphan kill,
+  stop refuses without the global lock, PID-reuse checks in
+  status/restore, temp-user sweep guarded by live-process check,
+  restart rate-limit (5/600 s), transition-only alerts,
+  blocking-findings edge detection. **One real crash bug found and
+  fixed** (below); otherwise clean.
+
+### Negatives fixed this pass (pass 12)
+
+- **`_reap_stale_service` psutil API crash** (core/service_manager):
+  called `proc.net_connections("tcp")` — psutil's Process API is
+  `connections(kind)` with kinds 'inet'/'inet4'/'inet6'/'unix'
+  ('tcp' is only valid for the module-level `psutil.net_connections`).
+  The AttributeError was outside the caught psutil exceptions, so it
+  propagated through `_start_python_service` → `start_all` —
+  crashing the start sequence precisely when an orphaned service
+  held the port (the only case the function exists for). The
+  orphan-reap feature was effectively dead code that took down
+  start_all with it. Fixed to `proc.connections("inet")` — UDP
+  conns never report LISTEN so the status filter still isolates
+  TCP listeners. Regression tests drive a fake psutil process table
+  (orphan killed, foreign/self spared, AccessDenied skipped,
+  psutil-absent noop).
+- `service_manager.py` 47 % → **68 %** (37 new tests across spawn
+  paths, dispatch, novnc-dir resolution, websockify loopback
+  forcing, stop-plan ordering, restart throttle, dead-service
+  detection, auto-restart, watchdog dedup, restore-state PID
+  adoption guards). Floor 0.60.
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; weakest remaining:
+  `services/terminal.py` 51 %, `core/doctor.py` 57 %,
+  `core/service_manager.py` 68 %, backend handlers ~13 %.
+- **D1/D10 drills** — need a disposable host.

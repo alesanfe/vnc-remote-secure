@@ -99,7 +99,10 @@ def _reap_stale_service(module: str, service_name: str, port: int):
             cmdline = " ".join(proc.info.get("cmdline") or [])
             if marker not in cmdline:
                 continue
-            for conn in proc.net_connections("tcp"):
+            # Process.connections() — kinds are 'inet'/'inet4'/'inet6'/
+            # 'unix'; 'tcp' is only valid for the module-level
+            # psutil.net_connections(). UDP conns never report LISTEN.
+            for conn in proc.connections("inet"):
                 if conn.laddr and conn.laddr.port == port and conn.status == "LISTEN":
                     logger.warning(
                         "Killing orphaned %s (PID %s) holding port %s",
