@@ -268,3 +268,99 @@ class TestRevokeAll:
         assert rc == 0
         assert store.validate(tok1) is None
         assert store.validate(tok2) is None
+
+
+class TestShareBaseUrlFallbacks:
+    """share_url.share_base_url — env/config fallback branches."""
+
+    def _clear(self, monkeypatch, *vars):
+        for v in vars:
+            monkeypatch.delenv(v, raising=False)
+
+    def test_get_config_failure_uses_env_flags(self, monkeypatch):
+        """get_config() throwing must fall back to TLS_ENABLED env —
+        the flag only applies when the context builder raises (a None
+        context means TLS is genuinely unavailable → http is honest)."""
+        from vnc_remote_secure.core import share_url
+
+        monkeypatch.setattr(
+            "vnc_remote_secure.core.config.get_config",
+            lambda: (_ for _ in ()).throw(RuntimeError("config broken")),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.certificates.create_ssl_context",
+            lambda *a: (_ for _ in ()).throw(RuntimeError("no certs")),
+            raising=False,
+        )
+        self._clear(
+            monkeypatch,
+            "DUCK_DOMAIN",
+            "NGINX_ENABLED",
+            "NGINX_HTTPS_PORT",
+            "LANDING_PORT",
+            "SSL_CERT",
+            "DISABLE_SSL",
+            "TLS_ENABLED",
+        )
+        monkeypatch.setenv("TLS_ENABLED", "true")
+        assert share_url.share_base_url() == "https://127.0.0.1:8000"
+
+    def test_disable_ssl_wins_over_tls_enabled_in_fallback(self, monkeypatch):
+        """DISABLE_SSL is the kill-switch — it must override TLS_ENABLED
+        even when the context builder raises and env flags decide."""
+        from vnc_remote_secure.core import share_url
+
+        monkeypatch.setattr(
+            "vnc_remote_secure.core.config.get_config",
+            lambda: (_ for _ in ()).throw(RuntimeError("config broken")),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.certificates.create_ssl_context",
+            lambda *a: (_ for _ in ()).throw(RuntimeError("no certs")),
+            raising=False,
+        )
+        self._clear(monkeypatch, "DUCK_DOMAIN", "NGINX_ENABLED", "SSL_CERT", "TLS_ENABLED")
+        monkeypatch.setenv("DISABLE_SSL", "true")
+        monkeypatch.setenv("TLS_ENABLED", "true")
+        assert share_url.share_base_url() == "http://127.0.0.1:8000"
+
+    def test_ssl_cert_env_counts_as_tls(self, monkeypatch):
+        """SSL_CERT set alone means TLS even without TLS_ENABLED —
+        exercised through the env-flag fallback."""
+        from vnc_remote_secure.core import share_url
+
+        monkeypatch.setattr(
+            "vnc_remote_secure.core.config.get_config",
+            lambda: {"tls_enabled": False},
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.certificates.create_ssl_context",
+            lambda *a: (_ for _ in ()).throw(RuntimeError("no certs")),
+            raising=False,
+        )
+        self._clear(monkeypatch, "DUCK_DOMAIN", "NGINX_ENABLED", "TLS_ENABLED", "DISABLE_SSL")
+        monkeypatch.setenv("SSL_CERT", "/tmp/x.pem")
+        assert share_url.share_base_url() == "https://127.0.0.1:8000"
+
+    def test_no_tls_context_no_tls_flag_is_http(self, monkeypatch):
+        """create_ssl_context() → None with no env TLS intent is http —
+        a share link must never claim TLS that does not exist."""
+        from vnc_remote_secure.core import share_url
+
+        monkeypatch.setattr(
+            "vnc_remote_secure.core.config.get_config",
+            lambda: {"tls_enabled": False},
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.certificates.create_ssl_context",
+            lambda *a: None,
+            raising=False,
+        )
+        self._clear(
+            monkeypatch, "DUCK_DOMAIN", "NGINX_ENABLED", "TLS_ENABLED", "SSL_CERT", "DISABLE_SSL"
+        )
+        assert share_url.share_base_url() == "http://127.0.0.1:8000"

@@ -156,3 +156,40 @@ independent eyes (access control, vuln mgmt), incident history
 - **TD-13 ramp** — mechanism live; 85 % global needs ongoing test
   writing (file_permissions 62 %, certificates 63 %, audio.py).
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 7 — token/session trust root + share-link URL derivation
+
+### Reviews (TD-17-scoped, clean)
+
+- `security/token_signing.py` — type-tag bound into the HMAC payload,
+  `compare_digest` on bytes, rotation window via
+  `previous_signing_secrets`, secret never logged. **Clean.**
+- `security/sessions.py` — v3 payload binds
+  user/created/last_seen/expiry/sid; epoch revocation checked on every
+  verify; SameSite whitelist. **Clean.**
+- `core/shared_state.py` — already at 81 % with floor; CAS primitives
+  underpin every atomic claim reviewed so far.
+
+### Negatives fixed this pass (pass 7)
+
+- `core/share_url.py` 67 % → 93 % — the TLS-resolution contract is
+  now pinned end to end: `create_ssl_context() → None` yields an
+  honest `http://` link (a share URL must never claim TLS that does
+  not exist); env-flag fallback only applies when the builder raises;
+  `DISABLE_SSL` kill-switch overrides `TLS_ENABLED` even in the
+  fallback path; `SSL_CERT` alone counts as TLS intent. Four tests
+  pin each branch; floor added at 0.85.
+- No new defect found in the token/session signing root — the
+  widening class from passes 4/6 does not extend there.
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; next weakest modules:
+  `service_manager.py` 47 %, `services/terminal.py` 51 %,
+  `core/doctor.py` 57 %, `core/processes.py` 55 %, `core/logging.py`
+  11 %, backend handlers ~13 % (transport code — costlier tests).
+- **D1/D10 drills** — need a disposable host.

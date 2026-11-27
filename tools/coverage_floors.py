@@ -40,6 +40,7 @@ FLOORS = {
     "security/file_permissions.py": 0.85,
     "security/certificates.py": 0.85,
     "core/paths.py": 0.75,
+    "core/share_url.py": 0.85,
     "services/ws_adapter.py": 0.75,
 }
 
