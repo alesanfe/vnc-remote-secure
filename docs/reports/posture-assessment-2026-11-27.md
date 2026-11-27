@@ -694,6 +694,48 @@ independent eyes (access control, vuln mgmt), incident history
   headers, error envelope, TE/CL rejection). Every backend handler
   module now has direct unit coverage.
 
+## Pass 20 — share-link delegation ceiling: check/persist divergence
+
+### Reviews (TD-17-scoped)
+
+- `engine/application/sessions.py` — the share-link use cases.
+  Delegation ceiling: `adminish` session perms (admin,
+  admin_users, admin_config, admin_audit) require `admin:*` on the
+  actor; route gate already requires the `admin_sessions` operator
+  capability, so non-adminish desktop powers (view/control/
+  terminal/file_transfer/…) are the feature itself. Label
+  validation (≤64 chars, no control chars), revoke/revoke-all/
+  revoke-by-creator audited, list filters whitelisted, unknown
+  token_id → uniform None (no enumeration). One real bug found —
+  below.
+- `engine/infrastructure/stores.py` — the ONLY engine→security
+  seam; narrow delegations verified (session_roles,
+  expand_session_permissions, operator_*, audit…).
+- `security/ephemeral_model.py` — permission vocabulary,
+  umbrella expansion to fixpoint (bounded), `has_permission`
+  composite `resource:action` normalization, view_only/no_terminal
+  covering fine-grained members, resource binding. Clean.
+
+### Negatives fixed this pass (pass 20)
+
+- **Share-link privilege escalation via empty permissions**
+  (`engine/application/sessions.py` + `stores.py`): the adminish
+  delegation check evaluated `permissions if permissions is not
+  None` — an explicit EMPTY set passed the check (no adminish
+  member), but `EphemeralSession.__init__` persists
+  `permissions or ROLES.get(role, {view})` — the empty set is
+  falsy → ROLE DEFAULTS. `POST /api/v1/sessions
+  {"role": "administrator", "permissions": []}` by an operator
+  holding `admin_sessions` but NOT `admin:*` minted a link with
+  ALL_PERMISSIONS (admin_users/admin_config/admin_audit included).
+  Same class as the pass-14 doctor divergence: the check and the
+  persistence disagreed. Fix: the use case now evaluates
+  `stores.session_default_permissions(role)` — a new seam helper
+  mirroring the model's fallback exactly — whenever `permissions`
+  is empty/None. Regression test RED→GREEN; 12 use-case tests
+  total (delegation ceiling, label validation, revocation audit,
+  list filters). 1372 engine+security+services tests green.
+
 ## Remaining debt (honest) — updated
 
 - **TD-17 external review** — needs a human third party; scope doc

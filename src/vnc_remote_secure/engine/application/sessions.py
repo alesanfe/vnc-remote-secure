@@ -97,7 +97,12 @@ def create_share_link(
     delegation violation. The caller (Backend) already validated the
     primitive types — this enforces the *authority* rules.
     """
-    requested = permissions if permissions is not None else stores.session_roles()[role]
+    # Evaluate the SAME effective permissions the store persists:
+    # EphemeralSession treats an empty/None ``permissions`` as "role
+    # defaults", so the check must too — otherwise ``permissions=[]``
+    # + ``role=administrator`` would pass here (empty set has no
+    # adminish member) while the session mints ALL_PERMISSIONS.
+    requested = permissions if permissions else stores.session_default_permissions(role)
     if (
         stores.expand_session_permissions(requested) & ADMINISH_PERMS
         and "admin:*" not in actor_perms

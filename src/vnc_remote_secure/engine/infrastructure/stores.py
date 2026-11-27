@@ -54,6 +54,16 @@ def session_roles() -> dict:
     return ROLES
 
 
+def session_default_permissions(role: str) -> set:
+    """Permissions a share link effectively carries when ``permissions``
+    is not given (or empty) — mirrors ``EphemeralSession``'s
+    ``permissions or ROLES.get(role, {view})`` fallback exactly, so the
+    delegation check evaluates what the store will actually persist."""
+    from vnc_remote_secure.security.ephemeral_model import PERM_VIEW, ROLES
+
+    return ROLES.get(role, {PERM_VIEW})
+
+
 def expand_session_permissions(perms: set) -> set:
     """Expand umbrella permissions (e.g. admin:* covers all)."""
     from vnc_remote_secure.security.ephemeral_sessions import expand_permissions
