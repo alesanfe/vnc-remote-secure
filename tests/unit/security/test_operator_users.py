@@ -133,6 +133,37 @@ class TestAuthenticateLanding:
         ok, _rec = http_auth.authenticate_landing(_basic("admin", "EnvPass 1!"))
         assert not ok  # env password does NOT apply to stored users
 
+    def test_stored_user_corrupt_record_no_env_fallback(self, store, monkeypatch):
+        """A stored user whose verify() throws (corrupt hash, rehash
+        I/O failure) must be DENIED — previously the blanket except
+        returned None, sending the stored admin down the env bootstrap
+        path and silently widening it to the env admin credential."""
+        ops.add_user("admin", "StorePass 1!", "viewer")
+        monkeypatch.setenv("LANDING_PASSWORD", "EnvPass 1!")
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.operator_users.verify",
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("corrupt hash")),
+            raising=False,
+        )
+        from vnc_remote_secure.security import http_auth
+
+        ok, rec = http_auth.authenticate_landing(_basic("admin", "EnvPass 1!"))
+        assert not ok and rec is None
+
+    def test_unreadable_store_still_falls_back(self, store, monkeypatch):
+        """By design, an unreadable store degrades to env bootstrap —
+        only a RECORD-level failure denies."""
+        monkeypatch.setenv("LANDING_PASSWORD", "EnvPass 1!")
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.operator_users.load_store",
+            lambda: (_ for _ in ()).throw(RuntimeError("disk gone")),
+            raising=False,
+        )
+        from vnc_remote_secure.security import http_auth
+
+        ok, rec = http_auth.authenticate_landing(_basic("admin", "EnvPass 1!"))
+        assert ok and rec["role"] == "admin"
+
     def test_env_admin_bootstrap(self, store, monkeypatch):
         monkeypatch.setenv("LANDING_PASSWORD", "EnvPass 1!")
         from vnc_remote_secure.security import http_auth

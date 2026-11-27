@@ -287,16 +287,34 @@ def _operator_store_auth(username: str, password, limiter, client_ip):
     silently bypassing RBAC must be visible)."""
     try:
         from vnc_remote_secure.security.operator_users import load_store, verify
-
-        if username not in load_store():
-            return None
-        rec = verify(username, password or "")
-        if limiter is not None:
-            (limiter.record_success if rec else limiter.record_failure)(client_ip)
-        return (True, rec) if rec else (False, None)
-    except Exception as exc:  # noqa: BLE001 - store failure falls back to env
+    except Exception as exc:  # noqa: BLE001 - import failure falls back to env
+        logger.warning("Operator store unavailable (%s) — falling back to " "env credentials", exc)
+        return None
+    try:
+        store = load_store()
+    except Exception as exc:  # noqa: BLE001 - unreadable store falls back to env
         logger.warning("Operator store unreadable (%s) — falling back to " "env credentials", exc)
         return None
+    if username not in store:
+        return None
+    # The username IS in the store from here on — verify() raising on a
+    # corrupt record (bad hash encoding, rehash I/O) must DENY, never
+    # fall back: a stored user evaluated against env credentials would
+    # silently widen them to the bootstrap admin.
+    try:
+        rec = verify(username, password or "")
+    except Exception as exc:  # noqa: BLE001 - corrupt record denies
+        logger.warning(
+            "Operator record for %r failed verification (%s) — denying",
+            username,
+            exc,
+        )
+        if limiter is not None:
+            limiter.record_failure(client_ip)
+        return False, None
+    if limiter is not None:
+        (limiter.record_success if rec else limiter.record_failure)(client_ip)
+    return (True, rec) if rec else (False, None)
 
 
 def authenticate_landing(auth_header, client_ip=None):
