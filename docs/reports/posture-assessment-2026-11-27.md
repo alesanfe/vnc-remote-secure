@@ -457,3 +457,43 @@ independent eyes (access control, vuln mgmt), incident history
   `core/doctor.py` 57 %, `core/service_manager.py` 68 %,
   `services/terminal.py` 60 %, backend handlers ~13 %.
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 14 — doctor diagnostics parity + format coverage
+
+### Reviews (TD-17-scoped)
+
+- `core/doctor.py` — secrets check now mirrors the blocking gate;
+  TLS cert resolution falls back to canonical ssl-dir discovery;
+  backup-encryption visibility check uses `env_flag` (the
+  `BACKUP_ALLOW_PLAINTEXT=false`-as-truthy bug was fixed in pass 1).
+  Remaining uncovered blocks are platform probes (webauthn,
+  gamepad, firewall, listener enumeration, terminal isolation) —
+  system-dependent checks needing heavier fixtures.
+
+### Negatives fixed this pass (pass 14)
+
+- **Doctor/gate divergence on weak passwords** (core/doctor):
+  `secrets.vnc_password` hardcoded only three defaults with an
+  exact case-sensitive match, while `get_blocking_findings` uses
+  the canonical `WEAK_PASSWORDS` set lowercased — so
+  `YourStrongPassword123` (the documented default) and `ChangeMe`
+  reported "Set and non-default" [OK] in doctor while the gate
+  refused startup. Diagnostics and enforcement disagreed — a
+  monitoring-integrity defect (ISO 27001 A.8.9). Now uses
+  `WEAK_PASSWORDS` + strip/lower, identical semantics to the gate.
+  Six regression tests pin documented-default, case variant,
+  numeric default, strong, empty/None.
+- `format_doctor` covered (symbols, pluralization, empty) — 8 new
+  tests total this pass.
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; weakest remaining:
+  `core/doctor.py` 57 % (platform probes),
+  `core/service_manager.py` 68 %, `services/terminal.py` 60 %,
+  backend handlers ~13 %.
+- **D1/D10 drills** — need a disposable host.

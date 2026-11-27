@@ -139,11 +139,13 @@ def _check_directories(checks):
 def _check_secrets(checks, config):
     """Add secret checks (flask_key, auth_secret, vnc_password)."""
     # --- Secrets ---
-    if config.get("vnc_password") and config["vnc_password"] not in (
-        "changeme",
-        "admin123",
-        "password",
-    ):
+    # Mirror the blocking gate's canonical weak list (constants.
+    # WEAK_PASSWORDS, case-insensitive) — a password the gate rejects
+    # must never report OK here.
+    from vnc_remote_secure.core.constants import WEAK_PASSWORDS
+
+    vnc_pw = (config.get("vnc_password") or "").strip().lower()
+    if vnc_pw and vnc_pw not in {p.lower() for p in WEAK_PASSWORDS}:
         _ok(
             checks,
             "secrets.vnc_password",
@@ -154,7 +156,7 @@ def _check_secrets(checks, config):
         _fail(
             checks,
             "secrets.vnc_password",
-            "VNC_PASSWORD is empty or default",
+            "VNC_PASSWORD is empty or a known default",
             key="vnc_password_fail",
         )
 

@@ -192,3 +192,72 @@ class TestPublicListenersCheck:
         fire the check."""
         c = self._run_check(monkeypatch, [("0.0.0.0", 8080)])
         assert c["status"] == "ok"
+
+
+class TestSecretsWeakPasswordParity:
+    """doctor's secrets.vnc_password must mirror the blocking gate's
+    canonical WEAK_PASSWORDS (case-insensitive) — a password the gate
+    rejects must never report OK in diagnostics."""
+
+    def _status(self, pw):
+        from vnc_remote_secure.core import doctor
+
+        checks = []
+        doctor._check_secrets(checks, {"vnc_password": pw})
+        entry = next(c for c in checks if c["name"] == "secrets.vnc_password")
+        return entry["status"]
+
+    def test_documented_default_now_fails(self):
+        """YourStrongPassword123 was in WEAK_PASSWORDS but absent from
+        doctor's hardcoded trio — gate blocked, doctor said OK."""
+        assert self._status("YourStrongPassword123") == "fail"
+
+    def test_case_variant_fails(self):
+        """'ChangeMe' bypassed the case-sensitive exact match."""
+        assert self._status("ChangeMe") == "fail"
+
+    def test_numeric_default_fails(self):
+        assert self._status("12345678") == "fail"
+
+    def test_strong_password_ok(self):
+        assert self._status("Xk9#mQ2$vL8nR4") == "ok"
+
+    def test_empty_fails(self):
+        assert self._status("") == "fail"
+        assert self._status(None) == "fail"
+
+
+class TestFormatDoctor:
+    def _result(self):
+        return {
+            "checks": [
+                {"name": "a", "status": "ok", "message": "fine"},
+                {"name": "b", "status": "warn", "message": "meh"},
+                {"name": "c", "status": "fail", "message": "bad"},
+                {"name": "d", "status": "skip", "message": "n/a"},
+            ],
+            "summary": {"ok": 1, "warn": 1, "fail": 1, "skip": 1},
+        }
+
+    def test_symbols_and_summary(self):
+        from vnc_remote_secure.core import doctor
+
+        out = doctor.format_doctor(self._result())
+        assert "[OK]" in out and "[WARN]" in out and "[FAIL]" in out and "[SKIP]" in out
+        assert "1 ok, 1 warning, 1 failure, 1 skipped" in out
+
+    def test_pluralization(self):
+        from vnc_remote_secure.core import doctor
+
+        r = self._result()
+        r["summary"] = {"ok": 2, "warn": 0, "fail": 3, "skip": 0}
+        out = doctor.format_doctor(r)
+        assert "2 ok" in out and "0 warnings" in out and "3 failures" in out
+
+    def test_empty_checks(self):
+        from vnc_remote_secure.core import doctor
+
+        out = doctor.format_doctor(
+            {"checks": [], "summary": {"ok": 0, "warn": 0, "fail": 0, "skip": 0}}
+        )
+        assert "0 ok" in out
