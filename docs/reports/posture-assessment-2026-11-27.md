@@ -520,6 +520,42 @@ independent eyes (access control, vuln mgmt), incident history
   ephemeral-session resolution, actor labels, CSRF binding, public
   origin/fetch-metadata gate). Floor 0.90 added.
 
+## Pass 16 — thin transport handlers: power/ops/chat/recordings
+
+### Reviews (TD-17-scoped)
+
+- `backend/handlers/power.py` + `engine/application/power.py` —
+  shutdown/restart/sleep and Wake-on-LAN. Route flag `op=power.action`
+  enforces bound step-up; `host_power` whitelists `POWER_ACTIONS`,
+  audits, and runs the OS command on a daemon thread after a declared
+  grace delay so the 200 is delivered first. `wake_on_lan` validates
+  the MAC format and restricts `broadcast` to broadcast/unspecified
+  targets only — the endpoint cannot be turned into a unicast packet
+  injector. Clean.
+- `backend/handlers/chat.py` — IDOR-safe by construction: a guest's
+  channel id is ALWAYS derived from their own ephemeral grant's
+  `token_id`; a caller-supplied `session` in query/body is ignored for
+  non-operators. Operators may name sessions explicitly (they are
+  already `admin:*`). Clean.
+- `backend/handlers/recordings.py` — screenshot/recordings/delete all
+  `admin:*`; delete is step-up bound via `_auth_ctx`; `_send_bytes`
+  sanitizes the download filename (alnum + `._-`) so
+  Content-Disposition cannot carry header injection. Clean.
+- `backend/handlers/ops.py` — 405 lines of uniform thin delegation to
+  `engine.application.ops`: typed bodies with tight limits (1–4 KiB),
+  `_uc_err` propagates STEP_UP codes, destructive ops answer 202
+  (detached runner), secrets endpoints never return values.
+  Consistent and clean.
+
+### Negatives fixed this pass (pass 16)
+
+- No security bug — coverage push on the thinnest handlers:
+  `power.py` 12 % → **94 %**, `ops.py` 13 % → **51 %**,
+  `chat.py` 13 % → **83 %**, `recordings.py` 15 % → **71 %**
+  (68 tests total this pass pinning wire contracts: status codes,
+  actor propagation, step-up code passthrough, WoL port validation,
+  guest-channel derivation, filename sanitization, error mapping).
+
 ## Remaining debt (honest) — updated
 
 - **TD-17 external review** — needs a human third party; scope doc
