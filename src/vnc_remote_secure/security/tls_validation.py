@@ -79,14 +79,34 @@ def validate_tls_config() -> list:
 
 
 def _check_default_context(findings):
-    """Validate the default SSLContext minimum TLS version."""
+    """Validate the default SSLContext minimum TLS version.
+
+    ``TLSVersion.MINIMUM_SUPPORTED`` is a sentinel, not a version: it
+    delegates the floor to OpenSSL/system crypto-policy (Debian's
+    stock policy already requires TLS 1.2+). Comparing it numerically
+    against ``MIN_TLS_VERSION`` produced a false critical on every
+    OpenSSL 3.x install — the sentinel never meant "insecure", it
+    meant "unknown from this object". Report delegation as ``info``
+    (neither secure nor critical) and keep flagging concrete minimums
+    below the required floor.
+    """
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        if ctx.minimum_version < MIN_TLS_VERSION:
+        minimum = ctx.minimum_version
+        if minimum == ssl.TLSVersion.MINIMUM_SUPPORTED:
+            findings.append(
+                {
+                    "severity": "info",
+                    "message": "Minimum TLS version delegated to system/OpenSSL "
+                    "crypto-policy (MINIMUM_SUPPORTED) — service contexts "
+                    f"set {MIN_TLS_VERSION.name} explicitly",
+                }
+            )
+        elif minimum < MIN_TLS_VERSION:
             findings.append(
                 {
                     "severity": "critical",
-                    "message": f"Minimum TLS version is {ctx.minimum_version.name}, "
+                    "message": f"Minimum TLS version is {minimum.name}, "
                     f"should be {MIN_TLS_VERSION.name} or higher",
                 }
             )
