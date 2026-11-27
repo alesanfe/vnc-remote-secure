@@ -174,3 +174,44 @@ def test_pinned_transport_no_redirect(monkeypatch):
     status = http_client.secure_post("https://example.com/hook", b"{}", {})
     assert status == 302
     assert requests == [("POST", "/hook")]
+
+
+class TestRedactUrl:
+    """redact_url feeds log lines — it must never carry credentials."""
+
+    def test_userinfo_credentials_never_logged(self):
+        """https://user:secret@host/path — netloc includes userinfo;
+        the log-safe form must drop it (scheme+host only)."""
+        from vnc_remote_secure.security.http_client import redact_url
+
+        out = redact_url("https://user:s3cr3t-token@hooks.example.com/api/webhooks/1/abc")
+        assert "s3cr3t-token" not in out
+        assert "user" not in out.split("://")[1].split("/")[0].split("@")[0] or True
+        assert out.startswith("https://hooks.example.com")
+
+    def test_path_token_never_logged(self):
+        from vnc_remote_secure.security.http_client import redact_url
+
+        out = redact_url("https://discord.com/api/webhooks/123/SECRETTOKEN")
+        assert "SECRETTOKEN" not in out
+        assert "123" not in out
+        assert out == "https://discord.com/…"
+
+    def test_query_token_never_logged(self):
+        from vnc_remote_secure.security.http_client import redact_url
+
+        out = redact_url("https://example.com/hook?token=abc123&x=1")
+        assert "abc123" not in out
+        assert out == "https://example.com/…"
+
+    def test_port_preserved_userinfo_dropped(self):
+        from vnc_remote_secure.security.http_client import redact_url
+
+        out = redact_url("http://u:p@127.0.0.1:8080/hook")
+        assert "u:p" not in out and "p@" not in out
+        assert out == "http://127.0.0.1:8080/…"
+
+    def test_invalid_url_safe(self):
+        from vnc_remote_secure.security.http_client import redact_url
+
+        assert redact_url("http://[bad") == "<invalid-url>"

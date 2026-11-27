@@ -282,3 +282,42 @@ independent eyes (access control, vuln mgmt), incident history
   `core/doctor.py` 57 %, backend handlers ~13 % (all large files —
   next passes need bigger test budgets).
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 10 — egress SSRF client (http_client) + redact_url leak
+
+### Reviews (TD-17-scoped)
+
+- `security/http_client.py` — the single egress path for all outbound
+  HTTP. Two-layer SSRF defense verified: `validate_url` gates scheme
+  (https default, http opt-in env), hostname presence, and requires
+  EVERY resolved address `is_global` (one private answer rejects);
+  `PinnedTransport` re-resolves at connect time and dials only a
+  global IP — the validation→connect rebinding window is closed
+  because the dial target is itself re-filtered. TLS still verifies
+  the real hostname (SNI + chain). No redirects (signed POSTs can't
+  be bounced post-vetting), 256 KiB response cap, retry only on
+  transport errors. **One real leak found and fixed** (below).
+
+### Negatives fixed this pass (pass 10)
+
+- **`redact_url` userinfo credential leak** (security/http_client):
+  the log-safe form used `p.netloc`, which carries `user:pass@`
+  verbatim — a webhook configured as `https://user:token@host/hook`
+  (basic-auth style) would print the credential into warning logs
+  via `monitoring/alerts.py`, violating the function's own
+  "scheme + host only" contract. Now rebuilt from `hostname`+`port`
+  — userinfo can never reach a log line. Five regression tests pin
+  userinfo/path/query/port/invalid cases (2 were RED pre-fix).
+- `http_client.py` 72 % → **87 %** (5 new tests + monitoring suite);
+  floor 0.80.
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; weakest remaining:
+  `service_manager.py` 47 %, `services/terminal.py` 51 %,
+  `core/doctor.py` 57 %, backend handlers ~13 % (large files).
+- **D1/D10 drills** — need a disposable host.

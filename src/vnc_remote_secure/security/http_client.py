@@ -107,13 +107,17 @@ def redact_url(url: str) -> str:
     """Log-safe form of a webhook URL (scheme + host only).
 
     Webhook URLs embed their credential in the path (e.g. Discord's
-    ``/api/webhooks/<id>/<token>``) or in the query string. A generic
-    webhook may carry the token as the FIRST path segment, so showing
-    even one segment can leak the secret — redact the whole path.
+    ``/api/webhooks/<id>/<token>``), in the query string, or in
+    userinfo (``https://user:token@host/hook`` — basic-auth style).
+    ``netloc`` would carry the userinfo verbatim, so the safe form is
+    rebuilt from ``hostname``+``port`` only — userinfo can never
+    reach a log line.
     """
     try:
         p = urlparse(url)
-        return f"{p.scheme}://{p.netloc}/…"
+        host = p.hostname or ""
+        port = f":{p.port}" if p.port else ""
+        return f"{p.scheme}://{host}{port}/…"
     except ValueError:
         return "<invalid-url>"
 

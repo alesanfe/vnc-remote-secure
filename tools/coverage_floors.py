@@ -44,6 +44,7 @@ FLOORS = {
     "core/logging.py": 0.90,
     "core/processes.py": 0.95,
     "core/deferred_lifecycle.py": 0.95,
+    "security/http_client.py": 0.80,
     "services/ws_adapter.py": 0.75,
 }
 
