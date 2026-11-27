@@ -329,6 +329,7 @@ def load_env_file(env_path=None):
     explicit ``env_path`` always performs the load.
     """
     global _ENV_LOADED
+    explicit_path = env_path is not None
     if env_path is None and _ENV_LOADED:
         return
 
@@ -370,7 +371,10 @@ def load_env_file(env_path=None):
         if key not in real_env_keys:
             os.environ[key] = val
 
-    if env_path is None:
+    # env_path was reassigned above when no explicit path was given —
+    # deciding "default merge" from the (now non-None) variable would
+    # leave _ENV_LOADED forever False and re-parse .env on every call.
+    if not explicit_path:
         _ENV_LOADED = True
 
 
