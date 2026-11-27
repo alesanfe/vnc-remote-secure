@@ -239,3 +239,46 @@ independent eyes (access control, vuln mgmt), incident history
   `service_manager.py` 47 %, `services/terminal.py` 51 %,
   `core/doctor.py` 57 %, backend handlers ~13 % (transport code).
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 9 — destructive-op executor (deferred_lifecycle)
+
+### Reviews (TD-17-scoped)
+
+- `core/deferred_lifecycle.py` — the detached runner for lifecycle /
+  restore / upgrade jobs. Verified end-to-end: `spawn_job_runner`
+  detaches correctly (devnull stdio, start_new_session /
+  DETACHED_PROCESS, `guard_spawn` test isolation); `run_job` claims
+  atomically BEFORE executing (pass-2 `state=="queued"` fix holds),
+  unknown op → job_fail + unlock + rc 2, executor exception →
+  job_fail + unlock + audit-failure, every exit releases the
+  op-class lock. `job_unlock` is owner-checked (`get == jid` before
+  delete) so unconditional unlock calls cannot release another
+  job's mutex. `main` bounds delay to [0,60] s, legacy direct mode
+  requires VRS_DEFERRED_LEGACY=1 opt-in, load_env_file at the
+  composition root. **Clean.**
+- Residual documented: `job_unlock` get→delete is not atomic — a
+  lock TTL expiring in the microsecond gap could let a competing
+  acquire be deleted. Requires backend compare-and-delete (absent
+  from the StateBackend protocol); window is negligible vs the
+  TTL-scale recovery the design already accepts.
+
+### Negatives fixed this pass (pass 9)
+
+- `core/deferred_lifecycle.py` 76 % → **98 %** (13 new tests):
+  restart success/partial/blocker paths, unknown action, all four
+  executors (restore empty/ok/fail, upgrade ok/error, rollback
+  ok/error), empty-argv usage, bad-delay fallback. Floor 0.95.
+  Remaining uncovered: win32 creationflags + `__main__` guard —
+  platform/entry lines, not logic.
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; weakest remaining:
+  `service_manager.py` 47 %, `services/terminal.py` 51 %,
+  `core/doctor.py` 57 %, backend handlers ~13 % (all large files —
+  next passes need bigger test budgets).
+- **D1/D10 drills** — need a disposable host.

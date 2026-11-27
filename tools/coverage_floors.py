@@ -43,6 +43,7 @@ FLOORS = {
     "core/share_url.py": 0.85,
     "core/logging.py": 0.90,
     "core/processes.py": 0.95,
+    "core/deferred_lifecycle.py": 0.95,
     "services/ws_adapter.py": 0.75,
 }
 

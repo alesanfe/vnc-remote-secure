@@ -178,3 +178,123 @@ def test_run_job_executor_exception_releases_lock(monkeypatch):
     monkeypatch.setattr(dl, "run_action", lambda a: (_ for _ in ()).throw(RuntimeError("boom")))
     assert dl.run_job("j1") == 1
     assert ("destructive", "j1") in unlocked
+
+
+# --- Executor bodies ---------------------------------------------------------
+
+
+def test_run_action_restart(monkeypatch):
+    import vnc_remote_secure.core.lifecycle as lc
+    import vnc_remote_secure.core.service_manager as sm
+    import vnc_remote_secure.security.profiles as prof
+
+    calls = []
+    monkeypatch.setattr(lc, "startup", lambda: calls.append("startup"))
+    monkeypatch.setattr(prof, "get_blocking_findings", lambda: [])
+    monkeypatch.setattr(sm, "restart_all", lambda: calls.append("restart") or {"vnc": True})
+    assert dl.run_action("restart") == 0
+    assert calls == ["startup", "restart"]
+
+
+def test_run_action_restart_partial_failure(monkeypatch):
+    import vnc_remote_secure.core.lifecycle as lc
+    import vnc_remote_secure.core.service_manager as sm
+    import vnc_remote_secure.security.profiles as prof
+
+    monkeypatch.setattr(lc, "startup", lambda: None)
+    monkeypatch.setattr(prof, "get_blocking_findings", lambda: [])
+    monkeypatch.setattr(sm, "restart_all", lambda: {"vnc": True, "landing": False})
+    assert dl.run_action("restart") == 1
+
+
+def test_run_action_restart_refused_on_blockers(monkeypatch):
+    import vnc_remote_secure.core.lifecycle as lc
+    import vnc_remote_secure.security.profiles as prof
+
+    monkeypatch.setattr(lc, "startup", lambda: None)
+    monkeypatch.setattr(
+        prof, "get_blocking_findings", lambda: [{"code": "X", "message": "blocked"}]
+    )
+    assert dl.run_action("restart") == 1
+
+
+def test_run_action_unknown_returns_2():
+    assert dl.run_action("selfdestruct") == 2
+
+
+def test_exec_restore_empty_path():
+    ok, detail = dl._exec_restore({}, lambda *a, **k: None)
+    assert ok is False and detail == "empty backup path"
+
+
+def test_exec_restore_success(monkeypatch):
+    import vnc_remote_secure.core.backup as backup
+
+    calls = []
+    monkeypatch.setattr(backup, "restore_backup", lambda p: calls.append(p) or True)
+    progress = []
+    ok, detail = dl._exec_restore(
+        {"path": "/tmp/b.tar.zst"}, lambda ph, d="", pct=None: progress.append((ph, pct))
+    )
+    assert ok is True and "b.tar.zst" in detail
+    assert calls == ["/tmp/b.tar.zst"]
+    assert progress and progress[-1][1] == 90
+
+
+def test_exec_restore_failure(monkeypatch):
+    import vnc_remote_secure.core.backup as backup
+
+    monkeypatch.setattr(backup, "restore_backup", lambda p: False)
+    ok, detail = dl._exec_restore({"path": "/tmp/b.tar.zst"}, lambda *a, **k: None)
+    assert ok is False and detail == "restore failed"
+
+
+def test_exec_upgrade_success(monkeypatch):
+    import vnc_remote_secure.core.upgrader as up
+
+    monkeypatch.setattr(
+        up, "perform_upgrade", lambda src: {"ok": True, "previous": "1.0", "version": "2.0"}
+    )
+    ok, detail = dl._exec_upgrade({}, lambda *a, **k: None)
+    assert ok is True and detail == "1.0 → 2.0"
+
+
+def test_exec_upgrade_failure_reports_error(monkeypatch):
+    import vnc_remote_secure.core.upgrader as up
+
+    monkeypatch.setattr(up, "perform_upgrade", lambda src: {"ok": False, "error": "net down"})
+    ok, detail = dl._exec_upgrade({}, lambda *a, **k: None)
+    assert ok is False and detail == "net down"
+
+
+def test_exec_rollback_success(monkeypatch):
+    import vnc_remote_secure.core.upgrader as up
+
+    monkeypatch.setattr(up, "perform_rollback", lambda: {"ok": True, "restored": "1.0"})
+    ok, detail = dl._exec_rollback({}, lambda *a, **k: None)
+    assert ok is True and detail == "restored=1.0"
+
+
+def test_exec_rollback_failure(monkeypatch):
+    import vnc_remote_secure.core.upgrader as up
+
+    monkeypatch.setattr(up, "perform_rollback", lambda: {"ok": False, "error": "no snapshot"})
+    ok, detail = dl._exec_rollback({}, lambda *a, **k: None)
+    assert ok is False and detail == "no snapshot"
+
+
+def test_main_empty_argv_shows_usage(monkeypatch):
+    """argv=None must fall back to sys.argv — with no args the usage
+    path (not a crash) must run."""
+    monkeypatch.setattr(sys, "argv", ["prog"])
+    assert dl.main([]) == 2
+
+
+def test_main_bad_delay_defaults(monkeypatch):
+    slept = []
+    ran = []
+    monkeypatch.setattr(dl.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(dl, "run_job", lambda j: ran.append(j) or 0)
+    assert dl.main(["run", "j1", "not-a-number"]) == 0
+    assert slept == [dl._DEFAULT_DELAY]
+    assert ran == ["j1"]
