@@ -219,7 +219,35 @@ class LinuxAdapter(PlatformAdapter):
             child_env = sanitized_child_env()
         except Exception:  # noqa: BLE001 - import broken entirely
             child_env = {"PATH": os.environ.get("PATH", "")}
-        return subprocess.Popen(cmd, env=child_env)
+        # Same lifecycle contract as _start_python_service: own
+        # session (the server must outlive the starting terminal) and
+        # stdout/stderr into the service log — inheriting the caller's
+        # stdout keeps pipes open (`vnc-remote start | grep` hangs).
+        try:
+            from vnc_remote_secure.core.paths import get_log_dir
+
+            os.makedirs(get_log_dir(), exist_ok=True)
+            log_fh = open(  # noqa: SIM115 - fd lives with the child
+                os.path.join(get_log_dir(), "vnc.log"),
+                "a",
+                buffering=1,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError:
+            log_fh = subprocess.DEVNULL
+        try:
+            return subprocess.Popen(
+                cmd,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                env=child_env,
+                start_new_session=True,
+            )
+        finally:
+            if log_fh is not subprocess.DEVNULL:
+                log_fh.close()
 
     @staticmethod
     def _write_vnc_password_file(password):
