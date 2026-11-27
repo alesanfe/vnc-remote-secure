@@ -204,8 +204,17 @@ def _start_python_service(
             **_popen_kw,
         )
     except OSError:
+        # The child's log handle is ours on this path — without the
+        # close, every failed spawn leaks one descriptor in the
+        # (possibly long-lived) manager process.
+        if log_fh is not subprocess.DEVNULL:
+            log_fh.close()
         logger.exception("Failed to start %s:", service_name)
         return None
+    # The child owns its duplicated descriptor now — keeping the
+    # parent's copy open would leak an fd per started service.
+    if log_fh is not subprocess.DEVNULL:
+        log_fh.close()
     # Post-start verification: a process that is alive but never bound
     # its port (EADDRINUSE inside, import error that caught itself)
     # must not be reported as "started" — status would show "running"
@@ -240,26 +249,22 @@ def _enabled_services(config: dict) -> list:
     plugin registry (``core.plugins``) which declares each one's
     config gate, required capability and platform constraint.
     """
-    services = ["vnc", "terminal", "novnc", "landing"]
+    # websockify is unconditional like novnc: it is the WebSocket→RFB
+    # bridge the browser actually reaches the VNC server through —
+    # the authenticated noVNC static server proxies /websockify
+    # upgrades to it after the auth-gateway check. It only listens on
+    # loopback and is NOT an optional plugin: coupling it to the
+    # 'health' plugin's registry slot meant renaming/reordering that
+    # plugin silently broke noVNC (SRV-002).
+    services = ["vnc", "terminal", "novnc", "websockify", "landing"]
     from vnc_remote_secure.core.plugins import iter_plugins, plugin_enabled
 
     windows = is_windows()
-    # 'health' precedes websockify: the standalone health server is
-    # optional (HEALTH_WEB_ENABLED gates it — the user-ui app exposes
-    # the same endpoints on USER_UI_PORT when it is off), and
-    # preserving the historical start order keeps supervision
-    # deterministic.
+    # Optional services come from the plugin registry, each gated by
+    # its own plugin_enabled() check — start order follows registry
+    # order, deterministically.
     for plugin in iter_plugins():
-        if plugin.name == "health":
-            if plugin_enabled(plugin, config, windows):
-                services.append("health")
-            # The WebSocket→RFB bridge runs alongside noVNC so the
-            # browser client can actually reach the VNC server. It
-            # only listens on loopback; the authenticated noVNC
-            # static server proxies WS upgrades to it after the
-            # auth-gateway check.
-            services.append("websockify")
-        elif plugin_enabled(plugin, config, windows):
+        if plugin_enabled(plugin, config, windows):
             services.append(plugin.name)
     # Prometheus and Grafana are external binaries managed by the
     # platform adapter (systemd/Windows Service), not Python services.
@@ -581,6 +586,42 @@ def _start_nginx(config: dict) -> int | None:
         return None
 
 
+# Canonical stop order (reverse of the canonical start order). The
+# single source of truth for stop/restart/save_state — until the
+# declarative service registry lands (SRV-001), any service holding a
+# live PID file that is not listed here is swept first so a plugin
+# started outside this list can never be orphaned by a stale name.
+_STOP_ORDER = [
+    "nginx",
+    "gamepad",
+    "audio",
+    "user_ui",
+    "websockify",
+    "health",
+    "landing",
+    "novnc",
+    "terminal",
+    "vnc",
+]
+
+
+def _services_with_pid_files() -> list:
+    """Service names holding a PID file — the on-disk truth about what
+    this manager started, independent of any hardcoded list."""
+    try:
+        return [name[: -len(".pid")] for name in os.listdir(_pid_dir()) if name.endswith(".pid")]
+    except OSError:
+        return []
+
+
+def _stop_plan() -> list:
+    """Orphan-safe stop order: live but unlisted services (plugins
+    added after the canonical list) stop first, then the canonical
+    reverse-start order runs."""
+    extras = [s for s in _services_with_pid_files() if s not in _STOP_ORDER]
+    return extras + _STOP_ORDER
+
+
 def stop_all(force: bool = False) -> dict:
     """Stop all managed services by PID. Returns a dict of service -> stopped_bool."""
     with _GlobalLock() as lock:
@@ -591,20 +632,8 @@ def stop_all(force: bool = False) -> dict:
             logger.error("Another instance holds the lock; refusing to " "stop without it")
             return {"error": "lock held by another instance"}
         results = {}
-        # Stop in reverse order of start.
-        services = [
-            "nginx",
-            "gamepad",
-            "audio",
-            "user_ui",
-            "websockify",
-            "health",
-            "landing",
-            "novnc",
-            "terminal",
-            "vnc",
-        ]
-        for service in services:
+        # Stop in reverse order of start; unlisted live services first.
+        for service in _stop_plan():
             pid = _read_pid(service)
             if pid:
                 results[service] = _kill_pid(pid, service=service, force=force)
@@ -639,23 +668,16 @@ def restart_all(config: dict | None = None) -> dict:
         if not lock.acquired:
             logger.warning("Another instance is already managing services; " "skipping restart")
             return status_all()
-        # Stop in reverse order of start (same list as stop_all).
-        stop_order = [
-            "nginx",
-            "gamepad",
-            "audio",
-            "user_ui",
-            "websockify",
-            "health",
-            "landing",
-            "novnc",
-            "terminal",
-            "vnc",
-        ]
-        for service in stop_order:
+        t0 = time.monotonic()
+        _audit_lifecycle("service_restart_requested", "all", "begin")
+        # Stop in reverse order of start (same plan as stop_all), and
+        # audit each phase like the standalone commands do — previously
+        # restart left no lifecycle trail at all (SRV-003).
+        for service in _stop_plan():
             pid = _read_pid(service)
             if pid:
-                _kill_pid(pid, service=service)
+                stopped = _kill_pid(pid, service=service)
+                _audit_lifecycle("service_stop" if stopped else "service_stop_failed", service, pid)
                 _clear_pid(service)
         _cleanup_temp_user()
         # Brief pause to let sockets release; bounded and inside the lock.
@@ -664,6 +686,13 @@ def restart_all(config: dict | None = None) -> dict:
         results = {}
         for service in _enabled_services(config):
             results[service] = _start_service(service, config)
+        for service, pid in results.items():
+            _audit_lifecycle("service_start" if pid else "service_start_failed", service, pid)
+        _audit_lifecycle(
+            "service_restart",
+            "all",
+            f"duration_s={time.monotonic() - t0:.2f} failed={[s for s, p in results.items() if not p]}",
+        )
         return results
 
 
@@ -1011,22 +1040,14 @@ def _cleanup_temp_user() -> None:
 
 def save_state() -> dict:
     """Persist current service state for backup/restore."""
+    # Canonical services plus any live service holding a pid file —
+    # the same single source the stop plan uses, so a service added
+    # later cannot be left out of saved state (SRV-001 increment).
+    services = list(reversed(_STOP_ORDER)) + [
+        s for s in _services_with_pid_files() if s not in _STOP_ORDER
+    ]
     return {
-        "pids": {
-            svc: _read_pid(svc)
-            for svc in [
-                "vnc",
-                "terminal",
-                "novnc",
-                "websockify",
-                "health",
-                "landing",
-                "user_ui",
-                "audio",
-                "gamepad",
-                "nginx",
-            ]
-        },
+        "pids": {svc: _read_pid(svc) for svc in services},
         "timestamp": time.time(),
     }
 

@@ -71,8 +71,9 @@ class TestEnablement:
 
 class TestServiceManagerWiring:
     def test_enabled_services_matches_plugin_contract(self):
-        """_enabled_services output must equal the old hardcoded
-        ordering: core + health + websockify + opted-in plugins."""
+        """_enabled_services output must equal the canonical ordering:
+        unconditional core (websockify included — SRV-002) + opted-in
+        plugins in registry order."""
         from vnc_remote_secure.core.service_manager import _enabled_services
 
         cfg = {
@@ -89,9 +90,9 @@ class TestServiceManagerWiring:
             "vnc",
             "terminal",
             "novnc",
+            "websockify",
             "landing",
             "health",
-            "websockify",
             "user_ui",
             "audio",
             "gamepad",
@@ -104,4 +105,14 @@ class TestServiceManagerWiring:
         from vnc_remote_secure.core.service_manager import _enabled_services
 
         got = _enabled_services({})
-        assert got == ["vnc", "terminal", "novnc", "landing", "health", "websockify"]
+        assert got == ["vnc", "terminal", "novnc", "websockify", "landing", "health"]
+
+    def test_websockify_not_coupled_to_health_plugin(self):
+        """SRV-002: websockify must start even when the 'health'
+        plugin is disabled or absent from the registry — it is a
+        core service, not an optional plugin."""
+        from vnc_remote_secure.core.service_manager import _enabled_services
+
+        got = _enabled_services({"health_web_enabled": False})
+        assert "websockify" in got
+        assert "health" not in got
