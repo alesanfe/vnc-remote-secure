@@ -129,14 +129,14 @@ jobs:
         # Coverage gate on one matrix leg only — measuring on every
         # OS×Python cell triples the upload surface for no signal.
         # --cov-fail-under is a ratchet: unit+security alone measure
-        # 67% (2026-11); the 62 floor leaves margin for platform
+        # 67% (2026-11); the 65 floor leaves margin for platform
         # variance and only ever moves up toward the 85% target
         # (TD-13). Per-risk module floors run right after.
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: |
           python -m pytest tests/unit tests/integration tests/e2e tests/security -q \
             --cov=vnc_remote_secure --cov-branch --cov-report=term-missing \
-            --cov-report=xml:coverage.xml --cov-fail-under=62
+            --cov-report=xml:coverage.xml --cov-fail-under=65
       - name: Per-risk coverage floors (TD-13)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: |
