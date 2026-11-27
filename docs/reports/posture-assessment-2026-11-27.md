@@ -556,6 +556,40 @@ independent eyes (access control, vuln mgmt), incident history
   actor propagation, step-up code passthrough, WoL port validation,
   guest-channel derivation, filename sanitization, error mapping).
 
+## Pass 17 — controls/monitoring/files handlers + portal/auth review
+
+### Reviews (TD-17-scoped)
+
+- `backend/handlers/controls.py` — maintenance toggle (typed body,
+  step-up via route flag) and the gamepad kill-switch (shared
+  `gamepad:stopped` flag checked per-connection/message, audited).
+  Clean.
+- `backend/handlers/monitoring.py` — read-model endpoints. Audit
+  pagination clamps `limit` to [1,500], validates the seq cursor
+  (invalid → 400), and caps filter params at 128 chars (anti CPU-burn
+  on huge `?user=`); `read_models.jobs` double-clamps internally.
+  Clean.
+- `backend/handlers/portal.py` — the share-link consent flow.
+  Preview/activate are public but run `_public_gate` (Origin +
+  Fetch-Metadata), token travels in the request BODY (never URL → no
+  log/Referer leak), cookie `Secure` only on a REAL TLS hop (direct
+  SSLSocket or trusted-proxy XFP — a client claiming https over plain
+  HTTP does not get a Secure cookie it could never send back),
+  activation alerts. `_get_session_context` fails closed on store
+  errors and reports revoked sessions as inactive. Clean.
+- `backend/handlers/files.py` handler layer — operator-or-guest gate,
+  base64 body limit scaled to MAX_FILE_BYTES, download filename
+  sanitized. Clean (engine confinement verified pass 15).
+
+### Negatives fixed this pass (pass 17)
+
+- No security bug — coverage push: `controls.py` 45 % → **93 %**,
+  `monitoring.py` 42 % → **74 %**, `files.py` 9 % → **70 %**
+  (29 tests: maintenance toggle + step-up, gamepad flag + audit,
+  all read-model delegations, audit pagination clamp/cursor/filter
+  caps, job detail errors, file guest-vs-operator gating incl.
+  resource binding, base64 upload, 409 exists).
+
 ## Remaining debt (honest) — updated
 
 - **TD-17 external review** — needs a human third party; scope doc
@@ -565,7 +599,8 @@ independent eyes (access control, vuln mgmt), incident history
 - **TD-13 ramp** — mechanism live; weakest remaining:
   `core/doctor.py` 57 % (platform probes),
   `core/service_manager.py` 68 %, `services/terminal.py` 60 %,
-  `backend/health_app.py` 0 %, thin handlers
-  (`ops.py`/`power.py`/`chat.py`/`files.py`/`recordings.py` ~10-15 % —
-  transport only, policy lives in engine).
+  `backend/health_app.py` 0 %, remaining thin handlers
+  (`auth.py`/`operators.py`/`sessions.py`/`system_users.py` ~0-70 %
+  unit-level; partially covered via api_v1 route tests —
+  transport only, policy lives in engine/security).
 - **D1/D10 drills** — need a disposable host.
