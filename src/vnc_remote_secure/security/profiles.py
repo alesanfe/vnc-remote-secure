@@ -23,6 +23,7 @@ Legacy aliases (backwards-compatible):
     local-only         → development
 """
 
+import ipaddress
 import logging
 import os
 
@@ -472,6 +473,67 @@ def _check_hardened_secrets(blockers: list, profile: str, weak_lower: set) -> No
         )
 
 
+# Every backend resolves its bind host through a ``*_HOST`` →
+# ``BIND_HOST`` chain (``config._env_host``, first non-empty wins).
+# Checking BIND_HOST alone leaves per-service bypasses:
+# ``LANDING_HOST=0.0.0.0`` or ``HEALTH_WEB_HOST=::`` exposes that
+# backend directly. ``PUBLIC_BIND_HOST`` is deliberately absent —
+# it is nginx's (and Windows landing's) legitimate public knob.
+_BACKEND_HOST_CHAINS = (
+    ("AUDIO_STREAM_HOST", "BIND_HOST"),
+    ("GAMEPAD_HOST", "BIND_HOST"),
+    ("HEALTH_WEB_HOST", "BIND_HOST"),
+    ("LANDING_HOST", "BIND_HOST"),
+    ("SERVE_NOVNC_HOST", "NOVNC_HOST", "BIND_HOST"),
+    ("TTYD_HOST", "BIND_HOST"),
+    ("USER_UI_HOST", "BIND_HOST"),
+)
+
+
+def _is_wildcard_bind(host: str) -> bool:
+    """True when ``host`` is an IP wildcard (``0.0.0.0``, ``::``, …).
+
+    ``ipaddress.is_unspecified`` covers every textual form of the
+    any-address — the exact ``== "0.0.0.0"`` check missed ``::``
+    (IPv6 any, dual-stack on most stacks) and compressed forms.
+    Hostnames return False: they cannot be proven wildcard here.
+    """
+    try:
+        return ipaddress.ip_address(host.strip().strip("[]")).is_unspecified
+    except ValueError:
+        return False
+
+
+def _check_backend_binds(blockers: list) -> None:
+    """Block any backend whose WINNING bind host is a wildcard.
+
+    Each chain resolves like ``config._env_host`` — the first
+    non-empty var decides that backend's bind, so a shadowed
+    wildcard (e.g. ``SERVE_NOVNC_HOST=127.0.0.1`` hiding
+    ``NOVNC_HOST=0.0.0.0``) is dead config, not a live exposure.
+    """
+    reported = set()
+    for chain in _BACKEND_HOST_CHAINS:
+        for var in chain:
+            val = os.environ.get(var, "").strip()
+            if not val:
+                continue
+            if _is_wildcard_bind(val) and var not in reported:
+                reported.add(var)
+                blockers.append(
+                    {
+                        "code": "BACKEND_PUBLIC_BIND",
+                        "message": (
+                            f"{var}={val} — backends must bind to "
+                            "127.0.0.1; a wildcard address bypasses "
+                            "the authentication gateway. Use "
+                            "PUBLIC_BIND_HOST for nginx only."
+                        ),
+                    }
+                )
+            break  # first non-empty var decides this backend's bind
+
+
 def get_blocking_findings() -> list:
     """Return critical findings that BLOCK deployment.
 
@@ -484,22 +546,8 @@ def get_blocking_findings() -> list:
     blockers = []
     profile = _PROFILE_ALIASES.get(get_profile(), get_profile())
     tls = _is_tls_enabled()
-    bind = os.environ.get("BIND_HOST", "127.0.0.1")
 
-    # Backends must NEVER bind to 0.0.0.0 — only nginx may.
-    # justification: detection, not a bind
-    if bind == "0.0.0.0":  # nosec B104
-        blockers.append(
-            {
-                "code": "BACKEND_PUBLIC_BIND",
-                "message": (
-                    "BIND_HOST is 0.0.0.0 — backends are directly reachable, "
-                    "bypassing the authentication gateway. Set BIND_HOST=127.0.0.1 "
-                    "and use PUBLIC_BIND_HOST for nginx."
-                ),
-            }
-        )
-
+    _check_backend_binds(blockers)
     _check_public_hardened(blockers, profile, tls)
     _check_tls_cert_resolvable(blockers, tls, profile)
 

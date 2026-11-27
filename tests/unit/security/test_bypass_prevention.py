@@ -14,6 +14,8 @@ import os
 import socket
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from vnc_remote_secure.security.profiles import (
@@ -183,3 +185,76 @@ class TestDirectPortAccess:
         finally:
             server.shutdown()
             server.server_close()
+
+
+class TestBackendBindBypass:
+    """Regression: the wildcard-bind gate must cover every backend
+    bind chain, not just BIND_HOST == '0.0.0.0'."""
+
+    _VARS = (
+        "AUDIO_STREAM_HOST",
+        "GAMEPAD_HOST",
+        "HEALTH_WEB_HOST",
+        "LANDING_HOST",
+        "SERVE_NOVNC_HOST",
+        "NOVNC_HOST",
+        "TTYD_HOST",
+        "USER_UI_HOST",
+        "BIND_HOST",
+        "PUBLIC_BIND_HOST",
+    )
+
+    @pytest.fixture(autouse=True)
+    def _clean_hosts(self, monkeypatch):
+        for v in self._VARS:
+            monkeypatch.delenv(v, raising=False)
+        monkeypatch.setenv("BIND_HOST", "127.0.0.1")
+        monkeypatch.setenv("VNC_PASSWORD", "StrongPass123!")
+        monkeypatch.setenv("SECURITY_PROFILE", "development")
+
+    def _codes(self):
+        return [b["code"] for b in get_blocking_findings()]
+
+    def test_bind_host_ipv6_wildcard_blocked(self, monkeypatch):
+        """BIND_HOST=:: is IPv6-any (dual-stack) — the old == '0.0.0.0'
+        check missed it entirely."""
+        monkeypatch.setenv("BIND_HOST", "::")
+        assert "BACKEND_PUBLIC_BIND" in self._codes()
+
+    def test_bind_host_full_form_wildcard_blocked(self, monkeypatch):
+        monkeypatch.setenv("BIND_HOST", "0:0:0:0:0:0:0:0")
+        assert "BACKEND_PUBLIC_BIND" in self._codes()
+
+    def test_per_service_host_wildcard_blocked(self, monkeypatch):
+        """LANDING_HOST=0.0.0.0 bypassed the gate — only BIND_HOST was
+        checked while every backend honours its own *_HOST override."""
+        monkeypatch.setenv("LANDING_HOST", "0.0.0.0")
+        assert "BACKEND_PUBLIC_BIND" in self._codes()
+
+    def test_health_web_host_ipv6_wildcard_blocked(self, monkeypatch):
+        monkeypatch.setenv("HEALTH_WEB_HOST", "::")
+        assert "BACKEND_PUBLIC_BIND" in self._codes()
+
+    def test_novnc_chain_second_var_wildcard_blocked(self, monkeypatch):
+        """NOVNC_HOST is the fallback inside the noVNC chain —
+        SERVE_NOVNC_HOST unset means NOVNC_HOST decides the bind."""
+        monkeypatch.setenv("NOVNC_HOST", "0.0.0.0")
+        assert "BACKEND_PUBLIC_BIND" in self._codes()
+
+    def test_shadowed_wildcard_not_blocked(self, monkeypatch):
+        """SERVE_NOVNC_HOST wins the chain — a wildcard NOVNC_HOST
+        behind it is dead config, not a live exposure."""
+        monkeypatch.setenv("SERVE_NOVNC_HOST", "127.0.0.1")
+        monkeypatch.setenv("NOVNC_HOST", "0.0.0.0")
+        assert "BACKEND_PUBLIC_BIND" not in self._codes()
+
+    def test_public_bind_host_not_flagged(self, monkeypatch):
+        """PUBLIC_BIND_HOST=0.0.0.0 is nginx's legitimate knob — it
+        must never trip the backend-bind blocker."""
+        monkeypatch.setenv("PUBLIC_BIND_HOST", "0.0.0.0")
+        assert "BACKEND_PUBLIC_BIND" not in self._codes()
+
+    def test_loopback_service_host_not_blocked(self, monkeypatch):
+        monkeypatch.setenv("TTYD_HOST", "127.0.0.1")
+        monkeypatch.setenv("USER_UI_HOST", "::1")
+        assert "BACKEND_PUBLIC_BIND" not in self._codes()

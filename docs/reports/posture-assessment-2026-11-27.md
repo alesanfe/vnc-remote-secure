@@ -321,3 +321,47 @@ independent eyes (access control, vuln mgmt), incident history
   `service_manager.py` 47 %, `services/terminal.py` 51 %,
   `core/doctor.py` 57 %, backend handlers ~13 % (large files).
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 11 — Zero-Trust bind gate bypass (profiles)
+
+### Reviews (TD-17-scoped)
+
+- `security/credentials.py` — three KDF verifiers (argon2id PHC,
+  pbkdf2, scrypt) all bounded against self-DoS via forged stored
+  params (argon2 m≤512MiB/t≤16/p≤8, pbkdf2 ≤10M iters, scrypt
+  n·r≤2^21 + maxmem), `compare_digest` everywhere, malformed →
+  False. **Clean.**
+- `security/profiles.py::get_blocking_findings` — TLS-cert
+  resolvability, per-profile MFA/nginx requirements, weak/default
+  password blocks (mirroring generated-credential resolution),
+  hardened-profile FLASK_SECRET_KEY/AUTH_SECRET/BACKUP_PASSWORD
+  minimums. **One real bypass found and fixed** (below).
+
+### Negatives fixed this pass (pass 11)
+
+- **Wildcard-bind gate bypass** (security/profiles): the
+  `BACKEND_PUBLIC_BIND` blocker only fired on `BIND_HOST ==
+  "0.0.0.0"` exactly. Two bypasses: (a) `BIND_HOST="::"` — IPv6
+  any-address, dual-stack on most systems — sailed through; (b)
+  every backend honours its own `*_HOST` override
+  (`LANDING_HOST`, `HEALTH_WEB_HOST`, `SERVE_NOVNC_HOST`,
+  `NOVNC_HOST`, `TTYD_HOST`, `AUDIO_STREAM_HOST`, `GAMEPAD_HOST`,
+  `USER_UI_HOST`) which was never checked — `LANDING_HOST=0.0.0.0`
+  exposed the portal directly, bypassing the auth gateway. Now
+  `_check_backend_binds` resolves each backend's WINNING host
+  through the same first-non-empty chain `config._env_host` uses,
+  and `ipaddress.is_unspecified` catches every wildcard form.
+  `PUBLIC_BIND_HOST` deliberately excluded (nginx/Windows-landing
+  public knob). Shadowed wildcards (dead config) don't block.
+  Eight regression tests — all RED-shaped cases now pinned.
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; weakest remaining:
+  `service_manager.py` 47 %, `services/terminal.py` 51 %,
+  `core/doctor.py` 57 %, backend handlers ~13 % (large files).
+- **D1/D10 drills** — need a disposable host.
