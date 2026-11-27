@@ -48,6 +48,7 @@ FLOORS = {
     "core/service_manager.py": 0.60,
     "services/terminal.py": 0.55,
     "services/ws_adapter.py": 0.75,
+    "backend/handlers/common.py": 0.90,
 }
 
 

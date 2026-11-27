@@ -486,6 +486,40 @@ independent eyes (access control, vuln mgmt), incident history
 - `format_doctor` covered (symbols, pluralization, empty) — 8 new
   tests total this pass.
 
+## Pass 15 — backend transport plumbing + file-share confinement
+
+### Reviews (TD-17-scoped)
+
+- `backend/handlers/common.py` — shared envelope/body/identity/gate
+  plumbing for every `/api/v1` route. Verified: bounded body reads
+  (Content-Length required, ≤16 KiB default, pydantic `extra=forbid`
+  with named extra fields), `_operator` permission gate audits
+  `api_permission_denied`, `X-Forwarded-Host` constrained to a strict
+  hostname regex behind `TRUSTED_PROXY` (a crafted header cannot
+  become reflected markup), CSRF token HMAC-bound to operator sid +
+  nonce cookie, `_public_gate` Origin + Sec-Fetch-Site for
+  unauthenticated routes. Clean.
+- `backend/handlers/files.py` + `engine/application/files.py` —
+  file-share handlers delegate all path handling to `_resolve()`:
+  backslash normalization, URL-decode BEFORE containment,
+  NUL-byte rejection, `realpath` + root-prefix check with `os.sep`
+  boundary (symlinks/`..`/absolute paths cannot escape), 32 MiB
+  caps, filename sanitization for Content-Disposition, and
+  `_files_allowed` requires operator or an ephemeral session bound
+  to the `files` resource with `file_transfer` permission.
+  Clean.
+
+### Negatives fixed this pass (pass 15)
+
+- No security bug — this pass closed the largest coverage gap:
+  `backend/handlers/common.py` 58 % → **94 %** (43 tests: envelope
+  writers, UseCaseError→HTTP mapping incl. STEP_UP code, operator
+  permission gate + audit, bounded JSON body incl. oversized/invalid/
+  non-dict, typed-body validation with extra-field naming, all
+  whitelist serializers, forwarded-host trust, TLS protocol probe,
+  ephemeral-session resolution, actor labels, CSRF binding, public
+  origin/fetch-metadata gate). Floor 0.90 added.
+
 ## Remaining debt (honest) — updated
 
 - **TD-17 external review** — needs a human third party; scope doc
@@ -495,5 +529,7 @@ independent eyes (access control, vuln mgmt), incident history
 - **TD-13 ramp** — mechanism live; weakest remaining:
   `core/doctor.py` 57 % (platform probes),
   `core/service_manager.py` 68 %, `services/terminal.py` 60 %,
-  backend handlers ~13 %.
+  `backend/health_app.py` 0 %, thin handlers
+  (`ops.py`/`power.py`/`chat.py`/`files.py`/`recordings.py` ~10-15 % —
+  transport only, policy lives in engine).
 - **D1/D10 drills** — need a disposable host.
