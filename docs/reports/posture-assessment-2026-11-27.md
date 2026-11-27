@@ -11,7 +11,7 @@ ASVS 4.0** for the web surfaces.
 
 | Domain | Framework anchor | Score | Evidence / gap |
 |---|---|---|---|
-| Access control & auth | ISO 27001 A.8.2–A.8.5, ASVS V2/V4 | 9.0 | auth_gateway on every handler, step-up bound grants (op+resource+session, 120 s), MFA/WebAuthn, fail-closed portal, ephemeral fragment links. −1: no independent review (TD-17). |
+| Access control & auth | ISO 27001 A.8.2–A.8.5, ASVS V2/V4 | 9.0 | auth_gateway on every handler, step-up bound grants (op+resource+session, 120 s), MFA/WebAuthn, fail-closed portal, ephemeral fragment links, expired-preview enumeration closed. −1: no independent review (TD-17). |
 | Cryptography & secrets | ISO 27001 A.8.24, ASVS V6 | 9.5 | Fernet backup encryption now default-on (BACKUP_PASSWORD enrolled), hashed session cookies, redaction in child env/logs, rotated signing secret, DES only where protocol-mandated (documented ADR). |
 | Logging & monitoring | ISO 27001 A.8.15–A.8.16, CSF DE | 9.0 | hash-chained audit log (verify at startup), remote mirror sink, alert dispatch, /health + doctor (32 checks). −1: MTTR/incident data still thin (TD-16 drills only just started). |
 | Vulnerability & supply chain | ISO 27001 A.8.8, CSF PR.PS | 9.0 | uv.lock hashed + `uv lock --check` gate, SBOM + cosign attestation at release, gitleaks/trivy/semgrep/CodeQL/bandit/scorecard in CI, pip-audit & npm audit clean. Signed-tag gate merged — key enrollment pending on maintainer. |
@@ -63,6 +63,27 @@ independent eyes (access control, vuln mgmt), incident history
 - Focused mini-review of `step_up_auth` consume path (TD-17
   scoped): atomic single-use via `set_if_absent`, sid binding,
   fail-closed delete — **clean, no findings**.
+
+## Negatives fixed this pass (pass 3)
+
+- **`preview_session` expired-token enumeration**
+  (security/ephemeral_sessions.py): the consent preview returned
+  grant details (role, permissions, max_uses, resource) for an
+  *expired* share link, distinguishing "was once valid" from
+  garbage and contradicting the documented uniform-None contract.
+  Now `_session_expired` is part of the None condition; a
+  regression test asserts expired ≡ invalid → 403.
+- `core/paths.py` 45 % → 80 % — the conftest isolation fixture
+  replaces `get_*_dir` module-wide so the real root/XDG/override
+  branches NEVER executed in the suite; tests now capture and
+  invoke the originals (squat-guard file case, ACL repair sweep,
+  elevation probe, find_project_root fallback). Added to floors
+  at 75 %.
+- Focused mini-review of `ephemeral_sessions` (TD-17 scoped):
+  session-token digest (not token) in logs, atomic tmp+rename
+  persist, owner-only perms, cross-process revoke honoured via
+  shared marker, `raise_on_error` on create so a dead link is
+  never handed out — **clean except the preview finding above**.
 
 ## Remaining debt (honest)
 
