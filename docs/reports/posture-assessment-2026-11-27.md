@@ -106,6 +106,27 @@ independent eyes (access control, vuln mgmt), incident history
   trusted proxies, shared `ip:` lockout namespace, exactly-one-
   outcome rate limiting — **clean except the widening above**.
 
+## Negatives fixed this pass (pass 5)
+
+- `security/certificates.py` 63 % → 95 % — the openssl CLI fallback
+  is exercised via mocked `run_cmd` (CN subject-syntax stripping
+  verified against `/O=evil` injection, empty-CN raise, rc!=0
+  RuntimeError), the Windows icacls ACL branch via a fake `os`
+  namespace (R vs M grants), certbot plugin fallback + symlink
+  enrolment, `tls_validation` ImportError fallback context, and the
+  `_tls_enabled_env` ImportError path. Added to floors at 85 %.
+- Three further TD-17-scoped reviews returned **clean**:
+  - `rate_limit`: insert-only attempt records (atomic cross-process),
+    progressive lockout escalation with strike decay, atomic
+    fixed-window general limiter, corrupt-counter deny.
+  - `mfa`: TOTP single-use via atomic per-step claim + per-secret
+    high-water mark, fail-closed on backend down, ASCII-digit
+    validation; recovery codes claim atomically and prune from env.
+  - `audit`: cross-process file lock around read-hash→compute→append,
+    monotonic seq gap detection, HMAC-signed tip witness catches
+    tail truncation, chain advance only after fsync-level write,
+    AUDIT_STRICT fail-closed option.
+
 ## Remaining debt (honest)
 
 - **TD-17 external review** — needs a human third party; scope doc

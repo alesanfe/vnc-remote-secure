@@ -38,6 +38,7 @@ FLOORS = {
     "security/jobs.py": 0.78,
     "security/secret_rotation.py": 0.78,
     "security/file_permissions.py": 0.85,
+    "security/certificates.py": 0.85,
     "core/paths.py": 0.75,
     "services/ws_adapter.py": 0.75,
 }

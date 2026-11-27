@@ -303,3 +303,236 @@ def test_validate_certificate_mismatched_key(tmp_path, monkeypatch):
     # cert1 with key2 — public numbers differ.
     findings = tls_validation._validate_certificate(cert, key2)
     assert any("do not match" in f["message"] for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# _generate_via_openssl fallback + CN sanitisation
+# ---------------------------------------------------------------------------
+
+
+def _no_cryptography(monkeypatch):
+    """Force the cryptography import in generate_self_signed to fail so
+    the openssl CLI fallback runs."""
+    monkeypatch.setitem(sys.modules, "cryptography", None)
+
+
+def test_openssl_fallback_invoked_when_cryptography_missing(tmp_path, monkeypatch):
+    _no_cryptography(monkeypatch)
+    calls = []
+    import types
+
+    monkeypatch.setattr(
+        certificates,
+        "run_cmd",
+        lambda cmd, **kw: calls.append(cmd) or types.SimpleNamespace(returncode=0, stderr=""),
+    )
+    monkeypatch.setattr(certificates, "_restrict_key_permissions", lambda *a, **k: None)
+    cert = str(tmp_path / "c.pem")
+    key = str(tmp_path / "k.pem")
+    assert certificates.generate_self_signed(cert, key, common_name="my.host") is True
+    assert calls and calls[0][:2] == ["openssl", "req"]
+    subj = calls[0][calls[0].index("-subj") + 1]
+    assert subj == "/CN=my.host"
+
+
+def test_openssl_cn_strips_subject_syntax(tmp_path, monkeypatch):
+    """'/O=evil' inside the CN would inject extra RDN fields — the
+    subject-syntax chars are stripped, not escaped."""
+    _no_cryptography(monkeypatch)
+    calls = []
+    import types
+
+    monkeypatch.setattr(
+        certificates,
+        "run_cmd",
+        lambda cmd, **kw: calls.append(cmd) or types.SimpleNamespace(returncode=0, stderr=""),
+    )
+    monkeypatch.setattr(certificates, "_restrict_key_permissions", lambda *a, **k: None)
+    certificates.generate_self_signed(
+        str(tmp_path / "c.pem"), str(tmp_path / "k.pem"), common_name="a.com/O=evil"
+    )
+    subj = calls[0][calls[0].index("-subj") + 1]
+    # The /CN= prefix is openssl's own syntax — the injected '/O=evil'
+    # must be stripped from the VALUE, leaving exactly one RDN.
+    assert subj == "/CN=a.comOevil"
+
+
+def test_openssl_empty_cn_raises(tmp_path, monkeypatch):
+    _no_cryptography(monkeypatch)
+    with pytest.raises(ValueError, match="usable characters"):
+        certificates.generate_self_signed(
+            str(tmp_path / "c.pem"), str(tmp_path / "k.pem"), common_name="/="
+        )
+
+
+def test_openssl_failure_raises_runtime(tmp_path, monkeypatch):
+    _no_cryptography(monkeypatch)
+    import types
+
+    monkeypatch.setattr(
+        certificates,
+        "run_cmd",
+        lambda *a, **kw: types.SimpleNamespace(returncode=1, stderr=b"bad usage"),
+    )
+    with pytest.raises(RuntimeError, match="openssl failed"):
+        certificates.generate_self_signed(str(tmp_path / "c.pem"), str(tmp_path / "k.pem"))
+
+
+# ---------------------------------------------------------------------------
+# _restrict_key_permissions — Windows ACL branch (mocked)
+# ---------------------------------------------------------------------------
+
+
+def _fake_nt_os(monkeypatch):
+    import os as _os
+    import types
+
+    fake = types.SimpleNamespace(name="nt", environ=_os.environ)
+    monkeypatch.setattr(certificates, "os", fake)
+    calls = []
+    monkeypatch.setattr(certificates, "run_cmd", lambda cmd, **kw: calls.append(cmd), raising=False)
+    return calls
+
+
+def test_restrict_key_windows_read_grant(monkeypatch):
+    calls = _fake_nt_os(monkeypatch)
+    monkeypatch.setenv("USERNAME", "alice")
+    certificates._restrict_key_permissions(r"C:\k.pem", writable=False)
+    assert len(calls) == 2
+    assert calls[0][:3] == ["icacls", r"C:\k.pem", "/reset"]
+    grant = calls[1]
+    assert "/grant:r" in grant
+    assert "*S-1-5-18:(R)" in grant and "*S-1-5-32-544:(R)" in grant
+    assert "alice:(R)" in grant
+
+
+def test_restrict_key_windows_modify_grant(monkeypatch):
+    calls = _fake_nt_os(monkeypatch)
+    monkeypatch.setenv("USERNAME", "alice")
+    certificates._restrict_key_permissions(r"C:\state.json", writable=True)
+    grant = calls[1]
+    assert "*S-1-5-18:(M)" in grant and "alice:(M)" in grant
+
+
+def test_restrict_key_windows_icacls_failure_suppressed(monkeypatch):
+    _fake_nt_os(monkeypatch)
+
+    def _boom(*a, **kw):
+        raise OSError("icacls missing")
+
+    monkeypatch.setattr(certificates, "run_cmd", _boom, raising=False)
+    certificates._restrict_key_permissions(r"C:\k.pem")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# create_ssl_context — tls_validation fallback + hardened raise
+# ---------------------------------------------------------------------------
+
+
+def test_ssl_context_fallback_when_tls_validation_missing(tmp_path, monkeypatch):
+    """If tls_validation cannot be imported a sane PROTOCOL_TLS_SERVER
+    context is built instead of failing."""
+    pytest.importorskip("cryptography")
+    monkeypatch.setitem(sys.modules, "vnc_remote_secure.security.tls_validation", None)
+    monkeypatch.setattr(certificates, "_restrict_key_permissions", lambda *a, **k: None)
+    cert = str(tmp_path / "c.pem")
+    key = str(tmp_path / "k.pem")
+    certificates.generate_self_signed(cert, key)
+    monkeypatch.setenv("SSL_CERT", cert)
+    monkeypatch.setenv("SSL_KEY", key)
+    ctx = certificates.create_ssl_context()
+    assert ctx is not None
+    assert ctx.minimum_version == ssl.TLSVersion.TLSv1_2
+    if hasattr(ssl, "OP_NO_COMPRESSION"):
+        assert ctx.options & ssl.OP_NO_COMPRESSION
+
+
+# ---------------------------------------------------------------------------
+# _tls_enabled_env ImportError fallback
+# ---------------------------------------------------------------------------
+
+
+def test_tls_enabled_env_fallback_disable_ssl_wins(monkeypatch):
+    """ImportError on the canonical resolver degrades to the local
+    DISABLE_SSL/TLS_ENABLED semantics (kill-switch still wins)."""
+    monkeypatch.delattr("vnc_remote_secure.core.config._is_tls_enabled_env", raising=False)
+    monkeypatch.setenv("DISABLE_SSL", "true")
+    monkeypatch.setenv("TLS_ENABLED", "true")
+    assert certificates._tls_enabled_env() is False
+
+
+def test_tls_enabled_env_fallback_tls_enabled_off(monkeypatch):
+    monkeypatch.delattr("vnc_remote_secure.core.config._is_tls_enabled_env", raising=False)
+    monkeypatch.delenv("DISABLE_SSL", raising=False)
+    monkeypatch.setenv("TLS_ENABLED", "false")
+    assert certificates._tls_enabled_env() is False
+    monkeypatch.setenv("TLS_ENABLED", "true")
+    assert certificates._tls_enabled_env() is True
+
+
+# ---------------------------------------------------------------------------
+# _resolve_cert_key_paths — discovery failure degrades
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cert_key_discovery_failure(monkeypatch):
+    monkeypatch.delenv("SSL_CERT", raising=False)
+    monkeypatch.delenv("SSL_KEY", raising=False)
+
+    def _boom():
+        raise RuntimeError("no paths")
+
+    monkeypatch.setattr("vnc_remote_secure.core.paths.get_ssl_dir", _boom, raising=False)
+    assert certificates._resolve_cert_key_paths(None, None) == ("", "")
+
+
+# ---------------------------------------------------------------------------
+# request_letsencrypt — symlink path + failure loop
+# ---------------------------------------------------------------------------
+
+
+def test_letsencrypt_links_certs_into_ssl_dir(tmp_path, monkeypatch):
+    import types
+
+    monkeypatch.setattr(certificates.shutil, "which", lambda c: "/usr/bin/certbot")
+    monkeypatch.setattr(
+        certificates,
+        "run_cmd",
+        lambda *a, **kw: types.SimpleNamespace(returncode=0, stderr=""),
+    )
+    real_exists = os.path.exists
+    monkeypatch.setattr(
+        "os.path.exists",
+        lambda p: p.startswith("/etc/letsencrypt/") or real_exists(p),
+    )
+    ssl_dir = tmp_path / "linked"
+    domain = "ok.example.com"
+    assert certificates.request_letsencrypt(domain, "a@b.c", str(ssl_dir)) is True
+    link = ssl_dir / "fullchain.pem"
+    assert link.is_symlink()
+    assert os.readlink(link) == f"/etc/letsencrypt/live/{domain}/fullchain.pem"
+
+
+def test_letsencrypt_both_plugins_fail(tmp_path, monkeypatch):
+    import types
+
+    monkeypatch.setattr(certificates.shutil, "which", lambda c: "/usr/bin/certbot")
+    monkeypatch.setattr(
+        certificates,
+        "run_cmd",
+        lambda *a, **kw: types.SimpleNamespace(returncode=1, stderr="fail"),
+    )
+    assert certificates.request_letsencrypt("ok.example.com", "a@b.c") is False
+
+
+def test_letsencrypt_success_but_certs_missing(monkeypatch):
+    import types
+
+    monkeypatch.setattr(certificates.shutil, "which", lambda c: "/usr/bin/certbot")
+    monkeypatch.setattr(
+        certificates,
+        "run_cmd",
+        lambda *a, **kw: types.SimpleNamespace(returncode=0, stderr=""),
+    )
+    monkeypatch.setattr("os.path.exists", lambda p: False)
+    assert certificates.request_letsencrypt("ok.example.com", "a@b.c") is False
