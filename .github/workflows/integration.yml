@@ -73,6 +73,11 @@ jobs:
           node-version: '20'
       - name: Install Python package
         run: pip install -e ".[dev]"
+      - name: Build admin SPA (specs render the real bundle)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
       - name: Install Playwright browsers
         run: |
           npm ci

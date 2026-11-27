@@ -82,6 +82,10 @@ dist/
 build/
 artifacts/
 
+# Vite build output (TD-12): derived from frontend/, built in CI and
+# shipped inside the wheel — never commit the bundle.
+src/vnc_remote_secure/web/static/admin/
+
 # --- Temporary files ---
 *.swp
 *.swo
