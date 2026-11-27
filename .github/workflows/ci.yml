@@ -35,6 +35,12 @@ jobs:
       - name: Install package + lint toolchain
         run: |
           pip install -e ".[dev]"
+      - name: uv lockfile check (pyproject.toml ↔ uv.lock)
+        # DEP-001: CI fails when the declarative manifest and the
+        # lockfile diverge — no dynamic resolution on the build path.
+        run: |
+          pip install uv
+          uv lock --check
       - name: Ruff (Python lint)
         run: |
           ruff check src/vnc_remote_secure/ tools/ scripts/utilities/
