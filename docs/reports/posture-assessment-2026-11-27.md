@@ -85,6 +85,27 @@ independent eyes (access control, vuln mgmt), incident history
   shared marker, `raise_on_error` on create so a dead link is
   never handed out — **clean except the preview finding above**.
 
+## Negatives fixed this pass (pass 4)
+
+- **`_operator_store_auth` credential widening** (security/http_auth):
+  a user FOUND in the operator store whose `verify()` threw (corrupt
+  hash, rehash I/O, exotic argon2 error) was caught by a blanket
+  `except` → returned None → evaluated against the env bootstrap
+  credential — the exact widening the docstring forbids. Fallback is
+  now scoped to (store unreadable | username absent); a record-level
+  failure denies and burns lockout budget. Regression tests pin both
+  the deny path and the designed env fallback for unreadable stores.
+- `security/file_permissions.py` 62 % → 92 % — the Windows icacls
+  ACE parser is pure logic and is now exercised via mocked `run_cmd`
+  (Everyone/Todos → critical, BUILTIN\Users → warning, path-header
+  false-positive guard), plus glob enumeration, backup-archive
+  inclusion, fix/deny error paths and the Windows fix delegation.
+  Added to floors at 85 %.
+- Focused mini-review of `http_auth` (TD-17 scoped): constant-time
+  compares, TE/CL desync rejection, last-hop XFF with CIDR-aware
+  trusted proxies, shared `ip:` lockout namespace, exactly-one-
+  outcome rate limiting — **clean except the widening above**.
+
 ## Remaining debt (honest)
 
 - **TD-17 external review** — needs a human third party; scope doc
