@@ -640,6 +640,60 @@ independent eyes (access control, vuln mgmt), incident history
   anti-enumeration revoke + label semantics, operator PATCH
   whitelist + weak-password rejection + passkey opaque refs.
 
+## Pass 19 — portal auth context (crown jewel) + health_app coverage
+
+### Reviews (TD-17-scoped)
+
+- `backend/context.py` — THE central auth surface: every portal/API
+  request flows through `PortalContext`. Verified end to end:
+  - `_split_op_cookie`/`_parse_op_cookie`: strict shape (≤256 chars,
+    printable ASCII, 4 dot-parts, charset-pinned sid/exp/sig),
+    expiry window rejects past AND absurdly-future, HMAC compared
+    with `compare_digest`, optional IP-binding folded into the sig.
+  - `_resolve_operator`: duplicated `vnc_op` cookie names NEVER
+    authenticate (parse-order ambiguity closed); Basic falls back to
+    the hardened `authenticate_landing`; fresh auth records step-up
+    time.
+  - `_issue_op_session`: `secrets.token_urlsafe` sid, b64url username
+    (dots can't confuse the parser), HMAC-SHA256, SameSite=Strict
+    HttpOnly, per-user session cap (10) revoking oldest, audited.
+  - `_op_session_revoked`: per-sid mark + per-user epoch; ANY
+    backend error → revoked (fail closed).
+  - `_resolve_op_identity`: disabled store users → None; env
+    bootstrap reachable ONLY for username `admin`; store exception →
+    None (fail closed).
+  - `_check_csrf` + `_operator_gate`: nonce+sid-bound token via
+    `compare_digest`, Origin check, `Sec-Fetch-Site: cross-site`
+    rejection (forbidden header a page can't forge), permission +
+    `portal_permission_denied` audit — on EVERY mutation.
+  - `_serve_admin`: normpath containment under `_ADMIN_DIR`,
+    extension whitelist, `isfile` check, SPA fallback; HTML gets
+    no-store + no-referrer + strict CSP (`script-src 'self'`,
+    `frame-ancestors 'none'`).
+  - `_flush_pending_cookies` upgrades queued cookies to `Secure`
+    on TLS; `_session_refresh_header` re-issues SameSite=Strict —
+    refresh never widens scope.
+  - `AsgiPortalContext` mirrors the stdlib transport faithfully.
+  Clean — no auth bypass found.
+- `backend/health_app.py` — FastAPI machine surface. `check_health_auth`
+  opens ONLY when no token AND every bind is loopback AND the real
+  socket peer is loopback (XFF can't spoof — `peer_ip` is the socket
+  peer); scoped tokens (`metrics`/`audit`) isolate credentials;
+  token attempts are rate-limited. Middleware rejects TE/CL smuggling
+  shapes and stamps security headers on every response incl. errors;
+  non-route responses keep the canonical `error_json` envelope.
+  `/health/live` + `security.txt` are unauthenticated BY DESIGN but
+  rate-limited 60/60s per IP. Clean.
+
+### Negatives fixed this pass (pass 19)
+
+- No security bug — `health_app.py` 0 % → **71 %** (19 TestClient
+  tests: health/ready status codes, per-scope Bearer gating, public
+  probes skip auth, rate-limit 429, security.txt, metrics body,
+  audit limit clamp + 400-on-malformed, verify chain, security
+  headers, error envelope, TE/CL rejection). Every backend handler
+  module now has direct unit coverage.
+
 ## Remaining debt (honest) — updated
 
 - **TD-17 external review** — needs a human third party; scope doc
@@ -649,8 +703,7 @@ independent eyes (access control, vuln mgmt), incident history
 - **TD-13 ramp** — mechanism live; weakest remaining:
   `core/doctor.py` 57 % (platform probes),
   `core/service_manager.py` 68 %, `services/terminal.py` 60 %,
-  `backend/health_app.py` 0 %, `backend/context.py`/`app.py`/
-  `schemas.py` partially covered (dispatch internals exercised via
-  api_v1 route tests — transport only, policy lives in
-  engine/security).
+  `backend/context.py`/`app.py`/`schemas.py` partially covered
+  (dispatch internals exercised via api_v1 route tests —
+  transport only, policy lives in engine/security).
 - **D1/D10 drills** — need a disposable host.
