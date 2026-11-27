@@ -1,0 +1,5 @@
+# git ssh allowedSignersFile — maintainer keys trusted to sign
+# release tags (TD-15). Format: <principal> <key-type> <key>
+# Verify locally: git config gpg.ssh.allowedSignersFile .github/allowed_signers
+# then `git tag -v vX.Y.Z`.
+alesanfe@users.noreply.github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIADJov+/et78LdHKpC9HVLhcUm0DUxqkfZhdQB3bRBGn

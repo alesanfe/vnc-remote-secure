@@ -52,10 +52,20 @@ version header added.
    ```bash
    git commit -m "chore(release): vX.Y.Z"
    ```
-5. **Tag** the release:
+5. **Tag** the release (signed — the release workflow rejects
+   unsigned tags, TD-15):
    ```bash
-   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   git tag -s vX.Y.Z -m "Release vX.Y.Z"
    git push origin main --tags
+   ```
+
+   One-time signing setup (SSH format — the maintainer key is listed
+   in `.github/allowed_signers`, which CI verifies against):
+   ```bash
+   git config gpg.format ssh
+   git config user.signingkey ~/.ssh/id_ed25519.pub
+   git config commit.gpgsign true   # optional: sign commits too
+   git config tag.gpgsign true      # makes `git tag -a` sign like `-s`
    ```
 
 ## CI/CD
