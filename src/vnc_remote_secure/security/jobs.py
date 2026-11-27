@@ -134,9 +134,22 @@ def job_enqueue(kind: str, actor: str, target: str = "", payload: dict | None = 
 
 def job_claim(jid: str, worker_id: str = "") -> bool:
     """Atomically claim a queued job. Returns False if already
-    claimed or unknown — the executor must NOT run the payload."""
+    claimed or unknown — the executor must NOT run the payload.
+
+    The job record must exist AND still be queued: a phantom claim
+    would let a runner proceed on a job with no payload, and a
+    finished job whose claim row TTL'd out must never re-run a
+    completed destructive op."""
     try:
         be = _be()
+        raw = be.get(_NS_JOBS, jid)
+        if not raw:
+            return False
+        try:
+            if json.loads(raw).get("state") != "queued":
+                return False
+        except (ValueError, TypeError):
+            return False
         if not be.set_if_absent(_NS_CLAIMS, jid, worker_id or "runner", _CLAIM_TTL):
             return False
         _update(jid, state="running", claimed_by=worker_id or "runner")
