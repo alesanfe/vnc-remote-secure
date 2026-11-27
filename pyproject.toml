@@ -401,7 +401,6 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "engine layering: application -> infrastructure -> domain"
 type = "layers"
-allow_indirect_imports = true
 layers = [
     "vnc_remote_secure.engine.application",
     "vnc_remote_secure.engine.infrastructure",
