@@ -23,7 +23,7 @@
     "lucide-react": "^1.65.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
-    "react-dom": "^18.3.1",
+    "react-dom": "^19.3.1",
     "react-error-boundary": "^5.0.0",
     "react-router-dom": "^7.18.5",
     "sonner": "^1.7.1"
@@ -32,10 +32,14 @@
     "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.64.1",
     "@types/react": "^19.3.0",
-    "@types/react-dom": "^18.3.1",
+    "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.1.2",
     "openapi-typescript": "^7.13.0",
     "typescript": "~5.6.2",
-    "vite": "^6.0.7"
-  }
+    "vite": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "packageManager": "npm@10.9.9"
 }
