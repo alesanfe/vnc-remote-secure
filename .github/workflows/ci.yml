@@ -113,6 +113,9 @@ jobs:
         python: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # diff-cover needs the PR base branch history to diff against.
+          fetch-depth: 0
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -125,17 +128,27 @@ jobs:
       - name: Run pytest
         # Coverage gate on one matrix leg only — measuring on every
         # OS×Python cell triples the upload surface for no signal.
-        # --cov-fail-under enforces the floor (measured baseline: 56%
-        # after the novnc/d3des/health-blueprint test rounds; raise as
-        # coverage improves — next targets: novnc.py 36%,
-        # ephemeral_sessions.py 68%).
-        # --cov-branch reports branch coverage (measured 65% on
-        # unit+security alone — the 56 floor is safe).
+        # --cov-fail-under is a ratchet: unit+security alone measure
+        # 67% (2026-11); the 62 floor leaves margin for platform
+        # variance and only ever moves up toward the 85% target
+        # (TD-13). Per-risk module floors run right after.
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: |
           python -m pytest tests/unit tests/integration tests/e2e tests/security -q \
             --cov=vnc_remote_secure --cov-branch --cov-report=term-missing \
-            --cov-report=xml:coverage.xml --cov-fail-under=56
+            --cov-report=xml:coverage.xml --cov-fail-under=62
+      - name: Per-risk coverage floors (TD-13)
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          python tools/coverage_floors.py coverage.xml
+      - name: Diff coverage gate (95% on changed lines)
+        # Only meaningful on PRs — on push-to-main there is no base.
+        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          pip install diff-cover
+          diff-cover coverage.xml \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=95
       - name: Run pytest (no coverage gate)
         # !(A && B) como A!= || B!= — el parser de exprs de act no
         # acepta `!(` negando un paréntesis (GitHub sí); así es
