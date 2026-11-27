@@ -17,19 +17,22 @@ from vnc_remote_secure.services import landing
 # ---------------------------------------------------------------------------
 
 
+def _stub_connect_probe(monkeypatch, available):
+    """Force the connect-probe path: ``port_in_listen_state`` -> None
+    (socket table unavailable) so ``is_port_available`` is exercised."""
+    monkeypatch.setattr("vnc_remote_secure.core.processes.port_in_listen_state", lambda port: None)
+    monkeypatch.setattr("vnc_remote_secure.core.processes.is_port_available", available)
+
+
 def test_check_port_returns_bool_when_closed(monkeypatch):
     """check_port returns False when nothing listens (port available)."""
-    monkeypatch.setattr(
-        "vnc_remote_secure.core.processes.is_port_available", lambda port, host="127.0.0.1": True
-    )
+    _stub_connect_probe(monkeypatch, lambda port, host="127.0.0.1": True)
     assert landing.check_port(59999) is False
 
 
 def test_check_port_returns_true_when_open(monkeypatch):
     """check_port returns True when the port is listening."""
-    monkeypatch.setattr(
-        "vnc_remote_secure.core.processes.is_port_available", lambda port, host="127.0.0.1": False
-    )
+    _stub_connect_probe(monkeypatch, lambda port, host="127.0.0.1": False)
     assert landing.check_port(5900) is True
 
 
@@ -39,7 +42,7 @@ def test_check_port_returns_false_on_exception(monkeypatch):
     def _boom(*a, **k):
         raise OSError("no network")
 
-    monkeypatch.setattr("vnc_remote_secure.core.processes.is_port_available", _boom)
+    _stub_connect_probe(monkeypatch, _boom)
     assert landing.check_port(5900) is False
 
 
@@ -52,7 +55,7 @@ def test_check_port_wildcard_normalised_to_loopback(monkeypatch):
         seen["host"] = host
         return False  # listening
 
-    monkeypatch.setattr("vnc_remote_secure.core.processes.is_port_available", _spy)
+    _stub_connect_probe(monkeypatch, _spy)
     assert landing.check_port(5900, "0.0.0.0") is True
     assert seen["host"] == "127.0.0.1"
 

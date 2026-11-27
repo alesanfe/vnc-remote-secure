@@ -34,6 +34,18 @@ def check_port(port, host="127.0.0.1"):
     # justification: detection, not a bind
     if host in ("0.0.0.0", "::", ""):  # nosec B104
         host = "127.0.0.1"
+    # Socket-table probe first (no connect): TigerVNC counts every
+    # unauthenticated connect toward its blacklist, and each further
+    # attempt while blacklisted extends the backoff — a periodic
+    # connect probe would lock the host out of the RFB server forever.
+    try:
+        from vnc_remote_secure.core.processes import port_in_listen_state
+
+        listening = port_in_listen_state(port)
+        if listening is not None:
+            return listening
+    except Exception as e:
+        logger.debug("Socket-table probe failed: %s", e)
     # Delegate to the shared probe — it selects AF_INET6 for IPv6
     # literal hosts, which a hardcoded AF_INET socket cannot reach.
     try:

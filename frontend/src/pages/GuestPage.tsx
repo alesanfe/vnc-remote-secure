@@ -18,10 +18,13 @@ import { RelativeTime } from '../components/bits';
 import { roleLabel, useI18n } from '../i18n';
 
 /** noVNC URL for the guest — nginx deployments proxy /vnc/ on the
-    same origin; direct deployments expose the noVNC port. */
+    same origin; direct deployments expose the noVNC port.
+    ``external_base`` covers the unmanaged-proxy case: the app may not
+    manage nginx itself (nginx_enabled=false) yet the request still
+    arrived through a trusted reverse proxy. */
 export function desktopUrl(p?: PortalData): string {
   if (!p) return '/vnc/vnc.html';
-  if (p.nginx_enabled) return '/vnc/vnc.html';
+  if (p.nginx_enabled || p.external_base) return '/vnc/vnc.html';
   const proto = p.protocol ?? 'http';
   const port = p.ports?.novnc ?? 6080;
   return `${proto}://${window.location.hostname}:${port}/vnc.html`;

@@ -583,7 +583,12 @@ def _operator_session_dead(session_id: str) -> str | None:
             # corrupted value) is dead — close it.
             return "expired"
         parts = payload.split(":")
-        if len(parts) == 4:
+        # Field layouts match verify_session_cookie(): v3 carries a
+        # per-login sid (5 fields), v2 dropped it (4), legacy v1 has no
+        # last_seen (3). Only created/expires matter for liveness.
+        if len(parts) == 5:
+            _u, created_s, _last_seen_s, expires_s, _sid = parts
+        elif len(parts) == 4:
             _u, created_s, _last_seen_s, expires_s = parts
         elif len(parts) == 3:
             _u, created_s, expires_s = parts

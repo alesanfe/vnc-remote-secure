@@ -518,6 +518,10 @@ def test_share_page_public(server):
     csp = headers.get("Content-Security-Policy", "")
     assert "script-src 'self'" in csp
     assert "unsafe-inline" not in csp.split("script-src", 1)[1].split(";")[0]
+    # frame-src 'self' lets the SPA embed the same-origin noVNC page
+    # (RemoteConsole); frame-ancestors 'none' still blocks being framed.
+    assert "frame-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
 
 
 def test_session_preview_public(server, monkeypatch):

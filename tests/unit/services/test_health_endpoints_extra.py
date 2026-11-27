@@ -16,6 +16,9 @@ from vnc_remote_secure.services import health
 @pytest.fixture
 def health_server(monkeypatch):
     monkeypatch.setattr(health, "is_port_available", lambda port, host=None: True)
+    monkeypatch.setattr(
+        "vnc_remote_secure.core.processes.port_in_listen_state", lambda port: False
+    )
     server = health.start_health_server(port=0, host="127.0.0.1")
     yield server
     server.shutdown()

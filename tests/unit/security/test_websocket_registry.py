@@ -345,10 +345,16 @@ class TestOperatorSessionSweep:
         return closed
 
     def _operator_cookie(self, created, expires, last_seen=None):
+        """Mint a v3 operator cookie — the format create_session_cookie
+        actually emits (username:created:last_seen:expires:sid)."""
+        import secrets
+
         from vnc_remote_secure.security.token_signing import TOKEN_TYPE_SESSION, sign_token
 
         ls = last_seen if last_seen is not None else created
-        return sign_token(TOKEN_TYPE_SESSION, f"admin:{created}:{ls}:{expires}")
+        return sign_token(
+            TOKEN_TYPE_SESSION, f"admin:{created}:{ls}:{expires}:{secrets.token_urlsafe(16)}"
+        )
 
     def test_absolute_expiry_swept(self, monkeypatch):
         import time
@@ -402,6 +408,31 @@ class TestOperatorSessionSweep:
             "vnc_remote_secure.security.sessions." "operator_session_epoch", lambda: 0.0
         )
         assert w._sweep_revoked_session(cookie) is False
+
+    def test_legacy_cookie_layouts_still_parsed(self, monkeypatch):
+        """v2 (4 fields, no sid) and v1 (3 fields) cookies minted before
+        the current format must still sweep on created/expires — only
+        those two fields matter for liveness."""
+        import time
+
+        from vnc_remote_secure.security import websocket_registry as w
+        from vnc_remote_secure.security.token_signing import (
+            TOKEN_TYPE_SESSION,
+            sign_token,
+        )
+
+        closed = self._patch_dead(w, monkeypatch)
+        now = int(time.time())
+        # v2: user:created:last_seen:expires — absolute cap already past.
+        v2 = sign_token(TOKEN_TYPE_SESSION, f"admin:{now - 90000}:{now - 80000}:{now - 10}")
+        assert w._sweep_revoked_session(v2) is True
+        # v1: user:created:expires — still live, must NOT be swept.
+        v1 = sign_token(TOKEN_TYPE_SESSION, f"admin:{now - 100}:{now + 3600}")
+        monkeypatch.setattr(
+            "vnc_remote_secure.security.sessions." "operator_session_epoch", lambda: 0.0
+        )
+        assert w._sweep_revoked_session(v1) is False
+        assert closed == [v2]
 
     def test_non_session_token_ignored(self, monkeypatch):
         """Ephemeral/internal tokens never hit the operator path."""

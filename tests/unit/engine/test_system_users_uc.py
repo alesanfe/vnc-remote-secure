@@ -28,9 +28,11 @@ def env(monkeypatch):
         "deleted": [],
         "audits": [],
         "jobs": [],
+        "uids": {},
     }
     monkeypatch.setattr(stores, "system_usernames_reserved", lambda: state["reserved"])
     monkeypatch.setattr(stores, "system_current_user", lambda: state["current"])
+    monkeypatch.setattr(stores, "system_user_uid", lambda u: state["uids"].get(u))
     monkeypatch.setattr(stores, "system_user_create", lambda u, p: state["created"].append(u))
     monkeypatch.setattr(stores, "system_user_delete", lambda u: state["deleted"].append(u) or True)
     monkeypatch.setattr(
@@ -112,6 +114,38 @@ def test_delete_ok(env):
     assert env["deleted"] == ["olduser"]
     assert env["audits"][-1] == ("user_delete", "")
     assert env["jobs"][-1][0] == "finish"
+
+
+def test_delete_os_service_account_refused(env):
+    """UID < 1000 marks an OS service account (sshd, messagebus…) —
+    never app-managed, even if named directly (bypassing the filtered
+    listing). Refused BEFORE a job is started."""
+    env["uids"]["sshd"] = 104
+    with pytest.raises(UseCaseError) as exc:
+        system_users.delete_system_user("root", "sshd")
+    assert exc.value.code == ERR_PERMISSION
+    assert env["deleted"] == []
+    assert env["jobs"] == []
+    assert env["audits"][-1][0] == "api_permission_denied"
+
+
+def test_delete_uid_boundary(env):
+    """999 refused, 1000 allowed — the login-account threshold."""
+    env["uids"]["svc999"] = 999
+    with pytest.raises(UseCaseError) as exc:
+        system_users.delete_system_user("root", "svc999")
+    assert exc.value.code == ERR_PERMISSION
+
+    env["uids"]["olduser"] = 1000
+    system_users.delete_system_user("root", "olduser")
+    assert env["deleted"] == ["olduser"]
+
+
+def test_delete_unknown_uid_proceeds(env):
+    """uid None (non-POSIX / unknown account) does not block — the
+    adapter decides whether the account exists."""
+    system_users.delete_system_user("root", "ghost")
+    assert env["deleted"] == ["ghost"]
 
 
 def test_delete_adapter_false_fails_job(env, monkeypatch):

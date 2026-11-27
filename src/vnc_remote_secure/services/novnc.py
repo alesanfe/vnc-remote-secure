@@ -343,6 +343,16 @@ def make_app(novnc_dir: str | None = None):
         for name, value in get_security_headers(tls_enabled=request.url.scheme == "https").items():
             if name.lower() not in emitted:
                 resp.headers[name] = value
+        # Same-origin framing only: the admin SPA's RemoteConsole embeds
+        # /vnc/vnc.html — foreign origins stay locked out (clickjacking
+        # protection unchanged), same-origin embeds now work.
+        csp = resp.headers.get("Content-Security-Policy", "")
+        if "frame-ancestors 'none'" in csp:
+            resp.headers["Content-Security-Policy"] = csp.replace(
+                "frame-ancestors 'none'", "frame-ancestors 'self'"
+            )
+        if resp.headers.get("X-Frame-Options") == "DENY":
+            resp.headers["X-Frame-Options"] = "SAMEORIGIN"
         return resp
 
     @app.websocket("/websockify")

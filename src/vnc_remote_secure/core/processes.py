@@ -28,6 +28,38 @@ def is_port_available(port, host="127.0.0.1"):
         return True
 
 
+def port_in_listen_state(port):
+    """Return ``True`` if ``port`` has a LISTEN socket on this host.
+
+    Reads ``/proc/net/tcp{,6}`` instead of opening a connection — a
+    connect+close is not free for every listener: TigerVNC counts it
+    as an unauthenticated attempt toward ``-BlacklistThreshold``, and
+    once blacklisted each further attempt extends the (exponentially
+    growing) timeout, so a periodic connect probe locks the host out
+    of the RFB server permanently. ``None`` when the socket table is
+    unavailable (non-Linux, restricted /proc) so callers can fall back
+    to a connect probe.
+    """
+    seen = False
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(table, encoding="ascii") as fh:
+                seen = True
+                next(fh, None)  # header line
+                for line in fh:
+                    fields = line.split()
+                    # fields[1] is "hexIP:hexPort"; state 0A = LISTEN
+                    if len(fields) > 3 and fields[3] == "0A":
+                        try:
+                            if int(fields[1].rsplit(":", 1)[-1], 16) == port:
+                                return True
+                        except ValueError:
+                            continue
+        except OSError:
+            continue
+    return False if seen else None
+
+
 def run_cmd(cmd, timeout=30, check=False, **kwargs):
     """``subprocess.run`` with a hard timeout by default.
 

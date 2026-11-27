@@ -736,6 +736,60 @@ independent eyes (access control, vuln mgmt), incident history
   total (delegation ceiling, label validation, revocation audit,
   list filters). 1372 engine+security+services tests green.
 
+## Pass 21 — operator-WS sweep parse bug, TigerVNC blacklist probe, OS-account guard
+
+### Reviews (TD-17-scoped)
+
+- `security/websocket_registry.py` — `_operator_session_dead` parses
+  the signed `vnc_op` payload for sweep liveness. **Real bug fixed
+  (in-flight WIP, verified + pinned):** v3 cookies carry 5 fields
+  (`user:created:last_seen:expires:sid`) but the parser only handled
+  4 and 3 — every live v3 operator session fell into `else →
+  "expired"` and the sweeper closed its websockets. Now all three
+  layouts parse (parity with `verify_session_cookie`); legacy-layout
+  regression test added.
+- `core/processes.py::port_in_listen_state` + callers
+  (`services/health.py`, `core/doctor.py`, `core/portal.py`) —
+  **real operational bug fixed (in-flight WIP, verified):** every
+  health/doctor/portal port probe opened a TCP connect+close; TigerVNC
+  counts each as an unauthenticated attempt toward
+  `-BlacklistThreshold`, and while blacklisted every further attempt
+  extends the exponential backoff — a periodic probe locks the host
+  out of RFB permanently. New tri-state helper reads
+  `/proc/net/tcp{,6}` LISTEN rows (no connect; `None` on
+  non-Linux/unreadable → connect fallback preserved). Applied to the
+  VNC probe in health, and as first-choice in doctor/portal port
+  checks.
+- `engine/infrastructure/stores.py` + `application/system_users.py` —
+  `system_users_list` now shows only UID ≥ 1000 (the 100–999 range is
+  OS service accounts: sshd, messagebus…), and delete refuses
+  `system_user_uid() < 1000` even when the account is named directly,
+  bypassing the filtered listing. Audit `api_permission_denied`,
+  refused before `job_start`. Hardening, verified.
+- `services/novnc.py` + `backend/context.py` — same-origin framing
+  for the RemoteConsole embed: noVNC middleware rewrites
+  `frame-ancestors 'none'→'self'` / `XFO DENY→SAMEORIGIN` on every
+  response; admin-shell CSP gains `frame-src 'self'` while keeping
+  `frame-ancestors 'none'`. Foreign origins remain blocked —
+  clickjacking posture unchanged. Frontend `GuestPage.desktopUrl`
+  consumes the existing `external_base` portal field for the
+  unmanaged-proxy case. Security-reviewed: 'self' cannot be widened
+  by a foreign origin; tsc clean.
+
+### Negatives fixed this pass (pass 21)
+
+- **Determinism fallout from the probe change** — tests that mocked
+  only `is_port_available` became host-dependent once VNC switched to
+  the socket table (port 5900 IS listening on this Pi → real values
+  leaked into assertions). Fixed: `_mock_port_state` dual-mock in
+  `test_health.py`, `port_in_listen_state→None` connect-fallback
+  stubs in `test_landing.py` + both health-endpoint fixtures.
+- New coverage: 5 socket-table parse tests (tri-state incl. missing
+  /proc → None), 3 system-user UID guard tests (boundary 999/1000,
+  unknown→adapter decides, refused pre-job), noVNC framing-headers
+  TestClient test, ws legacy v1/v2 layout test, `frame-src 'self'`
+  CSP pin. **2216 unit tests green**, ruff/black/tsc clean.
+
 ## Remaining debt (honest) — updated
 
 - **TD-17 external review** — needs a human third party; scope doc

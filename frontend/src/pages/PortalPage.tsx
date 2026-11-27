@@ -109,21 +109,20 @@ function ServiceCards({ p }: { p: PortalData }) {
         {p.services.map((svc) => (
           <div
             key={svc.name}
-            className="card"
-            style={{ opacity: svc.running ? 1 : 0.55 }}
+            className={`card svc ${svc.running ? 'online' : 'offline'}`}
           >
             <h3>
               {svc.icon} {svc.name}
             </h3>
             <p className="muted">{svc.desc}</p>
-            <div className="row" style={{ flexWrap: 'wrap' }}>
+            <div className="row svc-chips" style={{ flexWrap: 'wrap' }}>
               {(svc.features ?? []).map((f) => (
                 <span key={f} className="chip">
                   {f}
                 </span>
               ))}
             </div>
-            <div className="row">
+            <div className="row svc-foot">
               <span className={`badge ${svc.running ? 'ok' : 'fail'}`}>
                 {svc.running
                   ? t('portal.status.online')
@@ -147,15 +146,16 @@ function ServiceCards({ p }: { p: PortalData }) {
         ))}
         {p.vnc_direct && (
           <div
-            className="card"
-            style={{ opacity: p.vnc_direct.running ? 1 : 0.55 }}
+            className={`card svc ${
+              p.vnc_direct.running ? 'online' : 'offline'
+            }`}
           >
             <h3><Radio size={16} aria-hidden="true" />{' '}
               {t('portal.vncDirect.title')}</h3>
             <p className="muted">
               {t('portal.vncDirect.desc')}
             </p>
-            <div className="row">
+            <div className="row svc-foot">
               <span
                 className={`badge ${p.vnc_direct.running ? 'ok' : 'fail'}`}
               >
@@ -428,7 +428,7 @@ export default function PortalPage() {
         <p className="muted">{t('portal.tagline')}</p>
         {p.is_operator && (
           <p>
-            <a href="/admin">
+            <a href="/admin" className="portal-admin">
               <Wrench size={14} aria-hidden="true" />{' '}
               {t('portal.adminLink')}
             </a>
@@ -461,7 +461,7 @@ export default function PortalPage() {
                       style={{ verticalAlign: '-2px' }} />{' '}
                 {t(label)}
               </span>
-              <div className="metric-value" style={{ fontSize: '1rem' }}>
+              <div className="metric-value">
                 {metricText(t, p.metrics, key) ?? 'N/A'}
               </div>
             </div>

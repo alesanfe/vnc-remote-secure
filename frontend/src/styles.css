@@ -894,3 +894,178 @@ dl.kv dd { margin: 0; }
   background: color-mix(in srgb, var(--accent, #4a9eff) 6%, transparent);
 }
 .chat-text { white-space: pre-wrap; word-break: break-word; }
+
+/* --- Portal visual refresh ----------------------------------------------
+   Scoped under .portal so the admin SPA's shared .card/.section rules are
+   untouched. Every color resolves through the existing semantic tokens so
+   light theme + prefers-contrast keep working. */
+
+/* Accent glow behind the hero — pure decoration, never intercepts input. */
+.portal { position: relative; }
+.portal::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 22rem;
+  background: radial-gradient(
+    ellipse 55% 100% at 50% 0%,
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.portal > * { position: relative; }
+
+/* Hero */
+.portal .header { padding: 2.5rem 0 1.5rem; }
+.portal .header h1 {
+  font-size: 1.85rem;
+  letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.portal .header h1 svg { color: var(--accent-text); }
+.portal .header > .muted { font-size: 0.95rem; margin: 0.1rem 0 0.9rem; }
+.portal-admin {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+.portal-admin:hover { border-color: var(--accent); background: var(--surface-2); }
+
+/* Section headers — icon + hairline sets the block apart from the card
+   grid without a heavier container. */
+.portal .section > h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  margin-top: 0;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.portal .section > h2 svg { color: var(--accent-text); }
+.portal .section { margin-top: 2.25rem; }
+
+/* Cards inside the portal get hover depth; the border goes accent at
+   low intensity instead of a full recolor. */
+.portal .card {
+  transition: transform 0.15s ease, border-color 0.15s ease,
+              box-shadow 0.15s ease;
+}
+.portal .card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Metric strip — label reads as a caption, value carries the weight.
+   The old inline font-size:1rem cancelled .metric-value's hierarchy. */
+.portal-metrics .card { padding: 0.85rem 1.05rem; }
+.portal-metrics .card:hover { transform: none; }
+.portal-metrics .card > .muted {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.portal-metrics .card > .muted svg { color: var(--accent-text); }
+.portal-metrics .metric-value {
+  font-size: 1.02rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* Service cards — status-colored top edge, chips grouped above a footer
+   row pinned to the bottom so CTAs align across cards. */
+.portal .svc { display: flex; flex-direction: column; }
+.portal .svc::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--border);
+}
+.portal .svc { position: relative; overflow: hidden; }
+.portal .svc.online::after {
+  background: linear-gradient(90deg, var(--ok), transparent 85%);
+}
+.portal .svc.offline { opacity: 0.55; }
+.portal .svc.offline:hover { transform: none; }
+.portal .svc h3 { font-size: 0.98rem; }
+.portal .svc .svc-chips { margin-top: 0.15rem; }
+.portal .svc .svc-foot {
+  margin-top: auto;
+  padding-top: 0.7rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+/* Long addresses/ports shrink instead of overflowing the card edge. */
+.portal .svc .svc-foot > .muted { white-space: nowrap; }
+.portal .svc .svc-foot code { overflow-wrap: anywhere; min-width: 0; }
+/* "Abrir" reads as the card's primary action, not body text. */
+.portal .svc .svc-foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.portal .svc .svc-foot a:hover {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* System-info disclosure — reads as a collapsible panel, not a stray
+   link; chevron replaces the default disclosure triangle. */
+.portal .share-details {
+  margin: 1.5rem 0 0;
+  padding: 0.9rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.portal .share-details summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+  list-style: none;
+}
+.portal .share-details summary::before {
+  content: '';
+  border: solid var(--accent-text);
+  border-width: 0 2px 2px 0;
+  padding: 3px;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.portal .share-details[open] summary::before {
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.portal .share-details summary::-webkit-details-marker { display: none; }
+.portal .share-details[open] summary { margin-bottom: 0.75rem; }
+.portal .share-details .section { margin-top: 1.25rem; }
+
+.portal .portal-footer { border-top: 1px solid var(--border); }

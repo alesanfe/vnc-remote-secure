@@ -105,7 +105,18 @@ def _check_port(port, host="127.0.0.1"):
 
 def check_health():
     """Return a dict mapping service names to listening booleans."""
-    return {name: _check_port(port, host) for name, (host, port) in _service_ports().items()}
+    from vnc_remote_secure.core.processes import port_in_listen_state
+
+    results = {}
+    for name, (host, port) in _service_ports().items():
+        if name == "vnc" and os.name != "nt":
+            # Connect probes count as unauthenticated attempts toward
+            # TigerVNC's blacklist — see port_in_listen_state's docstring.
+            listening = port_in_listen_state(port)
+            results[name] = _check_port(port, host) if listening is None else listening
+        else:
+            results[name] = _check_port(port, host)
+    return results
 
 
 def get_health_status():

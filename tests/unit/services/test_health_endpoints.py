@@ -16,6 +16,11 @@ from vnc_remote_secure.services import health
 def health_server(monkeypatch):
     """Start a health server on an ephemeral port."""
     monkeypatch.setattr(health, "is_port_available", lambda port, host=None: True)
+    # VNC probes /proc/net/tcp instead of connecting — keep it
+    # deterministic (False = table readable, nothing listening).
+    monkeypatch.setattr(
+        "vnc_remote_secure.core.processes.port_in_listen_state", lambda port: False
+    )
     server = health.start_health_server(port=0, host="127.0.0.1")
     yield server
     server.shutdown()

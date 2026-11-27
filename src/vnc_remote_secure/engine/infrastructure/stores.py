@@ -245,8 +245,10 @@ def mfa_available() -> bool:
 def system_users_list() -> list:
     """Non-reserved OS users: {username, uid|None, home|None}.
 
-    Linux reads pwd (UID >= 100, non-reserved); Windows delegates to
-    the adapter's list_users()."""
+    Linux reads pwd (UID >= 1000 — real login accounts; the 100-999
+    range holds OS service accounts like sshd/messagebus which are
+    never app-managed); Windows delegates to the adapter's
+    list_users()."""
     import platform as _platform
 
     from vnc_remote_secure.core.constants import (
@@ -282,7 +284,7 @@ def system_users_list() -> list:
         # getattr: pwd has no getpwall stub on Windows (POSIX-only
         # module) — the except below already guards the ImportError.
         for u in getattr(pwd, "getpwall")():
-            if u.pw_uid >= 100 and u.pw_name not in RESERVED_USERNAMES:
+            if u.pw_uid >= 1000 and u.pw_name not in RESERVED_USERNAMES:
                 users.append(
                     {
                         "username": u.pw_name,
@@ -329,6 +331,20 @@ def system_current_user() -> str:
     import getpass
 
     return getpass.getuser()
+
+
+def system_user_uid(username: str):
+    """UID for a local account, or None when unknown/non-POSIX.
+
+    Lets the delete use case refuse OS service accounts (UID < 1000)
+    even if they arrive through a path that skipped the filtered
+    listing."""
+    try:
+        import pwd
+
+        return getattr(pwd, "getpwnam")(username).pw_uid
+    except (ImportError, AttributeError, KeyError):
+        return None
 
 
 # --- Host power -------------------------------------------------------------

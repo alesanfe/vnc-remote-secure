@@ -108,6 +108,28 @@ def test_novnc_app_exposes_auth_gate():
     assert "/{path:path}" in paths
 
 
+def test_novnc_framing_headers_allow_same_origin_only():
+    """The admin SPA's RemoteConsole iframes /vnc/vnc.html — same-origin
+    framing must work while foreign origins stay blocked.
+
+    CSP ``frame-ancestors 'self'`` + ``X-Frame-Options: SAMEORIGIN``
+    replace the default 'none'/DENY on every response; other security
+    headers are untouched.
+    """
+    from fastapi.testclient import TestClient
+
+    from vnc_remote_secure.services import novnc
+
+    client = TestClient(novnc.make_app("."))
+    resp = client.get("/vnc.html")  # auth gate may 401 — headers apply regardless
+    csp = resp.headers.get("content-security-policy", "")
+    assert "frame-ancestors 'self'" in csp
+    assert "frame-ancestors 'none'" not in csp
+    assert resp.headers.get("x-frame-options") == "SAMEORIGIN"
+    # The rest of the header set is unchanged.
+    assert "default-src" in csp or "script-src" in csp
+
+
 def _generate_self_signed(cert_path, key_path):
     """Generate a self-signed certificate for testing."""
     import datetime

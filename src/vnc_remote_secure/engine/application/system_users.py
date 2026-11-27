@@ -84,6 +84,10 @@ def delete_system_user(actor: str, username: str) -> None:
     if username in stores.system_usernames_reserved() or username == stores.system_current_user():
         _audit("api_permission_denied", actor, f"protected system user delete: {username}")
         raise UseCaseError(ERR_LAST_ADMIN, "Cannot delete system users")
+    uid = stores.system_user_uid(username)
+    if uid is not None and uid < 1000:
+        _audit("api_permission_denied", actor, f"OS service account delete: {username}")
+        raise UseCaseError(ERR_PERMISSION, "Cannot delete OS service accounts")
     jid = stores.job_start("system_user.delete", actor, username)
     try:
         deleted = stores.system_user_delete(username)

@@ -561,7 +561,9 @@ class PortalContext:
         # picked up; hashed assets may be cached safely. The CSP keeps
         # the old share page's posture: same-origin scripts only (the
         # bundle carries no inline JS), ws:/wss: connect for the
-        # audio/gamepad/terminal clients, no frames, no foreign base.
+        # audio/gamepad/terminal clients, no foreign base. frame-src
+        # 'self' lets the RemoteConsole embed the same-origin noVNC
+        # page; framing of this shell stays denied (frame-ancestors).
         # 'unsafe-inline' in style-src is required by React style
         # attributes.
         if ext == ".html":
@@ -574,6 +576,7 @@ class PortalContext:
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data:; font-src 'self'; "
                 "form-action 'self'; base-uri 'none'; "
+                "frame-src 'self'; "
                 "frame-ancestors 'none'",
             )
         self.end_headers()
