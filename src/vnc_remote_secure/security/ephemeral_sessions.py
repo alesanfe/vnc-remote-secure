@@ -116,7 +116,7 @@ def preview_session(signed: str) -> dict | None:
         store = get_session_store()
         store._load_if_changed()
         session = store.get(payload["session_token"])
-        if session is None or session.revoked:
+        if session is None or session.revoked or _session_expired(session):
             return None
         return {
             "role": session.role,

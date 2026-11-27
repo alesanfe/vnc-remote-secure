@@ -555,6 +555,29 @@ def test_session_preview_invalid_403(server, monkeypatch):
     assert status == 403
 
 
+def test_session_preview_expired_403(server, monkeypatch):
+    """An expired share-link must preview exactly like an invalid one —
+    returning grant details for a dead token leaks that the link once
+    existed (enumeration) and contradicts the uniform-None contract."""
+    monkeypatch.setattr(
+        "vnc_remote_secure.security.ephemeral_sessions." "verify_ephemeral_token",
+        lambda t: {"session_token": "internal"},
+    )
+    sess = _FakeSession()
+    sess.revoked = False
+    import time
+
+    sess.expires_at = time.time() - 1  # already expired
+    store = _FakeStore()
+    store.get = lambda t: sess
+    store._load_if_changed = lambda: None
+    monkeypatch.setattr(
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
+    status, _, _ = _api_post(server, "/api/v1/session/preview", {"token": "signed"})
+    assert status == 403
+
+
 def test_session_detail_by_public_fingerprint(server):
     """GET /sessions/{token_id} resolves the sha256 fingerprint to the
     share-link record — the detail page drives this path, and it must
