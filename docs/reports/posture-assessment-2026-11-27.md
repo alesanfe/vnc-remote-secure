@@ -193,3 +193,49 @@ independent eyes (access control, vuln mgmt), incident history
   `core/doctor.py` 57 %, `core/processes.py` 55 %, `core/logging.py`
   11 %, backend handlers ~13 % (transport code — costlier tests).
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 8 — secret-leak surfaces: logging scrub + child-env guard
+
+### Reviews (TD-17-scoped)
+
+- `core/logging.py` — `_SecretScrubFilter` scrubs rendered messages
+  AND %-args, re-reads SECRET_VARS every record (rotation-safe, no
+  cache), never raises, values <6 chars skipped by design. Handler-
+  level placement correctly covers child loggers via callHandlers.
+  `setup_logging`: dedup handlers, propagate=False, verbose>env>INFO.
+  **Clean** — residuals documented: secrets inside tracebacks
+  (exc_info) bypass the message scrub, and non-env secrets (session
+  tokens, store values) are outside SECRET_VARS scope — both are
+  defense-in-depth layers, call sites must still never log secrets.
+- `core/processes.py` — `is_port_available` connect-probe (Windows-
+  safe), AF_INET6 for ':' hosts; `run_cmd` hard timeout + env scrub.
+  **One latent footgun fixed** (below).
+
+### Negatives fixed this pass (pass 8)
+
+- **`run_cmd` env=None scrub bypass** (core/processes.py): the guard
+  was `"env" not in kwargs` — a caller passing `env=None` explicitly
+  would have handed the FULL environment (every SECRET_VAR) to the
+  helper binary, since subprocess treats None as inherit. No current
+  caller does this, but the primitive existed precisely to prevent
+  that leak. Now `kwargs.get("env") is None` → sanitized env;
+  deliberate full-env requires `os.environ.copy()`. Regression test
+  proves env=None no longer leaks VNC_PASSWORD.
+- `core/logging.py` 11 % → **95 %** (16 tests): redaction of values
+  and %-args, <6-char skip, rotation freshness, never-raises,
+  JSON/plain formatters, LOG_LEVEL/WARN/FATAL aliases, handler dedup,
+  end-to-end stderr scrub. Floor 0.90.
+- `core/processes.py` 55 % → **100 %** (11 tests): port probe both
+  families, env scrub default/None/explicit, timeout→-1,
+  check=True re-raise, text-mode decode. Floor 0.95.
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; next weakest modules:
+  `service_manager.py` 47 %, `services/terminal.py` 51 %,
+  `core/doctor.py` 57 %, backend handlers ~13 % (transport code).
+- **D1/D10 drills** — need a disposable host.

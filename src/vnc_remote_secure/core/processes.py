@@ -42,11 +42,14 @@ def run_cmd(cmd, timeout=30, check=False, **kwargs):
     Unless the caller passes ``env`` explicitly, the child gets a
     credential-scrubbed environment: a PATH-shadowed helper binary
     must not harvest ``VNC_PASSWORD``/``DUCKDNS_TOKEN``/etc. through
-    inherited env vars.
+    inherited env vars. ``env=None`` is treated as absent — in
+    ``subprocess.run`` it means "inherit everything", which is exactly
+    the leak this guard exists to prevent; a caller wanting the full
+    environment must pass ``os.environ.copy()`` deliberately.
     """
     import subprocess
 
-    if "env" not in kwargs:
+    if kwargs.get("env") is None:
         from vnc_remote_secure.security.redaction import (
             sanitized_child_env,
         )
