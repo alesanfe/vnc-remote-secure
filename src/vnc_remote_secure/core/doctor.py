@@ -189,6 +189,26 @@ def _check_secrets(checks, config):
             key="auth_secret_warn",
         )
 
+    # Backup posture: an unencrypted archive contains .env, TLS keys
+    # and the signing secret — a stolen tarball is a session-forgery
+    # kit. Hardened profiles hard-fail plaintext backups; other
+    # profiles get a visibility warning here.
+    from vnc_remote_secure.core.config import env_flag
+
+    if os.environ.get("BACKUP_PASSWORD") or env_flag("BACKUP_ALLOW_PLAINTEXT"):
+        _ok(
+            checks, "secrets.backup_encryption", "BACKUP_PASSWORD or explicit plaintext opt-out set"
+        )
+    else:
+        _warn(
+            checks,
+            "secrets.backup_encryption",
+            "BACKUP_PASSWORD not set — `vnc-remote backup` writes a "
+            "plaintext archive of secrets (chmod 600). Set it to "
+            "encrypt, or opt out with BACKUP_ALLOW_PLAINTEXT=true",
+            key="backup_enc_warn",
+        )
+
 
 def _check_ssl(checks, config):
     """Add SSL/TLS checks (cert, key, tls validation)."""

@@ -35,6 +35,7 @@ FLOORS = {
     "security/token_signing.py": 0.85,
     "security/websocket_registry.py": 0.78,
     "security/audit.py": 0.75,
+    "services/ws_adapter.py": 0.75,
 }
 
 
