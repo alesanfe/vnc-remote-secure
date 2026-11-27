@@ -127,6 +127,26 @@ independent eyes (access control, vuln mgmt), incident history
     tail truncation, chain advance only after fsync-level write,
     AUDIT_STRICT fail-closed option.
 
+## Negatives fixed this pass (pass 6)
+
+- **`authenticate()` second widening site** (security/authentication):
+  same bug class as pass 4 — `load_store()` and `verify()` shared one
+  `except`, so a stored operator whose verify threw (corrupt record)
+  fell through to env credentials. Fixed with the identical scoping:
+  unreadable store → loud env fallback (designed); record failure →
+  deny. Four regression tests pin deny/fallback/absent-user paths.
+- `monitoring/otel.py` 24 % → 67 % — opt-in gate contract pinned
+  (settings failure disables, enabled-without-SDK never raises,
+  idempotent provider, app passthrough).
+- TD-17-scoped reviews of `websocket_registry` (TOCTOU double-check,
+  marker TTL ≥ max session lifetime, sid/group granularity,
+  lock-ordering on close callbacks), `attempt_login` (dual-key
+  lockout, MFA before session, maintenance after credential verify)
+  and `authenticate` — **clean except the widening above**.
+- Accepted residual documented: per-`user:` lockout lets an
+  unauthenticated attacker sustain a victim's login DoS — standard
+  account-lockout trade-off on a single-admin appliance.
+
 ## Remaining debt (honest)
 
 - **TD-17 external review** — needs a human third party; scope doc
