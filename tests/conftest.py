@@ -111,6 +111,13 @@ def _isolate_run_dir(monkeypatch, tmp_path):
 
     shared_state_mod.reset_backend()
 
+    # TST-001: pin the sqlite backend to a per-test path via the env
+    # override get_backend() honours first — no get_run_dir()/XDG
+    # resolution can ever point a test at the real deployment state
+    # (/run/user/1000/vnc-remote-secure/shared_state.db on this host),
+    # and pytest-xdist workers get distinct files via tmp_path.
+    monkeypatch.setenv("SHARED_STATE_DB_PATH", str(run_dir / "shared_state.db"))
+
     # Prevent ambient .env / config.env leakage: mark the default env
     # merge as already done so load_env_file() is a no-op during the
     # test. Tests that need a specific file can still call
