@@ -257,6 +257,42 @@ def _clear_shared_state_namespaces():
         pass
 
 
+_CWD_LITTER_ALLOWLIST = {
+    ".coverage",
+    ".coverage.xml",
+    "coverage.xml",
+    "htmlcov",
+    ".pytest_cache",
+    ".hypothesis",
+    "__pycache__",
+    "mutants",
+    "bandit-report.json",
+    "test-results",
+    "playwright-report",
+    "audit-evidence",
+    ".mutmut-cache",
+}
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _guard_cwd_litter():
+    """Fail when a test leaves stray top-level artifacts in the repo.
+
+    A code path resolving a bogus Windows-style drive name
+    (``Z:/nonexistent``) or writing relative to cwd litters the repo
+    root — the audit-mirror test silently mkdir()d ``./Z:`` on POSIX
+    until the path was made deterministic. Comparing the top-level
+    entry set before/after the session catches any cwd-relative
+    write a test forgot to redirect to tmp_path.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    before = set(os.listdir(root))
+    yield
+    strays = {e for e in set(os.listdir(root)) - before if e not in _CWD_LITTER_ALLOWLIST}
+    if strays:
+        pytest.fail(f"Test session left stray artifacts in the repo root: {sorted(strays)}")
+
+
 # ---------------------------------------------------------------------------
 # Shared test helpers — reduce per-file boilerplate
 # ---------------------------------------------------------------------------
