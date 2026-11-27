@@ -413,3 +413,47 @@ independent eyes (access control, vuln mgmt), incident history
   `services/terminal.py` 51 %, `core/doctor.py` 57 %,
   `core/service_manager.py` 68 %, backend handlers ~13 %.
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 13 — web terminal WS internals (terminal.py)
+
+### Reviews (TD-17-scoped)
+
+- `services/terminal.py` — the authenticated web-terminal path.
+  Verified end-to-end: Origin check before auth (CSWSH), credential
+  resolution order (ephemeral cookie → bearer → session cookie →
+  legacy Basic gated by TERMINAL_BASIC_AUTH), gateway
+  `check_websocket_upgrade` with `terminal_view`, RBAC split —
+  ephemeral sessions need `terminal_write` for subprocesses and
+  path-completion (view-only can't enumerate the filesystem),
+  step-up for operator sessions, revocation registry + cross-process
+  watcher, sliding-window message rate cap (flood → close 1008),
+  idle timeout, audit open/close with duration, allowlist regex
+  fullmatch failing closed. **Clean** — the permission split is
+  correctly enforced at every execution/completion boundary.
+
+### Negatives fixed this pass (pass 13)
+
+- `services/terminal.py` 51 % → **60 %** (28 new tests):
+  rate-limit window (zero-rate, under-limit, flood→close, pruning),
+  builtins (exit/cls/help/history), view-only RBAC deny with
+  builtins still working, completion gated by write permission,
+  `_handle_completion` dispatch + 20-suggestion cap + empty-result
+  path, `_send_prompt` posix/powershell formats, credential-less
+  auth branches (Basic disabled → 1008, bad creds → 1008, legacy
+  Basic skips revocation registry by design), env-flag helper,
+  portal URL proto/host derivation, CSP default + env override,
+  origin delegation to the gateway allowlist. Floor 0.55.
+- Remaining uncovered is the WS transport layer and the
+  `_execute_command` streaming loop — subprocess/IO paths needing
+  deeper fixtures (next-pass candidate).
+
+## Remaining debt (honest) — updated
+
+- **TD-17 external review** — needs a human third party; scope doc
+  ready. Cannot self-resolve.
+- **TD-15 key enrollment** — gate merged; maintainer must run the
+  documented `gpg.format=ssh` setup.
+- **TD-13 ramp** — mechanism live; weakest remaining:
+  `core/doctor.py` 57 %, `core/service_manager.py` 68 %,
+  `services/terminal.py` 60 %, backend handlers ~13 %.
+- **D1/D10 drills** — need a disposable host.

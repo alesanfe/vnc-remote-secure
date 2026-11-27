@@ -46,6 +46,7 @@ FLOORS = {
     "core/deferred_lifecycle.py": 0.95,
     "security/http_client.py": 0.80,
     "core/service_manager.py": 0.60,
+    "services/terminal.py": 0.55,
     "services/ws_adapter.py": 0.75,
 }
 
