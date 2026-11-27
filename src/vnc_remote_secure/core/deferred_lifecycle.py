@@ -230,6 +230,12 @@ def main(argv=None) -> int:
     # parked on the host for days.
     delay = max(0.0, min(delay, 60.0))
     logging.basicConfig(level=logging.INFO)
+    # Detached composition root: this process runs `python -m
+    # deferred_lifecycle` with no caller to load .env — resolve the
+    # merge here, at the entry point (CFG-001).
+    from vnc_remote_secure.core.config import load_env_file
+
+    load_env_file()
     time.sleep(delay)
     if argv[0] == "run":
         if len(argv) < 2:

@@ -526,6 +526,13 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+    # Composition root: this entry point reads os.environ directly
+    # below, so the .env merge belongs here — not at module import
+    # (CFG-001).
+    from vnc_remote_secure.core.config import load_env_file
+
+    load_env_file()
+
     novnc_dir = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("NOVNC_DIR")
     if not novnc_dir:
         logger.error(

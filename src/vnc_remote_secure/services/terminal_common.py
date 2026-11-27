@@ -7,16 +7,11 @@ object) and ``terminal`` (FastAPI entry point + public facade). This
 module holds the one piece they all share: the lazy runtime-config
 accessor.
 
-Importing it also loads the ``.env`` file — the same import-time side
-effect ``services.terminal`` always had, so every entry point that
-reaches the terminal internals resolves credentials from the
-environment exactly like before.
+Importing it must not mutate ``os.environ`` (CFG-001): ``get_config()``
+loads ``.env`` lazily on first call, and every entry point loads it
+explicitly at the composition root — the import-time load this module
+used to do is gone.
 """
-
-from vnc_remote_secure.core.config import load_env_file
-
-# Load configuration from .env file (never hardcode credentials)
-load_env_file()
 
 
 def _config():

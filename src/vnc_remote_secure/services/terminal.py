@@ -39,14 +39,13 @@ from vnc_remote_secure.security.http_auth import (
 
 logger = logging.getLogger(__name__)
 
-# Load configuration from .env file (never hardcode credentials)
-from vnc_remote_secure.core.config import env_flag, load_env_file
-
-load_env_file()
-
+# Credentials are read from the environment via get_config()/env_flag —
+# no import-time .env load: CFG-001 keeps os.environ mutation out of
+# module scope; entry points load it at the composition root.
 # Configuration - credentials read from environment, never hardcoded
 from contextlib import suppress
 
+from vnc_remote_secure.core.config import env_flag
 from vnc_remote_secure.core.constants import (
     DEFAULT_CMD_TIMEOUT,
     DEFAULT_MAX_OUTPUT,

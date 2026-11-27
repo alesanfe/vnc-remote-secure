@@ -12,7 +12,6 @@ operator's configured port, not just the compile-time default.
 
 import platform
 
-from vnc_remote_secure.core.config import load_env_file
 from vnc_remote_secure.core.constants import (
     DEFAULT_VNC_DEPTH,
     DEFAULT_VNC_GEOMETRY,
@@ -20,9 +19,6 @@ from vnc_remote_secure.core.constants import (
 from vnc_remote_secure.core.exceptions import ServiceError
 from vnc_remote_secure.core.processes import is_port_available
 from vnc_remote_secure.platform.base import get_adapter
-
-# Load .env and platform defaults before any env reads.
-load_env_file()
 
 
 def _vnc_base_port():

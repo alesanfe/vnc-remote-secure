@@ -30,6 +30,13 @@ def main():
         parser.print_help()
         return 0
 
+    # Composition root: merge .env once here so every command handler
+    # reads a deterministic environment — modules must not do this at
+    # import time (CFG-001).
+    from vnc_remote_secure.core.config import load_env_file
+
+    load_env_file()
+
     try:
         return args.func(args)
     except KeyboardInterrupt:
