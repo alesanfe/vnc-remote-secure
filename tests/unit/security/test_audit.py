@@ -114,11 +114,15 @@ class TestAuditLog:
         assert primary_lines[-1] == mirror_lines[-1]
         assert json.loads(mirror_lines[-1])["event"] == "login"
 
-    def test_mirror_failure_does_not_break_primary(self, audit_file, monkeypatch):
+    def test_mirror_failure_does_not_break_primary(self, audit_file, monkeypatch, tmp_path):
         """A broken mirror path must not break the primary audit log."""
         from vnc_remote_secure.security.audit import audit_log
 
-        monkeypatch.setenv("AUDIT_MIRROR_FILE", "Z:/nonexistent-dir-x/x.jsonl")
+        # A path under a file-as-directory fails on every OS; a bogus
+        # drive path like "Z:/..." silently mkdir()s into cwd on POSIX.
+        blocker = tmp_path / "not-a-dir"
+        blocker.write_text("x")
+        monkeypatch.setenv("AUDIT_MIRROR_FILE", str(blocker / "x.jsonl"))
         entry = audit_log("login", user="alice")
         assert entry["event"] == "login"
         assert audit_file.exists()
