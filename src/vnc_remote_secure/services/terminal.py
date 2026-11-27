@@ -20,6 +20,7 @@ Features:
     default bash) on Linux — the service manager runs this module on
     both platforms
 """
+
 import asyncio
 import json
 import logging
@@ -851,8 +852,14 @@ class TerminalWebSocket:
                 kwargs["start_new_session"] = True
                 # Resource limits bound a single command's blast
                 # radius — a fork bomb or memory hog can otherwise
-                # exhaust the host inside CMD_TIMEOUT seconds.
-                kwargs["preexec_fn"] = _child_rlimits()
+                # exhaust the host inside CMD_TIMEOUT seconds. The
+                # nproc cap is skipped on bwrap: unshare() would be
+                # charged against it and the sandbox would never
+                # start — _sandbox_prefix re-applies it inside via
+                # prlimit.
+                kwargs["preexec_fn"] = _child_rlimits(
+                    apply_nproc=os.path.basename(args[0]) != "bwrap"
+                )
             # A previous command may still be running if two 'command'
             # messages raced — overwriting current_process here would
             # orphan it from interrupt/on_close cleanup.

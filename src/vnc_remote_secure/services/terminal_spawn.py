@@ -43,13 +43,22 @@ def _build_child_env():
     return {k: v for k, v in os.environ.items() if k not in SECRET_VARS}
 
 
-def _child_rlimits():
+_RLIMIT_NPROC = 128
+
+
+def _child_rlimits(apply_nproc=True):
     """Return a ``preexec_fn`` bounding a terminal child's resources.
 
     POSIX only. Limits inherited across exec (setpriv/runuser/exec),
     so they apply to the shell and its descendants:
 
-    - ``RLIMIT_NPROC`` — per-uid process count (fork bombs).
+    - ``RLIMIT_NPROC`` — per-uid process count (fork bombs). Must be
+      skipped for bwrap-sandboxed spawns: the kernel charges
+      ``unshare(CLONE_NEWUSER)`` against the caller's nproc limit, so
+      applying it to the bwrap supervisor kills the sandbox itself on
+      hosts whose service uid already exceeds the cap (a desktop
+      session runs hundreds of tasks). ``_sandbox_prefix`` bounds
+      nproc inside the namespace via ``prlimit`` instead.
     - ``RLIMIT_AS`` — address space (memory exhaustion).
     - ``RLIMIT_CPU`` — CPU seconds (a cmd can outpace CMD_TIMEOUT
       wall-clock only up to this).
@@ -63,7 +72,7 @@ def _child_rlimits():
         import resource  # pylint: disable=import-error
 
         limits = (
-            (resource.RLIMIT_NPROC, 128),
+            (resource.RLIMIT_NPROC, _RLIMIT_NPROC),
             (resource.RLIMIT_AS, 1 << 30),  # 1 GiB
             (resource.RLIMIT_CPU, 300),
             (resource.RLIMIT_NOFILE, 256),
@@ -71,6 +80,8 @@ def _child_rlimits():
             (resource.RLIMIT_CORE, 0),
         )
         for res, soft in limits:
+            if res == resource.RLIMIT_NPROC and not apply_nproc:
+                continue
             try:
                 hard = resource.getrlimit(res)[1]
                 cap = soft if hard == resource.RLIM_INFINITY else min(soft, hard)
@@ -204,7 +215,22 @@ def _sandbox_prefix():
     for d in sensitive:
         args += ["--tmpfs", os.path.realpath(d)]
     args.append("--")
-    return args
+    # The RLIMIT_NPROC bound must be applied to the inner shell, not
+    # to bwrap — the kernel charges unshare(CLONE_NEWUSER) against the
+    # caller's nproc limit, so a preexec nproc cap on the supervisor
+    # makes every spawn fail on hosts whose service uid already
+    # exceeds it. prlimit caps the inner shell after the namespace
+    # exists (limits inherit to its children). Without prlimit the
+    # mask is declined entirely: an unsandboxed-but-bounded spawn is
+    # better than an unbounded or broken one.
+    prlimit = _shutil.which("prlimit")
+    if not prlimit:
+        logger.warning(
+            "prlimit not found — terminal fs sandbox skipped so the "
+            "nproc bound stays enforceable via preexec"
+        )
+        return None
+    return args + [prlimit, f"--nproc={_RLIMIT_NPROC}", "--"]
 
 
 # Shell allowlist for WEBTERM_SHELL (§6): an arbitrary binary as
