@@ -283,16 +283,37 @@ def authenticate(username, password):
     # Operator store takes precedence: a stored operator authenticates
     # against their own credentials/role; the env credentials remain
     # the bootstrap admin for deployments without a store.
+    store = None
     try:
         from vnc_remote_secure.security.operator_users import load_store, verify
-
-        if str(username) in load_store():
-            return verify(str(username), password) is not None
-    except Exception as exc:  # noqa: BLE001 - store failure falls back to env
-        # Falling back to env creds silently bypasses RBAC (the shared
-        # credential authenticates as full admin) — the degraded state
-        # must be loud, not invisible.
-        logger.warning("Operator store unreadable (%s) — falling back to env " "credentials", exc)
+    except ImportError:  # noqa: BLE001 - store module absent → env path only
+        verify = None
+    else:
+        try:
+            store = load_store()
+        except Exception as exc:  # noqa: BLE001 - unreadable store degrades to env
+            # Falling back to env creds silently bypasses RBAC (the
+            # shared credential authenticates as full admin) — the
+            # degraded state must be loud, not invisible.
+            logger.warning(
+                "Operator store unreadable (%s) — falling back to env " "credentials", exc
+            )
+    if store is not None and verify is not None:
+        try:
+            if str(username) in store:
+                # The username IS stored — a verify() failure (corrupt
+                # hash, rehash I/O) or a malformed membership test must
+                # DENY, never fall through to the env credential: that
+                # would silently widen the stored account to the
+                # bootstrap admin.
+                return verify(str(username), password) is not None
+        except Exception as exc:  # noqa: BLE001 - stored-user failure denies
+            logger.warning(
+                "Operator record for %r failed verification (%s) — denying",
+                username,
+                exc,
+            )
+            return False
     from vnc_remote_secure.core.constants import DEFAULT_TTYD_USERNAME
 
     expected_user = os.environ.get(

@@ -50,6 +50,66 @@ class TestAuthenticateCredentials:
         assert self._auth(monkeypatch).authenticate("attacker", "Str0ng!Pass") is False
 
 
+class TestOperatorStoreFallback:
+    """A stored operator must NEVER evaluate against env credentials —
+    same widening rule as http_auth._operator_store_auth."""
+
+    def _stub(self, monkeypatch, store, verify=None):
+        import vnc_remote_secure.security.operator_users as ops
+
+        monkeypatch.setattr(ops, "load_store", lambda: store)
+        if verify is not None:
+            monkeypatch.setattr(ops, "verify", verify)
+        from vnc_remote_secure.security import authentication
+
+        monkeypatch.delenv("TOTP_SECRET", raising=False)
+        return authentication
+
+    def test_stored_user_verify_throws_denies(self, monkeypatch):
+        """verify() raising on a corrupt record must DENY — previously
+        the shared except sent the stored user down the env path."""
+        monkeypatch.setenv("USER_UI_USERNAME", "admin")
+        monkeypatch.setenv("USER_UI_PASSWORD", "EnvPass 1!")
+
+        def _boom(*a, **kw):
+            raise RuntimeError("corrupt hash")
+
+        auth = self._stub(monkeypatch, {"admin": {"role": "viewer"}}, verify=_boom)
+        assert auth.authenticate("admin", "EnvPass 1!") is False
+
+    def test_stored_user_wrong_store_password_denies_even_with_env(self, monkeypatch):
+        monkeypatch.setenv("USER_UI_USERNAME", "admin")
+        monkeypatch.setenv("USER_UI_PASSWORD", "EnvPass 1!")
+
+        def _verify(username, password):
+            return {"username": username} if password == "StorePass 1!" else None
+
+        auth = self._stub(monkeypatch, {"admin": {"role": "viewer"}}, verify=_verify)
+        assert auth.authenticate("admin", "EnvPass 1!") is False
+        assert auth.authenticate("admin", "StorePass 1!") is True
+
+    def test_unreadable_store_still_falls_back_to_env(self, monkeypatch):
+        """Designed degradation: an unreadable store warns + env path."""
+        import vnc_remote_secure.security.operator_users as ops
+
+        def _boom():
+            raise RuntimeError("disk gone")
+
+        monkeypatch.setattr(ops, "load_store", _boom)
+        monkeypatch.setenv("USER_UI_USERNAME", "admin")
+        monkeypatch.setenv("USER_UI_PASSWORD", "EnvPass 1!")
+        from vnc_remote_secure.security import authentication
+
+        monkeypatch.delenv("TOTP_SECRET", raising=False)
+        assert authentication.authenticate("admin", "EnvPass 1!") is True
+
+    def test_absent_user_takes_env_path(self, monkeypatch):
+        monkeypatch.setenv("USER_UI_USERNAME", "admin")
+        monkeypatch.setenv("USER_UI_PASSWORD", "EnvPass 1!")
+        auth = self._stub(monkeypatch, {"other": {"role": "viewer"}})
+        assert auth.authenticate("admin", "EnvPass 1!") is True
+
+
 class TestSigningKeyRotation:
     """rotate_signing_secret keeps the old key verifiable inside the
     coexistence window — in-flight tokens must not die at rotation."""
