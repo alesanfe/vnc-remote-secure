@@ -12,6 +12,7 @@ transport- and store-free.
 import contextlib
 import hashlib
 import logging
+import math
 import os
 import secrets
 import time
@@ -334,7 +335,13 @@ class EphemeralSession:
             "token_id": hashlib.sha256(self.token.encode()).hexdigest()[:12],
             "role": self.role,
             "permissions": sorted(self.permissions),
-            "expires_at": self.expires_at,
+            # Never-expiring sessions carry expires_at=inf internally —
+            # serializing it as null keeps both consumers honest: JSON
+            # parsers (strict browsers can't read Infinity) and
+            # from_dict (maps null back to inf).
+            "expires_at": (
+                self.expires_at if math.isfinite(self.expires_at) else None
+            ),
             "single_use": self.single_use,
             "view_only": self.view_only,
             "no_terminal": self.no_terminal,
@@ -369,7 +376,13 @@ class EphemeralSession:
             token=data["token"],
             role=data.get("role", "viewer"),
             permissions=set(data.get("permissions", [])),
-            expires_at=float(data.get("expires_at", 0)),
+            # null = never expires (the to_dict boundary form of inf);
+            # a missing key stays an already-expired legacy record.
+            expires_at=(
+                float("inf")
+                if "expires_at" in data and data["expires_at"] is None
+                else float(data.get("expires_at", 0))
+            ),
             single_use=bool(data.get("single_use", False)),
             view_only=bool(data.get("view_only", False)),
             no_terminal=bool(data.get("no_terminal", False)),

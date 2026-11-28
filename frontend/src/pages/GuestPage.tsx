@@ -165,7 +165,9 @@ export default function GuestPage() {
               {' '}· {t('guest.expires')}{' '}
               <RelativeTime epoch={c.expires_at} />
             </>
-          ) : null}
+          ) : (
+            <> · {t('guest.neverExpires')}</>
+          )}
           {flags.length > 0 && <> · {flags.join(' · ')}</>}
         </div>
 

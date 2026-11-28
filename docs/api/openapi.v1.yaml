@@ -54,9 +54,9 @@ components:
         - use_count
       properties:
         token_id: { type: string, description: 'Fingerprint, not the token' }
-        role: { type: string, enum: [viewer, support, operator, administrator] }
+        role: { type: string, enum: [viewer, support, operator, administrator, custom] }
         permissions: { type: array, items: { type: string } }
-        expires_at: { type: number }
+        expires_at: { type: number, nullable: true, description: 'null = never expires' }
         single_use: { type: boolean }
         view_only: { type: boolean }
         no_terminal: { type: boolean }
@@ -225,7 +225,7 @@ components:
           properties:
             url: { type: string, description: 'fragment-carried share link' }
             token_id: { type: string }
-            expires_at: { type: number }
+            expires_at: { type: number, nullable: true, description: 'null = never expires' }
             role: { type: string }
             permissions: { type: array, items: { type: string } }
             single_use: { type: boolean }
@@ -624,7 +624,7 @@ components:
           required: [role, expires_in_seconds]
           properties:
             role: { type: string }
-            expires_in_seconds: { type: integer }
+            expires_in_seconds: { type: integer, nullable: true, description: 'null = never expires' }
             view_only: { type: boolean }
             single_use: { type: boolean }
             no_terminal: { type: boolean }
@@ -1175,9 +1175,9 @@ components:
       type: object
       additionalProperties: false
       properties:
-        role: { type: string, enum: [viewer, support, operator, administrator], default: viewer }
-        permissions: { type: array, items: { type: string }, maxItems: 40 }
-        ttl_seconds: { type: integer, minimum: 60, maximum: 604800, default: 1800 }
+        role: { type: string, enum: [viewer, support, operator, administrator, custom], default: viewer, description: "'custom' requires a non-empty permissions list" }
+        permissions: { type: array, items: { type: string }, maxItems: 40, description: 'Explicit grant set — overrides role defaults; required when role=custom' }
+        ttl_seconds: { type: integer, minimum: 60, maximum: 604800, default: 1800, nullable: true, description: 'null = never expires (revocation is the only kill switch)' }
         single_use: { type: boolean, default: false }
         view_only: { type: boolean, default: false }
         no_terminal: { type: boolean, default: false }

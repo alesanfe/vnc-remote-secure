@@ -669,6 +669,20 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 label.check { display: flex; gap: 0.5rem; align-items: center; color: var(--text); }
 label.check input { width: auto; }
 
+/* Custom-permission picker in the session wizard — two columns of
+   checkbox labels inside a bordered fieldset. */
+.perm-grid {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem 0.9rem;
+  margin: 0.4rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.3rem 1rem;
+}
+.perm-grid legend { padding: 0 0.4rem; color: var(--muted); font-size: 0.85rem; }
+.perm-grid .info-box, .perm-grid .muted { grid-column: 1 / -1; }
+
 /* Inline label editing in the sessions inventory + detail. */
 .label-cell { padding: 0; border: 0; background: none; cursor: text; }
 .label-edit { width: 10rem; font-size: inherit; padding: 0.1rem 0.3rem; }

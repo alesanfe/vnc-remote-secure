@@ -111,7 +111,11 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
 
   const s = detail.data?.session;
   const nowSec = Date.now() / 1000;
-  const expired = s ? !s.revoked && s.expires_at <= nowSec : false;
+  // expires_at=null marks a never-expiring grant — it only dies by
+  // revocation, so it can never render as expired.
+  const expired = s
+    ? !s.revoked && s.expires_at !== null && s.expires_at <= nowSec
+    : false;
   const live = !!s && !s.revoked && !expired;
 
   const restrictions: string[] = [];
@@ -272,7 +276,11 @@ export default function SessionDetail({ tokenId }: { tokenId: string }) {
             <dt>{t('sessions.detail.createdBy')}</dt>
             <dd>{s.created_by}</dd>
             <dt>{t('sessions.col.expires')}</dt>
-            <dd><RelativeTime epoch={s.expires_at} /></dd>
+            <dd>
+              {s.expires_at === null
+                ? t('sessions.never')
+                : <RelativeTime epoch={s.expires_at} />}
+            </dd>
             <dt>{t('sessions.detail.uses')}</dt>
             <dd>
               {s.use_count}

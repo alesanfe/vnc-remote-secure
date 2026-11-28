@@ -46,6 +46,7 @@ export const es = {
   'role.administrator': 'Administrador',
   'role.operator': 'Operador',
   'role.admin': 'Administrador',
+  'role.custom': 'Personalizado',
   // Capability enums (security/ephemeral_model.py ALL_PERMISSIONS)
   'perm.view': 'ver escritorio',
   'perm.control': 'control remoto',
@@ -955,6 +956,8 @@ export const es = {
     'si la otra persona estuviera delante.',
   'share.expiresAuto':
     'La sesión se cerrará automáticamente en {{time}}.',
+  'share.neverExpires':
+    'Este enlace no caduca — sigue activo hasta que el operador lo revoque.',
   'share.endAnytime':
     'Puedes finalizarla en cualquier momento desde el portal.',
   'share.details': 'Detalles técnicos',
@@ -1129,10 +1132,25 @@ export const es = {
     'permisos permitan.',
   'sessions.wizard.roleHint':
     'viewer = solo ver; support = asistencia; operator = control ' +
-    'y gestión de sesiones; administrator = control total.',
+    'y gestión de sesiones; administrator = control total; ' +
+    'custom = eliges los permisos uno a uno.',
   'sessions.wizard.summaryTitle': 'Resumen del acceso',
   'sessions.wizard.ttlQuick': 'Duración rápida',
   'sessions.wizard.custom': 'personalizado',
+  'sessions.wizard.ttlNever': 'Indefinido',
+  'sessions.wizard.neverHint':
+    'El enlace no caduca nunca — solo se puede cortar revocándolo ' +
+    'desde esta pantalla.',
+  'sessions.wizard.riskNever':
+    'Este enlace no caduca: permanecerá activo hasta que lo revoques ' +
+    'manualmente.',
+  'sessions.wizard.permCustom': 'Permisos a conceder',
+  'sessions.wizard.permsRequired': 'Marca al menos un permiso.',
+  'sessions.wizard.customPermsHint':
+    'El enlace concede exactamente los permisos marcados, sin ' +
+    'expansión de rol. Los permisos de administración solo están ' +
+    'disponibles con el rol administrator.',
+  'sessions.never': 'Nunca',
   'sessions.wizard.restrictions': 'Restricciones',
   'sessions.wizard.restrictionsNone':
     'Ninguna — reutilizable desde cualquier IP hasta que expire.',
@@ -1227,6 +1245,7 @@ export const es = {
     'Los recursos a los que da acceso tu enlace compartido.',
   'guest.role': 'Permiso',
   'guest.expires': 'Expira',
+  'guest.neverExpires': 'nunca caduca',
   'guest.resources': 'Recursos disponibles',
   'guest.endSession': 'Terminar sesión',
   'guest.none':

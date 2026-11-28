@@ -18,6 +18,7 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 
 # Resources a share link may be bound to (validation surface; the
@@ -34,7 +35,11 @@ def _resources() -> frozenset:
 def _roles() -> frozenset:
     from vnc_remote_secure.security.ephemeral_sessions import ROLES
 
-    return frozenset(ROLES)
+    # "custom" is an API-side pseudo-role: the request must also carry
+    # an explicit permissions set, which always wins over role
+    # defaults (ROLES.get("custom") falls back to view-only anyway).
+    # It stays out of the ROLES dict so the CLI role list stays clean.
+    return frozenset(ROLES) | {"custom"}
 
 
 def _permissions() -> frozenset:
@@ -109,7 +114,9 @@ class MaintenanceRequest(StrictBody):
 class SessionCreateRequest(StrictBody):
     role: str = "viewer"
     permissions: list[str] | None = None
-    ttl_seconds: int = Field(default=1800, ge=60, le=7 * 86400)
+    # null = the link never expires; revocation is then the only kill
+    # switch (surfaced as expires_at=null in responses).
+    ttl_seconds: int | None = Field(default=1800, ge=60, le=7 * 86400)
     max_uses: int = Field(default=0, ge=0, le=1000)
     single_use: bool = False
     view_only: bool = False
@@ -187,6 +194,14 @@ class SessionCreateRequest(StrictBody):
         if v is not None and v not in _resources():
             raise ValueError(f"resource must be one of {sorted(_resources())}")
         return v
+
+    @model_validator(mode="after")
+    def _custom_role_carries_permissions(self):
+        # 'custom' has no role-derived permission set — without an
+        # explicit list the link would silently mint as view-only.
+        if self.role == "custom" and not self.permissions:
+            raise ValueError("role 'custom' requires a non-empty permissions list")
+        return self
 
 
 class SessionRevokeRequest(StrictBody):

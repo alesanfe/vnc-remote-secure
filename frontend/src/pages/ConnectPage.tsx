@@ -179,8 +179,12 @@ export default function ConnectPage() {
           {
             key: 'exp',
             header: t('sessions.col.expires'),
-            sortValue: (s) => s.expires_at,
-            render: (s) => <RelativeTime epoch={s.expires_at} />,
+            // Never-expiring grants sort after any dated expiry.
+            sortValue: (s) => s.expires_at ?? Number.MAX_SAFE_INTEGER,
+            render: (s) =>
+              s.expires_at === null
+                ? t('sessions.never')
+                : <RelativeTime epoch={s.expires_at} />,
           },
           {
             key: 'by',

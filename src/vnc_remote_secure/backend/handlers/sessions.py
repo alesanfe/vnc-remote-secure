@@ -1,6 +1,7 @@
 """Share-link session handlers: inventory, detail, create, revoke."""
 
 import logging
+import math
 
 from vnc_remote_secure.backend.handlers.common import (
     _err,
@@ -164,7 +165,13 @@ def _post_session_create(handler, query):
                 "Enlace de acceso remoto",
                 "Se te ha compartido un acceso remoto.\n\n"
                 f"Abre este enlace para conectar:\n{url}\n\n"
-                f"Caduca (epoch): {int(session.expires_at)}\n",
+                "Caduca: "
+                + (
+                    f"{int(session.expires_at)} (epoch)"
+                    if math.isfinite(session.expires_at)
+                    else "nunca"
+                )
+                + "\n",
                 to_addr=body.email_to,
             )
             from vnc_remote_secure.engine.infrastructure import (
@@ -186,7 +193,11 @@ def _post_session_create(handler, query):
             "url": url,
             "emailed": emailed,
             "token_id": session.to_dict()["token_id"],
-            "expires_at": session.expires_at,
+            "expires_at": (
+                session.expires_at
+                if math.isfinite(session.expires_at)
+                else None
+            ),
             "role": session.role,
             "permissions": sorted(session.permissions),
             "single_use": session.single_use,

@@ -1,6 +1,7 @@
 """Portal-facing handlers: identity, status, services, portal data, share-link preview/activate."""
 
 import logging
+import math
 
 from vnc_remote_secure.backend.handlers.common import (
     _err,
@@ -129,7 +130,11 @@ def _get_session_context(handler, query):
             "active": True,
             "role": getattr(sess, "role", ""),
             "permissions": sorted(getattr(sess, "permissions", []) or []),
-            "expires_at": getattr(sess, "expires_at", None),
+            "expires_at": (
+                getattr(sess, "expires_at", None)
+                if math.isfinite(getattr(sess, "expires_at", 0) or 0)
+                else None
+            ),
             "view_only": bool(getattr(sess, "view_only", False)),
             "single_use": bool(getattr(sess, "single_use", False)),
             "no_terminal": bool(getattr(sess, "no_terminal", False)),

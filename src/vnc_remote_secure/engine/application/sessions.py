@@ -82,7 +82,7 @@ def create_share_link(
     *,
     role: str,
     permissions: set | None,
-    ttl: int,
+    ttl: int | None,
     single_use: bool,
     view_only: bool,
     no_terminal: bool,

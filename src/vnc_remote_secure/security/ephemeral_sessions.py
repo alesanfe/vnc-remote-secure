@@ -18,6 +18,7 @@ signing mechanism while remaining type-separated.
 import contextlib
 import hashlib
 import logging
+import math
 import os
 import secrets
 import threading
@@ -62,6 +63,14 @@ from vnc_remote_secure.security.token_signing import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A share link with no expiry carries expires_at=inf internally —
+# comparisons stay correct everywhere; only int() casts and JSON
+# boundaries need guarding (to_dict emits null, from_dict reads it
+# back). Shared-state markers can't take an infinite TTL, so they use
+# a 10-year cap — far past any realistic revocation horizon.
+_NEVER_EXPIRES = float("inf")
+_NEVER_TTL_CAP = 10 * 365 * 86400
 
 
 def create_ephemeral_token(session: EphemeralSession) -> str:
@@ -119,7 +128,11 @@ def preview_session(signed: str) -> dict | None:
             return None
         return {
             "role": session.role,
-            "expires_in_seconds": max(0, int(session.expires_at - _time.time())),
+            "expires_in_seconds": (
+                None
+                if not math.isfinite(session.expires_at)
+                else max(0, int(session.expires_at - _time.time()))
+            ),
             # El consentimiento lista lo que el enlace PUEDE hacer —
             # sin los permisos efectivos una invitación "viewer" sin
             # view_only mostraba control/terminal/archivos como
@@ -396,7 +409,7 @@ class SessionStore:
 
     def create(
         self,
-        expires_in: int = 1800,
+        expires_in: int | None = 1800,
         role: str = "viewer",
         single_use: bool = False,
         view_only: bool = False,
@@ -415,6 +428,9 @@ class SessionStore:
                 (e.g. 'desktop', 'terminal'). Prevents cross-resource
                 token reuse.
             max_uses: Maximum uses (0 = unlimited, 1 = single-use).
+            expires_in: Seconds until expiry, or ``None`` for a link
+                that never expires (revocation becomes the only kill
+                switch — stored internally as ``expires_at=inf``).
 
         Returns:
             Tuple of (EphemeralSession, signed_token_string).
@@ -436,7 +452,11 @@ class SessionStore:
             token=token,
             role=role,
             permissions=permissions,
-            expires_at=time.time() + expires_in,
+            expires_at=(
+                time.time() + expires_in
+                if expires_in is not None
+                else _NEVER_EXPIRES
+            ),
             single_use=single_use,
             view_only=view_only,
             no_terminal=no_terminal,
@@ -456,7 +476,7 @@ class SessionStore:
         audit_event(
             "ephemeral_session_create",
             user=created_by,
-            detail=f"role={role} expires_in={expires_in} "
+            detail=f"role={role} expires_in={expires_in if expires_in is not None else 'never'} "
             f"single_use={single_use} "
             f"max_uses={session.max_uses} "
             f'resource={resource or "*"}',
@@ -881,7 +901,11 @@ def _mark_revoked_shared(token: str, expires_at: float) -> None:
     try:
         from vnc_remote_secure.security.shared_state import get_backend
 
-        ttl = max(86400, int(expires_at - time.time()))
+        ttl = (
+            _NEVER_TTL_CAP
+            if not math.isfinite(expires_at)
+            else max(86400, int(expires_at - time.time()))
+        )
         get_backend().set_ttl(_NS_EPH_REVOKED, token, True, ttl)
     except Exception as exc:  # noqa: BLE001 - best-effort mirror
         logger.debug("Could not mark ephemeral revocation shared: %s", exc)
@@ -942,7 +966,11 @@ def _claim_consumed(token: str, expires_at: float) -> bool:
     try:
         from vnc_remote_secure.security.shared_state import get_backend
 
-        ttl = max(60.0, expires_at - time.time())
+        ttl = (
+            _NEVER_TTL_CAP
+            if not math.isfinite(expires_at)
+            else max(60.0, expires_at - time.time())
+        )
         return bool(get_backend().set_if_absent("ephemeral_consumed", token, True, ttl))
     except Exception:  # noqa: BLE001 - fail closed
         logger.exception("Ephemeral claim backend unavailable — denying claim")
@@ -965,7 +993,11 @@ def _claim_use(token: str, max_uses: int, expires_at: float) -> bool:
     try:
         from vnc_remote_secure.security.shared_state import get_backend
 
-        ttl = max(60.0, expires_at - time.time())
+        ttl = (
+            _NEVER_TTL_CAP
+            if not math.isfinite(expires_at)
+            else max(60.0, expires_at - time.time())
+        )
         new_count = get_backend().increment("ephemeral_uses", token, 1, ttl_seconds=ttl)
         return new_count is not None and int(new_count) <= max_uses
     except Exception:  # noqa: BLE001 - fail closed

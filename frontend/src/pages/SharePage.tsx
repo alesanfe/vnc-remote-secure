@@ -57,8 +57,15 @@ export function ShareAccept({ token }: { token: string }) {
       });
   };
 
-  const mins = preview ? Math.floor(preview.expires_in_seconds / 60) : 0;
-  const secs = preview ? preview.expires_in_seconds % 60 : 0;
+  // expires_in_seconds=null marks a never-expiring grant.
+  const mins =
+    preview?.expires_in_seconds != null
+      ? Math.floor(preview.expires_in_seconds / 60)
+      : 0;
+  const secs =
+    preview?.expires_in_seconds != null
+      ? preview.expires_in_seconds % 60
+      : 0;
   const allowed = (r: string) =>
     !preview?.resource || preview.resource === r;
   // Los permisos efectivos del enlace deciden cada capacidad — antes
@@ -144,9 +151,11 @@ export function ShareAccept({ token }: { token: string }) {
               <p className="muted cap-warn">{t('share.cap.controlWarn')}</p>
             )}
             <p className="muted">
-              {t('share.expiresAuto', {
-                time: `${mins}m${String(secs).padStart(2, '0')}s`,
-              })}
+              {preview.expires_in_seconds === null
+                ? t('share.neverExpires')
+                : t('share.expiresAuto', {
+                    time: `${mins}m${String(secs).padStart(2, '0')}s`,
+                  })}
               {' '}{t('share.endAnytime')}
             </p>
             <details className="share-details">
@@ -159,7 +168,11 @@ export function ShareAccept({ token }: { token: string }) {
                   </tr>
                   <tr>
                     <td>{t('share.expiresIn')}</td>
-                    <td>{mins}m{String(secs).padStart(2, '0')}s</td>
+                    <td>
+                      {preview.expires_in_seconds === null
+                        ? t('share.neverExpires')
+                        : `${mins}m${String(secs).padStart(2, '0')}s`}
+                    </td>
                   </tr>
                   {preview.resource && (
                     <tr>

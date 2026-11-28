@@ -32,8 +32,18 @@ import { permLabel, roleLabel, useI18n } from '../i18n';
 import { useTabsNav } from '../components/useTabsNav';
 import { SESSION_TABS, type SessionTab } from './sessionTabs';
 
-const ROLES = ['viewer', 'support', 'operator', 'administrator'];
+const ROLES = ['viewer', 'support', 'operator', 'administrator', 'custom'];
 const RESOURCES = ['', 'desktop', 'terminal', 'audio', 'gamepad', 'files'];
+
+// Permissions selectable in the 'custom' role grid — the whole
+// non-admin surface. Admin-granting links go through the
+// 'administrator' role (and still require actor admin:* server-side).
+const CUSTOM_PERMISSIONS = [
+  'view', 'control', 'keyboard', 'pointer',
+  'clipboard', 'clipboard_read', 'clipboard_write',
+  'file_transfer', 'terminal', 'terminal_view', 'terminal_write',
+  'audio', 'gamepad',
+] as const;
 
 // Session-creation wizard steps (resources → permissions → limits →
 // review). Review renders a natural-language summary so flag
@@ -61,8 +71,10 @@ function fmtTtl(seconds: number): string {
 const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const ttlOk = (v: number) =>
-  Number.isInteger(v) && v >= 60 && v <= 604800;
+// null is the never-expiring grant — revocation becomes the only
+// kill switch, so the wizard flags it explicitly in the review step.
+const ttlOk = (v: number | null) =>
+  v === null || (Number.isInteger(v) && v >= 60 && v <= 604800);
 const maxUsesOk = (v: number) =>
   Number.isInteger(v) && v >= 0 && v <= 1000;
 const ipOk = (v: string) => {
@@ -82,7 +94,8 @@ const emailOk = (v: string) => !v.trim() || EMAIL_RE.test(v.trim());
 interface CreateResult {
   url: string;
   token_id: string;
-  expires_at: number;
+  /** epoch seconds; null when the link never expires. */
+  expires_at: number | null;
   role: string;
   permissions: string[];
   /** True when the link was emailed to email_to via ALERT_SMTP_*. */
@@ -124,7 +137,9 @@ export default function Sessions() {
   const rows = allRows.filter((s) => {
     if (tab === 'invitations') return !s.revoked && !s.used;
     if (tab === 'connections') return !s.revoked && s.used;
-    return s.revoked || s.expires_at <= nowSec; // history
+    // expires_at=null never reaches history on its own — only an
+    // explicit revocation moves it there.
+    return s.revoked || (s.expires_at !== null && s.expires_at <= nowSec);
   });
   // Client-side text search over the fetched inventory — id, role,
   // creator, resource and permission names all match. The term lives
@@ -153,7 +168,10 @@ export default function Sessions() {
   const [form, setForm] = useState(() => {
     const defaults = {
       role: 'viewer' as SessionCreateRequest['role'],
-      ttl_seconds: 1800,
+      // null = 'Indefinido' — the link only dies by revocation.
+      ttl_seconds: 1800 as number | null,
+      // Grant list for role='custom' — applied verbatim server-side.
+      customPerms: [] as string[],
       single_use: false,
       view_only: false,
       no_terminal: true,
@@ -192,6 +210,9 @@ export default function Sessions() {
   const limitsValid = ttlOk(form.ttl_seconds) &&
     maxUsesOk(form.max_uses) && ipOk(form.allowed_ip) &&
     emailOk(form.email_to);
+  // A 'custom' grant needs at least one checked permission — the
+  // server rejects an empty set with a less readable 400.
+  const permsValid = form.role !== 'custom' || form.customPerms.length > 0;
   const [created, setCreated] = useState<CreateResult | null>(null);
   const [createError, setCreateError] = useState('');
   const [revokeTarget, setRevokeTarget] =
@@ -239,6 +260,9 @@ export default function Sessions() {
     mutationFn: () =>
       api.post<CreateResult>('sessions', {
         role: form.role,
+        // Custom grants carry the checked set verbatim; named roles
+        // send null so the server applies the role defaults.
+        permissions: form.role === 'custom' ? form.customPerms : null,
         ttl_seconds: form.ttl_seconds,
         single_use: form.single_use,
         view_only: form.view_only,
@@ -466,6 +490,32 @@ export default function Sessions() {
               />
               {t('sessions.noTerminal')}
             </label>
+            {form.role === 'custom' && (
+              <fieldset className="perm-grid">
+                <legend>{t('sessions.wizard.permCustom')}</legend>
+                {CUSTOM_PERMISSIONS.map((p) => (
+                  <label className="check" key={p}>
+                    <input
+                      type="checkbox"
+                      checked={form.customPerms.includes(p)}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          customPerms: e.target.checked
+                            ? [...form.customPerms, p]
+                            : form.customPerms.filter((x) => x !== p),
+                        })
+                      }
+                    />
+                    {permLabel(t, p)}
+                  </label>
+                ))}
+                {!permsValid && (
+                  <p className="muted">{t('sessions.wizard.permsRequired')}</p>
+                )}
+                <p className="info-box">{t('sessions.wizard.customPermsHint')}</p>
+              </fieldset>
+            )}
           </>
         )}
 
@@ -478,39 +528,56 @@ export default function Sessions() {
               <select
                 id="ttlquick"
                 value={
-                  TTL_PRESETS.some((p) => p.s === form.ttl_seconds)
-                    ? String(form.ttl_seconds)
-                    : ''
+                  form.ttl_seconds === null
+                    ? 'never'
+                    : TTL_PRESETS.some((p) => p.s === form.ttl_seconds)
+                      ? String(form.ttl_seconds)
+                      : 'custom'
                 }
                 onChange={(e) => {
-                  if (e.target.value) {
+                  const v = e.target.value;
+                  if (v === 'never') {
+                    setForm({ ...form, ttl_seconds: null });
+                  } else if (v === 'custom') {
+                    // Enter custom mode with a sane starting point —
+                    // 'never' restores the default rather than
+                    // carrying a null into the number input.
                     setForm({
                       ...form,
-                      ttl_seconds: Number(e.target.value),
+                      ttl_seconds: form.ttl_seconds ?? 1800,
                     });
+                  } else {
+                    setForm({ ...form, ttl_seconds: Number(v) });
                   }
                 }}
               >
                 {TTL_PRESETS.map((p) => (
                   <option key={p.s} value={p.s}>{p.label}</option>
                 ))}
-                <option value="">{t('sessions.wizard.custom')}</option>
+                <option value="never">{t('sessions.wizard.ttlNever')}</option>
+                <option value="custom">{t('sessions.wizard.custom')}</option>
               </select>
             </div>
-            <div className="row">
-              <label htmlFor="ttl">{t('sessions.ttl')}</label>
-              <input
-                id="ttl"
-                type="number"
-                min={60}
-                max={604800}
-                value={form.ttl_seconds}
-                aria-invalid={!ttlOk(form.ttl_seconds)}
-                aria-describedby="ttl-hint"
-                onChange={(e) =>
-                  setForm({ ...form, ttl_seconds: Number(e.target.value) })}
-              />
-            </div>
+            {form.ttl_seconds === null && (
+              <p className="info-box">{t('sessions.wizard.neverHint')}</p>
+            )}
+            {form.ttl_seconds !== null &&
+              !TTL_PRESETS.some((p) => p.s === form.ttl_seconds) && (
+              <div className="row">
+                <label htmlFor="ttl">{t('sessions.ttl')}</label>
+                <input
+                  id="ttl"
+                  type="number"
+                  min={60}
+                  max={604800}
+                  value={form.ttl_seconds}
+                  aria-invalid={!ttlOk(form.ttl_seconds)}
+                  aria-describedby="ttl-hint"
+                  onChange={(e) =>
+                    setForm({ ...form, ttl_seconds: Number(e.target.value) })}
+                />
+              </div>
+            )}
             {!ttlOk(form.ttl_seconds) && (
               <p className="muted" id="ttl-hint">
                 {t('sessions.wizard.ttlInvalid')}
@@ -609,10 +676,16 @@ export default function Sessions() {
               <dd>
                 {form.view_only
                   ? t('sessions.access.view')
-                  : roleLabel(t, form.role)}
+                  : form.role === 'custom'
+                    ? form.customPerms.map((p) => permLabel(t, p)).join(', ')
+                    : roleLabel(t, form.role)}
               </dd>
               <dt>{t('sessions.wizard.duration')}</dt>
-              <dd>{fmtTtl(form.ttl_seconds)}</dd>
+              <dd>
+                {form.ttl_seconds === null
+                  ? t('sessions.wizard.ttlNever')
+                  : fmtTtl(form.ttl_seconds)}
+              </dd>
               <dt>{t('sessions.wizard.restrictions')}</dt>
               <dd>
                 {(() => {
@@ -645,6 +718,9 @@ export default function Sessions() {
             {!form.resource && (
               <div className="notice">{t('sessions.wizard.riskUnbound')}</div>
             )}
+            {form.ttl_seconds === null && (
+              <div className="notice">{t('sessions.wizard.riskNever')}</div>
+            )}
             {form.role === 'administrator' && !form.view_only && (
               <div className="notice">{t('sessions.wizard.riskAdmin')}</div>
             )}
@@ -665,7 +741,9 @@ export default function Sessions() {
           {step < WIZARD_STEPS.length - 1 ? (
             <button
               type="button"
-              disabled={step === 2 && !limitsValid}
+              disabled={
+                (step === 2 && !limitsValid) || (step === 1 && !permsValid)
+              }
               onClick={() => setStep(step + 1)}
             >
               {t('sessions.wizard.next')}
@@ -815,7 +893,7 @@ export default function Sessions() {
             render: (s) =>
               s.revoked ? (
                 <StatusBadge status="fail" label={t('sessions.stateRevoked')} />
-              ) : s.expires_at <= nowSec ? (
+              ) : s.expires_at !== null && s.expires_at <= nowSec ? (
                 <StatusBadge status="warn" label={t('sessions.stateExpired')} />
               ) : (
                 <StatusBadge status="ok" label={t('sessions.stateActive')} />
@@ -896,8 +974,12 @@ export default function Sessions() {
           {
             key: 'exp',
             header: t('sessions.col.expires'),
-            render: (s) => <RelativeTime epoch={s.expires_at} />,
-            sortValue: (s) => s.expires_at,
+            render: (s) =>
+              s.expires_at === null
+                ? t('sessions.never')
+                : <RelativeTime epoch={s.expires_at} />,
+            // Never-expiring grants sort after any dated expiry.
+            sortValue: (s) => s.expires_at ?? Number.MAX_SAFE_INTEGER,
           },
           { key: 'flags', header: t('sessions.col.flags'), render: flagBadges },
           { key: 'by', header: t('sessions.col.creator'),

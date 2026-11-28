@@ -748,7 +748,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description Invalid name/path */
+                /** @description Invalid name/path or missing fields */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -3812,9 +3812,10 @@ export interface components {
             /** @description Fingerprint, not the token */
             token_id: string;
             /** @enum {string} */
-            role: "viewer" | "support" | "operator" | "administrator";
+            role: "viewer" | "support" | "operator" | "administrator" | "custom";
             permissions: string[];
-            expires_at: number;
+            /** @description null = never expires */
+            expires_at: number | null;
             single_use: boolean;
             view_only: boolean;
             no_terminal: boolean;
@@ -3939,7 +3940,8 @@ export interface components {
                 /** @description fragment-carried share link */
                 url: string;
                 token_id: string;
-                expires_at: number;
+                /** @description null = never expires */
+                expires_at: number | null;
                 role: string;
                 permissions?: string[];
                 single_use?: boolean;
@@ -4230,7 +4232,8 @@ export interface components {
         SessionPreviewResponse: {
             data: {
                 role: string;
-                expires_in_seconds: number;
+                /** @description null = never expires */
+                expires_in_seconds: number | null;
                 view_only?: boolean;
                 single_use?: boolean;
                 no_terminal?: boolean;
@@ -4611,13 +4614,18 @@ export interface components {
         };
         SessionCreateRequest: {
             /**
+             * @description 'custom' requires a non-empty permissions list
              * @default viewer
              * @enum {string}
              */
-            role: "viewer" | "support" | "operator" | "administrator";
+            role: "viewer" | "support" | "operator" | "administrator" | "custom";
+            /** @description Explicit grant set — overrides role defaults; required when role=custom */
             permissions?: string[];
-            /** @default 1800 */
-            ttl_seconds: number;
+            /**
+             * @description null = never expires (revocation is the only kill switch)
+             * @default 1800
+             */
+            ttl_seconds: number | null;
             /** @default false */
             single_use: boolean;
             /** @default false */

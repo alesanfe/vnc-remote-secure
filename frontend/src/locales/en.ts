@@ -46,6 +46,7 @@ export const en: Messages = {
   'role.administrator': 'Administrator',
   'role.operator': 'Operator',
   'role.admin': 'Administrator',
+  'role.custom': 'Custom',
   // Capability enums (security/ephemeral_model.py ALL_PERMISSIONS)
   'perm.view': 'view desktop',
   'perm.control': 'remote control',
@@ -910,6 +911,8 @@ export const en: Messages = {
     'they were sitting in front of it.',
   'share.expiresAuto':
     'The session closes automatically in {{time}}.',
+  'share.neverExpires':
+    'This link never expires — it stays live until the operator revokes it.',
   'share.endAnytime':
     'You can end it at any time from the guest portal.',
   'share.details': 'Technical details',
@@ -1081,10 +1084,25 @@ export const en: Messages = {
     'tokens reach every resource their permissions allow.',
   'sessions.wizard.roleHint':
     'viewer = view only; support = assistance; operator = control ' +
-    'and session management; administrator = full control.',
+    'and session management; administrator = full control; ' +
+    'custom = pick the permissions one by one.',
   'sessions.wizard.summaryTitle': 'Access summary',
   'sessions.wizard.ttlQuick': 'Quick duration',
   'sessions.wizard.custom': 'custom',
+  'sessions.wizard.ttlNever': 'Indefinite',
+  'sessions.wizard.neverHint':
+    'The link never expires — it can only be cut by revoking it ' +
+    'from this page.',
+  'sessions.wizard.riskNever':
+    'This link never expires: it stays live until you revoke it ' +
+    'manually.',
+  'sessions.wizard.permCustom': 'Permissions to grant',
+  'sessions.wizard.permsRequired': 'Check at least one permission.',
+  'sessions.wizard.customPermsHint':
+    'The link grants exactly the checked permissions, with no role ' +
+    'expansion. Admin permissions are only available through the ' +
+    'administrator role.',
+  'sessions.never': 'Never',
   'sessions.wizard.restrictions': 'Restrictions',
   'sessions.wizard.restrictionsNone':
     'None — reusable from any IP until it expires.',
@@ -1179,6 +1197,7 @@ export const en: Messages = {
     'The resources your shared link grants access to.',
   'guest.role': 'Permission',
   'guest.expires': 'Expires',
+  'guest.neverExpires': 'never expires',
   'guest.resources': 'Available resources',
   'guest.endSession': 'End session',
   'guest.none':

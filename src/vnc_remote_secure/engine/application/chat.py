@@ -61,7 +61,10 @@ def post_message(token_id: str, author: str, text: str) -> dict:
     session = _session_for_key(token_id)
     if session is None:
         raise ValueError("session not found")
-    if session.get("revoked") or float(session.get("expires_at") or 0) <= time.time():
+    # expires_at=null marks a never-expiring grant — only an explicit
+    # revocation can kill the chat channel then.
+    exp = session.get("expires_at")
+    if session.get("revoked") or (exp is not None and float(exp) <= time.time()):
         raise ValueError("session is no longer active")
     text = (text or "").strip()
     if not text:
@@ -86,7 +89,14 @@ def post_message(token_id: str, author: str, text: str) -> dict:
         messages = messages if isinstance(messages, list) else []
         messages.append(record)
         messages = messages[-_MAX_MESSAGES:]
-        ttl = max(60, session["expires_at"] - time.time() + _TTL_GRACE)
+        # A null expiry keeps the channel on a bounded tombstone —
+        # long enough that a live link never loses history, short
+        # enough that a forgotten one doesn't persist forever.
+        ttl = (
+            30 * 86400
+            if exp is None
+            else max(60, exp - time.time() + _TTL_GRACE)
+        )
         be.set_ttl(_NS, token_id, messages, ttl)
     finally:
         if locked:

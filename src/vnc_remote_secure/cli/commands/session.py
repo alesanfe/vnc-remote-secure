@@ -7,17 +7,21 @@ import os
 from vnc_remote_secure.cli._common import _audit_cli
 
 
-def _parse_duration(s: str) -> int:
+def _parse_duration(s: str) -> int | None:
     """Parse a duration string like '30m', '2h', '1d' into seconds.
 
     Rejects negative/zero values and unknown unit suffixes instead of
     silently defaulting, so misconfigured expiries surface immediately.
+    'never' (aliases: infinite, indefinite) returns None — the link
+    then lives until explicitly revoked.
     """
     from vnc_remote_secure.core.constants import DEFAULT_SESSION_IDLE_TIMEOUT
 
     if not s:
         return DEFAULT_SESSION_IDLE_TIMEOUT
     s = s.strip().lower()
+    if s in ("never", "infinite", "indefinite", "inf"):
+        return None
     units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
     if s and s[-1] in units:
         try:
@@ -100,7 +104,7 @@ def _print_session_created(args, signed_token, expires_in, role, base_url):
                 {
                     "token": signed_token,
                     "url": share_url,
-                    "expires_in": expires_in,
+                    "expires_in": expires_in,  # null = never expires
                     "role": role,
                     "view_only": args.view_only,
                     "no_terminal": args.no_terminal,
@@ -112,7 +116,8 @@ def _print_session_created(args, signed_token, expires_in, role, base_url):
             )
         )
         return
-    print(f"Session created (role: {role}, expires in {expires_in}s)")
+    expiry = "never (revoke to kill)" if expires_in is None else f"{expires_in}s"
+    print(f"Session created (role: {role}, expires in {expiry})")
     print(f"URL: {share_url}")
     if args.view_only:
         print("  View-only: yes")
@@ -203,13 +208,18 @@ def _session_list(store, args):
             import time
 
             for s in sessions:
-                remaining = int(s["expires_at"] - time.time())
+                # expires_at=null marks a never-expiring grant.
+                expiry = (
+                    "never"
+                    if s["expires_at"] is None
+                    else f"{max(int(s['expires_at'] - time.time()), 0)}s"
+                )
                 perms = ",".join(s.get("permissions") or []) or "-"
                 label = f" label={s['label']}" if s.get("label") else ""
                 print(
                     f"  id={s.get('token_id', '?')}{label} "
                     f"role={s['role']} "
-                    f"expires_in={max(remaining, 0)}s "
+                    f"expires_in={expiry} "
                     f"view_only={s['view_only']} single_use={s['single_use']} "
                     f"resource={s.get('resource') or '*'} "
                     f"uses={s.get('use_count', 0)}/{s.get('max_uses', 0) or 'inf'} "
