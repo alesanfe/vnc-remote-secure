@@ -4,6 +4,7 @@ import logging
 
 from vnc_remote_secure.backend.handlers.common import (
     _err,
+    _external_base,
     _ok,
     _read_typed_body,
     _uc_error_status,
@@ -144,7 +145,10 @@ def _post_session_create(handler, query):
 
     from vnc_remote_secure.core.share_url import share_base_url
 
-    base = share_base_url()
+    # The host the operator actually used is the right public base —
+    # DUCK_DOMAIN may not carry the deployed subdomain (e.g. a vnc.*
+    # vhost under an apex duckdns domain), so a forwarded host wins.
+    base = _external_base(handler) or share_base_url()
     url = f"{base}/share#t={signed}"
     emailed = False
     if body.email_to:

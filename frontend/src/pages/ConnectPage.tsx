@@ -20,6 +20,7 @@ import {
 } from '../components/bits';
 import DataTable from '../components/DataTable';
 import { roleLabel, useI18n } from '../i18n';
+import { desktopUrl } from './GuestPage';
 
 interface ActivePage {
   sessions: EphemeralSessionInfo[];
@@ -35,11 +36,7 @@ interface DirectAccess {
 /** Operator-facing direct-access surfaces — same resource list the
     guest portal renders, resolved against the portal read-model. */
 function directAccesses(p?: PortalData): DirectAccess[] {
-  const proto = p?.protocol ?? 'http';
-  const novnc = p?.ports?.novnc ?? 6080;
-  const novncUrl = p?.nginx_enabled
-    ? '/vnc/vnc.html'
-    : `${proto}://${window.location.hostname}:${novnc}/vnc.html`;
+  const novncUrl = desktopUrl(p);
   // A missing service card means the feature is disabled or not
   // reported — never claim it is online.
   const running = (name: string) =>

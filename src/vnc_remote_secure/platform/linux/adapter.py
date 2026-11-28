@@ -38,17 +38,51 @@ def _primary_lan_ip():
     return None
 
 
+# Container/hypervisor bridges route only inside the host —
+# advertising them as LAN access links sends clients to unreachable
+# addresses. VPN interfaces (tailscale*, wg*, zt*, tun/tap*) stay:
+# they are real reachability paths.
+_VIRTUAL_IFACE_PREFIXES = (
+    "docker",
+    "br-",
+    "veth",
+    "virbr",
+    "vboxnet",
+    "vmnet",
+    "lxc",
+    "lxd",
+    "cni",
+    "flannel",
+    "kube",
+    "weave",
+    "cali",
+)
+
+
 def _ip_addr_lan_ips():
-    """Parse 'ip addr' output for non-loopback IPv4 addresses."""
+    """Parse 'ip addr' output for non-loopback IPv4 addresses on
+    physical-ish interfaces."""
     ips = []
     try:
         result = run_cmd(["ip", "addr"], capture_output=True, text=True, timeout=10, check=False)
+        iface = ""
         for line in result.stdout.split("\n"):
-            if "inet " in line and "127.0.0.1" not in line:
-                parts = line.strip().split()
+            stripped = line.strip()
+            # Header lines read "N: ifname: <flags>" — veth peers may
+            # carry an '@ifX' suffix on the name.
+            head = stripped.split(":", 2)
+            if len(head) == 3 and head[0].isdigit():
+                iface = head[1].strip().split("@", 1)[0]
+                continue
+            if "inet " in stripped and "127.0.0.1" not in stripped:
+                parts = stripped.split()
                 # 'ip addr' lines look like: "inet 10.0.0.5/24 brd ..."
                 # The address token is the token immediately after 'inet'.
-                if len(parts) >= 2 and parts[0] == "inet":
+                if (
+                    len(parts) >= 2
+                    and parts[0] == "inet"
+                    and not iface.startswith(_VIRTUAL_IFACE_PREFIXES)
+                ):
                     ip = parts[1].split("/")[0]
                     if ip and not ip.startswith("127.") and ip not in ips:
                         ips.append(ip)
