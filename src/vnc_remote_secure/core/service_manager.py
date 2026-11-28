@@ -404,11 +404,91 @@ def _start_service(service: str, config: dict) -> int | None:
     return None
 
 
+def _pid_holding_port(port: int) -> int | None:
+    """PID of a process LISTENing on *port*, or ``None``.
+
+    psutil first; falls back to the /proc socket tables + an fd scan so
+    the check works where psutil is absent. Sockets owned by other
+    users may not expose their fds to us — ``None`` then means
+    'cannot determine', never 'not listening'.
+    """
+    try:
+        import psutil
+
+        for conn in psutil.net_connections("inet"):
+            if conn.laddr and conn.laddr.port == port and conn.status == "LISTEN":
+                if conn.pid:
+                    return conn.pid
+    except Exception:  # noqa: BLE001 - fall back to /proc
+        pass
+    inodes: set[str] = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(table) as fh:
+                next(fh, None)
+                for line in fh:
+                    parts = line.split()
+                    # State 0A = TCP_LISTEN; local_address is hex host:port.
+                    if len(parts) > 9 and parts[3] == "0A" and int(
+                        parts[1].rsplit(":", 1)[1], 16
+                    ) == port:
+                        inodes.add(parts[9])
+        except OSError:
+            continue
+    if not inodes:
+        return None
+    for pid_s in os.listdir("/proc"):
+        if not pid_s.isdigit():
+            continue
+        fd_dir = f"/proc/{pid_s}/fd"
+        try:
+            for fd in os.listdir(fd_dir):
+                try:
+                    target = os.readlink(os.path.join(fd_dir, fd))
+                except OSError:
+                    continue
+                if target.startswith("socket:[") and target[8:-1] in inodes:
+                    return int(pid_s)
+        except OSError:
+            continue
+    return None
+
+
 def _start_vnc(config: dict) -> int | None:
     """Start the VNC server via the platform adapter."""
     from vnc_remote_secure.services.vnc import start_vnc
 
+    # 'start' is documented as idempotent — a server that is already
+    # up satisfies it instead of failing on EADDRINUSE.
+    existing = _read_pid("vnc")
+    if existing and _pid_alive(existing):
+        if _pid_is_ours(existing, "vnc") is False:
+            logger.warning(
+                "VNC pid file points at foreign PID %d — clearing stale record",
+                existing,
+            )
+            _clear_pid("vnc")
+        else:
+            return existing
+    # An untracked server holding the port (manager died before writing
+    # the pid file, or a manually spawned wrapper) is still a running
+    # service — adopt it rather than kill a live desktop session just
+    # to satisfy 'start'.
     display = config.get("vnc_display", ":1")
+    try:
+        from vnc_remote_secure.services.vnc import _vnc_port
+
+        holder = _pid_holding_port(_vnc_port(str(display)))
+    except Exception:  # noqa: BLE001 - adoption is best-effort
+        holder = None
+    if holder and _pid_is_ours(holder, "vnc") is True:
+        try:
+            _write_pid("vnc", holder)
+        except OSError:
+            pass
+        logger.info("Adopted untracked VNC server (PID %s)", holder)
+        return holder
+
     geometry = config.get("vnc_geometry", "1280x720")
     depth = config.get("vnc_depth", 24)
     password = config.get("vnc_password")
@@ -524,11 +604,63 @@ def _start_websockify(config: dict) -> int | None:
     )
 
 
+def _nginx_main_pid() -> int | None:
+    """PID of a running nginx master, or ``None``.
+
+    Read-only checks that need no root: the systemd unit's MainPID,
+    then a /proc scan for a daemonized master (the master runs with
+    ppid 1; workers reparent to it).
+    """
+    try:
+        show = run_cmd(
+            ["systemctl", "show", "-p", "MainPID", "--value", "nginx"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        mpid = int((show.stdout or "").strip())
+        if mpid > 0:
+            return mpid
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    for pid_s in os.listdir("/proc"):
+        if not pid_s.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid_s}/comm") as fh:
+                if fh.read().strip() != "nginx":
+                    continue
+            with open(f"/proc/{pid_s}/stat") as fh:
+                # stat field 4 (ppid) — after the comm ')' the fields
+                # are: state(3) ppid(4) ...
+                ppid = int(fh.read().rsplit(")", 1)[1].split()[1])
+            if ppid == 1:
+                return int(pid_s)
+        except (OSError, ValueError, IndexError):
+            continue
+    return None
+
+
 def _start_nginx(config: dict) -> int | None:
     """Start nginx via systemctl (Linux) or the platform adapter."""
     if is_windows():
         logger.info("nginx not supported on Windows via service manager; skipping")
         return None
+    # 'start' is idempotent: nginx typically already runs as a system
+    # service (boot/systemd, outside this manager). A running master
+    # satisfies 'start' — adopt its PID so status/stop stay honest
+    # instead of reporting a failure for a healthy proxy.
+    existing = _read_pid("nginx")
+    if existing and _pid_alive(existing):
+        return existing
+    running = _nginx_main_pid()
+    if running:
+        try:
+            _write_pid("nginx", running)
+        except OSError:
+            pass
+        logger.info("Adopted running nginx master (PID %s)", running)
+        return running
     try:
         res = run_cmd(
             ["systemctl", "start", "nginx"],
