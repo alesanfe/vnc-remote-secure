@@ -25,7 +25,7 @@ test('wrong password shows an error, right password enters', async ({
   await page.getByLabel('Contraseña').fill('wrong-password');
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page.getByRole('alert')).toContainText(
-    'Invalid credentials');
+    'Credenciales no válidas');
 
   await page.getByLabel('Contraseña').fill(ADMIN.password);
   await page.getByRole('button', { name: 'Entrar' }).click();

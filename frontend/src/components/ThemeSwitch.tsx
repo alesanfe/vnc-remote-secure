@@ -40,7 +40,9 @@ export function DensitySwitch() {
       className="logout-btn"
       onClick={() =>
         setDensity((d) => (d === 'normal' ? 'compact' : 'normal'))}
-      aria-label={t('density.switch')}
+      // WCAG 2.5.3 Label in Name: the accessible name must contain
+      // the visible text, so lead with it and append the action.
+      aria-label={`${t(`density.${density}`)} — ${t('density.switch')}`}
       title={t('density.switch')}
     >
       {t(`density.${density}`)}
@@ -66,7 +68,8 @@ export default function ThemeSwitch() {
       type="button"
       className="logout-btn"
       onClick={() => setTheme(next)}
-      aria-label={t('theme.switch')}
+      // WCAG 2.5.3 Label in Name — see DensitySwitch above.
+      aria-label={`${t(`theme.${theme}`)} — ${t('theme.switch')}`}
       title={t('theme.switch')}
     >
       {t(`theme.${theme}`)}

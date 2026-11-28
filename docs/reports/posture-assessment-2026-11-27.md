@@ -1043,3 +1043,54 @@ privilege-touching mutation is step-up gated or confirm-dialoged;
 every read surface renders server-redacted data; the only client-side
 defect found across both passes was the `copyText` clipboard guard
 (already fixed, `60c151f`).
+
+## Pass 26 — functional verification of every admin tab (Playwright)
+
+New spec `frontend/e2e/admin-tabs.spec.ts` exercises each admin route
+against the real landing service (hermetic run dir):
+
+- **Route sweep** — all 17 routes (15 tabs + `/access/<token>` +
+  `/identities/<user>` + job detail when present) render inside the
+  shell with content and zero uncaught page errors.
+- **API probes** — 36 GET endpoints across every tab's data surface,
+  all 200.
+- **Files tab E2E** — mkdir via the real UI control, upload via the
+  same endpoint the SPA uses, download returns exact bytes, listing
+  reflects the file.
+- **Identities tab E2E** — operator create → visible in UI list →
+  detail page renders.
+- **Access detail** renders for a real share token.
+
+### Bugs found & fixed by the functional pass
+
+1. **e2e isolation was broken** (`global-setup.ts`): it exported
+   `VNC_RUN_DIR`, a var nothing reads — the suite had been running
+   against the LIVE data/run dirs (`operator_users.json`, file share,
+   config history). Now exports `VRS_RUN_DIR` + `XDG_{DATA,STATE,
+   CONFIG}_HOME` + `FILE_SHARE_ROOT` inside the tmpdir. Pollution
+   already created (`shared/e2e-*`, three `e2e-*` operators) was
+   removed from the live data dir.
+2. **Share links pointed at production**: repo `.env` ships
+   `PUBLIC_BASE_URL=https://vnc.alesanfe.duckdns.org` — share.spec
+   was navigating to the live deployment. `PUBLIC_BASE_URL` is now
+   pinned to the e2e origin in the spawn env (real env wins over
+   `.env` by design).
+3. **`operator_users._save` ENOENT on first boot**: fresh data dir →
+   `operators create` 500'd. Added `makedirs` (the only store missing
+   it — all others already had it).
+4. **WCAG 2.5.3 Label-in-Name** on `ThemeSwitch`/`DensitySwitch`:
+   aria-label ("Cambiar tema") didn't contain the visible text
+   ("Tema: automático"). Name now leads with the visible label.
+   Caught by the previously-red a11y spec.
+5. **`login.spec` asserted English** while the suite pins `es-ES` —
+   pre-existing stale assertion fixed to the Spanish copy.
+6. **API rate limiter vs test suite**: ~87 tests fire hundreds of
+   calls/min from one IP — legit traffic 429'd. Added opt-in
+   `VRS_API_RATE_LIMIT_DISABLED` escape in `api_v1._rate_limit`
+   (e2e-only; never set in production). The limiter itself is
+   verified working — it correctly throttled the suite.
+
+**Result: 31 passed / 0 failed / 56 skipped** (skips are the
+screenshots spec, gated behind its own flag). Previously the suite
+had 7 latent failures (a11y ×2, login, share ×4) that no CI run had
+surfaced.

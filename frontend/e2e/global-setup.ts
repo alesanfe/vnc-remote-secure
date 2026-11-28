@@ -33,11 +33,29 @@ export default async function globalSetup() {
         PYTHONPATH: path.join(repo, 'src'),
         LANDING_PORT: String(port),
         LANDING_PASSWORD: 'E2e-Landing!Passw0rd',
+        // Share links must resolve to THIS server — the repo .env
+        // ships the production PUBLIC_BASE_URL, which would send
+        // share.spec navigating to the live deployment.
+        PUBLIC_BASE_URL: `http://127.0.0.1:${port}`,
         DISABLE_SSL: 'true',
-        VNC_RUN_DIR: runDir,
+        // Isolate ALL state under the run dir: VRS_RUN_DIR is the
+        // override the runtime actually reads (VNC_RUN_DIR was a
+        // no-op), and the XDG vars + FILE_SHARE_ROOT keep
+        // operator_users.json, backups, config history, secrets and
+        // the file share inside the tmpdir instead of the live
+        // data dir.
+        VRS_RUN_DIR: runDir,
+        XDG_DATA_HOME: path.join(runDir, 'xdg-data'),
+        XDG_STATE_HOME: path.join(runDir, 'xdg-state'),
+        XDG_CONFIG_HOME: path.join(runDir, 'xdg-config'),
+        FILE_SHARE_ROOT: path.join(runDir, 'shared'),
         LANDING_PUBLIC_VIEW: 'false',
         // In-memory shared state keeps the e2e backend hermetic.
         SHARED_STATE_BACKEND: 'memory',
+        // The suite fires hundreds of API calls from one loopback
+        // IP in seconds — legitimate test traffic the per-IP windows
+        // would 429. Test-only escape hatch in api_v1._rate_limit.
+        VRS_API_RATE_LIMIT_DISABLED: 'true',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },

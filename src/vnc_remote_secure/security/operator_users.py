@@ -65,6 +65,9 @@ def load_store() -> dict:
 def _save(data: dict) -> None:
     """Write the store atomically with owner-only permissions."""
     path = _store_path()
+    # First-boot / relocated data dir: the parent may not exist yet —
+    # without this the very first operator create dies with ENOENT.
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f)

@@ -197,6 +197,13 @@ def _rate_limit(handler, scope: str, mutating: bool) -> bool:
     from the route's audit declaration: every mutating route names
     its audit event, so the fail-closed set can never go stale.
     """
+    from vnc_remote_secure.core.config import env_flag
+
+    # E2E/CI escape hatch: the Playwright suite fires hundreds of API
+    # calls in seconds from one loopback IP — legitimate test traffic
+    # that the per-IP windows would 429. Never set in production.
+    if env_flag("VRS_API_RATE_LIMIT_DISABLED", "false"):
+        return True
     from vnc_remote_secure.security.http_auth import client_ip_from
 
     ip = client_ip_from(handler.headers, handler.peer_ip()) or "unknown"
