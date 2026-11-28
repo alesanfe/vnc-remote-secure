@@ -1213,3 +1213,36 @@ own verification path.
   into restic-covered paths; recordings are tmpfs+size-capped
   (correctly excluded); duckdns-creds.ini now inside
   system-config.tar.
+
+## Pass 27e — SentinelHub security audit (same rigor as admin tabs)
+
+Reviewed backend API surface, auth, public endpoints, docker.sock
+connector, heartbeats, subscriptions, approvals.
+
+**Verified clean:** auth dependency on every non-public router
+(only `public.py` open); JWT access/refresh kind separation; public
+status page filters check_profiles/targets and exposure/restore_test
+incidents; badge 404s non-public apps; SVG+RSS escaping; docker.sock
+:ro; lab prefix guards on container/network create; approval
+re-validates target at execution; Apprise URLs masked; login
+10/min + audit changelog; PBKDF2 passwords; TOTP valid_window=1.
+
+**Found + fixed (SentinelHub `717f4ce`, deployed live):**
+1. `/ping/{slug}[/start|/fail]` public + nginx-proxied — each ping
+   inserted an unpruned HeartbeatEvent row (~864k/day/IP possible).
+   Added 30d pruning in retention_tick + dedicated 30/min limit
+   (verified: 30×200 then 429).
+2. `POST /totp/disable` needed only a 30-min access token — stolen
+   token = permanent 2FA strip. Now requires password or current
+   TOTP code.
+
+**Found, pending user action:**
+3. **2FA unreachable**: TOTP API exists but frontend has NO setup
+   UI — admin runs password-only. TOTP secret generated via API;
+   user scans otpauth URI and supplies a code to enable.
+4. Refresh tokens: 30-day validity, no rotation/revocation.
+5. Auto-recovery runbook actions bypass `declared_containers`
+   validation (approvals path does enforce it) — admin-gated.
+6. `docker_exec` connector: any check_profile can exec any command
+   in any container — powerful primitive, admin-write-only.
+7. Login timing oracle (PBKDF2 only runs for existing users).
