@@ -326,7 +326,28 @@ a { color: var(--accent-text); }
   background: var(--border);
   margin: 0 0.35rem;
 }
-.remote-console { position: relative; }
+.remote-console {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+/* The console should own the leftover viewport height — a fixed-size
+   desktop wastes the screen. The admin shell needs a column-flex .main
+   for the flex chain to resolve; :has() scopes it to this page only —
+   unsupported browsers degrade to the old fixed height. The guest
+   shell already column-flexes its main via .guest-shell > main. */
+.main:has(> .remote-console) {
+  display: flex;
+  flex-direction: column;
+}
+.main:has(> .remote-console) > .remote-console { flex: 1; min-height: 0; }
+.console-view {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
 .desktop-loading {
   position: absolute; inset: 0; border-radius: 8px;
   background: #000; color: #8b949e;

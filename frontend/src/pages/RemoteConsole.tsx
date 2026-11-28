@@ -304,8 +304,7 @@ export default function RemoteConsole({ guest = false }: {
         </button>
       )}
 
-      <div style={{ display: 'flex', gap: '0.75rem',
-                    alignItems: 'stretch' }}>
+      <div className="console-view">
         {portal.data && portal.data.vnc_direct?.running === false ? (
           /* framebuffer negro sin servicio = parece render roto —
              el portal conoce el estado del proceso; dilo */
