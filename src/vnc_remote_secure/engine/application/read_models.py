@@ -284,8 +284,19 @@ def portal(
     import re as _re
 
     cfg = stores.portal_config()
-    use_ssl = stores.tls_available(cfg)
-    protocol = "https" if use_ssl else "http"
+    # Two TLS answers, deliberately kept separate:
+    # - ``protocol`` feeds the 127.0.0.1:<port> direct-backend links in
+    #   service_list, so it follows the *backend's own* TLS context.
+    # - ``use_ssl`` (the TLS feature card) claims the visitor's
+    #   effective encryption — through nginx the client hop is HTTPS
+    #   while the loopback hop is plain HTTP by design, so a trusted
+    #   X-Forwarded-Proto: https counts as TLS too.
+    backend_tls = stores.tls_available(cfg)
+    protocol = "https" if backend_tls else "http"
+    request_tls = is_tls or (
+        trusted_proxy and forwarded_proto.split(",")[0].strip() == "https"
+    )
+    use_ssl = backend_tls or request_tls
 
     external_base = _external_base(trusted_proxy, forwarded_host, forwarded_proto)
 
