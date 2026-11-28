@@ -9,6 +9,7 @@ import { Download } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { api, type PortalData } from '../api';
 import { useI18n } from '../i18n';
+import StepUpDialog from '../components/StepUpDialog';
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -28,6 +29,11 @@ export default function TerminalPage() {
   // Bumping this re-runs the connection effect — the only way back
   // after a 1008 policy close, where automatic retry is refused.
   const [retryNonce, setRetryNonce] = useState(0);
+  // Operator sessions need a recent step-up to open a shell — a
+  // 1008 close whose reason names step-up opens the dialog instead
+  // of a dead "unauthorized" state.
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const isOperatorRef = useRef(false);
   const wsRef = useRef<WebSocket | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const serializeRef = useRef<SerializeAddon | null>(null);
@@ -46,7 +52,10 @@ export default function TerminalPage() {
   useEffect(() => {
     api
       .get<PortalData>('portal')
-      .then((p) => setWsUrl(p.terminal_ws ?? null))
+      .then((p) => {
+        isOperatorRef.current = !!p.is_operator;
+        setWsUrl(p.terminal_ws ?? null);
+      })
       .catch(() => setAuthError(true));
   }, []);
 
@@ -149,7 +158,11 @@ export default function TerminalPage() {
         if (ev.code === 1008) {
           dead = true;
           setState('error');
-          setAuthError(true);
+          if (isOperatorRef.current && /step.?up/i.test(ev.reason ?? '')) {
+            setStepUpOpen(true);
+          } else {
+            setAuthError(true);
+          }
           return;
         }
         setState('disconnected');
@@ -361,6 +374,16 @@ export default function TerminalPage() {
         </button>
       )}
       <div ref={termRef} className="term-host" />
+      <StepUpDialog
+        open={stepUpOpen}
+        operation={t('sessions.res.terminal')}
+        onVerified={() => {
+          setStepUpOpen(false);
+          setAuthError(false);
+          setRetryNonce((n) => n + 1);
+        }}
+        onCancel={() => setStepUpOpen(false)}
+      />
     </main>
   );
 }

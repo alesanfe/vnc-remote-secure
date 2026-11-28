@@ -108,7 +108,7 @@ export default function ConnectPage() {
               {t(`sessions.res.${a.key}`)}
             </h3>
             <p className="muted">{t(`guest.resDesc.${a.key}`)}</p>
-            <div className="row">
+            <div className="row" style={{ flexWrap: 'wrap' }}>
               <StatusBadge
                 status={a.available ? 'ok' : 'fail'}
                 label={
