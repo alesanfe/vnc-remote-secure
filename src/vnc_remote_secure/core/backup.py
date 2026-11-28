@@ -31,6 +31,7 @@ from vnc_remote_secure.core.paths import (
     find_project_root,
     get_config_dir,
     get_data_dir,
+    get_log_dir,
     get_run_dir,
     get_ssl_dir,
 )
@@ -272,6 +273,13 @@ def _collect_paths() -> list:
     data_dir = get_data_dir()
     if os.path.isdir(data_dir):
         paths.append((data_dir, "data"))
+
+    # Log directory: the tar filter drops *.log service output, but the
+    # forensic audit chain (audit.jsonl + rotations) is durable state —
+    # losing it on disk failure erases the record of who did what.
+    log_dir = get_log_dir()
+    if os.path.isdir(log_dir):
+        paths.append((log_dir, "logs"))
 
     # Runtime secrets whose loss would silently invalidate every issued
     # token/session or regenerate credentials the operator never saw:
@@ -742,6 +750,14 @@ def _copy_restored_tree(temp_dir, project_root):
     data_src = os.path.join(temp_dir, "data")
     if os.path.isdir(data_src):
         shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
+
+    # Restore logs (audit chain continuity; *.log service output was
+    # never archived). Absent in backups created before this entry.
+    logs_dst = get_log_dir()
+    logs_src = os.path.join(temp_dir, "logs")
+    if os.path.isdir(logs_src):
+        os.makedirs(logs_dst, exist_ok=True)
+        shutil.copytree(logs_src, logs_dst, dirs_exist_ok=True)
 
     run_dst = _restore_run_secrets(temp_dir)
     _restore_service_state(temp_dir)
