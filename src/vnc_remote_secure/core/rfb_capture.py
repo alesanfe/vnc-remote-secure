@@ -234,15 +234,18 @@ class RfbConnection:
     pixels too), ``on_resize(w, h)`` on desktop size changes.
     """
 
-    # Encodings the recorder advertises: Raw + CopyRect only.
-    # TigerVNC (>=1.12, Debian bookworm) breaks when the desktop-size
-    # pseudo-encodings (-223/-308) are negotiated: every
-    # FramebufferUpdateRequest is then answered with a layout-notify
-    # FBU and the pixel update never arrives — verified empirically
-    # against Xtigervnc 1.12. The cost is that a mid-session
-    # resolution change is not tracked; blit clamps out-of-bounds
-    # rects so such a change can't corrupt the framebuffer.
-    _ENCODINGS = (0, 1)
+    # Encodings the recorder advertises: Raw + CopyRect + RichCursor.
+    # -241 keeps the server from compositing the pointer sprite into
+    # the framebuffer (a headless session leaves it parked mid-screen,
+    # baked into every capture). The desktop-size pseudo-encodings
+    # (-223/-308) are deliberately absent: TigerVNC (>=1.12, Debian
+    # bookworm) then answers every FramebufferUpdateRequest with a
+    # layout-notify FBU and the pixel update never arrives — verified
+    # empirically against Xtigervnc 1.12. The cost is that a
+    # mid-session resolution change is not tracked; blit clamps
+    # out-of-bounds rects so such a change can't corrupt the
+    # framebuffer.
+    _ENCODINGS = (0, 1, -241)
 
     def __init__(self, host: str, port: int, password: str, connect_fn=None, timeout: float = 15.0):
         self._host, self._port = host, port
@@ -356,6 +359,8 @@ class RfbConnection:
                     fb.resize(w, h)
                     if self.on_resize:
                         self.on_resize(w, h)
+                elif enc == -241:  # RichCursor — shape + mask, dropped
+                    _recvn(sock, w * h * 4 + ((w + 7) // 8) * h)
                 else:
                     raise RfbError(f"un-negotiated encoding {enc}")
             return applied
