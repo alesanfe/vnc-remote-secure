@@ -30,7 +30,8 @@ jobs:
           fail=0
           for url in \
             "https://vnc.alesanfe.duckdns.org/" \
-            "https://sentinel.alesanfe.duckdns.org/status"; do
+            "https://sentinel.alesanfe.duckdns.org/status" \
+            "https://notify.alesanfe.duckdns.org/v1/health"; do
             code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 20 "$url" || echo "000")
             echo "$code  $url"
             case "$code" in 2*|3*) ;; *) fail=1 ;; esac
