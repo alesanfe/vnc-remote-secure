@@ -1009,3 +1009,37 @@ data rendering, clipboard/storage hygiene.
 - `SessionDetail` iframe has no `sandbox` — it embeds our own
   same-origin noVNC (sandbox would break its websocket); framing is
   already CSP-gated.
+
+## Pass 25 — admin tabs, one by one (per-page verdicts)
+
+Deep-read of every admin route in `App.tsx` — mutations checked
+against the operations catalog's auth policy, data flows traced to
+the API layer.
+
+| Tab (route) | Mutations | Step-up | Verdict |
+|---|---|---|---|
+| Overview `/` | lifecycle start/stop/restart, upgrade run/rollback, host power, WoL, jobs list | ✅ all gated | clean |
+| Activity `/activity` | none (audit+jobs queries) | n/a | clean |
+| Access `/access/*` → Sessions + SessionDetail | session create/revoke/revoke-all/label | ✅ revoke-all step-up; single revoke 10 s undo | clean |
+| Connect `/connect` | none (portal + active sessions) | n/a | clean |
+| Remote `/remote` | recording start/stop, screenshot | n/a — catalog scope `capture` (moderate); only recording **delete** is stepup-bound | clean |
+| Files `/files` | upload (b64, 32 MiB cap — TD-06), mkdir, download | n/a — scoped `files` perm; download URL `encodeURIComponent`'d | clean |
+| Identities `/identities[/:username]` | operator create/reset-password/role/revoke/delete, passkey mgmt | ✅ delete = type-to-confirm + step-up; revokes gated | clean |
+| Security `/security` | secrets mask/rotate/recovery/perms-fix, posture | ✅ rotate/signing/recovery gated; secrets server-masked only | clean (pass 24) |
+| Recordings `/security/recordings` | start/stop/delete/screenshot | ✅ delete step-up (matches catalog `stepup-bound`) | clean |
+| Audit `/security/audit` | none | n/a | clean |
+| Doctor `/operations/doctor` | maintenance mode toggle | ✅ step-up | clean |
+| Backups `/operations/backups` | create, verify, restore (wizard) | ✅ create+restore step-up; restore = queued job | clean |
+| Jobs `/operations/jobs[/:id]` | none (poll/cancel read) | n/a | clean |
+| Config `/config` | migrate, set value, history restore | ✅ migrate+set+restore gated | clean |
+| Help `/help` | none | n/a | clean |
+
+Cross-cutting (pass 24): `api.ts` same-origin credentials + CSRF on
+all mutations; zero dangerous DOM sinks; `_blank` links all carry
+`noreferrer`; clipboard guard fixed in `bits.tsx`.
+
+**Result: no new vulnerabilities.** Every destructive or
+privilege-touching mutation is step-up gated or confirm-dialoged;
+every read surface renders server-redacted data; the only client-side
+defect found across both passes was the `copyText` clipboard guard
+(already fixed, `60c151f`).
