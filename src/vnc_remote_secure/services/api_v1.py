@@ -44,7 +44,9 @@ from vnc_remote_secure.backend.handlers.controls import (
 from vnc_remote_secure.backend.handlers.files import (
     _get_files,
     _get_files_download,
+    _post_files_delete,
     _post_files_mkdir,
+    _post_files_rename,
     _post_files_upload,
 )
 from vnc_remote_secure.backend.handlers.monitoring import (
@@ -296,6 +298,12 @@ _ROUTES = {
     ),
     ("POST", "files/mkdir"): _Route(
         _post_files_mkdir, "session", "files.write", "file_transfer_mkdir", "FileWriteResponse"
+    ),
+    ("POST", "files/rename"): _Route(
+        _post_files_rename, "session", "files.write", "file_transfer_rename", "FileWriteResponse"
+    ),
+    ("POST", "files/delete"): _Route(
+        _post_files_delete, "session", "files.write", "file_transfer_delete", "FileWriteResponse"
     ),
     # Session-scoped chat — both parties reach the same channel.
     ("GET", "chat"): _Route(_get_chat, "session", "chat", None, "ChatResponse"),

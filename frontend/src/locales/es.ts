@@ -1274,7 +1274,19 @@ export const es = {
   'files.loadError': 'No se pudo listar la carpeta.',
   'files.uploadError': 'La subida falló.',
   'files.mkdirError': 'No se pudo crear la carpeta.',
+  'files.renameError': 'No se pudo renombrar.',
+  'files.deleteError': 'No se pudo borrar.',
   'files.tooBig': 'El archivo excede el límite permitido.',
+  'files.rename': 'Renombrar',
+  'files.delete': 'Borrar',
+  'files.deleteTitle': '¿Borrar {{name}}?',
+  'files.deleteDirTitle': '¿Borrar la carpeta {{name}}?',
+  'files.deleteBody':
+    'El archivo se eliminará de la carpeta compartida del equipo. ' +
+    'Esta acción no se puede deshacer.',
+  'files.deleteDirBody':
+    'La carpeta y todo su contenido se eliminarán de la carpeta ' +
+    'compartida del equipo. Esta acción no se puede deshacer.',
 
   // --- Connection center (/admin/connect) ------------------------------------
   'connect.title': 'Conexiones',

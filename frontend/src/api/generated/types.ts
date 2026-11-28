@@ -303,7 +303,6 @@ export interface paths {
         /**
          * Edit the inventory label on a share-link session
          * @description Operator-facing metadata only — the label never influences authorization; it exists so the inventory can group links by purpose ("soporte Juan", "demo Q3"). `label: null` clears the tag; omitting the key is a malformed request. Audited as session_label.
-         *
          */
         patch: {
             parameters: {
@@ -369,7 +368,6 @@ export interface paths {
         /**
          * Host power action (shutdown/restart/sleep)
          * @description admin:* + a step-up grant bound to power.action and the requested action name. The action runs on a ~1s grace delay in the backend so the 200 is delivered before the host drops. Each call is audited as power_action.
-         *
          */
         post: {
             parameters: {
@@ -435,7 +433,6 @@ export interface paths {
         /**
          * Wake-on-LAN magic packet
          * @description admin:*. Sends a WoL packet to the broadcast address (default 255.255.255.255:9). Target is restricted to broadcast addresses.
-         *
          */
         post: {
             parameters: {
@@ -503,7 +500,6 @@ export interface paths {
         /**
          * List one directory inside the file-share root
          * @description Operator sessions get the share outright; ephemeral sessions need the file_transfer permission and a grant unbound or bound to the 'files' resource. Paths are relative to FILE_SHARE_ROOT and confined to it after realpath resolution.
-         *
          */
         get: {
             parameters: {
@@ -715,6 +711,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/files/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename a file or directory in place (same parent)
+         * @description Guests need the file_transfer permission. The new name is a basename — moves across directories are not supported.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        path: string;
+                        /** @description New basename (not a path) */
+                        name: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Renamed */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid name/path */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Target name already exists */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a file, symlink or directory (recursive)
+         * @description Guests need the file_transfer permission. Deleting the share root itself is refused.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        path: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid path or the share root */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chat": {
         parameters: {
             query?: never;
@@ -725,7 +830,6 @@ export interface paths {
         /**
          * Session chat history (guest and operator share one channel)
          * @description Operators pass ?session=<token_id>; guests always read their own grant's channel (the id is derived server-side from the ephemeral cookie).
-         *
          */
         get: {
             parameters: {
@@ -3444,7 +3548,6 @@ export interface paths {
         /**
          * One PNG frame of the live host desktop
          * @description Opens a short shared RFB session against the loopback VNC server, captures a full framebuffer update and closes. Existing viewers are not disturbed. Audited as desktop_screenshot.
-         *
          */
         get: {
             parameters: {
@@ -3521,7 +3624,6 @@ export interface paths {
         /**
          * Start a background desktop recording
          * @description Spawns a recorder thread bound to a shared RFB session; raw rect stream lands in <run_dir>/recordings/<id>.vrsrec. Capped by VRS_RECORD_MAX_SECONDS / VRS_RECORD_MAX_BYTES.
-         *
          */
         post: {
             parameters: {
@@ -3603,7 +3705,6 @@ export interface paths {
         /**
          * Delete a finished recording (step-up bound)
          * @description Forensic data destruction — requires a step-up grant bound to recording.delete and the recording id.
-         *
          */
         delete: {
             parameters: {
@@ -3931,7 +4032,6 @@ export interface components {
         /**
          * Format: binary
          * @description Raw file bytes with Content-Disposition attachment — the one endpoint that does NOT answer with the {data, error} envelope.
-         *
          */
         FileDownloadResponse: string;
         PowerActionResponse: {
@@ -3961,6 +4061,8 @@ export interface components {
         };
         PostureCheck: {
             name: string;
+            /** @description Stable slug for UI localization - the SPA translates security.check.<key>.name / .<status> and interpolates params */
+            key?: string;
             /** @enum {string} */
             status: "ok" | "warn" | "fail";
             /**
@@ -3969,6 +4071,10 @@ export interface components {
              */
             severity: "info" | "low" | "medium" | "high" | "critical";
             detail: string;
+            /** @description Values interpolated into the localized detail */
+            params?: {
+                [key: string]: unknown;
+            };
             /** @description Observed value backing the check — never a secret */
             evidence: string;
         };
@@ -3977,6 +4083,8 @@ export interface components {
                 score: number;
                 checks: components["schemas"]["PostureCheck"][];
                 summary: string;
+                /** @enum {string} */
+                summary_key?: "excellent" | "good" | "moderate" | "poor";
                 /** @enum {string} */
                 deployment_decision: "allowed" | "blocked";
                 blocking_findings: string[];
@@ -3989,6 +4097,7 @@ export interface components {
                 posture?: {
                     score?: number | null;
                     summary?: string | null;
+                    summary_key?: string | null;
                     blocking_findings?: string[];
                 };
                 signals?: {
@@ -4110,7 +4219,7 @@ export interface components {
                 vnc_direct?: Record<string, never>;
                 audio_ws?: string | null;
                 gamepad_ws?: string | null;
-                maintenance?: Record<string, never>;
+                maintenance?: Record<string, never> | null;
                 ports?: Record<string, never>;
                 sessions?: components["schemas"]["SessionSummary"][];
                 gamepad_stopped?: boolean;

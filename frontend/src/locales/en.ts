@@ -1224,7 +1224,19 @@ export const en: Messages = {
   'files.loadError': 'Could not list the folder.',
   'files.uploadError': 'Upload failed.',
   'files.mkdirError': 'Could not create the folder.',
+  'files.renameError': 'Could not rename.',
+  'files.deleteError': 'Could not delete.',
   'files.tooBig': 'File exceeds the allowed size limit.',
+  'files.rename': 'Rename',
+  'files.delete': 'Delete',
+  'files.deleteTitle': 'Delete {{name}}?',
+  'files.deleteDirTitle': 'Delete the folder {{name}}?',
+  'files.deleteBody':
+    'The file will be removed from the machine’s shared folder. ' +
+    'This action cannot be undone.',
+  'files.deleteDirBody':
+    'The folder and everything inside it will be removed from the ' +
+    'machine’s shared folder. This action cannot be undone.',
 
   // --- Connection center (/admin/connect) ------------------------------------
   'connect.title': 'Connections',

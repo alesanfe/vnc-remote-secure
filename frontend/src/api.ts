@@ -216,6 +216,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
+  filesRename: (path: string, name: string) =>
+    request<{ path: string }>('files/rename', {
+      method: 'POST',
+      body: JSON.stringify({ path, name }),
+    }),
+  filesDelete: (path: string) =>
+    request<{ path: string }>('files/delete', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
   /** Same-origin URL for the raw-bytes download endpoint — usable
       as an <a href> target (the cookie travels with the request). */
   filesDownloadUrl: (path: string) =>

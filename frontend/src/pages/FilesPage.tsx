@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, Clock, File as FileIcon, Folder, Loader2, X,
+  Check, Clock, File as FileIcon, Folder, Loader2, Pencil,
+  Trash2, X,
 } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useI18n } from '../i18n';
 import { RelativeTime } from '../components/bits';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -51,6 +53,12 @@ export default function FilesPage() {
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const controllers = useRef(new Map<number, AbortController>());
+  // Row actions: inline rename edits the name cell in place; delete
+  // confirms through the shared dialog (recursive for directories).
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [confirmDelete, setConfirmDelete] =
+    useState<{ path: string; name: string; isDir: boolean } | null>(null);
 
   const list = useQuery({
     queryKey: ['files', path],
@@ -125,6 +133,34 @@ export default function FilesPage() {
     onError: (e) =>
       setError(e instanceof ApiError ? e.message : t('files.mkdirError')),
   });
+
+  const rename = useMutation({
+    mutationFn: (args: { path: string; name: string }) =>
+      api.filesRename(args.path, args.name),
+    onSuccess: () => {
+      setRenaming(null);
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['files'] });
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : t('files.renameError')),
+  });
+  const del = useMutation({
+    mutationFn: (p: string) => api.filesDelete(p),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['files'] });
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : t('files.deleteError')),
+  });
+
+  const submitRename = () => {
+    const name = renameValue.trim();
+    if (renaming && name) rename.mutate({ path: renaming, name });
+    else setRenaming(null);
+  };
 
   const crumbs = path ? path.split('/') : [];
 
@@ -292,7 +328,41 @@ export default function FilesPage() {
                               style={{ verticalAlign: '-2px' }} />
                     : <FileIcon size={14} aria-hidden="true"
                                 style={{ verticalAlign: '-2px' }} />}{' '}
-                  {e.is_dir ? (
+                  {renaming === e.path ? (
+                    <span className="row" style={{ gap: '0.3rem' }}>
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        aria-label={t('files.rename')}
+                        disabled={rename.isPending}
+                        onChange={(ev) => setRenameValue(ev.target.value)}
+                        onKeyDown={(ev) => {
+                          if (ev.key === 'Enter') submitRename();
+                          if (ev.key === 'Escape') setRenaming(null);
+                        }}
+                        onBlur={submitRename}
+                      />
+                      <button
+                        type="button"
+                        className="ghost"
+                        aria-label={t('common.confirm')}
+                        disabled={rename.isPending}
+                        onMouseDown={(ev) => ev.preventDefault()}
+                        onClick={submitRename}
+                      >
+                        <Check size={13} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        aria-label={t('common.cancel')}
+                        onMouseDown={(ev) => ev.preventDefault()}
+                        onClick={() => setRenaming(null)}
+                      >
+                        <X size={13} aria-hidden="true" />
+                      </button>
+                    </span>
+                  ) : e.is_dir ? (
                     <button
                       type="button"
                       className="link-btn"
@@ -309,11 +379,39 @@ export default function FilesPage() {
                 <td className="mono">{e.is_dir ? '—' : fmtSize(e.size)}</td>
                 <td><RelativeTime epoch={e.mtime} kind="since" /></td>
                 <td>
-                  {!e.is_dir && (
-                    <a href={api.filesDownloadUrl(e.path)}>
-                      {t('files.download')}
-                    </a>
-                  )}
+                  <span className="row" style={{ gap: '0.3rem' }}>
+                    {!e.is_dir && (
+                      <a href={api.filesDownloadUrl(e.path)}
+                         aria-label={t('files.download')}
+                         title={t('files.download')}>
+                        {t('files.download')}
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="ghost"
+                      aria-label={t('files.rename')}
+                      title={t('files.rename')}
+                      disabled={renaming === e.path}
+                      onClick={() => {
+                        setRenaming(e.path);
+                        setRenameValue(e.name);
+                      }}
+                    >
+                      <Pencil size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      aria-label={t('files.delete')}
+                      title={t('files.delete')}
+                      onClick={() => setConfirmDelete({
+                        path: e.path, name: e.name, isDir: e.is_dir,
+                      })}
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </button>
+                  </span>
                 </td>
               </tr>
             ))}
@@ -333,6 +431,25 @@ export default function FilesPage() {
           <a href="/guest">{t('guest.portalLink')}</a>
         </p>
       )}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={
+          confirmDelete?.isDir
+            ? t('files.deleteDirTitle', { name: confirmDelete.name })
+            : t('files.deleteTitle', { name: confirmDelete?.name ?? '' })
+        }
+        confirmLabel={t('files.delete')}
+        danger
+        busy={del.isPending}
+        onConfirm={() => {
+          if (confirmDelete) del.mutate(confirmDelete.path);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      >
+        {confirmDelete?.isDir
+          ? t('files.deleteDirBody')
+          : t('files.deleteBody')}
+      </ConfirmDialog>
     </main>
   );
 }

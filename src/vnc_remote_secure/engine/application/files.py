@@ -3,8 +3,9 @@
 
 The transfer surface is deliberately narrow: one operator-configured
 root directory (``FILE_SHARE_ROOT``, default ``<data_dir>/shared``),
-relative-path navigation inside it, capped uploads/downloads, and no
-delete/rename. Both the API route and any future CLI front-end call
+relative-path navigation inside it, capped uploads/downloads, and
+in-place delete/rename — never a move across directories, never the
+root itself. Both the API route and any future CLI front-end call
 these use cases — the sandbox rules live here, not in the transport.
 
 Security invariants:
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import tempfile
 import time
 import urllib.parse
@@ -207,6 +209,57 @@ def mkdir(rel: str, actor: str) -> dict:
         raise ValueError("parent directory does not exist")
     os.mkdir(target)
     stores.audit("file_transfer_mkdir", actor, f"path={_rel_for(target)}")
+    return {"path": _rel_for(target)}
+
+
+def rename(rel: str, new_name: str, actor: str) -> dict:
+    """Rename a file or directory in place (same parent).
+
+    ``new_name`` is a basename, not a path — moves between
+    directories are intentionally not part of the surface.
+    """
+    target = _resolve(rel)
+    if target == root():
+        raise ValueError("cannot rename the share root")
+    if not os.path.lexists(target):
+        raise ValueError("path does not exist")
+    name = (new_name or "").strip()
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        raise ValueError("invalid name")
+    dest = os.path.realpath(os.path.join(os.path.dirname(target), name))
+    base = root()
+    if dest != base and not dest.startswith(base + os.sep):
+        raise ValueError("path escapes the share root")
+    if dest == target:
+        return {"path": _rel_for(target)}
+    if os.path.lexists(dest):
+        raise FileExistsError("name already exists")
+    os.rename(target, dest)
+    stores.audit(
+        "file_transfer_rename", actor, f"path={_rel_for(target)} name={name}"
+    )
+    return {"path": _rel_for(dest)}
+
+
+def delete(rel: str, actor: str) -> dict:
+    """Remove a file or symlink; directories are removed recursively.
+
+    The share root itself is never a valid target — deleting ``/``
+    must be an explicit filesystem act, not an API call.
+    """
+    target = _resolve(rel)
+    if target == root():
+        raise ValueError("cannot delete the share root")
+    if os.path.islink(target) or os.path.isfile(target):
+        os.unlink(target)
+        stores.audit("file_transfer_delete", actor, f"path={_rel_for(target)}")
+    elif os.path.isdir(target):
+        shutil.rmtree(target)
+        stores.audit(
+            "file_transfer_delete", actor, f"path={_rel_for(target)} recursive=1"
+        )
+    else:
+        raise ValueError("not a file or directory")
     return {"path": _rel_for(target)}
 
 

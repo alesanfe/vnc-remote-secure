@@ -1,4 +1,4 @@
-"""File-share handlers: list, download, upload, mkdir."""
+"""File-share handlers: list, download, upload, mkdir, rename, delete."""
 
 import base64
 import logging
@@ -138,3 +138,55 @@ def _post_files_mkdir(handler, query):
     except Exception as e:  # noqa: BLE001
         log_exception(e, "api /files/mkdir")
         _err(handler, "mkdir failed", 500)
+
+
+def _post_files_rename(handler, query):
+    """POST /files/rename — {path, name} renames in place."""
+    if not _files_allowed(handler):
+        return
+    body, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    from vnc_remote_secure.engine.application import files
+
+    try:
+        _ok(
+            handler,
+            files.rename(
+                str(body.get("path") or ""),
+                str(body.get("name") or ""),
+                _actor_name(handler),
+            ),
+        )
+    except FileExistsError:
+        _err(handler, "Name already exists", 409)
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, "api /files/rename")
+        _err(handler, "Rename failed", 500)
+
+
+def _post_files_delete(handler, query):
+    """POST /files/delete — {path} removes a file or directory."""
+    if not _files_allowed(handler):
+        return
+    body, error = _read_json_body(handler)
+    if error:
+        _err(handler, *error)
+        return
+    from vnc_remote_secure.engine.application import files
+
+    try:
+        _ok(
+            handler,
+            files.delete(str(body.get("path") or ""), _actor_name(handler)),
+        )
+    except FileNotFoundError:
+        _err(handler, "Path not found", 404)
+    except ValueError as exc:
+        _err(handler, str(exc), 400)
+    except Exception as e:  # noqa: BLE001
+        log_exception(e, "api /files/delete")
+        _err(handler, "Delete failed", 500)

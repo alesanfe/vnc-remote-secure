@@ -88,6 +88,8 @@ def test_mutating_routes_carry_a_catalog_op():
         ("POST", "chat"),
         ("POST", "files/upload"),
         ("POST", "files/mkdir"),
+        ("POST", "files/rename"),
+        ("POST", "files/delete"),
     }
     missing = []
     for (method, rel), spec in _ROUTES.items():

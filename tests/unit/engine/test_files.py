@@ -173,6 +173,79 @@ def test_mkdir_rejects_existing_and_missing_parent(share):
         files.mkdir("../outside", "op")
 
 
+# --- Rename ---------------------------------------------------------------------
+
+
+def test_rename_file_and_audit(share):
+    (share / "old.txt").write_text("x")
+    out = files.rename("old.txt", "new.txt", "op")
+    assert out["path"] == "new.txt"
+    assert not (share / "old.txt").exists()
+    assert (share / "new.txt").read_text() == "x"
+    assert _audits()[-1] == ("file_transfer_rename", "path=old.txt name=new.txt")
+
+
+def test_rename_same_name_is_noop(share):
+    (share / "a.txt").write_text("a")
+    out = files.rename("a.txt", "a.txt", "op")
+    assert out["path"] == "a.txt"
+    assert (share / "a.txt").read_text() == "a"
+
+
+def test_rename_rejects_root_missing_and_collision(share):
+    (share / "a.txt").write_text("a")
+    (share / "b.txt").write_text("b")
+    with pytest.raises(ValueError):
+        files.rename("", "x", "op")
+    with pytest.raises(ValueError):
+        files.rename("missing.txt", "x", "op")
+    with pytest.raises(FileExistsError):
+        files.rename("a.txt", "b.txt", "op")
+
+
+def test_rename_rejects_path_like_names(share):
+    (share / "a.txt").write_text("a")
+    (share / "sub").mkdir()
+    for bad in ("sub/moved.txt", "../out.txt", "x/../y", "", ".", "..",
+                "win\\path.txt"):
+        with pytest.raises(ValueError):
+            files.rename("a.txt", bad, "op")
+
+
+def test_rename_dir_stays_in_parent(share):
+    (share / "d1").mkdir()
+    (share / "d1" / "f.txt").write_text("x")
+    files.rename("d1", "d2", "op")
+    assert (share / "d2" / "f.txt").read_text() == "x"
+
+
+# --- Delete ---------------------------------------------------------------------
+
+
+def test_delete_file_and_audit(share):
+    (share / "gone.txt").write_text("x")
+    out = files.delete("gone.txt", "op")
+    assert out["path"] == "gone.txt"
+    assert not (share / "gone.txt").exists()
+    assert _audits()[-1] == ("file_transfer_delete", "path=gone.txt")
+
+
+def test_delete_dir_recursive(share):
+    (share / "tree" / "nested").mkdir(parents=True)
+    (share / "tree" / "nested" / "f.txt").write_text("x")
+    files.delete("tree", "op")
+    assert not (share / "tree").exists()
+
+
+def test_delete_rejects_root_and_missing(share):
+    with pytest.raises(ValueError):
+        files.delete("", "op")
+    with pytest.raises(ValueError):
+        files.delete("missing.txt", "op")
+    with pytest.raises(ValueError):
+        files.delete("../outside.txt", "op")
+
+
 # --- Symlink escape -------------------------------------------------------------
 
 

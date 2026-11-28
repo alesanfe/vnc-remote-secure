@@ -1623,6 +1623,54 @@ paths:
       responses:
         '201': { description: Created }
         '400': { description: Invalid/existing path }
+  /files/rename:
+    post:
+      summary: Rename a file or directory in place (same parent)
+      description: >
+        Guests need the file_transfer permission. The new name is a
+        basename — moves across directories are not supported.
+      x-required-permission: session
+      x-csrf-required: true
+      x-rate-limit-scope: files.write
+      x-response-schema: FileWriteResponse
+      x-audit-event: file_transfer_rename
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, name]
+              properties:
+                path: { type: string }
+                name: { type: string, description: 'New basename (not a path)' }
+      responses:
+        '200': { description: Renamed }
+        '400': { description: 'Invalid name/path or missing fields' }
+        '409': { description: Target name already exists }
+  /files/delete:
+    post:
+      summary: Delete a file, symlink or directory (recursive)
+      description: >
+        Guests need the file_transfer permission. Deleting the share
+        root itself is refused.
+      x-required-permission: session
+      x-csrf-required: true
+      x-rate-limit-scope: files.write
+      x-response-schema: FileWriteResponse
+      x-audit-event: file_transfer_delete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        '200': { description: Deleted }
+        '400': { description: Invalid path or the share root }
   /chat:
     get:
       summary: Session chat history (guest and operator share one channel)
