@@ -220,6 +220,52 @@ def test_post_valid_csrf_accepted(server, monkeypatch):
     assert data["role"] == "viewer"
 
 
+def test_post_share_url_public_base_wins_over_forwarded(server, monkeypatch):
+    """An explicit PUBLIC_BASE_URL beats the request's forwarded host —
+    the operator may browse via a LAN alias the guest cannot reach."""
+    store = _FakeStore()
+    monkeypatch.setattr(
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
+    monkeypatch.setenv("TRUSTED_PROXY", "true")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://vnc.example.org")
+    h = _csrf_session(server)
+    h["X-Forwarded-Host"] = "lan-alias.internal"
+    h["X-Forwarded-Proto"] = "https"
+    status, _, body = _api_post(
+        server,
+        "/api/v1/sessions",
+        {"role": "viewer", "ttl_seconds": 300, "no_terminal": True},
+        headers=h,
+    )
+    assert status == 201
+    url = json.loads(body)["data"]["url"]
+    assert url.startswith("https://vnc.example.org/share#t=")
+
+
+def test_post_share_url_forwarded_host_without_public_base(server, monkeypatch):
+    """Without PUBLIC_BASE_URL the trusted forwarded host remains the
+    base — the operator's own host is the reachable public entry."""
+    store = _FakeStore()
+    monkeypatch.setattr(
+        "vnc_remote_secure.security.ephemeral_sessions.get_session_store", lambda: store
+    )
+    monkeypatch.setenv("TRUSTED_PROXY", "true")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    h = _csrf_session(server)
+    h["X-Forwarded-Host"] = "vnc.example.org"
+    h["X-Forwarded-Proto"] = "https"
+    status, _, body = _api_post(
+        server,
+        "/api/v1/sessions",
+        {"role": "viewer", "ttl_seconds": 300, "no_terminal": True},
+        headers=h,
+    )
+    assert status == 201
+    url = json.loads(body)["data"]["url"]
+    assert url.startswith("https://vnc.example.org/share#t=")
+
+
 # ---------------------------------------------------------------------------
 # Strict schema
 # ---------------------------------------------------------------------------
