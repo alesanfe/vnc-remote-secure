@@ -148,28 +148,31 @@ function LifecyclePanel() {
         </div>
       )}
       {lifecycle.data && (
-        <p>
+        <p className="row" style={{ flexWrap: 'wrap' }}>
           <button type="button" disabled={act.isPending}
                   onClick={() => act.mutate('start')}>
             {t('overview.lifecycle.start')}
-          </button>{' '}
+          </button>
           <button type="button" className="danger" disabled={act.isPending}
                   onClick={() => setPending('restart')}>
             {t('overview.lifecycle.restart')}
-          </button>{' '}
+          </button>
           <button type="button" className="danger" disabled={act.isPending}
                   onClick={() => setPending('stop')}>
             {t('overview.lifecycle.stop')}
           </button>
-        </p>
-      )}
-
-      {version.data && (
-        <p className="muted">
-          {t('overview.version.installed')}: <code>{version.data.version}</code>
-          {upgrade.data?.update &&
-            ` — ${t('overview.version.available')} ` +
-              `${upgrade.data.update} (${upgrade.data.source})`}
+          {version.data && (
+            <>
+              <span className="spacer" />
+              <span className="muted">
+                {t('overview.version.installed')}{' '}
+                <code>{version.data.version}</code>
+                {upgrade.data?.update &&
+                  ` — ${t('overview.version.available')} ` +
+                    `${upgrade.data.update} (${upgrade.data.source})`}
+              </span>
+            </>
+          )}
         </p>
       )}
       {upgrade.data?.update && (
