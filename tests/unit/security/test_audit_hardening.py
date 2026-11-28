@@ -87,6 +87,11 @@ class TestEphemeralSharedRevocation:
         store._lock = __import__("threading").RLock()
         store._last_mtime = 0.0
         store._cleanup_interval = 300
+        # Debounced-save + token-id index state (normally __init__).
+        store._by_token_id = {}
+        store._dirty = False
+        store._save_timer = None
+        store._save_debounce = 1.0
         monkeypatch.setattr(store, "_persist_path", lambda: str(tmp_path / "eph.json"))
         session, signed = store.create(expires_in=3600)
         internal = session.token

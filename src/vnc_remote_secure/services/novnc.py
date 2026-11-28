@@ -230,22 +230,33 @@ async def _relay_ws(websocket, upstream, rfb_filter):
     back to message payloads. ``None`` from the filter is a protocol
     violation: fail closed by tearing down both ends.
 
-    The idle deadline mirrors the old select-loop budget: a receive
-    that blocks longer than ``_RELAY_IDLE_TIMEOUT`` reaps the tunnel.
+    The idle deadline mirrors the old select-loop budget: a direction
+    that sees no message for ``_RELAY_IDLE_TIMEOUT`` reaps the tunnel.
+    A single watchdog task enforces it — previously EVERY received
+    message paid an ``asyncio.wait_for`` timeout-handle allocation.
 
     Returns when either side closes, errors, or the idle deadline is
     exceeded. Caller owns endpoint cleanup.
     """
     import asyncio
+    import time
 
     from vnc_remote_secure.services.rfb_filter import (
         _ws_frame,
         _ws_server_frame,
     )
 
+    # Per-direction last-activity stamps — the watchdog reaps when
+    # EITHER direction goes quiet for the full timeout, exactly like
+    # the two independent wait_for deadlines did.
+    last_client = time.monotonic()
+    last_upstream = time.monotonic()
+
     async def client_to_upstream():
+        nonlocal last_client
         while True:
-            data = await asyncio.wait_for(websocket.receive_bytes(), timeout=_RELAY_IDLE_TIMEOUT)
+            data = await websocket.receive_bytes()
+            last_client = time.monotonic()
             if rfb_filter is None:
                 await upstream.send(data)
                 continue
@@ -259,8 +270,10 @@ async def _relay_ws(websocket, upstream, rfb_filter):
                 await upstream.send(payload)
 
     async def upstream_to_client():
+        nonlocal last_upstream
         while True:
-            msg = await asyncio.wait_for(upstream.recv(), timeout=_RELAY_IDLE_TIMEOUT)
+            msg = await upstream.recv()
+            last_upstream = time.monotonic()
             data = msg if isinstance(msg, bytes) else msg.encode()
             if rfb_filter is None:
                 await websocket.send_bytes(data)
@@ -274,17 +287,38 @@ async def _relay_ws(websocket, upstream, rfb_filter):
             for payload in payloads:
                 await websocket.send_bytes(payload)
 
-    tasks = [
+    pumps = [
         asyncio.ensure_future(client_to_upstream()),
         asyncio.ensure_future(upstream_to_client()),
     ]
+
+    async def watchdog():
+        # Tick granularity: ~1/10th of the timeout (clamped) so the
+        # reap lands within ~10% of the deadline — cheap sleeps, no
+        # per-message allocations.
+        tick = min(30.0, max(0.1, _RELAY_IDLE_TIMEOUT / 10.0))
+        while True:
+            await asyncio.sleep(tick)
+            now = time.monotonic()
+            if (
+                now - last_client >= _RELAY_IDLE_TIMEOUT
+                or now - last_upstream >= _RELAY_IDLE_TIMEOUT
+            ):
+                for t in pumps:
+                    t.cancel()
+                return
+
+    tasks = pumps + [asyncio.ensure_future(watchdog())]
     done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     for t in tasks:
         t.cancel()
     # Surface a pump failure to the caller for logging/teardown.
+    # CancelledError is BaseException — a pump the watchdog already
+    # cancelled lands in ``done`` too and must be swallowed here.
     for t in done:
-        with contextlib.suppress(Exception):
-            t.result()
+        if t in pumps:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                t.result()
 
 
 def _resolve_static(root: str, path: str):

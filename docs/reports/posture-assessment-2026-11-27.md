@@ -803,3 +803,95 @@ independent eyes (access control, vuln mgmt), incident history
   (dispatch internals exercised via api_v1 route tests —
   transport only, policy lives in engine/security).
 - **D1/D10 drills** — need a disposable host.
+
+## Pass 22 — shared_state.db contention program (PERF backlog, phase 1)
+
+Performance pass targeting the recurring `shared_state.db` SQLite
+contention: every WS register/unregister, health check and auth event
+used to queue synchronous writes on the same DB lock as security
+state. Implemented in the user's priority order; each item is
+independently revertible.
+
+### Shipped
+
+- **Metrics write buffer** (`monitoring/prometheus.py`) —
+  `inc_counter`/`set_gauge` are now memory-only; deltas accumulate in
+  `_pending_counters`/`_pending_gauges` and a single daemon flush
+  thread commits them via `increment_many`/`set_many` in ONE
+  transaction per `METRICS_FLUSH_SECONDS` interval (default 5 s,
+  clamped 1–60, jittered). Failed flushes requeue preserving newer
+  gauge sequence numbers. `flush_metrics_now()`/`metrics_pending()`
+  expose the path for shutdown/tests. At most one flush interval of
+  telemetry is lost on crash — accepted: metrics are not audit
+  records. `set_gauge` dirty-checks so unchanged values cost nothing.
+- **`StateBackend` batch API** (`security/shared_state.py`) — new
+  `increment_many`, `set_many`, `items` on the abstract class with
+  `MemoryBackend` and `SQLiteBackend` implementations (SQLite via a
+  `_transaction` helper: BEGIN IMMEDIATE/COMMIT/ROLLBACK under the
+  connection lock — all-or-nothing batches). `items(ns)` replaces the
+  `list_keys` + per-key `get` N+1 with one SELECT that filters expired
+  rows in SQL.
+- **Registry O(1) indexes** (`security/websocket_registry.py`) —
+  `_resource_counts` per-resource counters, `_by_ip` index for the
+  per-IP cap, centralized `_detach_locked` keeping all indexes
+  consistent; `_emit_active_gauges` is O(#resources) instead of
+  scanning every connection.
+- **Global revocation sweeper** — ONE daemon thread per process
+  replaces per-session watcher threads/tasks (audio/gamepad/novnc/
+  terminal call sites unchanged — `start_revocation_watcher*` now
+  ensure the sweeper). Each cycle does ONE `list_keys` on the revoked
+  namespace + ONE operator-epoch read regardless of session count
+  (was 2–3 SELECTs per session per tick). Adaptive cadence: ~5 s when
+  sessions are active, 15 s idle backoff, immediate wake on new
+  registration. `is_revoked_shared` gained a bounded negative cache
+  (`WS_REVOKED_CACHE_TTL`, default 1 s; positive results never cached;
+  same-process revokes invalidate). Disabled under `VRS_TEST_MODE`.
+- **SessionStore dirty-save + O(1) token index**
+  (`security/ephemeral_sessions.py`) — `find_by_token_id` resolves the
+  public fingerprint via `_by_token_id` (was a sha256 scan of every
+  session per call — paid per WS upgrade). `note_connection` no longer
+  rewrites the full session JSON per connect/disconnect edge: it marks
+  the session dirty and a single coalescing timer flushes at most once
+  per `EPHEMERAL_SAVE_DEBOUNCE` (default 1 s, clamp 0.2–30). `_load`
+  flushes dirty state before merging disk data so a cross-process
+  write can never silently drop pending forensic stamps; `atexit`
+  flushes on clean shutdown. Revocation/security flags still save
+  immediately.
+- **Audit single tail read** (`security/audit.py`) — `_tail_state()`
+  reads the last log line ONCE and yields both chain hash and seq
+  (was two `_last_audit_line` reads + parses per event). Sticky-hash,
+  reset-on-corrupt and seq-fallback semantics preserved exactly.
+  `AUDIT_FSYNC=1` adds optional per-entry fsync (off by default —
+  documented durability/throughput trade).
+- **`/metrics` scrape cost** — `collect_system_metrics` (posture +
+  health probe + session listing) is single-flight cached 10 s;
+  `render_metrics` payload cached 1 s. One `items()` query per
+  namespace per render; no per-scrape health/posture probes.
+- **`_relay_ws` watchdog** (`services/novnc.py`) — the per-message
+  `asyncio.wait_for` timeout handles are replaced by one watchdog
+  task tracking per-direction last-activity stamps; identical reap
+  semantics (either direction quiet for `_RELAY_IDLE_TIMEOUT` kills
+  the tunnel), zero per-message allocations.
+
+### Verified
+
+- New tests: batch ops on both backends (accumulation, TTL filtering,
+  cross-connection visibility), metrics buffer (memory-only hot path,
+  flush, dirty-check, requeue-on-failure, persisted+pending merge,
+  render cache), sweep-cycle batching (one `list_keys` per cycle,
+  zero reads when idle), negative-cache TTL + invalidation on revoke,
+  test-mode sweeper guard. Updated forensics/audit-hardened tests for
+  the debounced save (`_flush_dirty()` as the deterministic stand-in).
+- `tests/unit/{security,services,monitoring,engine}` green; ruff +
+  black clean on all touched files.
+
+### Not done (debt)
+
+- **Real-Pi benchmarks** (PERF-001/002): WS register p95/p99, login
+  txn latency, 50 conn/s reconnect storm, ≥90 % write reduction —
+  need the live host; numbers must be measured, not assumed.
+- **Soak test** 24 h on the Pi.
+- **DB split decision** — deferred until measurements justify it.
+- Later backlog items untouched: bulk revocation queries beyond the
+  sweep, aggregated rate-limit txn, dedicated audit writer,
+  session journal, remaining coverage floors (TD-13).

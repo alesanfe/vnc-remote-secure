@@ -67,6 +67,31 @@ class TestMemoryBackend:
         assert b.increment("ns", "counter") == 2
         assert b.increment("ns", "counter", 5) == 7
 
+    def test_increment_many_accumulates(self):
+        b = MemoryBackend()
+        b.increment_many("ns", {"a": 2, "b": 3})
+        b.increment_many("ns", {"a": 4})
+        b.increment("ns", "a")
+        assert b.get("ns", "a") == 7
+        assert b.get("ns", "b") == 3
+
+    def test_set_many_and_items(self):
+        b = MemoryBackend()
+        b.set_many("ns", {"g1": 1.5, "g2": 2.0})
+        b.set("ns", "c1", 9)
+        b.set("other", "x", 1)
+        got = dict(b.items("ns"))
+        assert got == {"g1": 1.5, "g2": 2.0, "c1": 9}
+
+    def test_items_excludes_expired(self):
+        b = MemoryBackend()
+        b.set_ttl("ns", "old", 1, 0.01)
+        b.set("ns", "live", 2)
+        import time
+
+        time.sleep(0.02)
+        assert dict(b.items("ns")) == {"live": 2}
+
 
 # ---------------------------------------------------------------------------
 # SQLiteBackend
@@ -125,6 +150,44 @@ class TestSQLiteBackend:
         b2 = SQLiteBackend(db_path)
         assert b2.get("ns", "key") == "value"
         b2.close()
+
+    def test_increment_many_accumulates(self, tmp_path):
+        b = SQLiteBackend(str(tmp_path / "test.db"))
+        b.increment_many("ns", {"a": 2, "b": 3})
+        b.increment_many("ns", {"a": 4})
+        b.increment("ns", "a")
+        assert b.get("ns", "a") == 7
+        assert b.get("ns", "b") == 3
+        b.close()
+
+    def test_increment_many_visible_to_second_connection(self, tmp_path):
+        """A batched flush from one process lands for another — the
+        whole point of the shared backend."""
+        db_path = str(tmp_path / "test.db")
+        b1 = SQLiteBackend(db_path)
+        b1.increment_many("ns", {"hits": 5})
+        b1.close()
+        b2 = SQLiteBackend(db_path)
+        assert b2.get("ns", "hits") == 5
+        b2.close()
+
+    def test_set_many_and_items(self, tmp_path):
+        b = SQLiteBackend(str(tmp_path / "test.db"))
+        b.set_many("ns", {"g1": 1.5, "g2": 2.0})
+        b.set("ns", "c1", 9)
+        b.set("other", "x", 1)
+        assert dict(b.items("ns")) == {"g1": 1.5, "g2": 2.0, "c1": 9}
+        b.close()
+
+    def test_items_excludes_expired(self, tmp_path):
+        b = SQLiteBackend(str(tmp_path / "test.db"))
+        b.set_ttl("ns", "old", 1, 0.01)
+        b.set("ns", "live", 2)
+        import time
+
+        time.sleep(0.02)
+        assert dict(b.items("ns")) == {"live": 2}
+        b.close()
 
 
 # ---------------------------------------------------------------------------

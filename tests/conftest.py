@@ -167,6 +167,8 @@ def _drain_ws_revocation_watchers():
             with reg._lock:
                 reg._connections.clear()
                 reg._by_session.clear()
+                reg._by_ip.clear()
+                reg._resource_counts.clear()
     except Exception:  # noqa: BLE001 - teardown best-effort
         pass
 

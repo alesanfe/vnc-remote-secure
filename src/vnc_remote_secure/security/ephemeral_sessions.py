@@ -17,7 +17,6 @@ signing mechanism while remaining type-separated.
 
 import contextlib
 import hashlib
-import hmac
 import logging
 import os
 import secrets
@@ -156,7 +155,28 @@ class SessionStore:
         # (mtime_ns, size, ino) — a bare float mtime misses same-tick
         # writes on filesystems with coarse granularity.
         self._last_mtime: tuple = (0, 0, 0)
+        # Public-id index: token_id (sha256(internal)[:12]) -> token.
+        # find_by_token_id used to sha256-scan EVERY session per call —
+        # O(N) on the WS-register path. Maintained alongside
+        # _sessions on every mutation site.
+        self._by_token_id: dict = {}
+        # Debounced persistence for forensic connection stamps:
+        # note_connection() marks the session dirty and a single
+        # coalescing timer rewrites the JSON at most once per
+        # _save_debounce window instead of once per connect/disconnect
+        # edge. Revocation/security flags still save immediately.
+        self._dirty = False
+        self._save_timer = None
+        try:
+            self._save_debounce = min(
+                30.0, max(0.2, float(os.environ.get("EPHEMERAL_SAVE_DEBOUNCE", "1.0")))
+            )
+        except (TypeError, ValueError):
+            self._save_debounce = 1.0
         self._load()
+        import atexit
+
+        atexit.register(self._flush_at_exit)
 
     def _persist_path(self) -> str:
         """Return the path to the persistence file."""
@@ -170,13 +190,34 @@ class SessionStore:
         st = os.stat(path)
         return (st.st_mtime_ns, st.st_size, getattr(st, "st_ino", 0))
 
+    @staticmethod
+    def _token_digest(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()[:12]
+
+    def _index_session(self, token: str) -> None:
+        # setdefault keeps the earliest token on a (practically
+        # impossible) digest collision — matching the old scan's
+        # first-match semantics.
+        self._by_token_id.setdefault(self._token_digest(token), token)
+
     def _load(self):
         """Load sessions from disk into memory."""
         import json
 
+        # A pending debounced save holds forensic stamps that exist
+        # only in memory — flush BEFORE merging disk state or this
+        # reload would silently drop them (another process's write is
+        # what triggered the reload in the first place).
+        if self._dirty:
+            self._dirty = False
+            try:
+                self._save_inner()
+            except Exception:  # noqa: BLE001 - load must proceed regardless
+                logger.debug("Pre-load dirty flush failed", exc_info=True)
         path = self._persist_path()
         if not os.path.exists(path):
             self._last_mtime = (0, 0, 0)
+            self._by_token_id = {self._token_digest(t): t for t in self._sessions}
             return
         with contextlib.suppress(OSError):
             self._last_mtime = self._file_sig(path)
@@ -198,6 +239,11 @@ class SessionStore:
                         logger.warning("Skipping corrupt session %s: %s", digest, exc)
         except (OSError, ValueError) as exc:
             logger.warning("Failed to load ephemeral sessions: %s", exc)
+        # Rebuild the public-id index from the merged session map —
+        # covers sessions adopted from disk and drops reaped tokens.
+        self._by_token_id = {}
+        for token in self._sessions:
+            self._index_session(token)
 
     def _load_if_changed(self):
         """Reload from disk only when another process rewrote the file.
@@ -246,6 +292,7 @@ class SessionStore:
             return
         if not other.revoked and other.expires_at > now:
             self._sessions[token] = other
+            self._index_session(token)
 
     def _merge_session_flags(self, session: EphemeralSession, sdata) -> None:
         """Merge terminal flags (revoked, used, use_count) and forensic
@@ -401,6 +448,7 @@ class SessionStore:
         )
         with self._lock:
             self._sessions[token] = session
+            self._index_session(token)
             signed = create_ephemeral_token(session)
             self._save(raise_on_error=True)
         from vnc_remote_secure.security.audit import audit_event
@@ -545,20 +593,65 @@ class SessionStore:
         holding only the fingerprint (the detail API, the WebSocket
         registry) resolve the internal token here without it ever
         leaving the store. Returns None for unknown/reaped ids.
+
+        O(1) via ``_by_token_id`` — previously this sha256-scanned
+        every session on each call (the WS-register path paid it per
+        upgrade). A disk reload runs once on index miss so sessions
+        created by other processes stay discoverable.
         """
         with self._lock:
-            self._load()
-            for token, session in self._sessions.items():
-                digest = hashlib.sha256(token.encode()).hexdigest()[:12]
-                if hmac.compare_digest(digest, token_id):
-                    return session
-            return None
+            token = self._by_token_id.get(token_id)
+            if token is None:
+                self._load()
+                token = self._by_token_id.get(token_id)
+            if token is None:
+                return None
+            return self._sessions.get(token)
+
+    def _mark_dirty_and_schedule(self):
+        """Coalesced persistence for forensic connection stamps.
+
+        At most one timer is ever pending; each edge resets nothing —
+        the FIRST edge arms the timer and later edges inside the
+        window ride the same flush. ``_load`` also flushes dirty state
+        before merging disk data, so a cross-process write can never
+        silently drop pending stamps.
+        """
+        self._dirty = True
+        if self._save_timer is not None:
+            return
+        self._save_timer = threading.Timer(self._save_debounce, self._flush_dirty)
+        self._save_timer.daemon = True
+        self._save_timer.start()
+
+    def _flush_dirty(self):
+        with self._lock:
+            self._save_timer = None
+            if not self._dirty:
+                return
+            self._dirty = False
+            self._save_inner()
+
+    def _flush_at_exit(self):
+        """Best-effort flush for clean interpreter shutdown."""
+        try:
+            with self._lock:
+                if self._save_timer is not None:
+                    self._save_timer.cancel()
+                    self._save_timer = None
+                if self._dirty:
+                    self._dirty = False
+                    self._save_inner()
+        except Exception:  # noqa: BLE001 - exit path must not raise
+            pass
 
     def note_connection(self, internal_token: str, connected: bool = True):
         """Forensic hook called by the WebSocket registry on the
         last-connect / last-disconnect edges of a session's live
-        sockets. Persists immediately — a disconnect that is only
-        in-memory is invisible to the detail view of another process.
+        sockets. Persistence is debounced (``EPHEMERAL_SAVE_DEBOUNCE``,
+        default 1s): connect storms no longer rewrite the whole JSON
+        per edge, and the stamps still reach disk within ~1s — or
+        sooner if any load/save path runs first.
         """
         with self._lock:
             session = self._sessions.get(internal_token)
@@ -571,7 +664,7 @@ class SessionStore:
                 session.note_connected()
             else:
                 session.note_disconnected()
-            self._save()
+            self._mark_dirty_and_schedule()
 
     def cleanup(self):
         """Remove expired sessions."""
@@ -580,6 +673,7 @@ class SessionStore:
             expired = [t for t, s in self._sessions.items() if now >= s.expires_at]
             for t in expired:
                 del self._sessions[t]
+                self._by_token_id.pop(self._token_digest(t), None)
             if expired:
                 self._save()
                 for _ in expired:

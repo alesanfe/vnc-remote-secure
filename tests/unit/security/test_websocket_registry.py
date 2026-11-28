@@ -583,3 +583,109 @@ def test_per_ip_cap_refuses(monkeypatch):
     assert b is not None
     assert c is None
     assert d is not None
+
+
+class TestGlobalSweeper:
+    """One sweeper per process: a single list_keys covers every
+    registered session; the negative cache bounds revocation reads."""
+
+    def test_sweep_cycle_batches_revoked_lookup(self, monkeypatch):
+        import time
+
+        from vnc_remote_secure.security import shared_state
+        from vnc_remote_secure.security import websocket_registry as w
+        from vnc_remote_secure.security.shared_state import MemoryBackend
+
+        backend = MemoryBackend()
+        calls = []
+        orig = backend.list_keys
+
+        def counting(ns, prefix=""):
+            calls.append(ns)
+            return orig(ns, prefix)
+
+        monkeypatch.setattr(backend, "list_keys", counting)
+        monkeypatch.setattr(shared_state, "_backend", backend)
+        w._revoked_neg_cache.clear()
+
+        closed = []
+        reg = w.get_registry()
+        reg.register("sa", lambda: closed.append("sa"))
+        reg.register("sb", lambda: closed.append("sb"))
+        # Mark ONLY sa revoked directly in the backend — no local
+        # revoke path, so the sweep (not revoke_session) must close it.
+        backend.set(w._NS_REVOKED, "sa", time.time())
+
+        assert w._sweep_cycle() == 1
+        assert closed == ["sa"]
+        # ONE list_keys for the whole revoked namespace per cycle —
+        # not per session. (The close path may list other namespaces
+        # like web_auth_context; that's unrelated to the sweep.)
+        assert calls.count(w._NS_REVOKED) == 1
+
+    def test_sweep_cycle_empty_registry_is_free(self, monkeypatch):
+        from vnc_remote_secure.security import shared_state
+        from vnc_remote_secure.security import websocket_registry as w
+        from vnc_remote_secure.security.shared_state import MemoryBackend
+
+        backend = MemoryBackend()
+        calls = []
+        monkeypatch.setattr(backend, "list_keys", lambda ns, prefix="": calls.append(ns) or [])
+        monkeypatch.setattr(shared_state, "_backend", backend)
+        assert w._sweep_cycle() == 0
+        assert calls == []  # no sessions → no shared-state reads at all
+
+    def test_ensure_sweeper_disabled_under_test_mode(self, monkeypatch):
+        from vnc_remote_secure.security import websocket_registry as w
+
+        monkeypatch.setenv("VRS_TEST_MODE", "1")
+        assert w._ensure_sweeper() is None
+
+
+class TestRevocationNegativeCache:
+    def test_not_revoked_cached_briefly(self, monkeypatch):
+        """A 'not revoked' answer is reused within the TTL — the
+        register path's double-check stops paying two SELECTs."""
+        from vnc_remote_secure.security import shared_state
+        from vnc_remote_secure.security import websocket_registry as w
+        from vnc_remote_secure.security.shared_state import MemoryBackend
+
+        backend = MemoryBackend()
+        gets = []
+        orig = backend.get
+
+        def counting(ns, key):
+            gets.append((ns, key))
+            return orig(ns, key)
+
+        monkeypatch.setattr(backend, "get", counting)
+        monkeypatch.setattr(shared_state, "_backend", backend)
+        w._revoked_neg_cache.clear()
+
+        assert w.is_revoked_shared("tok-x") is False
+        assert w.is_revoked_shared("tok-x") is False
+        hits = [g for g in gets if g == (w._NS_REVOKED, "tok-x")]
+        assert len(hits) == 1  # second call served from cache
+
+        # A same-process revoke invalidates the cache — the very next
+        # check must see the marker.
+        w.revoke_session_connections("tok-x")
+        assert w.is_revoked_shared("tok-x") is True
+
+    def test_negative_cache_expires(self, monkeypatch):
+        import time
+
+        from vnc_remote_secure.security import shared_state
+        from vnc_remote_secure.security import websocket_registry as w
+        from vnc_remote_secure.security.shared_state import MemoryBackend
+
+        backend = MemoryBackend()
+        monkeypatch.setattr(shared_state, "_backend", backend)
+        monkeypatch.setenv("WS_REVOKED_CACHE_TTL", "0.05")
+        w._revoked_neg_cache.clear()
+
+        assert w.is_revoked_shared("tok-y") is False
+        time.sleep(0.08)
+        # TTL elapsed → the next check re-reads the backend (still False).
+        assert w.is_revoked_shared("tok-y") is False
+        w._revoked_neg_cache.clear()

@@ -175,33 +175,53 @@ def _last_audit_line(path):
         return ""
 
 
+def _audit_fsync() -> bool:
+    """AUDIT_FSYNC=1 → fsync every appended entry (durable but slow)."""
+    return env_flag("AUDIT_FSYNC", "")
+
+
+def _tail_state():
+    """ONE tail read -> ``(chain_hash_or_None, last_seq)``.
+
+    The append path needs both the chain tip and the last sequence
+    number; previously each came from its own ``_last_audit_line``
+    call — two index reads + two JSON parses per event. Semantics are
+    identical to the two legacy loaders:
+
+    - ``hash is None`` → leave ``_chain_hash`` untouched (file missing
+      or empty tail — the sticky-hash behavior ``_load_chain_hash``
+      relies on, e.g. right after rotation creates a fresh file);
+    - ``hash == ""`` → corrupt/unreadable tail, chain base resets;
+    - ``seq == -1`` → no usable sequence (``entry_seq`` becomes 0).
+    """
+    try:
+        path = Path(_audit_log_file())
+        if not path.exists():
+            return None, -1
+        last = _last_audit_line(path)
+        if not last:
+            return None, -1
+        entry = json.loads(last)
+        h = entry.get("hash", "")
+        seq = entry.get("seq")
+        return (h if isinstance(h, str) else ""), (seq if isinstance(seq, int) else -1)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("Could not load audit tail state: %s", exc)
+        return "", -1
+
+
 def _load_chain_hash():
     """Load the last chain hash from the audit log file."""
     global _chain_hash
-    try:
-        path = Path(_audit_log_file())
-        if path.exists():
-            last = _last_audit_line(path)
-            if last:
-                _chain_hash = json.loads(last).get("hash", "")
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.debug("Could not load audit chain hash: %s", exc)
-        _chain_hash = ""
+    h, _ = _tail_state()
+    if h is not None:
+        _chain_hash = h
 
 
 def _load_last_seq() -> int:
     """Load the sequence number of the last audit entry (0 when none)."""
-    try:
-        path = Path(_audit_log_file())
-        if path.exists():
-            last = _last_audit_line(path)
-            if last:
-                seq = json.loads(last).get("seq")
-                if isinstance(seq, int):
-                    return seq
-    except (OSError, json.JSONDecodeError):
-        pass
-    return -1
+    _, seq = _tail_state()
+    return seq
 
 
 def _compute_hash(prev_hash: str, entry: dict) -> str:
@@ -529,14 +549,18 @@ def audit_log(
         # Always re-read the last hash from the file so that entries
         # written by other processes are correctly chained. The
         # cross-process file lock serializes read-hash → compute →
-        # append so concurrent writers cannot fork the chain.
-        _load_chain_hash()
+        # append so concurrent writers cannot fork the chain. ONE tail
+        # read yields both the chain tip and the last seq — the two
+        # legacy loaders each re-read the same last line.
+        tail_hash, tail_seq = _tail_state()
+        if tail_hash is not None:
+            _chain_hash = tail_hash
         # Monotonic sequence number: a file restored to an earlier
         # valid prefix shows a lower seq than the last tip's — the
         # tip witness catches that, but seq also flags *middle* gaps
         # during verify_chain (a spliced file with recomputed hashes
         # still reveals deletion unless every seq is rewritten too).
-        entry_seq = _load_last_seq() + 1
+        entry_seq = tail_seq + 1
 
         # Scrub secrets from free-text fields before they hit disk —
         # a caller that interpolates a credential into ``detail`` or
@@ -567,6 +591,13 @@ def audit_log(
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(line)
+                # AUDIT_FSYNC=1 forces the entry to stable storage
+                # before the chain tip advances — off by default so
+                # audit volume doesn't serialize on disk latency;
+                # enable on deployments where post-crash audit
+                # completeness outweighs write throughput.
+                if _audit_fsync():
+                    os.fsync(f.fileno())
             _set_secure_perms(path)
             # Advance the chain only AFTER the entry reached disk —
             # moving it before the write leaves an unrecoverable gap:

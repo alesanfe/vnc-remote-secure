@@ -111,6 +111,11 @@ class WebSocketRegistry:
         self._lock = threading.Lock()
         self._connections: dict[str, _ConnectionEntry] = {}  # conn_id -> entry
         self._by_session: dict[str, set[str]] = {}  # session_id -> {conn_ids}
+        self._by_ip: dict[str, set[str]] = {}  # client_ip -> {conn_ids}
+        # Incremental per-resource counts — _emit_active_gauges used to
+        # scan every connection on each register/unregister (O(N) under
+        # the global lock); these counters make it O(#resources).
+        self._resource_counts: dict[str, int] = {}
         self._next_id = 0
 
     def register(
@@ -153,10 +158,10 @@ class WebSocketRegistry:
                     _max_connections(),
                 )
                 return None
-            # Per-IP cap: one source address must not own a large
-            # fraction of the global budget on its own.
+            # Per-IP cap: O(1) via the index — one source address must
+            # not own a large fraction of the global budget.
             if client_ip:
-                per_ip = sum(1 for e in self._connections.values() if e.client_ip == client_ip)
+                per_ip = len(self._by_ip.get(client_ip, ()))
                 if per_ip >= _max_connections_per_ip():
                     logger.warning(
                         "Refused WebSocket registration: per-IP cap " "(%d) reached",
@@ -179,6 +184,10 @@ class WebSocketRegistry:
             if session_id not in self._by_session:
                 self._by_session[session_id] = set()
             self._by_session[session_id].add(conn_id)
+            if client_ip:
+                self._by_ip.setdefault(client_ip, set()).add(conn_id)
+            res_key = resource or "unknown"
+            self._resource_counts[res_key] = self._resource_counts.get(res_key, 0) + 1
             # Post-register double-check: closes the
             # check->register->revoke race. A revoke landing BETWEEN
             # the first check and registration would leave a live
@@ -186,8 +195,7 @@ class WebSocketRegistry:
             # close callback after releasing the lock.
             close_now = None
             if is_revoked_shared(session_id) or is_revoked_shared(f"sid:{session_id}"):
-                self._connections.pop(conn_id, None)
-                self._by_session.get(session_id, set()).discard(conn_id)
+                entry = self._detach_locked(conn_id)
                 close_now = entry
             self._emit_active_gauges()
             logger.debug(
@@ -205,21 +213,44 @@ class WebSocketRegistry:
         _note_session_connect(session_id)
         return conn_id
 
+    def _detach_locked(self, conn_id: str):
+        """Remove ``conn_id`` from every index. Caller holds ``_lock``.
+
+        Returns the detached entry (or None). Keeping all index
+        maintenance in ONE place is what makes register/unregister/
+        revoke_session unable to drift out of sync.
+        """
+        entry = self._connections.pop(conn_id, None)
+        if entry is None:
+            return None
+        session_set = self._by_session.get(entry.session_id)
+        if session_set is not None:
+            session_set.discard(conn_id)
+            if not session_set:
+                del self._by_session[entry.session_id]
+        if entry.client_ip:
+            ip_set = self._by_ip.get(entry.client_ip)
+            if ip_set is not None:
+                ip_set.discard(conn_id)
+                if not ip_set:
+                    del self._by_ip[entry.client_ip]
+        res_key = entry.resource or "unknown"
+        # Keep the key at 0 — the gauge must be able to report the
+        # resource going quiet, not freeze at its last nonzero value.
+        self._resource_counts[res_key] = max(0, self._resource_counts.get(res_key, 0) - 1)
+        return entry
+
     def _emit_active_gauges(self):
         """Emit per-resource active-connection gauges (best-effort).
 
-        Labels are resource-scoped (desktop/terminal/audio/gamepad) —
-        each resource is served by exactly one service process, so
-        cross-process gauge writes never overwrite each other.
+        Reads the incremental counters — O(#resources), never a scan
+        of ``_connections``. ``set_gauge`` dirty-checks, so unchanged
+        values cost a dict compare, not a metrics write.
         """
         try:
             from vnc_remote_secure.monitoring.prometheus import set_gauge
 
-            counts: dict = {}
-            for e in self._connections.values():
-                key = e.resource or "unknown"
-                counts[key] = counts.get(key, 0) + 1
-            for res, n in counts.items():
+            for res, n in self._resource_counts.items():
                 set_gauge("vnc_remote_ws_connections_active", float(n), labels=f"resource={res}")
         except Exception:  # noqa: BLE001
             pass
@@ -228,15 +259,10 @@ class WebSocketRegistry:
         """Unregister a connection (called when it closes normally)."""
         drained = False
         with self._lock:
-            entry = self._connections.pop(conn_id, None)
+            entry = self._detach_locked(conn_id)
             if entry is None:
                 return
-            session_set = self._by_session.get(entry.session_id)
-            if session_set is not None:
-                session_set.discard(conn_id)
-                if not session_set:
-                    del self._by_session[entry.session_id]
-                    drained = True
+            drained = entry.session_id not in self._by_session
             self._emit_active_gauges()
             logger.debug(
                 "Unregistered WebSocket connection %s for session %s",
@@ -299,14 +325,20 @@ class WebSocketRegistry:
             # Stable pair / legacy cookie: every session sharing it
             # dies, so every indexed ctx goes too.
             drop_auth_context_for(session_id)
+        # A revocation must be visible on the very next check — drop
+        # every cached "not revoked" answer (the cache is small and
+        # revocations are rare).
+        _revoked_neg_cache.clear()
         # Snapshot and detach under the lock, then invoke the close
         # callbacks AFTER releasing it — a callback that touches the
         # registry (e.g. calls unregister from the socket's close
         # handler) would deadlock on the non-reentrant lock.
+        # _detach_locked keeps _by_ip/_resource_counts consistent.
         with self._lock:
             conn_ids = list(self._by_session.get(session_id, set()))
-            entries = [self._connections.pop(cid, None) for cid in conn_ids]
-            self._by_session.pop(session_id, None)
+            entries = [self._detach_locked(cid) for cid in conn_ids]
+            if conn_ids:
+                self._emit_active_gauges()
         closed = 0
         for conn_id, entry in zip(conn_ids, entries):
             if entry is None:
@@ -441,7 +473,13 @@ def register_connection(
     session_id: str, close_callback: CloseCallback, resource: str | None = None, client_ip: str = ""
 ) -> str | None:
     """Register a new WebSocket connection (convenience function)."""
-    return get_registry().register(session_id, close_callback, resource, client_ip=client_ip)
+    conn_id = get_registry().register(session_id, close_callback, resource, client_ip=client_ip)
+    if conn_id is not None:
+        # Wake the global sweeper so a fresh session is covered
+        # immediately rather than after an idle-backoff sleep.
+        _sweeper_wakeup.set()
+        _ensure_sweeper()
+    return conn_id
 
 
 def unregister_connection(conn_id: str):
@@ -452,6 +490,22 @@ def unregister_connection(conn_id: str):
 def revoke_session_connections(session_id: str) -> int:
     """Force-close all WebSocket connections for a session."""
     return get_registry().revoke_session(session_id)
+
+
+# Negative-result cache for is_revoked_shared: a "not revoked" answer
+# is reused for a short TTL so registration's double-check does not
+# pay two SELECTs per upgrade. Positive results are NEVER cached —
+# a revocation must be visible on the next check. The residual window
+# is bounded by the TTL (default 1s), during which the sweeper still
+# closes any connection admitted in the gap.
+_revoked_neg_cache: dict = {}
+
+
+def _revocation_cache_ttl() -> float:
+    try:
+        return max(0.0, float(os.environ.get("WS_REVOKED_CACHE_TTL", "1.0")))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def is_revoked_shared(session_id: str) -> bool:
@@ -468,8 +522,13 @@ def is_revoked_shared(session_id: str) -> bool:
     throttled warning + metric (availability choice — a lost-to-race
     revocation may lag while the backend is down).
     """
+    ttl = _revocation_cache_ttl()
+    if ttl > 0:
+        exp = _revoked_neg_cache.get(session_id)
+        if exp is not None and time.monotonic() < exp:
+            return False
     try:
-        return bool(get_backend().get(_NS_REVOKED, session_id))
+        revoked = bool(get_backend().get(_NS_REVOKED, session_id))
     except Exception:  # noqa: BLE001 - see docstring for the policy
         global _revoke_check_warned_at
         now = time.time()
@@ -483,6 +542,13 @@ def is_revoked_shared(session_id: str) -> bool:
 
         inc_counter("vnc_remote_shared_state_errors_total", "op=revocation_check")
         return _strict()
+    if not revoked and ttl > 0:
+        # Bound the cache: a flood of distinct session ids must not
+        # grow it without limit — a full clear is cheap and rare.
+        if len(_revoked_neg_cache) > 4096:
+            _revoked_neg_cache.clear()
+        _revoked_neg_cache[session_id] = time.monotonic() + ttl
+    return revoked
 
 
 def _strict() -> bool:
@@ -494,6 +560,7 @@ def _strict() -> bool:
 def clear_revoked_shared(session_id: str):
     """Remove a session from the shared revocation set (for testing)."""
     get_backend().delete(_NS_REVOKED, session_id)
+    _revoked_neg_cache.clear()
 
 
 # --- Cross-process live-connection revocation -------------------------
@@ -555,7 +622,7 @@ def _max_connections_per_ip() -> int:
         return 32
 
 
-def _operator_session_dead(session_id: str) -> str | None:
+def _operator_session_dead(session_id: str, epoch=None) -> str | None:
     """Return a close reason for a dead operator session cookie.
 
     A ``vnc_session`` cookie registered at upgrade time can die
@@ -570,6 +637,9 @@ def _operator_session_dead(session_id: str) -> str | None:
     ``last_seen`` only advances on HTTP requests, so enforcing it
     would kill an actively-used desktop that simply hasn't polled an
     HTTP endpoint. The absolute cap still bounds total stream life.
+
+    ``epoch`` lets the sweeper pass a per-cycle value instead of one
+    shared-state read per session.
     """
     if not session_id.startswith("session:"):
         return None
@@ -596,9 +666,11 @@ def _operator_session_dead(session_id: str) -> str | None:
             return "expired"
         if time.time() > int(expires_s):
             return "expired"
-        from vnc_remote_secure.security.sessions import operator_session_epoch
+        if epoch is None:
+            from vnc_remote_secure.security.sessions import operator_session_epoch
 
-        if int(created_s) < operator_session_epoch():
+            epoch = operator_session_epoch()
+        if int(created_s) < epoch:
             return "revoked"
         return None
     except Exception:  # noqa: BLE001 - watcher must not die
@@ -607,22 +679,37 @@ def _operator_session_dead(session_id: str) -> str | None:
         return "revoked" if _strict() else None
 
 
-def _sweep_revoked_session(session_id: str) -> bool:
-    """Close the session's connections on revocation OR expiry."""
+def _sweep_revoked_session(session_id: str, revoked_keys: set | None = None, epoch=None) -> bool:
+    """Close the session's connections on revocation OR expiry.
+
+    ``revoked_keys`` (a snapshot of the shared revocation namespace
+    from ONE ``list_keys`` per sweep cycle) replaces the per-session
+    ``is_revoked_shared`` SELECT; ``epoch`` does the same for the
+    operator-session epoch read. Both default to the per-session
+    checks so direct callers/tests keep working.
+    """
     reason = None
     marked_at = None
-    if is_revoked_shared(session_id):
+    # Revocation markers exist under two key forms — the raw session id
+    # and the ``sid:``-prefixed variant (see ``register``'s checks).
+    if revoked_keys is not None:
+        revoked = session_id in revoked_keys or f"sid:{session_id}" in revoked_keys
+    else:
+        revoked = is_revoked_shared(session_id) or is_revoked_shared(f"sid:{session_id}")
+    if revoked:
         reason = "revoked"
-        try:
-            raw = get_backend().get(_NS_REVOKED, session_id)
+        for key in (session_id, f"sid:{session_id}"):
+            try:
+                raw = get_backend().get(_NS_REVOKED, key)
+            except Exception:  # noqa: BLE001
+                continue
             if isinstance(raw, (int, float)) and not isinstance(raw, bool):
                 marked_at = float(raw)
-        except Exception:  # noqa: BLE001
-            pass
+                break
     elif _session_expired(session_id):
         reason = "expired"
     else:
-        reason = _operator_session_dead(session_id)
+        reason = _operator_session_dead(session_id, epoch=epoch)
     if reason is None:
         return False
     closed = get_registry().revoke_session(session_id)
@@ -652,6 +739,10 @@ async def watch_shared_revocation_async(session_id: str, interval: float = 5.0) 
     Exits when the session has no local connections left (normal
     disconnect), so no per-connection cleanup is needed beyond keeping
     a task reference until completion.
+
+    NOTE: services now use the single global sweeper
+    (:func:`_ensure_sweeper`); this per-session variant remains for
+    tests and any caller that needs a dedicated watcher.
     """
     import asyncio
 
@@ -663,37 +754,112 @@ async def watch_shared_revocation_async(session_id: str, interval: float = 5.0) 
             return
 
 
-def start_revocation_watcher(session_id: str, interval: float = 5.0):
-    """Spawn the async watcher on the current loop.
+# --- Global revocation sweeper -----------------------------------------
+#
+# One daemon thread per process replaces the previous per-session
+# watcher (thread OR asyncio task) — with N live sessions the old
+# design ran N pollers, each paying 2-3 shared-state SELECTs per tick.
+# The sweeper does ONE list_keys for the whole revoked namespace and
+# ONE epoch read per cycle, then evaluates each registered session
+# locally. New registrations wake it immediately via the event, so
+# revocation latency is unchanged (~one interval) while idle cost
+# drops to a sleeping thread.
 
-    Call right after a successful ``register_connection`` from an
-    asyncio handler (audio/gamepad/terminal). The task is kept in a
-    module set so it is not garbage-collected mid-run; it removes
-    itself when the watcher exits.
+_sweeper_thread = None
+_sweeper_lock = threading.Lock()
+_sweeper_wakeup = threading.Event()
+
+
+def _sweep_cycle() -> int:
+    """One pass over every locally-registered session.
+
+    Returns the number of sessions whose connections were closed.
+    Shared-state reads are batched: ONE ``list_keys`` for the revoked
+    namespace + ONE operator-epoch read per cycle (vs 2-3 SELECTs per
+    session before). A backend failure falls back to per-session
+    checks — correctness over speed.
     """
-    import asyncio
+    sessions = get_registry().get_active_sessions()
+    if not sessions:
+        return 0
+    revoked_keys = None
+    try:
+        revoked_keys = set(get_backend().list_keys(_NS_REVOKED))
+    except Exception:  # noqa: BLE001 - per-session fallback below
+        revoked_keys = None
+    epoch = None
+    epoch_failed = False
+    try:
+        from vnc_remote_secure.security.sessions import operator_session_epoch
 
-    task = asyncio.ensure_future(watch_shared_revocation_async(session_id, interval))
-    _watcher_tasks.add(task)
-    task.add_done_callback(_watcher_tasks.discard)
-    return task
+        epoch = operator_session_epoch()
+    except Exception:  # noqa: BLE001
+        epoch_failed = True
+    closed = 0
+    for sid in sessions:
+        try:
+            if _sweep_revoked_session(
+                sid, revoked_keys=revoked_keys, epoch=None if epoch_failed else epoch
+            ):
+                closed += 1
+        except Exception:  # noqa: BLE001 - one bad session must not stop the cycle
+            logger.debug("Sweep failed for session %s", _redact(sid), exc_info=True)
+    return closed
+
+
+def _sweeper_loop():
+    import random
+
+    empty_cycles = 0
+    while True:
+        try:
+            _sweep_cycle()
+        except Exception:  # noqa: BLE001 - the sweeper must never die
+            logger.debug("Revocation sweep cycle failed", exc_info=True)
+        active = bool(get_registry().get_active_sessions())
+        if active:
+            empty_cycles = 0
+            delay = 5.0 * random.uniform(0.8, 1.2)
+        else:
+            empty_cycles += 1
+            # Idle backoff: cheap sleep when nothing is connected, but
+            # a new registration wakes the loop immediately anyway.
+            delay = 15.0 if empty_cycles > 2 else 5.0
+        _sweeper_wakeup.wait(delay)
+        _sweeper_wakeup.clear()
+
+
+def _ensure_sweeper():
+    """Start the single per-process revocation sweeper (lazy, daemon).
+
+    Disabled under ``VRS_TEST_MODE`` — the suite drives sweeps
+    explicitly and a background thread would make tests nondeterministic.
+    """
+    if os.environ.get("VRS_TEST_MODE") == "1":
+        return None
+    global _sweeper_thread
+    if _sweeper_thread is not None and _sweeper_thread.is_alive():
+        return _sweeper_thread
+    with _sweeper_lock:
+        if _sweeper_thread is not None and _sweeper_thread.is_alive():
+            return _sweeper_thread
+        t = threading.Thread(target=_sweeper_loop, name="ws-revocation-sweeper", daemon=True)
+        t.start()
+        _sweeper_thread = t
+        _sweeper_wakeup.set()
+        return t
+
+
+def start_revocation_watcher(session_id: str, interval: float = 5.0):
+    """Ensure the global revocation sweeper is running.
+
+    Kept for call-site compatibility — the per-session ``interval``
+    argument is superseded by the sweeper's adaptive cadence (the
+    session id is discovered via the registry, not tracked here).
+    """
+    return _ensure_sweeper()
 
 
 def start_revocation_watcher_thread(session_id: str, interval: float = 5.0) -> threading.Thread:
-    """Spawn the watcher on a daemon thread (for non-asyncio handlers).
-
-    Used by the noVNC relay, whose connections live in
-    ``http.server`` worker threads rather than an event loop.
-    """
-
-    def _run():
-        while True:
-            if _sweep_revoked_session(session_id):
-                return
-            if get_registry().get_active_count(session_id) == 0:
-                return
-            time.sleep(interval)
-
-    t = threading.Thread(target=_run, daemon=True, name=f"ws-revoke-{_redact(session_id)}")
-    t.start()
-    return t
+    """Ensure the global revocation sweeper is running (threaded callers)."""
+    return _ensure_sweeper()

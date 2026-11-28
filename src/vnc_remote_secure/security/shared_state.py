@@ -89,6 +89,26 @@ class StateBackend:
         """
         raise NotImplementedError
 
+    def increment_many(self, namespace: str, deltas: dict) -> None:
+        """Apply ``{key: amount}`` increments in ONE transaction.
+
+        Batched form of :meth:`increment` for metrics flush — the
+        whole batch commits or none of it does, so a failed flush
+        never half-applies.
+        """
+        raise NotImplementedError
+
+    def set_many(self, namespace: str, values: dict) -> None:
+        """Apply ``{key: value}`` writes in ONE transaction."""
+        raise NotImplementedError
+
+    def items(self, namespace: str) -> list:
+        """Return ``[(key, value), …]`` for live entries — ONE query.
+
+        Replaces the ``list_keys`` + per-key ``get`` N+1 pattern.
+        """
+        raise NotImplementedError
+
     def close(self):
         """Release any resources held by the backend."""
 
@@ -185,6 +205,37 @@ class MemoryBackend(StateBackend):
                 expires = None
             self._store[nk] = (new_val, expires)
             return new_val
+
+    def increment_many(self, namespace: str, deltas: dict) -> None:
+        """Increment many."""
+        with self._lock:
+            for key, amount in deltas.items():
+                nk = (namespace, key)
+                entry = self._store.get(nk)
+                current = 0
+                expires = None
+                if entry is not None:
+                    value, exp = entry
+                    if exp is None or time.time() <= exp:
+                        current = value if isinstance(value, int) else 0
+                        expires = exp
+                self._store[nk] = (current + amount, expires)
+
+    def set_many(self, namespace: str, values: dict) -> None:
+        """Set many."""
+        with self._lock:
+            for key, value in values.items():
+                self._store[(namespace, key)] = (value, None)
+
+    def items(self, namespace: str) -> list:
+        """Items."""
+        now = time.time()
+        with self._lock:
+            return [
+                (key, entry[0])
+                for (ns, key), entry in self._store.items()
+                if ns == namespace and (entry[1] is None or now <= entry[1])
+            ]
 
     def close(self):
         """Close."""
@@ -416,6 +467,73 @@ class SQLiteBackend(StateBackend):
                 return amount
             val = self._deserialise(row[0])
             return val if isinstance(val, int) else 0
+
+    def _transaction(self, statements):
+        """Run ``[(sql, params), …]`` in ONE BEGIN IMMEDIATE transaction.
+
+        Caller must hold ``self._lock``. Any failure rolls the whole
+        batch back — a metrics flush either fully applies or leaves
+        the DB untouched, so the caller can safely retry the same
+        snapshot.
+        """
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            for sql, params in statements:
+                self._exec(sql, params)
+            self._conn.execute("COMMIT")
+        except BaseException:
+            with contextlib.suppress(sqlite3.Error):
+                self._conn.execute("ROLLBACK")
+            raise
+
+    def increment_many(self, namespace: str, deltas: dict) -> None:
+        """Apply counter deltas in one transaction (no return values —
+        flush callers only need the write to land)."""
+        now = time.time()
+        statements = []
+        for key, amount in deltas.items():
+            # Same upsert shape as increment(): atomic add, preserve
+            # any existing TTL (metrics counters carry none).
+            statements.append(
+                (
+                    "INSERT INTO state (namespace, key, value, expires_at) "
+                    "VALUES (?, ?, ?, NULL) "
+                    "ON CONFLICT(namespace, key) DO UPDATE SET "
+                    "value = CAST("
+                    "  (CASE WHEN state.expires_at IS NULL OR ? <= state.expires_at "
+                    "   THEN CAST(state.value AS INTEGER) ELSE 0 END) "
+                    "  + ? AS TEXT), "
+                    "expires_at = COALESCE(excluded.expires_at, state.expires_at)",
+                    (namespace, key, self._serialise(amount), now, amount),
+                )
+            )
+        with self._lock:
+            self._transaction(statements)
+
+    def set_many(self, namespace: str, values: dict) -> None:
+        """Apply gauge writes in one transaction."""
+        statements = [
+            (
+                "INSERT OR REPLACE INTO state (namespace, key, value, expires_at) "
+                "VALUES (?, ?, ?, NULL)",
+                (namespace, key, self._serialise(value)),
+            )
+            for key, value in values.items()
+        ]
+        with self._lock:
+            self._transaction(statements)
+
+    def items(self, namespace: str) -> list:
+        """All live ``(key, value)`` pairs in one SELECT — expired rows
+        filtered in SQL so callers never see them."""
+        now = time.time()
+        with self._lock:
+            rows = self._exec(
+                "SELECT key, value FROM state "
+                "WHERE namespace=? AND (expires_at IS NULL OR expires_at > ?)",
+                (namespace, now),
+            ).fetchall()
+        return [(key, self._deserialise(raw)) for key, raw in rows]
 
     def close(self):
         """Close."""

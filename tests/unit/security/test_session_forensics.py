@@ -90,9 +90,12 @@ def test_forensic_fields_in_public_dict(store):
 
 def test_note_connection_persists(store):
     """A connect edge written by one process is visible after a fresh
-    load — the detail view in another process relies on it."""
+    load — the detail view in another process relies on it. Persistence
+    is debounced (EPHEMERAL_SAVE_DEBOUNCE); _flush_dirty() is the
+    deterministic stand-in for the timer."""
     session, _ = _create(store)
     store.note_connection(session.token, connected=True)
+    store._flush_dirty()
     fresh = es.SessionStore()
     reloaded = fresh.find_by_token_id(session.to_dict()["token_id"])
     assert reloaded.last_connected_at == session.last_connected_at
@@ -195,11 +198,13 @@ def test_ws_registry_hook_stamps_session():
     session, _ = _create(store)
     conn_id = register_connection(session.token, lambda *a, **k: None, resource="audio")
     try:
+        store._flush_dirty()  # debounced forensic save → deterministic
         fresh = es.SessionStore()
         reloaded = fresh.find_by_token_id(session.to_dict()["token_id"])
         assert reloaded.last_connected_at is not None
         assert reloaded.connection_count == 1
     finally:
         unregister_connection(conn_id)
+    store._flush_dirty()
     reloaded = es.SessionStore().find_by_token_id(session.to_dict()["token_id"])
     assert reloaded.last_disconnected_at is not None
