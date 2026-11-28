@@ -494,6 +494,21 @@ def _file_has_end(path: str) -> bool:
         return False
 
 
+def _marker_live(path: str) -> bool:
+    """A ``.live`` marker only counts while its writer process is
+    alive — a hard-killed recorder would otherwise pin the entry as
+    running forever."""
+    try:
+        pid = int(open(path, encoding="ascii").read().strip() or "0")
+    except (OSError, ValueError):
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 def list_recordings() -> list[dict]:
     """Every .vrsrec on disk, newest first."""
     out = []
@@ -516,7 +531,8 @@ def list_recordings() -> list[dict]:
             size = os.path.getsize(path)
         except OSError:
             continue
-        running = rec_id in live or os.path.exists(live_marker + rec_id + _LIVE_SUFFIX)
+        marker = live_marker + rec_id + _LIVE_SUFFIX
+        running = rec_id in live or _marker_live(marker)
         out.append(
             RecordingMeta(
                 id=rec_id,

@@ -219,6 +219,10 @@ export const en: Messages = {
   'remote.offlineHint':
     'The frame loaded but there is no framebuffer behind it — ' +
     'start the VNC service from Operations.',
+  'remote.retry': 'Retry',
+  'remote.authFailed':
+    'The console could not authenticate — your operator session may ' +
+    'have expired. Retry or sign in again.',
   'guest.console': 'Remote desktop',
   'rec.title': 'Desktop recordings',
   'rec.subtitle':

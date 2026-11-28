@@ -221,6 +221,10 @@ export const es = {
   'remote.offlineHint':
     'El iframe cargó pero no hay framebuffer detrás — arranca el ' +
     'servicio VNC desde Operación.',
+  'remote.retry': 'Reintentar',
+  'remote.authFailed':
+    'La consola no pudo autenticarse — tu sesión de operador puede ' +
+    'haber expirado. Reintenta o vuelve a entrar.',
   'guest.console': 'Escritorio remoto',
   'rec.title': 'Grabaciones de escritorio',
   'rec.subtitle':

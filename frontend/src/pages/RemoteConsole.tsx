@@ -22,14 +22,81 @@ import { desktopUrl } from './GuestPage';
     ephemeral/operator cookie reaches both the same-origin /vnc/ path
     and the direct novnc port. An overlay covers the black framebuffer
     until the frame reports a load, so a slow/failed connect does not
-    look like a broken render. */
-function DesktopFrame({ url, frameRef, loadingLabel }: {
+    look like a broken render.
+
+    When the service cookie is missing the frame lands a bare JSON
+    401 — the session-rescue cookie can arrive seconds later, so an
+    unauthorized document is retried a few times before surfacing an
+    actionable error instead of raw JSON. */
+function DesktopFrame({ url, frameRef, loadingLabel, retryLabel,
+                        authFailedLabel, onUnauthorized }: {
   url: string;
   frameRef: React.RefObject<HTMLIFrameElement | null>;
   loadingLabel: string;
+  retryLabel: string;
+  authFailedLabel: string;
+  /** Called once when the frame lands an unauthorized document — the
+      parent fires an API query so the response can mint a fresh
+      service cookie before the next frame retry. */
+  onUnauthorized?: () => void;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const [authFail, setAuthFail] = useState(false);
+  const retries = useRef(0);
   const { t } = useI18n();
+
+  const frameIsUnauthorized = () => {
+    try {
+      const text =
+        frameRef.current?.contentDocument?.body?.innerText || '';
+      return text.includes('"unauthorized"');
+    } catch {
+      return false; // cross-origin embed — nothing to inspect
+    }
+  };
+
+  const reloadFrame = () => {
+    try {
+      frameRef.current?.contentWindow?.location.reload();
+    } catch { /* ignore */ }
+  };
+
+  const onFrameLoad = () => {
+    if (frameIsUnauthorized()) {
+      if (retries.current === 0) onUnauthorized?.();
+      if (retries.current < 4) {
+        retries.current += 1;
+        window.setTimeout(reloadFrame, 1500);
+      } else {
+        setAuthFail(true);
+      }
+      return; // keep `loaded` false — the overlay covers the JSON
+    }
+    retries.current = 0;
+    setAuthFail(false);
+    setLoaded(true);
+  };
+
+  const manualRetry = () => {
+    retries.current = 0;
+    setAuthFail(false);
+    setLoaded(false);
+    reloadFrame();
+  };
+
+  if (authFail) {
+    return (
+      <div className="error-box" role="alert" style={{ flex: 1 }}>
+        <strong>{authFailedLabel}</strong>
+        <p style={{ marginBottom: 0 }}>
+          <button type="button" className="ghost" onClick={manualRetry}>
+            {retryLabel}
+          </button>
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 420 }}>
       <iframe
@@ -38,7 +105,7 @@ function DesktopFrame({ url, frameRef, loadingLabel }: {
         title={t('remote.frameTitle')}
         allow="fullscreen"
         allowFullScreen
-        onLoad={() => setLoaded(true)}
+        onLoad={onFrameLoad}
         style={{
           border: 0, minHeight: 420,
           borderRadius: 8, background: '#000', width: '100%',
@@ -251,7 +318,16 @@ export default function RemoteConsole({ guest = false }: {
           </div>
         ) : (
           <DesktopFrame url={url} frameRef={frameRef}
-                        loadingLabel={t('common.loading')} />
+                        loadingLabel={t('common.loading')}
+                        retryLabel={t('remote.retry')}
+                        authFailedLabel={t('remote.authFailed')}
+                        onUnauthorized={
+                          guest
+                            ? () => qc.invalidateQueries({
+                                queryKey: ['session-context'],
+                              })
+                            : () => qc.invalidateQueries()
+                        } />
         )}
         {guest && chatOpen && (
           <aside style={{ width: 320, flexShrink: 0 }}
