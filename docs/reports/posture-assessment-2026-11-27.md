@@ -1128,3 +1128,48 @@ real consolidations found.
   services). Seed change can't re-apply until the stack is up.
 - Optional: route vnc `ALERT_WEBHOOK_URL` → ntfy so all three apps
   share one push channel (SentinelHub Apprise→ntfy, diun→ntfy).
+
+## Pass 27b — consolidation round 2 (implemented + verified live)
+
+**Stack recovery:** all docker containers were down ~10 h (reboot
+without start.sh completing). `~/apps/start.sh` relaunched; SentinelHub
+brought up early via its own compose to unblock seeding.
+
+**Implemented:**
+1. **`vnc-backup` heartbeat** — SentinelHub seed HEARTBEATS gains a
+   cron-scheduled heartbeat (`45 3 * * * Europe/Madrid`, grace 6 h,
+   linked to the vnc app). The user crontab now pings
+   `/ping/vnc-backup` on success and `/ping/vnc-backup/fail` on error
+   — a missed or failed nightly backup becomes an incident instead of
+   silence. Verified: ping endpoint 200, heartbeat row healthy.
+   SentinelHub commits `785adbe`, `77192d6`.
+2. **Fixed pre-existing degraded state** — the seed's `tcp_banner`
+   check targeted `127.0.0.1:5901` (nothing listens there); Xtigervnc
+   binds 5900. vnc-remote-secure showed `degraded` on SentinelHub since
+   before this session. Retargeted to 5900 (verified `RFB 005.000`
+   banner live) → app_status now `up`.
+3. **`/health/ready` live** — after rebuilding the backend image and
+   re-seeding, the http check hits `/health/ready` (200, all 6 services
+   up). `/health` would have passed even with partial degradation.
+4. **Crontab/systemd-timer dumps in HomeVault backup** — `backup.sh`
+   gains `dump_crontabs`: root+user crontabs, `/etc/crontab`,
+   `/etc/cron.d`, `systemctl list-timers` → `DUMP_DIR` (inside
+   `/srv/homevault` → covered by restic). Schedules previously had
+   zero backup coverage. HomeVault commit `e7eb1ab`.
+
+**Verified already-consolidated (no change needed):**
+- TLS: single certbot cert `alesanfe.duckdns.org` fronts every domain
+  via nginx; `certbot-renew` heartbeat already monitored.
+- DuckDNS, logs dir (`~/apps/logs/`), Homepage dashboard (19 links).
+- vnc `data_dir` (`~/.local/share/vnc-remote-secure/`) is outside
+  restic SOURCES by design — the encrypted `vnc-remote backup` tar in
+  `~/apps/.../backups/` is its backup path; tonight's cron closes the
+  loop for the first time.
+- Alert routing left as-is: vnc alerts are product-security events
+  (share links, audit) and must stay autonomous; both stacks already
+  converge at the same Discord/ntfy destinations.
+
+**Rejected:** SentinelHub restore-lab for vnc stays `files` mode —
+the tar is Fernet-encrypted and the lab must not hold
+`BACKUP_PASSWORD`; `vnc-remote backup verify` remains the product's
+own verification path.
