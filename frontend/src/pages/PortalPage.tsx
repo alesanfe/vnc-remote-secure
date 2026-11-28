@@ -38,7 +38,6 @@ function LanLinks({ p }: { p: PortalData }) {
   const { t } = useI18n();
   const ips = p.lan_ips ?? [];
   const ports = p.ports ?? {};
-  const httpsPort = p.nginx_https_port ?? 443;
   if (!ips.length) return null;
   return (
     <section className="section">
@@ -46,55 +45,42 @@ function LanLinks({ p }: { p: PortalData }) {
       <p className="muted">
         {t('portal.lan.desc')}
       </p>
-      {ips.map((ip) => (
-        <div className="card" key={ip}>
-          <h3 className="mono">{ip}</h3>
-          <div className="row">
-            {p.nginx_enabled ? (
-              <>
-                <a
-                  href={`https://${ip}${
-                    httpsPort === 443 ? '' : `:${httpsPort}`
-                  }/vnc/vnc.html`}
-                >
-                  <Monitor size={14} aria-hidden="true" /> VNC Desktop
-                </a>
-                <a
-                  href={`https://${ip}${
-                    httpsPort === 443 ? '' : `:${httpsPort}`
-                  }/terminal/`}
-                >
-                  <SquareTerminal size={14} aria-hidden="true" />{' '}
-                  Web Terminal
-                </a>
-                <a
-                  href={`https://${ip}${
-                    httpsPort === 443 ? '' : `:${httpsPort}`
-                  }/`}
-                >
-                  <House size={14} aria-hidden="true" /> Portal
-                </a>
-              </>
-            ) : (
-              <>
-                <a href={`${p.protocol}://${ip}:${ports.novnc}/vnc.html`}>
-                  <Monitor size={14} aria-hidden="true" /> VNC Desktop
-                </a>
-                <a href={`${p.protocol}://${ip}:${ports.ttyd}/`}>
-                  <SquareTerminal size={14} aria-hidden="true" />{' '}
-                  Web Terminal
-                </a>
-                <a href={`${p.protocol}://${ip}:${ports.health}/health`}>
-                  <Activity size={14} aria-hidden="true" /> Health
-                </a>
-                <a href={`${p.protocol}://${ip}:${ports.landing}`}>
-                  <House size={14} aria-hidden="true" /> Portal
-                </a>
-              </>
-            )}
+      {/* Behind nginx no per-IP link can work: the vhost only answers
+          its server_name (SNI has no cert for bare IPs → handshake
+          rejected) and the backends bind loopback. The IPs stay as
+          plain info; the reachable entry is the public base URL. */}
+      {p.nginx_enabled ? (
+        <>
+          <p className="mono">{ips.join(' · ')}</p>
+          {p.external_base && (
+            <p className="muted">
+              {t('portal.lan.viaPublic')}{' '}
+              <a href={p.external_base}>{p.external_base}</a>
+            </p>
+          )}
+        </>
+      ) : (
+        ips.map((ip) => (
+          <div className="card" key={ip}>
+            <h3 className="mono">{ip}</h3>
+            <div className="row">
+              <a href={`${p.protocol}://${ip}:${ports.novnc}/vnc.html`}>
+                <Monitor size={14} aria-hidden="true" /> VNC Desktop
+              </a>
+              <a href={`${p.protocol}://${ip}:${ports.ttyd}/`}>
+                <SquareTerminal size={14} aria-hidden="true" />{' '}
+                Web Terminal
+              </a>
+              <a href={`${p.protocol}://${ip}:${ports.health}/health`}>
+                <Activity size={14} aria-hidden="true" /> Health
+              </a>
+              <a href={`${p.protocol}://${ip}:${ports.landing}`}>
+                <House size={14} aria-hidden="true" /> Portal
+              </a>
+            </div>
           </div>
-        </div>
-      ))}
+        ))
+      )}
     </section>
   );
 }
@@ -499,7 +485,9 @@ export default function PortalPage() {
           <code>
             {isWindows
               ? `New-NetFirewallRule -DisplayName "VncRemoteSecure-Portal" -Direction Inbound -LocalPort ${p.ports?.landing} -Protocol TCP -Action Allow`
-              : `sudo ufw allow ${p.ports?.landing}/tcp`}
+              : p.nginx_enabled
+                ? `sudo ufw allow ${p.nginx_https_port ?? 443}/tcp`
+                : `sudo ufw allow ${p.ports?.landing}/tcp`}
           </code>
         </div>
         {p.use_ssl && (

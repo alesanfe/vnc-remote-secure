@@ -850,6 +850,7 @@ export const es = {
   'metrics.fmt.uptime': '{{h}} h {{m}} min',
   'portal.lan.title': 'Acceso LAN',
   'portal.lan.desc': 'Direcciones locales del equipo.',
+  'portal.lan.viaPublic': 'Servicios accesibles vía el dominio público:',
   'portal.services.title': 'Servicios',
   'portal.services.port': 'Puerto',
   'portal.services.link': 'Abrir',

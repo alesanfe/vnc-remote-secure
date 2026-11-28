@@ -805,6 +805,7 @@ export const en: Messages = {
   'metrics.fmt.uptime': '{{h}}h {{m}}m',
   'portal.lan.title': 'LAN access',
   'portal.lan.desc': 'Local addresses of this machine.',
+  'portal.lan.viaPublic': 'Services are reachable via the public domain:',
   'portal.services.title': 'Services',
   'portal.services.port': 'Port',
   'portal.services.link': 'Open',
