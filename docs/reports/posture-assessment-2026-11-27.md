@@ -1173,3 +1173,19 @@ brought up early via its own compose to unblock seeding.
 the tar is Fernet-encrypted and the lab must not hold
 `BACKUP_PASSWORD`; `vnc-remote backup verify` remains the product's
 own verification path.
+
+## Pass 27c — backup coverage gaps closed
+
+- **Audit chain was unbacked**: `audit.jsonl` lives in the log dir
+  (`~/.local/state`), outside both restic SOURCES and the encrypted
+  tar — disk loss erased forensic history. `_collect_paths` now
+  archives the log dir; the existing `*.log` filter keeps service
+  output out, so only `audit.jsonl*` enters. Restore maps `logs/`
+  back (backward compatible). Commit `d09c075`.
+- **SentinelHub external watchdog**: `SENTINEL_WATCHDOG_URL` support
+  already existed in the worker (hc-ping.com-style, 300 s) — only
+  the URL was unset. Added the var (empty) to `deploy/.env`; user
+  creates the healthchecks.io check and pastes the ping URL.
+- **HomeVault `system-config.tar`** (`701addc`): /etc/letsencrypt,
+  nginx, systemd units, fstab, Pi cmdline/config.txt, ~/.ssh — all
+  previously outside restic coverage.
