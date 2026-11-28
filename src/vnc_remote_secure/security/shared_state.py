@@ -109,6 +109,12 @@ class StateBackend:
         """
         raise NotImplementedError
 
+    def delete_many(self, namespace: str, keys) -> None:
+        """Delete ``keys`` in ONE transaction — batched form of
+        :meth:`delete` for callers that already listed the keys
+        (rate-limit clears, sweeps)."""
+        raise NotImplementedError
+
     def close(self):
         """Release any resources held by the backend."""
 
@@ -236,6 +242,12 @@ class MemoryBackend(StateBackend):
                 for (ns, key), entry in self._store.items()
                 if ns == namespace and (entry[1] is None or now <= entry[1])
             ]
+
+    def delete_many(self, namespace: str, keys) -> None:
+        """Delete many."""
+        with self._lock:
+            for key in keys:
+                self._store.pop((namespace, key), None)
 
     def close(self):
         """Close."""
@@ -534,6 +546,26 @@ class SQLiteBackend(StateBackend):
                 (namespace, now),
             ).fetchall()
         return [(key, self._deserialise(raw)) for key, raw in rows]
+
+    def delete_many(self, namespace: str, keys) -> None:
+        """Delete keys in chunked single statements — SQLite's bound-
+        parameter limit (999) caps each IN clause; each chunk is one
+        transaction via ``_transaction``."""
+        keys = list(keys)
+        if not keys:
+            return
+        with self._lock:
+            for i in range(0, len(keys), 500):
+                chunk = keys[i : i + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                self._transaction(
+                    [
+                        (
+                            f"DELETE FROM state WHERE namespace=? AND key IN ({placeholders})",
+                            (namespace, *chunk),
+                        )
+                    ]
+                )
 
     def close(self):
         """Close."""

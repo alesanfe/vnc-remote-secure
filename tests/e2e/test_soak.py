@@ -99,3 +99,73 @@ def test_rate_limiter_churn():
         limiter.is_locked(f"soak:{iterations % 50}")
         iterations += 1
     assert iterations > 0
+
+
+def test_ws_registry_churn():
+    """Sustained register/unregister + revoke churn on the WS registry.
+
+    Exercises the new indexes (_by_ip, _resource_counts), the batched
+    sweep path and the revocation negative cache under load — watches
+    for index drift (counts going negative or stuck), leaked
+    connections, and shared-state lock errors.
+    """
+    from vnc_remote_secure.security import websocket_registry as wr
+    from vnc_remote_secure.security.shared_state import sqlite_stats
+
+    reg = wr.get_registry()
+    stats0 = dict(sqlite_stats())
+    deadline = time.time() + _soak_seconds()
+    iterations = 0
+    while time.time() < deadline and iterations < 5000:
+        sid = f"soak-ws-{iterations % 25}"
+        cid = reg.register(
+            sid,
+            lambda: None,
+            resource="vnc",
+            client_ip=f"10.9.{iterations % 250}.{iterations % 250}",
+        )
+        if cid is not None:
+            if iterations % 7 == 0:
+                wr.revoke_session_connections(sid)
+            else:
+                reg.unregister(cid)
+        # Periodic explicit sweep — the production sweeper is disabled
+        # under VRS_TEST_MODE, so drive the same code path here.
+        if iterations % 200 == 0:
+            wr._sweep_cycle()
+        iterations += 1
+    reg._connections.clear()
+    assert iterations > 0
+    # No index drift: resource counts and per-IP index must be empty
+    # after the final clear (conftest also clears, but assert locally).
+    assert all(v == 0 for v in reg._resource_counts.values())
+    stats1 = sqlite_stats()
+    # Lock errors under churn are the failure mode this guards — a
+    # handful of busy-waits is tolerable, sustained errors are not.
+    assert stats1.get("lock_errors", 0) - stats0.get("lock_errors", 0) < 50
+
+
+def test_metrics_buffer_churn():
+    """Sustained inc/set traffic through the write buffer + flushes.
+
+    Watches for: pending-map growth (flush falling behind), gauge
+    dirty-check correctness, and flush latency under load.
+    """
+    from vnc_remote_secure.monitoring import prometheus as prom
+
+    deadline = time.time() + _soak_seconds()
+    iterations = 0
+    flushes = 0
+    while time.time() < deadline and iterations < 5000:
+        for i in range(20):
+            prom.inc_counter("soak_hits", f"route=/r{i % 10}", value=1)
+            prom.set_gauge("soak_gauge", float(iterations % 100), "svc=test")
+        if iterations % 25 == 0:
+            assert prom.flush_metrics_now() is True
+            flushes += 1
+        iterations += 1
+    # Buffer must never grow without bound — pending is bounded by
+    # flush cadence, and everything pending here is flushable.
+    assert prom.metrics_pending() < 10000
+    assert prom.flush_metrics_now() is True
+    assert flushes > 0

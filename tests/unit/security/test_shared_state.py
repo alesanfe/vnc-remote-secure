@@ -92,6 +92,16 @@ class TestMemoryBackend:
         time.sleep(0.02)
         assert dict(b.items("ns")) == {"live": 2}
 
+    def test_delete_many(self):
+        b = MemoryBackend()
+        b.set("ns", "a", 1)
+        b.set("ns", "b", 2)
+        b.set("ns", "c", 3)
+        b.set("other", "a", 9)
+        b.delete_many("ns", ["a", "c", "missing"])
+        assert dict(b.items("ns")) == {"b": 2}
+        assert b.get("other", "a") == 9  # namespace isolation
+
 
 # ---------------------------------------------------------------------------
 # SQLiteBackend
@@ -187,6 +197,17 @@ class TestSQLiteBackend:
 
         time.sleep(0.02)
         assert dict(b.items("ns")) == {"live": 2}
+        b.close()
+
+    def test_delete_many(self, tmp_path):
+        b = SQLiteBackend(str(tmp_path / "test.db"))
+        for k in ("a", "b", "c", "d", "e"):
+            b.set("ns", k, k)
+        b.set("other", "a", 9)
+        # >500 keys exercises the IN-clause chunking path.
+        b.delete_many("ns", [f"k{i}" for i in range(600)] + ["a", "c", "missing"])
+        assert dict(b.items("ns")) == {"b": "b", "d": "d", "e": "e"}
+        assert b.get("other", "a") == 9
         b.close()
 
 

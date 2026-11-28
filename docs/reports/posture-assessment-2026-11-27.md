@@ -895,3 +895,71 @@ independently revertible.
 - Later backlog items untouched: bulk revocation queries beyond the
   sweep, aggregated rate-limit txn, dedicated audit writer,
   session journal, remaining coverage floors (TD-13).
+
+## Pass 23 — PERF debt clearance: real Pi 5 benchmarks + decisions
+
+Ran `tools/perf_benchmark.py` (new, committed) ON the deployment
+hardware — Raspberry Pi 5 Model B, aarch64, real SQLite backend in a
+scratch dir. All budgets measured, none assumed.
+
+### Measured results (Pi 5, sqlite backend, WAL + busy_timeout=10s)
+
+| Path | p50 | p95 | p99 | Budget | Verdict |
+|------|-----|-----|-----|--------|---------|
+| `find_by_token_id` | 0.0006 ms | 0.0006 ms | 0.0006 ms | O(1) | dict lookup (was sha256 scan) |
+| `note_connection` edge | 0.0008 ms | 0.0009 ms | 0.0009 ms | memory-only | debounced save |
+| `session.validate` | 0.05 ms | 0.06 ms | 0.08 ms | <15 ms | 190× headroom |
+| WS `register` | 0.11 ms | 0.12 ms | 0.13 ms | <20/<50 ms | ~150× headroom |
+| `audit_log` append | 4.3 ms | 4.6 ms | 15.2 ms | — | one tail read + append |
+| metrics batch flush | — | — | 22.7 ms | — | one txn / 5 s / process |
+
+**Reconnect storm**: 50 conn/s × 60 s = 2992 register/unregister
+cycles → **0 `database is locked` errors, 0 failed registrations**,
+~100 sqlite ops/s sustained (2 revocation reads per register — the
+cold-cache worst case; reconnects of known sessions hit the negative
+cache). `sqlite_stats` lock_errors delta: 0.
+
+**Steady-state writes**: ~8.6 txns/s projected (7 services × metrics
+flush/5 s + forensic debounce/1 s + rare audit events) < 10/s budget.
+
+### Decisions taken on data
+
+- **DB split — NOT justified.** Single `shared_state.db` absorbed a
+  50 conn/s storm with zero lock errors; steady state is ~9 writes/s
+  against a WAL database doing ~100 ops/s under load. Splitting
+  metrics/audit into a second DB adds a second failure domain for no
+  measured gain. Revisit only if lock_errors appear in production
+  `sqlite_stats` or write volume grows ~10×.
+- **Dedicated audit writer — deferred.** `audit_log` p99 = 15 ms and
+  it is not on the WS hot path; the synchronous append IS the chain
+  ordering mechanism (tip advances only after the entry reaches
+  disk). A queued writer would need to preserve that invariant under
+  crashes — real complexity for a latency budget already met. Revisit
+  if audit event rate makes p99 degrade or `AUDIT_FSYNC=1` deployments
+  show write stalls.
+- **Session journal — deferred.** The hot path (`note_connection`)
+  is now ~0.001 ms with debounced persistence; what a journal would
+  protect is ≤1 s of *forensic* stamps (connect/disconnect times),
+  while revocation/security flags still write synchronously. Crash
+  loss of forensic stamps is accepted and documented.
+- **Aggregated rate limit — implemented.** `delete_many` batch op on
+  both backends; `_clear_attempts`/`record_success_many` collapse the
+  login-path clears (was 8 backend ops for the ip+user pair → 5,
+  deletes in 3 batched statements). Attempt counting was already a
+  single `list_keys`; per-key prefix lists retained deliberately — an
+  unfiltered namespace scan would be unbounded under brute-force.
+
+### Soak
+
+`tests/e2e/test_soak.py` gained `test_ws_registry_churn` (register/
+unregister/revoke/sweep cycles — asserts index consistency and
+bounded lock errors) and `test_metrics_buffer_churn` (inc/set +
+flushes — asserts bounded pending map). Full suite run on this Pi 5
+with `SOAK_SECONDS=120`: **5/5 passed in 237 s** — each test churned
+to its 5000-iteration cap; registry indexes stayed consistent
+(`_resource_counts` all zero after drain), lock-error delta bounded,
+metrics pending map stayed bounded and every flush succeeded.
+
+The 24 h production soak remains a deployment activity (run the same
+suite with `SOAK_SECONDS=86400` on the live host during a maintenance
+window); the harness and the new coverage are committed.

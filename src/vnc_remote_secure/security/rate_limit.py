@@ -109,8 +109,9 @@ class RateLimiter:
 
     def _clear_attempts(self, key: str):
         backend = get_backend()
-        for k in self._attempt_keys(key):
-            backend.delete(_NS_ATTEMPTS, k)
+        # One list + ONE batched delete — was N individual DELETE
+        # statements (each its own transaction on sqlite).
+        backend.delete_many(_NS_ATTEMPTS, self._attempt_keys(key))
 
     def is_locked(self, key: str) -> bool:
         """Check if a key (IP or username) is currently locked out."""
@@ -155,13 +156,28 @@ class RateLimiter:
 
     def record_success(self, key: str):
         """Clear attempt history on successful auth."""
+        self.record_success_many([key])
+
+    def record_success_many(self, keys):
+        """Clear attempt/lockout/strike state for several keys at once.
+
+        The login path always clears the ``ip:`` AND ``user:`` pair —
+        per-key ``record_success`` cost a ``list_keys`` plus N deletes
+        EACH (8 backend ops for the pair). This keeps the prefix-
+        indexed per-key lists (an unfiltered namespace scan would be
+        unbounded under brute-force) but collapses every delete into
+        three batched statements: 5 ops total.
+        """
         backend = get_backend()
-        self._clear_attempts(key)
-        backend.delete(_NS_LOCKOUTS, key)
+        stale = []
+        for key in keys:
+            stale.extend(self._attempt_keys(key))
+        backend.delete_many(_NS_ATTEMPTS, stale)
+        backend.delete_many(_NS_LOCKOUTS, keys)
         # A successful login also resets lockout escalation — strikes
         # exist to slow brute force, not to permanently penalize a
         # legitimate user who mistyped.
-        backend.delete(_NS_STRIKES, key)
+        backend.delete_many(_NS_STRIKES, keys)
 
     def remaining_attempts(self, key: str) -> int:
         """Return how many attempts remain before lockout."""

@@ -377,9 +377,9 @@ def attempt_login(
         if not ok:
             return False, message, None
 
-    # Success: clear rate limit and create session
-    limiter.record_success(ip_key)
-    limiter.record_success(user_key)
+    # Success: clear rate limit and create session — one batched
+    # clear for the ip+user pair instead of two full clear cycles.
+    limiter.record_success_many([ip_key, user_key])
 
     # Maintenance mode: valid credentials still clear the lockout,
     # but no new session is issued unless the account administers
