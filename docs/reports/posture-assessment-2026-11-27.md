@@ -1189,3 +1189,27 @@ own verification path.
 - **HomeVault `system-config.tar`** (`701addc`): /etc/letsencrypt,
   nginx, systemd units, fstab, Pi cmdline/config.txt, ~/.ssh — all
   previously outside restic coverage.
+
+## Pass 27d — alerting gaps + ops hardening
+
+- **Host watchdog live** (`SentinelHub/scripts/host-watchdog.sh`,
+  cron */5min): 2 consecutive failures of sentinel:8500 → ntfy
+  priority-5 alert, 30-min re-alert, recovery notice. Covers the
+  2026-11-28 ~10h stack outage. Tested up/down paths.
+- **vnc alert channels found EMPTY**: DISCORD_ENABLED=true but
+  DISCORD_WEBHOOK_URL empty; ALERT_WEBHOOK_URL/ALERT_EMAIL_TO empty;
+  ALERT_SMTP_SERVER=127.0.0.1:587 has no MTA listening — the product
+  currently sends zero alerts. Wiring needs user's Discord webhook
+  (preferred: external, survives docker death) or real SMTP creds.
+  ALERT_WEBHOOK→ntfy rejected: would need weakening
+  ALERT_WEBHOOK_ALLOW_{HTTP,PRIVATE} globally + ntfy likely 400s on
+  the JSON payload shape.
+- **Weekly verify cron** (Sun 05:00): `vnc-remote verify backup`
+  (decrypt+CRC newest) → ntfy on failure. First real backup runs
+  tonight 03:45; `backup --list` confirmed none existed before.
+- **Docker hygiene cron** (Sun 06:00): builder prune >7d + dangling
+  images — buildkit held 9.96 GB reclaimable on the Pi.
+- **Backup coverage audit completed**: all docker volumes bind-mount
+  into restic-covered paths; recordings are tmpfs+size-capped
+  (correctly excluded); duckdns-creds.ini now inside
+  system-config.tar.
