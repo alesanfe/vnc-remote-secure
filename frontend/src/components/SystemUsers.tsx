@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api';
 import ConfirmDialog from './ConfirmDialog';
+import { LoadState } from './bits';
 import { useI18n } from '../i18n';
 
 interface SystemUser {
@@ -46,11 +47,6 @@ export default function SystemUsersSection({
   return (
     <>
       {error && <div className="error-box" role="alert">{error}</div>}
-      {users.isError && (
-        <div className="error-box" role="alert">
-          {t('systemUsers.loadError')}
-        </div>
-      )}
       <form
         className="card"
         onSubmit={(e) => {
@@ -66,60 +62,76 @@ export default function SystemUsersSection({
         }}
       >
         <div className="row">
+          <label htmlFor="sys-user-name">
+            {t('systemUsers.username')}
+          </label>
           <input
-            aria-label={t('systemUsers.usernameAria')}
-            placeholder={t('systemUsers.usernamePlaceholder')}
+            id="sys-user-name"
             value={uname}
+            autoComplete="off"
+            required
             onChange={(e) => setUname(e.target.value)}
           />
+        </div>
+        <div className="row">
+          <label htmlFor="sys-user-pass">
+            {t('systemUsers.password')}
+          </label>
           <input
-            aria-label={t('systemUsers.passwordAria')}
+            id="sys-user-pass"
             type="password"
             autoComplete="new-password"
-            placeholder={t('systemUsers.passwordPlaceholder')}
+            required
+            aria-describedby="sys-user-pass-hint"
             value={upass}
             onChange={(e) => setUpass(e.target.value)}
           />
-          <button type="submit" disabled={!uname || !upass}>
-            {t('systemUsers.create')}
-          </button>
         </div>
+        <p className="muted field-hint" id="sys-user-pass-hint">
+          {t('systemUsers.passwordHint')}
+        </p>
+        <button type="submit" disabled={!uname || !upass}>
+          {t('systemUsers.create')}
+        </button>
       </form>
-      <div className="table-scroll"><table className="data">
-        <thead>
-          <tr>
-            <th>{t('systemUsers.username')}</th>
-            <th>UID</th>
-            <th>{t('systemUsers.home')}</th>
-            <th>{t('systemUsers.actions')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(users.data?.users ?? []).map((u) => (
-            <tr key={u.username}>
-              <td><code>{u.username}</code></td>
-              <td>{u.uid ?? '—'}</td>
-              <td className="muted">{u.home ?? '—'}</td>
-              <td>
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => setDelTarget(u.username)}
-                >
-                  {t('common.delete')}
-                </button>
-              </td>
-            </tr>
-          ))}
-          {users.data && users.data.users.length === 0 && (
+      <LoadState q={users} error={t('systemUsers.loadError')}
+                 hint={t('systemUsers.loadErrorHint')}>
+        <div className="table-scroll"><table className="data">
+          <thead>
             <tr>
-              <td colSpan={4} className="muted">
-                {t('systemUsers.empty')}
-              </td>
+              <th>{t('systemUsers.username')}</th>
+              <th>UID</th>
+              <th>{t('systemUsers.home')}</th>
+              <th>{t('systemUsers.actions')}</th>
             </tr>
-          )}
-        </tbody>
-      </table></div>
+          </thead>
+          <tbody>
+            {(users.data?.users ?? []).map((u) => (
+              <tr key={u.username}>
+                <td><code>{u.username}</code></td>
+                <td>{u.uid ?? '—'}</td>
+                <td className="muted">{u.home ?? '—'}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => setDelTarget(u.username)}
+                  >
+                    {t('common.delete')}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {users.data && users.data.users.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted">
+                  {t('systemUsers.empty')}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table></div>
+      </LoadState>
       <ConfirmDialog
         open={delTarget !== null}
         title={t('systemUsers.deleteTitle')}

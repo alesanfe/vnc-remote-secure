@@ -99,6 +99,18 @@ export function permLabel(
   return v === k ? perm : v;
 }
 
+/** Human label for a check/finding status (ok/warn/fail/skip…);
+    falls back to the raw token uppercased. Shared vocabulary — the
+    same badge reads identically on Doctor, Security and anywhere
+    else a check status renders. */
+export function statusLabel(
+  t: (key: string) => string, st: string,
+): string {
+  const k = `status.${st}`;
+  const v = t(k);
+  return v === k ? st.toUpperCase() : v;
+}
+
 /** Tiny inline language switcher for chrome areas. */
 export function LangSwitch() {
   const { lang, setLang, t } = useI18n();

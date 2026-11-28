@@ -230,7 +230,11 @@ a { color: var(--accent-text); }
   cursor: pointer;
 }
 .logout-btn:hover { color: var(--fail); border-color: var(--fail); }
-.main { flex: 1; padding: 1.5rem 2rem; min-width: 0; }
+.main { flex: 1; padding: 1.5rem 2rem; min-width: 0;
+  /* Content pages read better on a capped measure — forms and tables
+     stretched across a wide monitor separate labels from values. The
+     remote console opts out below so the desktop fills the viewport. */
+  width: 100%; max-width: 1440px; margin-left: auto; margin-right: auto; }
 
 /* Mobile shell — ≤860px the sidebar becomes an overlay drawer behind
    a sticky top bar; the desktop layout is untouched. */
@@ -339,6 +343,7 @@ a { color: var(--accent-text); }
 .main:has(> .remote-console) {
   display: flex;
   flex-direction: column;
+  max-width: none;
 }
 .main:has(> .remote-console) > .remote-console { flex: 1; min-height: 0; }
 .console-view {
@@ -438,6 +443,39 @@ a { color: var(--accent-text); }
 .status-cell.job { background: rgba(139, 92, 246, 0.22);
                    color: var(--job-text); }
 a.status-cell:hover { color: var(--text); border-color: var(--accent); }
+/* Health cell expands into a per-service breakdown — the badge is a
+   button, the detail a small popover anchored under it. */
+.status-cell-wrap { position: relative; }
+button.status-cell {
+  font: inherit;
+  cursor: pointer;
+}
+button.status-cell:hover, button.status-cell[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+.status-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 80;
+  min-width: 15rem;
+  max-width: 22rem;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.85rem;
+}
+.status-pop-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.status-pop-meta { margin: 0.5rem 0; }
 
 /* Live jobs indicator in the sidebar footer. */
 .jobs-badge {
@@ -629,13 +667,16 @@ table.data .sel-cell { width: 2rem; text-align: center; }
 
 /* Badges & buttons */
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
+.toolbar-count { font-size: .85rem; white-space: nowrap; }
 .badge.ok { background: rgba(52, 168, 83, 0.22); color: var(--ok-text); }
 .badge.warn { background: rgba(230, 162, 60, 0.22); color: var(--warn-text); }
 .badge.fail { background: rgba(224, 91, 91, 0.22); color: var(--fail-text); }
@@ -663,7 +704,23 @@ button, .btn {
   display: inline-block;
 }
 button:hover, .btn:hover { background: var(--accent-hover); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Disabled must not rely on washed-out opacity alone — desaturating to
+   a neutral surface keeps the label legible while reading clearly as
+   "not available"; pair it with the field hint that explains why. */
+button:disabled, .btn:disabled {
+  opacity: 1;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: not-allowed;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+button:disabled:hover, .btn:disabled:hover { background: var(--surface-2); }
+input:disabled, select:disabled, textarea:disabled {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: not-allowed;
+  opacity: 0.8;
+}
 button.danger { background: #c0392b; }
 button.danger:hover { background: #a02e22; }
 button.ghost, .btn.ghost { background: var(--surface-2); color: var(--text); }
@@ -676,6 +733,15 @@ button.ghost.danger, .btn.ghost.danger {
   border: 1px solid #c0392b;
 }
 button.ghost.danger:hover, .btn.ghost.danger:hover { background: #c0392b; color: #fff; }
+/* Variant colors must not survive :disabled — a greyed control reads
+   as unavailable regardless of its enabled variant. */
+button.danger:disabled, button.ghost:disabled, button.ghost.danger:disabled,
+.btn.danger:disabled, .btn.ghost:disabled, .btn.ghost.danger:disabled {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
 
 /* Forms */
 input, select, textarea {
@@ -723,6 +789,47 @@ label.check input { width: auto; }
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
 }
+/* Slim variant — a refetch failure over still-visible (stale) content
+   warns inline instead of replacing it with a full error panel. */
+.error-box.slim {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+}
+.error-box .err-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0.6rem 0 0;
+}
+.error-box .err-actions .ghost {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.85rem;
+}
+/* Technical detail stays collapsed and monospace — diagnostics on
+   demand, never competing with the operative message. */
+.err-detail { margin-top: 0.5rem; font-size: 0.85rem; }
+.err-detail summary { cursor: pointer; color: var(--text-dim); }
+.err-detail code {
+  display: block;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.field-hint { margin: 0.2rem 0 0.7rem; font-size: 0.83rem; }
+/* Passed findings collapse behind a count — attention stays on the
+   rows that need action. */
+.findings-passed { margin-top: 0.75rem; }
+.findings-passed > summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+.findings-passed[open] > summary { margin-bottom: 0.5rem; }
+/* Inside table cells the detail block must not stretch the row. */
+td .err-detail { margin-top: 0; }
 .ok-box {
   background: rgba(46, 160, 67, 0.12);
   border: 1px solid var(--ok);
@@ -901,9 +1008,28 @@ td button { margin-right: 0.3rem; }
 }
 
 /* Restore wizard */
-.wizard-steps { display: flex; gap: 1rem; list-style: none; padding: 0; margin: .4rem 0 1rem; }
-.wizard-steps li { color: var(--muted); font-size: .85rem; }
+.wizard-steps { display: flex; gap: .9rem; list-style: none; padding: 0; margin: .4rem 0 .2rem; flex-wrap: wrap; }
+.wizard-steps li { color: var(--muted); font-size: .85rem; display: flex; align-items: center; gap: .4rem; }
+.wizard-steps li.current,
 .wizard-steps li[aria-current='step'] { color: var(--accent-text); font-weight: 600; }
+.wizard-steps li.todo { color: var(--text-dim); }
+.wizard-steps li.done { color: var(--ok); }
+.step-num { display: inline-flex; width: 1.2rem; height: 1.2rem; border-radius: 50%;
+  border: 1px solid currentColor; align-items: center; justify-content: center;
+  font-size: .7rem; margin-right: .35rem; }
+li.current .step-num { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step-link { background: none; border: none; padding: 0; cursor: pointer; color: inherit;
+  font: inherit; display: inline-flex; align-items: center; gap: .3rem; }
+.step-link:hover { color: var(--accent-text); }
+.wizard-progress { margin: 0 0 1rem; font-size: .8rem; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.seg button { border: none; background: transparent; color: var(--text-dim);
+  padding: .35rem .7rem; border-radius: 6px; font: inherit; font-size: .85rem; cursor: pointer; }
+.seg button:hover { color: var(--text); }
+.seg button.seg-on { background: var(--accent); color: #fff; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row-label { display: block; margin-bottom: .35rem; font-size: .9rem; }
 .impact-list { margin: .4rem 0 .8rem 1.2rem; }
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
 dl.kv dt { color: var(--muted); }

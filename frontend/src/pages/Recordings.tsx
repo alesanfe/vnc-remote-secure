@@ -6,6 +6,7 @@ import { Bookmark, Camera, CircleStop, Disc, Pause, Play }
 import { toast } from 'sonner';
 import { useI18n } from '../i18n';
 import { useStepUp } from '../components/useStepUp';
+import { LoadState } from '../components/bits';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { fmtWhen } from './Jobs';
 
@@ -343,16 +344,7 @@ export default function Recordings() {
       )}
       {error && <div className="error-box" role="alert">{error}</div>}
 
-      {list.isError && (
-        <div className="error-box" role="alert">
-          {t('rec.loadError')}{' '}
-          <button type="button" className="ghost"
-                  onClick={() => list.refetch()}>
-            {t('common.retry')}
-          </button>
-        </div>
-      )}
-      {list.isLoading && <p className="muted">{t('rec.loading')}</p>}
+      <LoadState q={list} error={t('rec.loadError')}>
       {list.data && rows.length === 0 && (
         <p className="muted">{t('rec.empty')}</p>
       )}
@@ -430,6 +422,7 @@ export default function Recordings() {
           </tbody>
         </table></div>
       )}
+      </LoadState>
 
       <ConfirmDialog
         open={confirmDelete !== null}

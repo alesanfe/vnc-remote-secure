@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useI18n } from '../i18n';
-import { RelativeTime } from '../components/bits';
+import { LoadState, RelativeTime } from '../components/bits';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 function fmtSize(bytes: number): string {
@@ -296,18 +296,7 @@ export default function FilesPage() {
         </div>
       )}
       {error && <div className="error-box" role="alert">{error}</div>}
-      {list.isError && (
-        <div className="error-box" role="alert">
-          {list.error instanceof ApiError
-            ? list.error.message
-            : t('files.loadError')}{' '}
-          <button type="button" className="ghost"
-                  onClick={() => list.refetch()}>
-            {t('common.retry')}
-          </button>
-        </div>
-      )}
-      {list.isLoading && <p className="muted">{t('common.loading')}</p>}
+      <LoadState q={list} error={t('files.loadError')}>
 
       {list.data && (
         <div className="table-scroll"><table className="data">
@@ -426,6 +415,7 @@ export default function FilesPage() {
       {list.data?.truncated && (
         <p className="muted">{t('files.truncated')}</p>
       )}
+      </LoadState>
       {sctx.data?.ephemeral && (
         <p className="muted">
           <a href="/guest">{t('guest.portalLink')}</a>

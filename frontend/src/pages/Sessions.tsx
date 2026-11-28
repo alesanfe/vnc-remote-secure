@@ -5,6 +5,7 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
+import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useInfiniteQuery,
@@ -57,6 +58,24 @@ const TTL_PRESETS = [
   { s: 28800, label: '8 h' },
   { s: 86400, label: '1 d' },
 ];
+
+const WIZARD_DEFAULTS = {
+  role: 'viewer' as SessionCreateRequest['role'],
+  // null = 'Indefinido' — the link only dies by revocation.
+  ttl_seconds: 1800 as number | null,
+  // Grant list for role='custom' — applied verbatim server-side.
+  customPerms: [] as string[],
+  single_use: false,
+  view_only: false,
+  no_terminal: true,
+  max_uses: 0,
+  allowed_ip: '',
+  resource: '',
+  // Optional TeamViewer-style invite: empty = copy-link only.
+  email_to: '',
+  // Optional inventory tag — groups links by purpose/support case.
+  label: '',
+};
 
 /** Human-readable TTL: minutes under an hour, hours under a day. */
 function fmtTtl(seconds: number): string {
@@ -166,36 +185,19 @@ export default function Sessions() {
   // evaporates on a stray navigation loses real work.
   const WIZARD_DRAFT_KEY = 'vrs:session-wizard';
   const [form, setForm] = useState(() => {
-    const defaults = {
-      role: 'viewer' as SessionCreateRequest['role'],
-      // null = 'Indefinido' — the link only dies by revocation.
-      ttl_seconds: 1800 as number | null,
-      // Grant list for role='custom' — applied verbatim server-side.
-      customPerms: [] as string[],
-      single_use: false,
-      view_only: false,
-      no_terminal: true,
-      max_uses: 0,
-      allowed_ip: '',
-      resource: '',
-      // Optional TeamViewer-style invite: empty = copy-link only.
-      email_to: '',
-      // Optional inventory tag — groups links by purpose/support case.
-      label: '',
-    };
     try {
       const raw = sessionStorage.getItem(WIZARD_DRAFT_KEY);
-      if (!raw) return defaults;
+      if (!raw) return { ...WIZARD_DEFAULTS };
       const d = JSON.parse(raw) as Record<string, unknown>;
       // Never trust a stored draft blindly — keep only known keys
       // and let everything else fall back to the defaults.
-      const out = { ...defaults } as Record<string, unknown>;
-      for (const k of Object.keys(defaults)) {
+      const out = { ...WIZARD_DEFAULTS } as Record<string, unknown>;
+      for (const k of Object.keys(WIZARD_DEFAULTS)) {
         if (d[k] !== undefined) out[k] = d[k];
       }
-      return out as typeof defaults;
+      return out as typeof WIZARD_DEFAULTS;
     } catch {
-      return defaults;
+      return { ...WIZARD_DEFAULTS };
     }
   });
   useEffect(() => {
@@ -204,6 +206,16 @@ export default function Sessions() {
     } catch { /* storage may be unavailable — draft is best-effort */ }
   }, [form]);
   const [step, setStep] = useState(0);
+  // Cancel abandons the draft entirely — stored state would otherwise
+  // resurrect an abandoned wizard on the next visit.
+  const resetWizard = () => {
+    try { sessionStorage.removeItem(WIZARD_DRAFT_KEY); }
+    catch { /* best-effort */ }
+    setForm({ ...WIZARD_DEFAULTS });
+    setStep(0);
+    setCreated(null);
+    setCreateError('');
+  };
   // Step 2 hosts the only free-text fields; the Next button stays
   // disabled while any of them is invalid, with the per-field hint
   // explaining why (disabled control + visible reason, not silence).
@@ -425,11 +437,28 @@ export default function Sessions() {
         <h3>{t('sessions.createTitle')}</h3>
         <ol className="wizard-steps">
           {WIZARD_STEPS.map((s, i) => (
-            <li key={s} aria-current={step === i ? 'step' : undefined}>
-              {i + 1}. {t(`sessions.wizard.${s}`)}
+            <li key={s}
+                className={i < step ? 'done' : i === step ? 'current' : 'todo'}
+                aria-current={step === i ? 'step' : undefined}>
+              {i < step ? (
+                <button type="button" className="step-link"
+                        onClick={() => setStep(i)}>
+                  <Check size={12} aria-hidden="true" />{' '}
+                  {t(`sessions.wizard.${s}`)}
+                </button>
+              ) : (
+                <>
+                  <span className="step-num" aria-hidden="true">{i + 1}</span>
+                  {t(`sessions.wizard.${s}`)}
+                </>
+              )}
             </li>
           ))}
         </ol>
+        <p className="muted wizard-progress">
+          {t('sessions.wizard.stepOf',
+             { n: step + 1, total: WIZARD_STEPS.length })}
+        </p>
 
         {step === 0 && (
           <>
@@ -522,41 +551,52 @@ export default function Sessions() {
         {step === 2 && (
           <>
             <div className="row">
-              <label htmlFor="ttlquick">
+              <span id="ttlquick-label" className="row-label">
                 {t('sessions.wizard.ttlQuick')}
-              </label>
-              <select
-                id="ttlquick"
-                value={
-                  form.ttl_seconds === null
-                    ? 'never'
-                    : TTL_PRESETS.some((p) => p.s === form.ttl_seconds)
-                      ? String(form.ttl_seconds)
-                      : 'custom'
-                }
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === 'never') {
-                    setForm({ ...form, ttl_seconds: null });
-                  } else if (v === 'custom') {
-                    // Enter custom mode with a sane starting point —
-                    // 'never' restores the default rather than
-                    // carrying a null into the number input.
-                    setForm({
-                      ...form,
-                      ttl_seconds: form.ttl_seconds ?? 1800,
-                    });
-                  } else {
-                    setForm({ ...form, ttl_seconds: Number(v) });
-                  }
-                }}
-              >
+              </span>
+              <div className="seg" role="radiogroup"
+                   aria-labelledby="ttlquick-label">
                 {TTL_PRESETS.map((p) => (
-                  <option key={p.s} value={p.s}>{p.label}</option>
+                  <button type="button" role="radio" key={p.s}
+                          aria-checked={form.ttl_seconds === p.s}
+                          className={form.ttl_seconds === p.s ? 'seg-on' : ''}
+                          onClick={() =>
+                            setForm({ ...form, ttl_seconds: p.s })}>
+                    {p.label}
+                  </button>
                 ))}
-                <option value="never">{t('sessions.wizard.ttlNever')}</option>
-                <option value="custom">{t('sessions.wizard.custom')}</option>
-              </select>
+                <button type="button" role="radio"
+                        aria-checked={form.ttl_seconds === null}
+                        className={form.ttl_seconds === null ? 'seg-on' : ''}
+                        onClick={() =>
+                          setForm({ ...form, ttl_seconds: null })}>
+                  {t('sessions.wizard.ttlNever')}
+                </button>
+                <button type="button" role="radio"
+                        aria-checked={
+                          form.ttl_seconds !== null &&
+                          !TTL_PRESETS.some((p) => p.s === form.ttl_seconds)
+                        }
+                        className={
+                          form.ttl_seconds !== null &&
+                          !TTL_PRESETS.some((p) => p.s === form.ttl_seconds)
+                            ? 'seg-on' : ''
+                        }
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            // Enter custom mode at a non-preset value so
+                            // the custom chip reads as the active choice.
+                            ttl_seconds:
+                              form.ttl_seconds === null ||
+                              TTL_PRESETS.some(
+                                (p) => p.s === form.ttl_seconds)
+                                ? 7200
+                                : form.ttl_seconds,
+                          })}>
+                  {t('sessions.wizard.custom')}
+                </button>
+              </div>
             </div>
             {form.ttl_seconds === null && (
               <p className="info-box">{t('sessions.wizard.neverHint')}</p>
@@ -727,7 +767,10 @@ export default function Sessions() {
           </>
         )}
 
-        <div className="toolbar">
+        <div className="toolbar wizard-foot">
+          <button type="button" className="ghost" onClick={resetWizard}>
+            {t('common.cancel')}
+          </button>
           {step > 0 && (
             <button
               type="button"
@@ -816,6 +859,9 @@ export default function Sessions() {
             ))}
         </div>
         <span className="spacer" />
+        <span className="muted toolbar-count">
+          {t('common.shownOf', { shown: filtered.length, total: rows.length })}
+        </span>
         <input
           className="toolbar-search"
           type="search"

@@ -6,7 +6,7 @@ import { Info } from 'lucide-react';
 import { api, ApiError, type ConfigSnapshot, type ConfigVar }
   from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { RelativeTime, mark } from '../components/bits';
+import { LoadState, RelativeTime, mark } from '../components/bits';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
 
@@ -399,14 +399,7 @@ export default function Config() {
         </span>
       </div>
 
-      {cfg.isError && (
-        <div className="error-box" role="alert">
-          {t('config.loadError')}
-        </div>
-      )}
-      {cfg.isLoading && (
-        <p className="muted" role="status">{t('common.loading')}</p>
-      )}
+      <LoadState q={cfg} error={t('config.loadError')}>
       <div className="table-scroll"><table className="data">
         <thead>
           <tr>
@@ -429,6 +422,7 @@ export default function Config() {
           ))}
         </tbody>
       </table></div>
+      </LoadState>
       </>
       )}
     </>

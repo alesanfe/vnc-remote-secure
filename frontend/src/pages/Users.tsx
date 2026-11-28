@@ -20,7 +20,7 @@ import {
   WebAuthnCancelled,
   webauthnSupported,
 } from '../webauthn';
-import { mark } from '../components/bits';
+import { LoadState, mark } from '../components/bits';
 import { permLabel, roleLabel, useI18n } from '../i18n';
 
 const ROLES = ['viewer', 'operator', 'admin'] as const;
@@ -107,15 +107,6 @@ export default function Users() {
         {t('users.subtitle')}
       </p>
 
-      {ops.isError && (
-        <div className="error-box" role="alert">
-          {t('users.loadError')}
-          <button type="button" className="ghost"
-                  onClick={() => ops.refetch()}>
-            {t('common.retry')}
-          </button>
-        </div>
-      )}
       {act.isError &&
         !(act.error instanceof ApiError &&
           act.error.code === 'STEP_UP_REQUIRED') && (
@@ -127,9 +118,12 @@ export default function Users() {
       )}
 
       <div className="toolbar">
-        <button type="button" onClick={() => setShowCreate(!showCreate)}>
-          {showCreate ? t('common.cancel') : t('users.newOperator')}
-        </button>
+        <span className="muted toolbar-count">
+          {t('common.shownOf', {
+            shown: visible.length,
+            total: ops.data?.operators.length ?? 0,
+          })}
+        </span>
         <span className="spacer" />
         <input
           className="toolbar-search"
@@ -139,6 +133,9 @@ export default function Users() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <button type="button" onClick={() => setShowCreate(!showCreate)}>
+          {showCreate ? t('common.cancel') : t('users.newOperator')}
+        </button>
       </div>
       {showCreate && (
         <CreateOperatorForm
@@ -149,53 +146,56 @@ export default function Users() {
         />
       )}
 
-      <div className="table-scroll"><table className="data">
-        <thead>
-          <tr>
-            <th>{t('users.username')}</th>
-            <th>{t('users.role')}</th>
-            <th>{t('users.state')}</th>
-            <th>{t('users.perms')}</th>
-            <th>{t('users.created')}</th>
-            <th>{t('users.actions')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((u) => (
-            <OperatorRow
-              key={u.username}
-              u={u}
-              q={query}
-              expanded={expanded === u.username}
-              onToggle={() =>
-                setExpanded(expanded === u.username ? null : u.username)}
-              busy={act.isPending}
-              onPatch={(p) =>
-                act.mutate({ kind: 'patch', username: u.username,
-                             payload: p })}
-              onRevokeSessions={() =>
-                setPending({ kind: 'revoke', username: u.username })}
-              onDelete={() =>
-                setPending({ kind: 'delete', username: u.username })}
-            />
-          ))}
-          {ops.data && ops.data.operators.length > 0 &&
-            qq && visible.length === 0 && (
+      <LoadState q={ops} error={t('users.loadError')}
+                 hint={t('users.loadErrorHint')}>
+        <div className="table-scroll"><table className="data">
+          <thead>
             <tr>
-              <td colSpan={6} className="muted">
-                {t('common.noResults')}
-              </td>
+              <th>{t('users.username')}</th>
+              <th>{t('users.role')}</th>
+              <th>{t('users.state')}</th>
+              <th>{t('users.perms')}</th>
+              <th>{t('users.created')}</th>
+              <th>{t('users.actions')}</th>
             </tr>
-          )}
-          {ops.data && ops.data.operators.length === 0 && (
-            <tr>
-              <td colSpan={6} className="muted">
-                {t('users.empty')}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table></div>
+          </thead>
+          <tbody>
+            {visible.map((u) => (
+              <OperatorRow
+                key={u.username}
+                u={u}
+                q={query}
+                expanded={expanded === u.username}
+                onToggle={() =>
+                  setExpanded(expanded === u.username ? null : u.username)}
+                busy={act.isPending}
+                onPatch={(p) =>
+                  act.mutate({ kind: 'patch', username: u.username,
+                               payload: p })}
+                onRevokeSessions={() =>
+                  setPending({ kind: 'revoke', username: u.username })}
+                onDelete={() =>
+                  setPending({ kind: 'delete', username: u.username })}
+              />
+            ))}
+            {ops.data && ops.data.operators.length > 0 &&
+              qq && visible.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted">
+                  {t('common.noResults')}
+                </td>
+              </tr>
+            )}
+            {ops.data && ops.data.operators.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted">
+                  {t('users.empty')}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table></div>
+      </LoadState>
 
       <DeletedOperatorsSection
         onStepUp={(op, retry) => setStepUp({ op, retry })}

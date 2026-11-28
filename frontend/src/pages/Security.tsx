@@ -3,9 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type Posture, type SecurityOverview }
   from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { copyText } from '../components/bits';
+import { copyText, LoadState } from '../components/bits';
 import { useStepUp } from '../components/useStepUp';
-import { useI18n } from '../i18n';
+import { statusLabel, useI18n } from '../i18n';
 
 function StatusBadge(
   { status, label }: { status: string; label?: string },
@@ -414,14 +414,7 @@ export default function Security() {
 
       <OverviewStrip />
 
-      {posture.isError && (
-        <div className="error-box" role="alert">
-          {t('security.posture.error')}
-        </div>
-      )}
-      {posture.isLoading && (
-        <p className="muted" role="status">{t('common.loading')}</p>
-      )}
+      <LoadState q={posture} error={t('security.posture.error')}>
       {p && (
         <>
           {p.blocking_findings.length > 0 && (
@@ -435,55 +428,91 @@ export default function Security() {
             </div>
           )}
 
-          <h2 className="section">{t('security.findings')}</h2>
-          <div className="table-scroll"><table className="data">
-            <thead>
-              <tr>
-                <th>{t('security.col.check')}</th>
-                <th>{t('security.col.severity')}</th>
-                <th>{t('security.col.status')}</th>
-                <th>{t('common.detail')}</th>
-                <th>{t('security.col.evidence')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...p.checks]
-                .sort(
-                  (a, b) =>
-                    severityRank(a.severity) -
-                      severityRank(b.severity) ||
-                    statusRank(a.status) - statusRank(b.status) ||
-                    a.name.localeCompare(b.name))
-                .map((c) => (
-                  <tr key={c.name}>
-                    <td className="mono">
-                      {c.key
-                        ? t(`security.check.${c.key}.name`)
-                        : c.name}
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${SEVERITY_CLS[c.severity] ?? 'dim'}`}
-                      >
-                        {sevLabel(t, c.severity)}
-                      </span>
-                    </td>
-                    <td>
-                      <StatusBadge status={c.status} />
-                    </td>
-                    <td>
-                      {c.key && c.detail
-                        ? t(`security.check.${c.key}.${c.status}`,
-                            c.params)
-                        : c.detail}
-                    </td>
-                    <td className="mono muted">
-                      {c.evidence || '—'}
-                    </td>
+          {/* Findings split by actionable vs passed — a wall of OK rows
+              hides the 3 that need work. Passed checks stay available
+              under a collapsed details block. */}
+          {(() => {
+            const failed = [...p.checks]
+              .filter((c) => c.status !== 'ok')
+              .sort(
+                (a, b) =>
+                  severityRank(a.severity) - severityRank(b.severity) ||
+                  statusRank(a.status) - statusRank(b.status) ||
+                  a.name.localeCompare(b.name));
+            const passed = [...p.checks]
+              .filter((c) => c.status === 'ok')
+              .sort((a, b) => a.name.localeCompare(b.name));
+            const findingsTable = (rows: typeof p.checks) => (
+              <div className="table-scroll"><table className="data">
+                <thead>
+                  <tr>
+                    <th>{t('security.col.check')}</th>
+                    <th>{t('security.col.severity')}</th>
+                    <th>{t('security.col.status')}</th>
+                    <th>{t('common.detail')}</th>
+                    <th>{t('security.col.evidence')}</th>
                   </tr>
-                ))}
-            </tbody>
-          </table></div>
+                </thead>
+                <tbody>
+                  {rows.map((c) => (
+                    <tr key={c.name}>
+                      <td className="mono">
+                        {c.key
+                          ? t(`security.check.${c.key}.name`)
+                          : c.name}
+                      </td>
+                      <td>
+                        <span
+                          className={`badge ${SEVERITY_CLS[c.severity] ?? 'dim'}`}
+                        >
+                          {sevLabel(t, c.severity)}
+                        </span>
+                      </td>
+                      <td>
+                        <StatusBadge status={c.status}
+                          label={statusLabel(t, c.status)} />
+                      </td>
+                      <td>
+                        {c.key && c.detail
+                          ? t(`security.check.${c.key}.${c.status}`,
+                              c.params)
+                          : c.detail}
+                      </td>
+                      <td>
+                        {c.evidence ? (
+                          <details className="err-detail">
+                            <summary>{t('security.evidence.show')}</summary>
+                            <code>{c.evidence}</code>
+                          </details>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+            );
+            return (
+              <>
+                <h2 className="section">{t('security.findings')}</h2>
+                <p className="muted">
+                  {failed.length > 0
+                    ? t('security.findings.actionRequired',
+                        { count: failed.length })
+                    : t('security.findings.allPassed')}
+                </p>
+                {failed.length > 0 && findingsTable(failed)}
+                {passed.length > 0 && (
+                  <details className="findings-passed">
+                    <summary>
+                      {t('security.findings.passed',
+                         { count: passed.length })}
+                    </summary>
+                    {findingsTable(passed)}
+                  </details>
+                )}
+              </>
+            );
+          })()}
 
           <div className="cards">
             <div className="card">
@@ -510,20 +539,42 @@ export default function Security() {
             <div className="card">
               <h3>{t('security.deployment')}</h3>
               <div className="metric-value">
-                <span
-                  className={`badge ${
-                    p.deployment_decision === 'allowed' ? 'ok' : 'fail'
-                  }`}
-                >
-                  {p.deployment_decision === 'allowed'
-                    ? t('security.deployment.allowed')
-                    : t('security.deployment.blocked')}
-                </span>
+                {(() => {
+                  // A green "allowed" must not paper over unresolved
+                  // high-severity findings — the score is an average,
+                  // the warnings are the risk.
+                  const high = p.checks.some(
+                    (c) => c.status !== 'ok' &&
+                      (c.severity === 'critical' ||
+                        c.severity === 'high'));
+                  const cls =
+                    p.deployment_decision !== 'allowed'
+                      ? 'fail'
+                      : high ? 'warn' : 'ok';
+                  const key =
+                    p.deployment_decision !== 'allowed'
+                      ? 'security.deployment.blocked'
+                      : high
+                        ? 'security.deployment.allowedWarn'
+                        : 'security.deployment.allowed';
+                  return (
+                    <>
+                      <span className={`badge ${cls}`}>{t(key)}</span>
+                      {p.deployment_decision === 'allowed' && high && (
+                        <div className="muted"
+                             style={{ marginTop: '0.4rem' }}>
+                          {t('security.deployment.allowedWarnHint')}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
         </>
       )}
+      </LoadState>
 
       <SecretsPanel />
     </>

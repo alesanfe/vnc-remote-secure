@@ -9,7 +9,7 @@ import {
   type StatusPayload,
 } from '../api';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { metricText } from '../components/bits';
+import { LoadState, metricText } from '../components/bits';
 import { jobStateLabel } from './Jobs';
 import { useStepUp } from '../components/useStepUp';
 import { useI18n } from '../i18n';
@@ -541,12 +541,7 @@ export default function Overview() {
 
       {!hidden.has('services') && (<>
       <h2 className="section">{t('overview.services')}</h2>
-      {services.isError && (
-        <div className="error-box" role="alert">{t('overview.services.error')}</div>
-      )}
-      {services.isLoading && (
-        <p className="muted" role="status">{t('common.loading')}</p>
-      )}
+      <LoadState q={services} error={t('overview.services.error')}>
       <div className="cards">
         {(services.data?.services ?? []).map((s) => (
           <div className="card" key={s.name} style={{ opacity: s.running ? 1 : 0.6 }}>
@@ -572,6 +567,7 @@ export default function Overview() {
           </div>
         ))}
       </div>
+      </LoadState>
       </>)}
 
       {!hidden.has('lan') &&

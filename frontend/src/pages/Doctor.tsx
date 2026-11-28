@@ -7,7 +7,8 @@ import {
 } from '@tanstack/react-query';
 import { api, ApiError, type DoctorResult, type Me } from '../api';
 import StepUpDialog from '../components/StepUpDialog';
-import { useI18n } from '../i18n';
+import { LoadState } from '../components/bits';
+import { statusLabel, useI18n } from '../i18n';
 
 const ORDER = { fail: 0, warn: 1, ok: 2, skip: 3 } as const;
 
@@ -118,8 +119,10 @@ export default function Doctor() {
         )}
         {d && (
           <span className="muted">
-            {d.summary.ok} ok · {d.summary.warn} warn · {d.summary.fail} fail ·{' '}
-            {d.summary.skip} skip
+            {d.summary.fail} {statusLabel(t, 'fail')} ·{' '}
+            {d.summary.warn} {statusLabel(t, 'warn')} ·{' '}
+            {d.summary.ok} {statusLabel(t, 'ok')} ·{' '}
+            {d.summary.skip} {statusLabel(t, 'skip')}
           </span>
         )}
       </div>
@@ -168,47 +171,63 @@ export default function Doctor() {
         </div>
       )}
 
-      {doctor.isError && (
-        <div className="error-box" role="alert">
-          {doctor.error instanceof ApiError
-            ? t('doctor.failedDetail', { msg: doctor.error.message })
-            : t('doctor.failed')}
-        </div>
-      )}
-      {d && (
-        <div className="table-scroll"><table className="data">
-          <thead>
-            <tr>
-              <th>{t('doctor.col.check')}</th>
-              <th>{t('doctor.col.status')}</th>
-              <th>{t('doctor.col.message')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {checks.map((c) => (
-              <tr key={c.name}>
-                <td title={c.name}>{checkLabel(t, c.name)}</td>
-                <td>
-                  <span
-                    className={`badge ${
-                      c.status === 'ok'
-                        ? 'ok'
-                        : c.status === 'warn'
-                          ? 'warn'
-                          : c.status === 'fail'
-                            ? 'fail'
-                            : 'dim'
-                    }`}
-                  >
-                    {c.status.toUpperCase()}
-                  </span>
-                </td>
-                <td>{msgText(t, c)}</td>
+      <LoadState q={doctor} error={t('doctor.failed')}>
+      {d && (() => {
+        // Actionable rows first, passed checks collapsed — a wall of
+        // OK rows hides the few that need work.
+        const actionable = checks.filter(
+          (c) => c.status === 'fail' || c.status === 'warn');
+        const settled = checks.filter(
+          (c) => c.status === 'ok' || c.status === 'skip');
+        const checkTable = (rows: typeof checks) => (
+          <div className="table-scroll"><table className="data">
+            <thead>
+              <tr>
+                <th>{t('doctor.col.check')}</th>
+                <th>{t('doctor.col.status')}</th>
+                <th>{t('doctor.col.message')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.name}>
+                  <td title={c.name}>{checkLabel(t, c.name)}</td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        c.status === 'ok'
+                          ? 'ok'
+                          : c.status === 'warn'
+                            ? 'warn'
+                            : c.status === 'fail'
+                              ? 'fail'
+                              : 'dim'
+                      }`}
+                    >
+                      {statusLabel(t, c.status)}
+                    </span>
+                  </td>
+                  <td>{msgText(t, c)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        );
+        return (
+          <>
+            {actionable.length > 0 && checkTable(actionable)}
+            {settled.length > 0 && (
+              <details className="findings-passed">
+                <summary>
+                  {t('doctor.passed', { count: settled.length })}
+                </summary>
+                {checkTable(settled)}
+              </details>
+            )}
+          </>
+        );
+      })()}
+      </LoadState>
 
       {(jobs.data?.jobs.length ?? 0) > 0 && (
         <div className="card section">

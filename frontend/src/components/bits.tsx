@@ -1,7 +1,22 @@
 /** Small shared presentational components. */
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, type ReactNode } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  XCircle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '../i18n';
+
+// Status never rides on color alone — every badge pairs the tint with
+// an icon and a text label (color-blind safe, prints legibly).
+const STATUS_ICON = {
+  ok: CheckCircle2,
+  warn: AlertTriangle,
+  fail: XCircle,
+  dim: Circle,
+} as const;
 
 export function StatusBadge({
   status,
@@ -10,10 +25,88 @@ export function StatusBadge({
   status: 'ok' | 'warn' | 'fail' | 'dim';
   label?: string;
 }) {
+  const Icon = STATUS_ICON[status];
   return (
     <span className={`badge ${status}`}>
-      {label ?? status}
+      <Icon size={12} aria-hidden="true" /> {label ?? status}
     </span>
+  );
+}
+
+/** Explicit collection load-state: a failed fetch must not leave an
+    empty table pretending the data exists, nor a stale listing with no
+    signal. Renders, exclusively:
+      error + no data → title + impact hint + retry + technical detail
+      loading + no data → loading label
+      otherwise → children (+ slim stale banner on refetch failure) */
+export function LoadState({
+  q,
+  error,
+  hint,
+  children,
+}: {
+  q: {
+    isLoading: boolean;
+    isError: boolean;
+    data?: unknown;
+    error?: unknown;
+    errorUpdatedAt?: number;
+    refetch: () => void;
+  };
+  /** What failed, in task language: "No se pudieron cargar los
+      operadores". */
+  error: string;
+  /** What the user cannot do meanwhile — the functional impact. */
+  hint?: string;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const detail =
+    q.error instanceof Error && q.error.message ? q.error.message : '';
+  const retry = (
+    <button type="button" className="ghost"
+            onClick={() => q.refetch()}>
+      {t('common.retry')}
+    </button>
+  );
+  const tech = detail ? (
+    <details className="err-detail">
+      <summary>{t('common.details')}</summary>
+      <code>{detail}</code>
+    </details>
+  ) : null;
+
+  if (q.isError && !q.data) {
+    return (
+      <div className="error-box" role="alert">
+        <strong>{error}</strong>
+        {hint ? <p className="muted">{hint}</p> : null}
+        <p className="err-actions">
+          {retry}
+          {q.errorUpdatedAt ? (
+            <span className="muted">
+              {t('common.lastAttempt')}{' '}
+              <RelativeTime epoch={q.errorUpdatedAt / 1000} kind="since" />
+            </span>
+          ) : null}
+        </p>
+        {tech}
+      </div>
+    );
+  }
+  return (
+    <>
+      {q.isError ? (
+        <div className="error-box slim" role="alert">
+          {error} {retry}
+        </div>
+      ) : null}
+      {q.isLoading && !q.data ? (
+        <p className="muted">{t('common.loading')}</p>
+      ) : (
+        children
+      )}
+    </>
   );
 }
 

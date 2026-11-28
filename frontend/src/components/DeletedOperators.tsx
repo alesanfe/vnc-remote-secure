@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiError } from '../api';
 import ConfirmDialog from './ConfirmDialog';
+import { LoadState } from './bits';
 import { useI18n } from '../i18n';
 
 interface Tombstone {
@@ -67,11 +68,7 @@ export default function DeletedOperatorsSection({
         {t('deletedOps.subtitle')}
       </p>
       {error && <div className="error-box" role="alert">{error}</div>}
-      {deleted.isError && (
-        <div className="error-box" role="alert">
-          {t('deletedOps.loadError')}
-        </div>
-      )}
+      <LoadState q={deleted} error={t('deletedOps.loadError')}>
       <div className="table-scroll"><table className="data">
         <thead>
           <tr>
@@ -101,6 +98,7 @@ export default function DeletedOperatorsSection({
           ))}
         </tbody>
       </table></div>
+      </LoadState>
       <ConfirmDialog
         open={target !== null}
         title={t('deletedOps.restoreTitle')}
