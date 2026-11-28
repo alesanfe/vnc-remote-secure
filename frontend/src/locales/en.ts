@@ -247,6 +247,7 @@ export const en: Messages = {
   'rec.deleted': 'Recording deleted.',
   'rec.startError': 'Could not start the recording.',
   'rec.stopError': 'Could not stop the recording.',
+  'rec.shotError': 'Could not capture the screenshot.',
   'rec.deleteError': 'Could not delete the recording.',
   'rec.stepup.delete': 'Delete a recording (forensic material)',
   'rec.deleteConfirmTitle': 'Delete recording',

@@ -111,6 +111,18 @@ export default function RemoteConsole({ guest = false }: {
     onError: (e) => setError(errText(e, t, 'rec.stopError')),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings'] }),
   });
+  const screenshot = useMutation({
+    mutationFn: () => api.desktopScreenshot(),
+    onError: (e) => setError(errText(e, t, 'rec.shotError')),
+    onSuccess: (blob) => {
+      setError('');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'screenshot.png';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+  });
 
   const fullscreen = () => {
     const el = frameRef.current;
@@ -153,11 +165,12 @@ export default function RemoteConsole({ guest = false }: {
           <>
             <span className="toolbar-group"
                   aria-label={t('remote.group.capture')}>
-              <a className="btn ghost" href={api.desktopScreenshotUrl()}
-                 download="screenshot.png" role="button">
+              <button type="button" className="ghost"
+                      onClick={() => screenshot.mutate()}
+                      disabled={screenshot.isPending}>
                 <Camera size={14} aria-hidden="true" />
                 {t('rec.screenshot')}
-              </a>
+              </button>
               {running ? (
                 <button type="button" className="ghost"
                         onClick={() => stopRec.mutate(running.id)}

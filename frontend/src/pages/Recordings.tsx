@@ -269,6 +269,19 @@ export default function Recordings() {
     onError: (e) => setError(
       e instanceof ApiError ? e.message : t('rec.stopError')),
   });
+  const screenshot = useMutation({
+    mutationFn: () => api.desktopScreenshot(),
+    onSuccess: (blob) => {
+      setError('');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'screenshot.png';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+    onError: (e) => setError(
+      e instanceof ApiError ? e.message : t('rec.shotError')),
+  });
   const del = useMutation({
     mutationFn: (id: string) => api.recordingDelete(id),
     onSuccess: () => {
@@ -313,10 +326,11 @@ export default function Recordings() {
       <h1 className="page-title">{t('rec.title')}</h1>
       <p className="muted">{t('rec.subtitle')}</p>
       <div className="toolbar">
-        <a className="btn ghost" href={api.desktopScreenshotUrl()}
-           download="screenshot.png">
+        <button type="button" className="btn ghost"
+                onClick={() => screenshot.mutate()}
+                disabled={screenshot.isPending}>
           <Camera size={14} aria-hidden="true" /> {t('rec.screenshot')}
-        </a>
+        </button>
         <button type="button" onClick={() => start.mutate()}
                 disabled={start.isPending || rows.some((r) => r.running)}
                 title={rows.some((r) => r.running)

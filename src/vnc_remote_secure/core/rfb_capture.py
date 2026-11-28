@@ -107,31 +107,84 @@ class _Framebuffer:
         self.w, self.h = w, h
         self.px = bytearray(w * h * 4)
 
+    def _clip(self, x: int, y: int, w: int, h: int):
+        """Clamp a rect to the framebuffer; ``None`` when fully outside."""
+        if x < 0:
+            w += x
+            x = 0
+        if y < 0:
+            h += y
+            y = 0
+        w = min(w, self.w - x)
+        h = min(h, self.h - y)
+        if w <= 0 or h <= 0:
+            return None
+        return x, y, w, h
+
     def blit(self, x: int, y: int, w: int, h: int, data: bytes) -> None:
         """Copy a row-major BGRX rect into the framebuffer."""
-        row = w * 4
-        for i in range(h):
-            dst = ((y + i) * self.w + x) * 4
-            self.px[dst : dst + row] = data[i * row : (i + 1) * row]
+        clipped = self._clip(x, y, w, h)
+        if clipped is None:
+            return
+        cx, cy, cw, ch = clipped
+        src_row = w * 4
+        row = cw * 4
+        # Offsets into data assume the unclipped rect; clipping shifts
+        # the first source row and trims each row's tail.
+        skip_x = cx - x
+        skip_y = cy - y
+        for i in range(ch):
+            dst = ((cy + i) * self.w + cx) * 4
+            s = (skip_y + i) * src_row + skip_x * 4
+            self.px[dst : dst + row] = data[s : s + row]
 
     def copy_rect(self, x: int, y: int, w: int, h: int, sx: int, sy: int) -> None:
         """RFB CopyRect — move a region already in the framebuffer."""
-        row = w * 4
+        clipped = self._clip(x, y, w, h)
+        if clipped is None:
+            return
+        cx, cy, cw, ch = clipped
+        # The source shifts by the same amount the destination was clipped.
+        sx += cx - x
+        sy += cy - y
+        if not (0 <= sx and 0 <= sy and sx + cw <= self.w and sy + ch <= self.h):
+            return
+        row = cw * 4
         # Copy line-by-line into a temp so overlapping regions are safe.
         src = bytearray()
-        for i in range(h):
+        for i in range(ch):
             s = ((sy + i) * self.w + sx) * 4
             src += self.px[s : s + row]
-        self.blit(x, y, w, h, bytes(src))
+        self.blit(cx, cy, cw, ch, bytes(src))
+
+    def _expand(self, src: bytes, cw: int, ch: int, w: int, h: int) -> bytes:
+        """Re-pad clipped CopyRect pixels back to the unclipped rect."""
+        row = cw * 4
+        out = bytearray(w * h * 4)
+        for i in range(ch):
+            out[i * w * 4 : i * w * 4 + row] = src[i * row : (i + 1) * row]
+        return bytes(out)
 
     def rect_pixels(self, x: int, y: int, w: int, h: int) -> bytes:
         """Read back a region (post-update state for recording)."""
-        row = w * 4
-        out = bytearray()
-        for i in range(h):
-            s = ((y + i) * self.w + x) * 4
-            out += self.px[s : s + row]
-        return bytes(out)
+        clipped = self._clip(x, y, w, h)
+        if clipped is None:
+            return b"\x00" * (w * h * 4)
+        cx, cy, cw, ch = clipped
+        if (cw, ch) == (w, h):
+            row = w * 4
+            out = bytearray()
+            for i in range(h):
+                s = ((y + i) * self.w + x) * 4
+                out += self.px[s : s + row]
+            return bytes(out)
+        return self._expand(
+            b"".join(
+                self.px[((cy + i) * self.w + cx) * 4 : ((cy + i) * self.w + cx + cw) * 4]
+                for i in range(ch)
+            ),
+            cw, ch, w, h,
+        )
 
 
 def _png_encode(fb: _Framebuffer) -> bytes:
@@ -181,9 +234,15 @@ class RfbConnection:
     pixels too), ``on_resize(w, h)`` on desktop size changes.
     """
 
-    # Encodings the recorder advertises: Raw + CopyRect + the two
-    # desktop-size pseudo-encodings (a resolution change resizes fb).
-    _ENCODINGS = (0, 1, -223, -308)
+    # Encodings the recorder advertises: Raw + CopyRect only.
+    # TigerVNC (>=1.12, Debian bookworm) breaks when the desktop-size
+    # pseudo-encodings (-223/-308) are negotiated: every
+    # FramebufferUpdateRequest is then answered with a layout-notify
+    # FBU and the pixel update never arrives — verified empirically
+    # against Xtigervnc 1.12. The cost is that a mid-session
+    # resolution change is not tracked; blit clamps out-of-bounds
+    # rects so such a change can't corrupt the framebuffer.
+    _ENCODINGS = (0, 1)
 
     def __init__(self, host: str, port: int, password: str, connect_fn=None, timeout: float = 15.0):
         self._host, self._port = host, port
@@ -196,6 +255,8 @@ class RfbConnection:
         self.name = ""
         self.on_rect: Callable[[int, int, int, int, bytes], None] | None = None
         self.on_resize: Callable[[int, int], None] | None = None
+        # Set by pump() — whether the last message was a FramebufferUpdate.
+        self.last_msg_was_fbu = False
 
     # -- handshake ------------------------------------------------------
 
@@ -266,6 +327,7 @@ class RfbConnection:
         fb = self.fb
         assert sock is not None and fb is not None  # connect() first
         mtype = _recvn(sock, 1)[0]
+        self.last_msg_was_fbu = mtype == 0
         if mtype == 0:  # FramebufferUpdate
             nrects = int.from_bytes(_recvn(sock, 3)[1:3], "big")
             applied = 0
@@ -310,10 +372,18 @@ class RfbConnection:
         return 0
 
     def pump_frame(self) -> int:
-        """Process messages until one FramebufferUpdate completes."""
+        """Process messages until an update with drawable rects lands."""
         applied = 0
+        empty_fbus = 0
         while applied == 0:
             applied += self.pump()
+            if applied == 0 and self.last_msg_was_fbu:
+                # An FBU with no drawable rects is legal ("empty
+                # update") but answers nothing — ask again, bounded.
+                empty_fbus += 1
+                if empty_fbus > 3:
+                    raise RfbError("server sent no drawable rects")
+                self.request_update(incremental=False)
         return applied
 
     def close(self) -> None:
@@ -467,7 +537,10 @@ class _Recorder(threading.Thread):
         self.rec_id = rec_id
         self.path = path
         self.actor = actor
-        self._stop = threading.Event()
+        # Named _stop_ev, not _stop: Thread._stop() is a private
+        # CPython method join() calls — shadowing it with an Event
+        # makes join() raise "'Event' object is not callable".
+        self._stop_ev = threading.Event()
         self.error = ""
 
     def run(self) -> None:
@@ -477,7 +550,11 @@ class _Recorder(threading.Thread):
         written = 0
         try:
             host, port, password = _vnc_target()
-            conn = RfbConnection(host, port, password, timeout=10.0)
+            # Short read timeout: an idle desktop means the server
+            # holds the incremental request and pump() blocks until a
+            # screen change or the timeout — keep it small so a
+            # user stop() is answered in ~3s, not ~10s.
+            conn = RfbConnection(host, port, password, timeout=3.0)
             w, h, name = conn.connect()
             header = {
                 "id": self.rec_id,
@@ -521,12 +598,17 @@ class _Recorder(threading.Thread):
             conn.request_update(incremental=False)  # keyframe state
             conn.pump_frame()
             while (
-                not self._stop.is_set()
+                not self._stop_ev.is_set()
                 and time.time() - started < _max_seconds()
                 and written < _max_bytes()
             ):
                 conn.request_update(incremental=True)
-                conn.pump_frame()
+                try:
+                    conn.pump_frame()
+                except socket.timeout:
+                    # Idle desktop: the server legitimately defers the
+                    # incremental request. Not an error — re-request.
+                    continue
                 fh.flush()
                 time.sleep(0.05)
             # Clean terminator: 'E' + u32 t_ms = 5-byte payload.
@@ -553,7 +635,7 @@ class _Recorder(threading.Thread):
                 _LIVE.pop(self.rec_id, None)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_ev.set()
 
 
 def start_recording(actor: str) -> dict:

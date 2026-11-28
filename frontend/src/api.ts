@@ -225,6 +225,19 @@ export const api = {
       the operator cookie travels) and .vrsrec session recordings.
       admin:* only - recording delete is a bound step-up grant. */
   desktopScreenshotUrl: () => '/api/v1/desktop/screenshot',
+  /** Fetch the screenshot as a Blob — unlike an <a download>, an HTTP
+      error surfaces as ApiError instead of a JSON file saved as
+      screenshot.png. */
+  desktopScreenshot: async (): Promise<Blob> => {
+    const res = await fetch('/api/v1/desktop/screenshot',
+      { credentials: 'same-origin' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status,
+        errorMessage(body, `HTTP ${res.status}`), errorCode(body));
+    }
+    return res.blob();
+  },
   recordings: () =>
     request<{ recordings: RecordingMeta[] }>('recordings'),
   recordingStart: () =>

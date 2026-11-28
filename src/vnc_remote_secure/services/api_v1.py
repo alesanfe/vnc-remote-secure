@@ -179,6 +179,10 @@ _RATE_LIMITS = {
     # Host power — shutdown/restart/sleep/WoL. A flood of these is a
     # denial of service on the host itself.
     "power": (4, 60),
+    # Desktop capture — screenshot + recordings open RFB sessions and
+    # write to disk, so they stay tight; but they must not share the
+    # 'power' budget or a recording burst starves screenshots.
+    "capture": (12, 60),
     "default": (120, 60),
 }
 _RATE_NS = "api_rate"
@@ -408,22 +412,22 @@ _ROUTES = {
     # loopback VNC server; recordings are forensic material, so delete
     # is step-up bound.
     ("GET", "desktop/screenshot"): _route(
-        _get_screenshot, scope="power", resp="BinaryResponse", op="desktop.screenshot"
+        _get_screenshot, scope="capture", resp="BinaryResponse", op="desktop.screenshot"
     ),
     ("GET", "recordings"): _route(
         _get_recordings, scope="default", resp="RecordingListResponse", op="recording.list"
     ),
     ("POST", "recordings"): _route(
-        _post_recordings, scope="power", resp="RecordingStartResponse", op="recording.start"
+        _post_recordings, scope="capture", resp="RecordingStartResponse", op="recording.start"
     ),
     ("GET", "recordings/{id}"): _route(
         _get_recording, scope="default", resp="BinaryResponse", op="recording.get"
     ),
     ("POST", "recordings/{id}/stop"): _route(
-        _post_recording_stop, scope="power", resp="RecordingStopResponse", op="recording.stop"
+        _post_recording_stop, scope="capture", resp="RecordingStopResponse", op="recording.stop"
     ),
     ("DELETE", "recordings/{id}"): _route(
-        _delete_recording, scope="power", resp="RecordingDeleteResponse", op="recording.delete"
+        _delete_recording, scope="capture", resp="RecordingDeleteResponse", op="recording.delete"
     ),
     ("POST", "logout"): _Route(
         _post_logout, "operator", "default", "portal_logout", "LogoutResponse"

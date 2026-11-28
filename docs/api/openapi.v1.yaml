@@ -2821,7 +2821,7 @@ paths:
         viewers are not disturbed. Audited as desktop_screenshot.
       x-required-permission: 'admin:*'
       x-operation-id: desktop.screenshot
-      x-rate-limit-scope: power
+      x-rate-limit-scope: capture
       x-response-schema: BinaryResponse
       x-audit-event: desktop_screenshot
       responses:
@@ -2851,7 +2851,7 @@ paths:
       x-required-permission: 'admin:*'
       x-operation-id: recording.start
       x-csrf-required: true
-      x-rate-limit-scope: power
+      x-rate-limit-scope: capture
       x-response-schema: RecordingStartResponse
       x-audit-event: recording_start
       responses:
@@ -2887,7 +2887,7 @@ paths:
       x-operation-id: recording.delete
       x-step-up-required: true
       x-csrf-required: true
-      x-rate-limit-scope: power
+      x-rate-limit-scope: capture
       x-response-schema: RecordingDeleteResponse
       x-audit-event: recording_delete
       parameters:
@@ -2906,7 +2906,7 @@ paths:
       x-required-permission: 'admin:*'
       x-operation-id: recording.stop
       x-csrf-required: true
-      x-rate-limit-scope: power
+      x-rate-limit-scope: capture
       x-response-schema: RecordingStopResponse
       x-audit-event: recording_stop
       parameters:

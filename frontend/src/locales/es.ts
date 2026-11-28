@@ -250,6 +250,7 @@ export const es = {
   'rec.deleted': 'Grabación borrada.',
   'rec.startError': 'No se pudo iniciar la grabación.',
   'rec.stopError': 'No se pudo detener la grabación.',
+  'rec.shotError': 'No se pudo capturar la pantalla.',
   'rec.deleteError': 'No se pudo borrar la grabación.',
   'rec.stepup.delete': 'Borrar una grabación (material forense)',
   'rec.deleteConfirmTitle': 'Borrar grabación',
