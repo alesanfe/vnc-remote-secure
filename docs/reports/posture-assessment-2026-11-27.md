@@ -1094,3 +1094,37 @@ against the real landing service (hermetic run dir):
 screenshots spec, gated behind its own flag). Previously the suite
 had 7 latent failures (a11y ×2, login, share ×4) that no CI run had
 surfaced.
+
+## Pass 27 — cross-app consolidation (vnc-remote-secure ↔ HomeVault ↔ SentinelHub)
+
+Verified overlap map between the three apps; implemented the two
+real consolidations found.
+
+**Already differentiated (verified, no action):**
+- SentinelHub monitors vnc (domain/TLS/http-health/RFB banner/ports
+  5700+6080) every 60 s + public status page (`public_on_status`).
+- vnc alerts fire on product events (share-link email, audit,
+  service-manager) — SentinelHub fires on infra incidents. Orthogonal.
+- FileBrowser = NAS file manager; vnc Files = session-scoped share.
+- vnc maintenance mode (close access) vs SentinelHub windows (mute
+  alerts). vnc has no incident engine/status page/inventory — clean.
+
+**Implemented:**
+1. **Scheduled vnc backup** — `vnc-remote backup` was manual-only
+   (deprecated wrapper, no cron/timer); `backups/` held only
+   `config_history` → the encrypted tar had never run here. Added
+   user crontab `45 3 * * *` (before HomeVault's 04:00 restic so the
+   tar lands in the same night's snapshot; restic has no exclusion
+   for `backups/` or `.env`). Verified `backup --dry-run` works.
+2. **Stronger health signal** — SentinelHub seed check moved from
+   `/health` (200 whenever the process answers) to `/health/ready`
+   (200 only when every enabled service is healthy). Committed in
+   SentinelHub repo (`5102381`); applies on next `app.seed` run.
+
+**Found, not fixed (needs user decision):**
+- **All docker containers down ~10 h** — SentinelHub, HomeVault,
+  dnd-companion, todolist all `Exited` (probably reboot without
+  `start.sh` completing). vnc-remote-secure unaffected (native
+  services). Seed change can't re-apply until the stack is up.
+- Optional: route vnc `ALERT_WEBHOOK_URL` → ntfy so all three apps
+  share one push channel (SentinelHub Apprise→ntfy, diun→ntfy).
