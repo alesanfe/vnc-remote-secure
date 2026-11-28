@@ -963,3 +963,49 @@ metrics pending map stayed bounded and every flush succeeded.
 The 24 h production soak remains a deployment activity (run the same
 suite with `SOAK_SECONDS=86400` on the live host during a maintenance
 window); the harness and the new coverage are committed.
+
+## Pass 24 — admin SPA tabs review (frontend security sweep)
+
+Reviewed every admin-console surface in `frontend/src/pages/` +
+`components/` for client-side security issues: dangerous DOM sinks,
+token/secret handling, CSRF reliance, permission gating, sensitive
+data rendering, clipboard/storage hygiene.
+
+### Verified clean (controls confirmed in code)
+
+- **`api.ts`** — `credentials: 'same-origin'` on every call,
+  `X-CSRF-Token` from `GET /api/v1/me` on mutations, token rotation
+  handling, session-expired path. No tokens in web storage.
+- **`Security.tsx`** — secrets render ONLY as server-side masks
+  (`secrets/{name}` returns the redacted form, never the value);
+  recovery codes shown once + step-up gate + confirm dialogs on
+  rotate/signing/perms-fix.
+- **`Sessions.tsx` / `SessionDetail.tsx`** — lists/revokes use the
+  public `token_id` fingerprint; the internal token never reaches the
+  client. Revoke has a 10 s undo window; revoke-all is step-up gated.
+  Wizard draft in `sessionStorage` holds only non-sensitive form
+  fields (role/ttl/flags/email/label) with key-allowlisting on load.
+- **`Config.tsx`** — values arrive pre-redacted from
+  `config_inspector._redact_value` (`SECRET_VARS` canonical list).
+- **DOM sinks** — zero `dangerouslySetInnerHTML`/`innerHTML`/`eval`/
+  `document.write` across pages+components; all `target="_blank"`
+  links carry `rel="noreferrer"`; the SessionDetail noVNC iframe is
+  same-origin server-built (`desktopUrl`), governed by CSP
+  frame-ancestors.
+- **localStorage/sessionStorage** — UI prefs, wizard draft, recording
+  marks only; no credentials.
+
+### Fixed
+
+- **`components/bits.tsx::copyText`** — `navigator.clipboard` is
+  `undefined` on non-secure contexts; `.writeText` then threw a
+  synchronous TypeError instead of the intended error toast. Guarded
+  with an early `toast.error` fallback. tsc clean.
+
+### Notes (accepted, not bugs)
+
+- `Sessions.tsx` wizard draft keeps `email_to` in sessionStorage —
+  tab-scoped PII the operator typed themselves; cleared on tab close.
+- `SessionDetail` iframe has no `sandbox` — it embeds our own
+  same-origin noVNC (sandbox would break its websocket); framing is
+  already CSP-gated.

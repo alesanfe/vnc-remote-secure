@@ -69,6 +69,13 @@ export function RelativeTime({ epoch, kind = 'until' }: {
     duplicates the promise plumbing. */
 export function copyText(text: string, done: string, fail?: string)
     : void {
+  // navigator.clipboard is absent on non-secure contexts — without
+  // the guard, .writeText throws a synchronous TypeError instead of
+  // surfacing the intended error toast.
+  if (!navigator.clipboard) {
+    toast.error(fail ?? done);
+    return;
+  }
   void navigator.clipboard
     .writeText(text)
     .then(() => toast.success(done))
