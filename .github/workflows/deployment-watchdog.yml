@@ -1,0 +1,42 @@
+# ============================================================================
+# Deployment watchdog — dead-man's switch externo via GitHub Actions.
+#
+# Corre cada 5 min desde infraestructura de GitHub (fuera de la Pi):
+# si los endpoints publicos del despliegue no responden, el run falla
+# y GitHub notifica al owner del repo por email. Cubre el escenario
+# "toda la Pi / docker / nginx caidos" que ningun watchdog local puede
+# ver (paso real el 2026-11-28: stack docker muerto ~10h sin alertas).
+#
+# Los dominios ya son publicos (aparecen en docs/reports/). Repo publico
+# → minutos de Actions gratis.
+# ============================================================================
+name: deployment-watchdog
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public endpoints
+        run: |
+          set -u
+          fail=0
+          for url in \
+            "https://vnc.alesanfe.duckdns.org/" \
+            "https://sentinel.alesanfe.duckdns.org/status"; do
+            code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 20 "$url" || echo "000")
+            echo "$code  $url"
+            case "$code" in 2*|3*) ;; *) fail=1 ;; esac
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Uno o mas endpoints publicos no responden — la Pi o el stack docker pueden estar caidos."
+            exit 1
+          fi
+          echo "Todos los endpoints responden OK."
