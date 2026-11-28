@@ -592,7 +592,7 @@ class PortalContext:
         try:
             raw = cookie_value(self.headers.get("Cookie", ""), "vnc_session")
             if not raw:
-                return None
+                return self._service_cookie_rescue()
             from vnc_remote_secure.security.sessions import (
                 refresh_session_cookie,
             )
@@ -615,6 +615,51 @@ class PortalContext:
             # never widen the operator cookie's scope.
             return f"vnc_session={new_value};{secure} HttpOnly; Path=/; " "SameSite=Strict"
         except Exception:  # noqa: BLE001 - refresh is best-effort
+            return None
+
+    def _service_cookie_rescue(self):
+        """Re-mint ``vnc_session`` when the request authenticated an
+        operator but carries no service cookie at all.
+
+        Historically ``vnc_session`` was minted with a Max-Age bound to
+        the idle timeout, so the browser could delete it mid-session
+        while ``vnc_op`` (browser-session scoped) kept the API
+        answering — every noVNC/terminal request then failed with
+        "Authentication required" and nothing could re-issue it. Only
+        an ABSENT cookie is rescued: a present-but-dead one may reflect
+        a deliberate revocation and is never resurrected. The fresh sid
+        starts with no auth-policy context — step-up-gated actions
+        re-prompt exactly like a new session would."""
+        operator = getattr(self, "_portal_operator", None)
+        username = (operator or {}).get("username")
+        if not username:
+            return None
+        try:
+            from vnc_remote_secure.core.constants import (
+                DEFAULT_SESSION_MAX_LIFETIME,
+            )
+            from vnc_remote_secure.security.sessions import (
+                _get_env_int,
+                create_session_cookie,
+            )
+
+            lifetime = _get_env_int(
+                "SESSION_MAX_LIFETIME", DEFAULT_SESSION_MAX_LIFETIME
+            )
+            token = create_session_cookie(
+                username, max_lifetime=lifetime
+            )["value"]
+            trusted = env_flag("TRUSTED_PROXY", "false")
+            is_tls = (
+                trusted
+                and self.headers.get("X-Forwarded-Proto", "") == "https"
+            ) or self.is_tls
+            secure = " Secure;" if is_tls else ""
+            return (
+                f"vnc_session={token};{secure} HttpOnly; Path=/; "
+                "SameSite=Strict"
+            )
+        except Exception:  # noqa: BLE001 - rescue is best-effort
             return None
 
     # -----------------------------------------------------------------

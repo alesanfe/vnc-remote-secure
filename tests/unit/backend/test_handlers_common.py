@@ -307,7 +307,7 @@ class TestPublicGate:
         import vnc_remote_secure.security.auth_gateway as gw
 
         monkeypatch.setattr(gw, "get_allowed_origins", lambda: ["https://ok"])
-        monkeypatch.setattr(gw, "check_origin", lambda o, a: False)
+        monkeypatch.setattr(gw, "check_origin", lambda o, a, s=None: False)
         h = _Handler(headers={"Origin": "https://evil"})
         assert c._public_gate(h) is False
         assert h.errors[0][0] == 403

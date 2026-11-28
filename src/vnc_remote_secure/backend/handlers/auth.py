@@ -49,7 +49,6 @@ def _queue_operator_service_cookie(handler, username: str) -> dict | None:
     import ssl as _ssl
 
     from vnc_remote_secure.core.constants import (
-        DEFAULT_SESSION_IDLE_TIMEOUT,
         DEFAULT_SESSION_MAX_LIFETIME,
     )
     from vnc_remote_secure.security.sessions import (
@@ -59,10 +58,13 @@ def _queue_operator_service_cookie(handler, username: str) -> dict | None:
 
     lifetime = _get_env_int("SESSION_MAX_LIFETIME", DEFAULT_SESSION_MAX_LIFETIME)
     token = create_session_cookie(username, max_lifetime=lifetime)["value"]
-    max_age = min(_get_env_int("SESSION_IDLE_TIMEOUT", DEFAULT_SESSION_IDLE_TIMEOUT), lifetime)
-    # Same Secure convention as the share-link cookie: only when the
-    # request actually arrived over TLS (direct socket or trusted
-    # X-Forwarded-Proto behind nginx).
+    # No Max-Age: the cookie is browser-session scoped like ``vnc_op``.
+    # A Max-Age bound to the idle timeout could delete it mid-session
+    # while ``vnc_op`` kept answering — the API then reported the
+    # operator logged in while noVNC/terminal saw no credentials at
+    # all. Server-side ``last_seen`` still enforces the idle window
+    # and ``expires`` the absolute lifetime, so the client-side bound
+    # was redundant.
     trusted = env_flag("TRUSTED_PROXY", "false")
     is_tls = (
         (trusted and handler.headers.get("X-Forwarded-Proto", "") == "https")
@@ -71,7 +73,7 @@ def _queue_operator_service_cookie(handler, username: str) -> dict | None:
     )
     secure = " Secure;" if is_tls else ""
     handler._queue_cookie(
-        f"vnc_session={token};{secure} HttpOnly; Path=/; " f"SameSite=Strict; Max-Age={max_age}"
+        f"vnc_session={token};{secure} HttpOnly; Path=/; " f"SameSite=Strict"
     )
     try:
         from vnc_remote_secure.security.sessions import verify_session_cookie
