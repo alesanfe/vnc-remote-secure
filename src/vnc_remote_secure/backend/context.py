@@ -679,10 +679,15 @@ class PortalContext:
             )
             return None
 
-        from vnc_remote_secure.security.auth_gateway import check_origin, get_allowed_origins
+        from vnc_remote_secure.security.auth_gateway import (
+            check_origin,
+            get_allowed_origins,
+            self_request_origin,
+        )
 
         origin = self.headers.get("Origin", "")
-        if origin and not check_origin(origin, get_allowed_origins()):
+        self_origin = self_request_origin(self.headers, self.is_tls)
+        if origin and not check_origin(origin, get_allowed_origins(), self_origin):
             self.send_json_error("Invalid origin", 403)
             return None
 

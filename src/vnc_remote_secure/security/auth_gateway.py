@@ -15,7 +15,7 @@ standalone HTTP handler pre-check by the stdlib-based services.
 import logging
 import os
 
-from vnc_remote_secure.core.config import load_env_file
+from vnc_remote_secure.core.config import env_flag, load_env_file
 from vnc_remote_secure.core.exceptions import SecurityError
 from vnc_remote_secure.security.authentication import (
     authenticate,
@@ -110,17 +110,45 @@ def _lan_service_ports() -> set:
     return {p for p in ports if p}
 
 
-def check_origin(origin: str, allowed_origins: list) -> bool:
+def self_request_origin(headers, is_tls: bool = False) -> str:
+    """Effective ``proto://host`` the request was addressed to —
+    trusted forwarded headers behind a proxy, else the connection's
+    own scheme + Host.
+
+    A request whose Origin equals this value is same-origin by
+    construction: it cannot be a cross-site POST, so it can never be
+    CSRF. Accepting it keeps valid deployment hostnames that are not
+    in the static allowlist (extra vhost names, direct-IP or tunnel
+    access) from producing false 'Invalid origin' rejections.
+    """
+    get = headers.get if hasattr(headers, "get") else (lambda _k, _d="": _d)
+    host = ""
+    proto = ""
+    if env_flag("TRUSTED_PROXY", "false"):
+        host = (get("X-Forwarded-Host", "") or "").split(",")[0].strip()
+        proto = (get("X-Forwarded-Proto", "") or "").split(",")[0].strip()
+    if not host:
+        host = (get("Host", "") or "").split(",")[0].strip()
+    if not proto:
+        proto = "https" if is_tls else "http"
+    return f"{proto}://{host}" if host else ""
+
+
+def check_origin(origin: str, allowed_origins: list, self_origin: str = "") -> bool:
     """Validate the Origin header for WebSocket/CSRF protection.
 
     Rejects empty/null origins and any origin not in the allowlist.
-    Origins whose host is listed in ``ALLOWED_LAN_IPS`` are accepted
-    only for http/https on the ports the LAN-facing services actually
-    bind — previously the exception ignored scheme/port entirely, so
-    a hostile page on ANY port of an allowed host passed validation.
+    ``self_origin`` (see :func:`self_request_origin`) short-circuits
+    same-origin requests before the allowlist. Origins whose host is
+    listed in ``ALLOWED_LAN_IPS`` are accepted only for http/https on
+    the ports the LAN-facing services actually bind — previously the
+    exception ignored scheme/port entirely, so a hostile page on ANY
+    port of an allowed host passed validation.
     """
     if not origin or origin == "null":
         return False
+    if self_origin and origin == self_origin:
+        return True
     if origin in allowed_origins:
         return True
     try:

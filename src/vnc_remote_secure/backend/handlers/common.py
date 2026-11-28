@@ -288,10 +288,14 @@ def _public_gate(handler) -> bool:
     from vnc_remote_secure.security.auth_gateway import (
         check_origin,
         get_allowed_origins,
+        self_request_origin,
     )
 
     origin = handler.headers.get("Origin", "")
-    if origin and not check_origin(origin, get_allowed_origins()):
+    self_origin = self_request_origin(
+        handler.headers, getattr(handler, "is_tls", False)
+    )
+    if origin and not check_origin(origin, get_allowed_origins(), self_origin):
         _err(handler, "Invalid origin", 403)
         return False
     if handler.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
